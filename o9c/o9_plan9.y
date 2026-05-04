@@ -51,6 +51,7 @@ int yyparse(void);
 void codegen(Node *root);
 
 Node *ast_root;
+static Biobuf bout;
 
 char*
 map_type(char *t)
@@ -299,16 +300,16 @@ gen_stmt(Node *s)
 		return;
 	switch(s->type){
 	case NChanSend:
-		print("\tsendp(%s, (void*)%s);\n", s->name, s->left->name);
+		Bprint(&bout, "\tsendp(%s, (void*)%s);\n", s->name, s->left->name);
 		break;
 	case NChanRecv:
-		print("\t%s = recvp(%s);\n", s->name, s->left->name);
+		Bprint(&bout, "\t%s = recvp(%s);\n", s->name, s->left->name);
 		break;
 	case NAssign:
-		print("\t%s = %s;\n", s->name, s->left->name);
+		Bprint(&bout, "\t%s = %s;\n", s->name, s->left->name);
 		break;
 	case NReturn:
-		print("\treturn %s;\n", s->left->name);
+		Bprint(&bout, "\treturn %s;\n", s->left->name);
 		break;
 	}
 }
@@ -316,11 +317,11 @@ gen_stmt(Node *s)
 void
 gen_includes(void)
 {
-	print("#include <u.h>\n");
-	print("#include <libc.h>\n");
-	print("#include <thread.h>\n");
-	print("#include <fcall.h>\n");
-	print("#include <9p.h>\n\n");
+	Bprint(&bout, "#include <u.h>\n");
+	Bprint(&bout, "#include <libc.h>\n");
+	Bprint(&bout, "#include <thread.h>\n");
+	Bprint(&bout, "#include <fcall.h>\n");
+	Bprint(&bout, "#include <9p.h>\n\n");
 }
 
 void
@@ -329,13 +330,13 @@ gen_state_struct(Node *c)
 	Node *m;
 
 	if(c == nil || c->name == nil) return;
-	print("typedef struct %s_State %s_State;\n", c->name, c->name);
-	print("struct %s_State {\n", c->name);
+	Bprint(&bout, "typedef struct %s_State %s_State;\n", c->name, c->name);
+	Bprint(&bout, "struct %s_State {\n", c->name);
 	for(m = c->left; m; m = m->next){
 		if(m->type == NProp && m->typename)
-			print("\t%s %s;\n", map_type(m->typename), m->name);
+			Bprint(&bout, "\t%s %s;\n", map_type(m->typename), m->name);
 	}
-	print("};\n\n");
+	Bprint(&bout, "};\n\n");
 }
 
 void
@@ -344,22 +345,22 @@ gen_read_handler(Node *c)
 	Node *m;
 
 	if(c == nil || c->name == nil) return;
-	print("static void\nfsread(Req *r)\n{\n\tchar buf[512];\n\t%s_State *s = r->srv->aux;\n", c->name);
+	Bprint(&bout, "static void\nfsread(Req *r)\n{\n\tchar buf[512];\n\t%s_State *s = r->srv->aux;\n", c->name);
 	for(m = c->left; m; m = m->next){
 		if(m->type == NProp && m->name){
-			print("\tif(strcmp(r->fid->file->dir.name, \"%s\") == 0){\n", m->name);
-			print("\t\tsnprint(buf, sizeof buf, \"%%lld\\n\", (vlong)s->%s);\n", m->name);
-			print("\t\treadstr(r, buf);\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
+			Bprint(&bout, "\tif(strcmp(r->fid->file->dir.name, \"%s\") == 0){\n", m->name);
+			Bprint(&bout, "\t\tsnprint(buf, sizeof buf, \"%%lld\\n\", (vlong)s->%s);\n", m->name);
+			Bprint(&bout, "\t\treadstr(r, buf);\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
 		}
 	}
-	print("\tif(strcmp(r->fid->file->dir.name, \"cache\") == 0){\n");
-	print("\t\tchar *p = buf;\n");
+	Bprint(&bout, "\tif(strcmp(r->fid->file->dir.name, \"cache\") == 0){\n");
+	Bprint(&bout, "\t\tchar *p = buf;\n");
 	for(m = c->left; m; m = m->next){
 		if(m->type == NProp && m->name)
-			print("\t\tp += snprint(p, sizeof buf - (p-buf), \"d:0:%s\\n\");\n", m->name);
+			Bprint(&bout, "\t\tp += snprint(p, sizeof buf - (p-buf), \"d:0:%s\\n\");\n", m->name);
 	}
-	print("\t\treadstr(r, buf);\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
-	print("\trespond(r, \"not found\");\n}\n\n");
+	Bprint(&bout, "\t\treadstr(r, buf);\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
+	Bprint(&bout, "\trespond(r, \"not found\");\n}\n\n");
 }
 
 void
@@ -368,15 +369,15 @@ gen_write_handler(Node *c)
 	Node *m;
 
 	if(c == nil || c->name == nil) return;
-	print("static void\nfswrite(Req *r)\n{\n\t%s_State *s = r->srv->aux;\n", c->name);
+	Bprint(&bout, "static void\nfswrite(Req *r)\n{\n\t%s_State *s = r->srv->aux;\n", c->name);
 	for(m = c->left; m; m = m->next){
 		if(m->type == NProp && m->name){
-			print("\tif(strcmp(r->fid->file->dir.name, \"%s\") == 0){\n", m->name);
-			print("\t\ts->%s = strtoll(r->ifcall.data, nil, 0);\n", m->name);
-			print("\t\tr->ofcall.count = r->ifcall.count;\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
+			Bprint(&bout, "\tif(strcmp(r->fid->file->dir.name, \"%s\") == 0){\n", m->name);
+			Bprint(&bout, "\t\ts->%s = strtoll(r->ifcall.data, nil, 0);\n", m->name);
+			Bprint(&bout, "\t\tr->ofcall.count = r->ifcall.count;\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
 		}
 	}
-	print("\trespond(r, \"not found\");\n}\n\n");
+	Bprint(&bout, "\trespond(r, \"not found\");\n}\n\n");
 }
 
 void
@@ -385,24 +386,24 @@ gen_main_entry(Node *c)
 	Node *m;
 
 	if(c == nil || c->name == nil) return;
-	print("Srv o9srv_%s;\n\n", c->name);
-	print("void\nthreadmain(int argc, char **argv)\n{\n");
-	print("\tUSED(argc); USED(argv);\n");
-	print("\t%s_State *s;\n\tTree *t;\n", c->name);
-	print("\ts = emalloc9p(sizeof(%s_State));\n", c->name);
-	print("\tmemset(s, 0, sizeof(%s_State));\n", c->name);
-	print("\to9srv_%s.aux = s;\n", c->name);
-	print("\to9srv_%s.read = fsread;\n", c->name);
-	print("\to9srv_%s.write = fswrite;\n", c->name);
-	print("\tt = alloctree(nil, nil, 0555, nil);\n");
-	print("\to9srv_%s.tree = t;\n", c->name);
+	Bprint(&bout, "Srv o9srv_%s;\n\n", c->name);
+	Bprint(&bout, "void\nthreadmain(int argc, char **argv)\n{\n");
+	Bprint(&bout, "\tUSED(argc); USED(argv);\n");
+	Bprint(&bout, "\t%s_State *s;\n\tTree *t;\n", c->name);
+	Bprint(&bout, "\ts = emalloc9p(sizeof(%s_State));\n", c->name);
+	Bprint(&bout, "\tmemset(s, 0, sizeof(%s_State));\n", c->name);
+	Bprint(&bout, "\to9srv_%s.aux = s;\n", c->name);
+	Bprint(&bout, "\to9srv_%s.read = fsread;\n", c->name);
+	Bprint(&bout, "\to9srv_%s.write = fswrite;\n", c->name);
+	Bprint(&bout, "\tt = alloctree(nil, nil, 0555, nil);\n");
+	Bprint(&bout, "\to9srv_%s.tree = t;\n", c->name);
 	for(m = c->left; m; m = m->next){
 		if(m->type == NProp && m->name)
-			print("\tcreatefile(t->root, \"%s\", nil, 0666, nil);\n", m->name);
+			Bprint(&bout, "\tcreatefile(t->root, \"%s\", nil, 0666, nil);\n", m->name);
 	}
-	print("\tcreatefile(t->root, \"cache\", nil, 0444, nil);\n");
-	print("\tthreadpostmountsrv(&o9srv_%s, \"%s\", nil, MREPL);\n", c->name, c->name);
-	print("\tthreadexitsall(nil);\n}\n");
+	Bprint(&bout, "\tcreatefile(t->root, \"cache\", nil, 0444, nil);\n");
+	Bprint(&bout, "\tthreadpostmountsrv(&o9srv_%s, \"%s\", nil, MREPL);\n", c->name, c->name);
+	Bprint(&bout, "\tthreadexitsall(nil);\n}\n");
 }
 
 void
@@ -426,11 +427,13 @@ main(int argc, char **argv)
 {
 	USED(argc);
 	USED(argv);
+	Binit(&bout, 1, OWRITE);
 	bin = Bfdopen(0, OREAD);
 	if(bin == nil)
 		sysfatal("Bfdopen: %r");
 	if(yyparse() == 0)
 		codegen(ast_root);
+	Bterm(&bout);
 	exits(nil);
 	return 0;
 }
