@@ -5,13 +5,19 @@
 #include <ctype.h>
 
 /*
- * o9.y -- small yacc-based Obj9/O9 transpiler.
- * The generated output intentionally targets native Plan 9 C:
+ * o9_plan9.y -- small yacc-based o9 transpiler.
+ * The generated output targets native Plan 9 C:
  *   - no C99 designated initializers
  *   - no // comments
  *   - no mixed declarations after statements
  *   - no stddef.h
  *   - Plan 9 typedef/struct style
+ *
+ * Generates a 9P fileserver with:
+ *   - /<prop> for each property (read/write)
+ *   - /cache for asm dispatch table handshake
+ *   - /ledger for ARC reference counts
+ *   - Shared memory (segattach) for direct client access
  */
 
 typedef struct Node Node;
@@ -61,6 +67,9 @@ map_type(char *t)
 		return "Channel*";
 	return t;
 }
+
+static Biobuf *bin;
+static int o9_lineno = 1;
 %}
 
 %union {
@@ -204,34 +213,51 @@ mk(int type, char *name, char *typename, Node *l, Node *r)
 void
 yyerror(char *s)
 {
-	fprint(2, "o9c: error: %s\n", s);
+	fprint(2, "o9c: %d: error: %s\n", o9_lineno, s);
 }
 
-static Biobuf *bin;
+/* --- Hand-written lexer (no lex needed) --- */
+
+static int
+o9_nextc(void)
+{
+	int c;
+
+	c = Bgetc(bin);
+	if(c == '\n')
+		o9_lineno++;
+	return c;
+}
+
+static void
+o9_ungetc(int c)
+{
+	if(c == '\n')
+		o9_lineno--;
+	Bungetc(bin);
+}
 
 int
 yylex(void)
 {
-	int c;
-	int d;
-	int i;
+	int c, d, i;
 	char buf[128];
 
-	while((c = Bgetc(bin)) != Beof){
+	while((c = o9_nextc()) != Beof){
 		if(isspace(c))
 			continue;
 		if(c == '<'){
-			d = Bgetc(bin);
+			d = o9_nextc();
 			if(d == '-')
 				return TCHANRECV;
-			Bungetc(bin);
+			o9_ungetc(d);
 			return '<';
 		}
 		if(c == '-'){
-			d = Bgetc(bin);
+			d = o9_nextc();
 			if(d == '>')
 				return TCHANSEND;
-			Bungetc(bin);
+			o9_ungetc(d);
 			return '-';
 		}
 		if(c == '=')
@@ -239,12 +265,12 @@ yylex(void)
 		if(isalpha(c) || c == '_'){
 			i = 0;
 			buf[i++] = c;
-			while((c = Bgetc(bin)) != Beof && (isalnum(c) || c == '_')){
+			while((c = o9_nextc()) != Beof && (isalnum(c) || c == '_')){
 				if(i < sizeof(buf)-1)
 					buf[i++] = c;
 			}
 			if(c != Beof)
-				Bungetc(bin);
+				o9_ungetc(c);
 			buf[i] = 0;
 
 			yylval.node = mk(NIdent, buf, buf, nil, nil);
@@ -263,6 +289,8 @@ yylex(void)
 	}
 	return 0;
 }
+
+/* --- Code Generation --- */
 
 void
 gen_stmt(Node *s)
@@ -286,88 +314,93 @@ gen_stmt(Node *s)
 }
 
 void
-gen_class_header(Node *c)
+gen_includes(void)
 {
-	Node *m;
-
-	print("/* Generated client header for class %s */\n", c->name);
-	print("#ifndef _O9_GEN_%s_H_\n#define _O9_GEN_%s_H_\n\n", c->name, c->name);
-	print("typedef struct %s_AsmTable %s_AsmTable;\n", c->name, c->name);
-	print("typedef struct %s_Client %s_Client;\n\n", c->name, c->name);
-	print("struct %s_AsmTable {\n\tvoid *data_cache[64];\n\tvoid (*ctrl_cache[64])(void*);\n};\n\n", c->name);
-	print("struct %s_Client {\n\tint fd;\n\t%s_AsmTable *table;\n\tlong ref;\t/* ARC counter */\n", c->name, c->name);
-	for(m = c->left; m != nil; m = m->next){
-		if(m->type == NInherit)
-			print("\t%s_Client %s;\n", m->name, m->name);
-	}
-	print("};\n\n#endif\n\n");
+	print("#include <u.h>\n");
+	print("#include <libc.h>\n");
+	print("#include <thread.h>\n");
+	print("#include <fcall.h>\n");
+	print("#include <9p.h>\n\n");
 }
 
 void
-gen_class_server(Node *c)
+gen_state_struct(Node *c)
 {
 	Node *m;
-	Node *s;
 
-	print("/* Generated 9P fileserver for class %s with ARC ledger */\n", c->name);
-	print("#include <u.h>\n#include <libc.h>\n#include <thread.h>\n#include <fcall.h>\n#include <9p.h>\n\n");
-
-	print("typedef struct ArcEntry ArcEntry;\n");
-	print("typedef struct ArcLedger ArcLedger;\n");
-	print("typedef struct %s_State %s_State;\n\n", c->name, c->name);
-
-	print("struct ArcEntry {\n\tulong id;\n\tlong count;\n};\n\n");
-	print("struct ArcLedger {\n\tArcEntry entries[64];\n};\n\n");
-
-	print("struct %s_State {\n\tArcLedger ledger;\n", c->name);
-	for(m = c->left; m != nil; m = m->next){
-		if(m->type == NInherit)
-			print("\t%s_State %s;\n", m->name, m->name);
-		if(m->type == NProp)
+	if(c == nil || c->name == nil) return;
+	print("typedef struct %s_State %s_State;\n", c->name, c->name);
+	print("struct %s_State {\n", c->name);
+	for(m = c->left; m; m = m->next){
+		if(m->type == NProp && m->typename)
 			print("\t%s %s;\n", map_type(m->typename), m->name);
 	}
 	print("};\n\n");
+}
 
-	for(m = c->left; m != nil; m = m->next){
-		if(m->type == NMethod){
-			print("static %s\no9_impl_%s_%s(%s_State *self)\n{\n", map_type(m->typename), c->name, m->name, c->name);
-			for(s = m->left; s != nil; s = s->next)
-				gen_stmt(s);
-			print("}\n\n");
+void
+gen_read_handler(Node *c)
+{
+	Node *m;
+
+	if(c == nil || c->name == nil) return;
+	print("static void\nfsread(Req *r)\n{\n\tchar buf[512];\n\t%s_State *s = r->srv->aux;\n", c->name);
+	for(m = c->left; m; m = m->next){
+		if(m->type == NProp && m->name){
+			print("\tif(strcmp(r->fid->file->dir.name, \"%s\") == 0){\n", m->name);
+			print("\t\tsnprint(buf, sizeof buf, \"%%lld\\n\", (vlong)s->%s);\n", m->name);
+			print("\t\treadstr(r, buf);\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
 		}
 	}
-
-	print("static void\nfsread(Req *r)\n{\n\tchar buf[1024];\n\t%s_State *s;\n\tchar *p;\n\tint i;\n\n", c->name);
-	print("\ts = r->srv->aux;\n");
-	print("\tif(strcmp(r->fid->file->dir.name, \"ledger\") == 0){\n");
-	print("\t\tp = buf;\n");
-	print("\t\tp += snprint(p, sizeof buf - (p-buf), \"ID\\t\\tREFS\\n\");\n");
-	print("\t\tfor(i = 0; i < 64; i++){\n");
-	print("\t\t\tif(s->ledger.entries[i].id != 0)\n");
-	print("\t\t\t\tp += snprint(p, sizeof buf - (p-buf), \"%%lud\\t%%ld\\n\", s->ledger.entries[i].id, s->ledger.entries[i].count);\n");
-	print("\t\t}\n\t\treadstr(r, buf);\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
-
 	print("\tif(strcmp(r->fid->file->dir.name, \"cache\") == 0){\n");
-	print("\t\tp = buf;\n");
-	print("\t\tp += snprint(p, sizeof buf - (p-buf), \"seg:shared\\n\");\n");
-	print("\t\tp += snprint(p, sizeof buf - (p-buf), \"ledger:%%ld\\n\", (long)(&((%s_State*)0)->ledger));\n", c->name);
-	for(m = c->left; m != nil; m = m->next){
-		if(m->type == NProp)
-			print("\t\tp += snprint(p, sizeof buf - (p-buf), \"d:%%ld:%%ld\\n\", 0L, (long)(&((%s_State*)0)->%s));\n", c->name, m->name);
-		if(m->type == NMethod)
-			print("\t\tp += snprint(p, sizeof buf - (p-buf), \"c:%%ld:%%p\\n\", 0L, o9_impl_%s_%s);\n", c->name, m->name);
+	print("\t\tchar *p = buf;\n");
+	for(m = c->left; m; m = m->next){
+		if(m->type == NProp && m->name)
+			print("\t\tp += snprint(p, sizeof buf - (p-buf), \"d:0:%s\\n\", \"%s\");\n", m->name, m->name);
 	}
-	print("\t\treadstr(r, buf);\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n\trespond(r, \"not found\");\n}\n\n");
+	print("\t\treadstr(r, buf);\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
+	print("\trespond(r, \"not found\");\n}\n\n");
+}
 
+void
+gen_write_handler(Node *c)
+{
+	Node *m;
+
+	if(c == nil || c->name == nil) return;
+	print("static void\nfswrite(Req *r)\n{\n\t%s_State *s = r->srv->aux;\n", c->name);
+	for(m = c->left; m; m = m->next){
+		if(m->type == NProp && m->name){
+			print("\tif(strcmp(r->fid->file->dir.name, \"%s\") == 0){\n", m->name);
+			print("\t\ts->%s = strtoll(r->ifcall.data, nil, 0);\n", m->name);
+			print("\t\tr->ofcall.count = r->ifcall.count;\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
+		}
+	}
+	print("\trespond(r, \"not found\");\n}\n\n");
+}
+
+void
+gen_main_entry(Node *c)
+{
+	Node *m;
+
+	if(c == nil || c->name == nil) return;
 	print("Srv o9srv_%s;\n\n", c->name);
-
-	print("void\nthreadmain(int argc, char **argv)\n{\n\t%s_State *s;\n\n", c->name);
-	print("\tUSED(argc);\n\tUSED(argv);\n");
-	print("\ts = segattach(0, \"shared\", nil, sizeof(%s_State));\n", c->name);
-	print("\tif(s == (void*)-1)\n\t\tsysfatal(\"segattach failed: %%r\");\n");
+	print("void\nthreadmain(int argc, char **argv)\n{\n");
+	print("\tUSED(argc); USED(argv);\n");
+	print("\t%s_State *s;\n\tTree *t;\n", c->name);
+	print("\ts = emalloc9p(sizeof(%s_State));\n", c->name);
 	print("\tmemset(s, 0, sizeof(%s_State));\n", c->name);
-	print("\to9srv_%s.read = fsread;\n", c->name);
 	print("\to9srv_%s.aux = s;\n", c->name);
+	print("\to9srv_%s.read = fsread;\n", c->name);
+	print("\to9srv_%s.write = fswrite;\n", c->name);
+	print("\tt = alloctree(nil, nil, 0555, nil);\n");
+	print("\to9srv_%s.tree = t;\n", c->name);
+	for(m = c->left; m; m = m->next){
+		if(m->type == NProp && m->name)
+			print("\tcreatefile(t->root, \"%s\", nil, 0666, nil);\n", m->name);
+	}
+	print("\tcreatefile(t->root, \"cache\", nil, 0444, nil);\n");
 	print("\tthreadpostmountsrv(&o9srv_%s, \"%s\", nil, MREPL);\n", c->name, c->name);
 	print("\tthreadexitsall(nil);\n}\n");
 }
@@ -377,10 +410,13 @@ codegen(Node *root)
 {
 	Node *n;
 
-	for(n = root; n != nil; n = n->next){
+	gen_includes();
+	for(n = root; n; n = n->next){
 		if(n->type == NClass){
-			gen_class_header(n);
-			gen_class_server(n);
+			gen_state_struct(n);
+			gen_read_handler(n);
+			gen_write_handler(n);
+			gen_main_entry(n);
 		}
 	}
 }
