@@ -356,7 +356,7 @@ gen_read_handler(Node *c)
 	print("\t\tchar *p = buf;\n");
 	for(m = c->left; m; m = m->next){
 		if(m->type == NProp && m->name)
-			print("\t\tp += snprint(p, sizeof buf - (p-buf), \"d:0:%s\\n\", \"%s\");\n", m->name, m->name);
+			print("\t\tp += snprint(p, sizeof buf - (p-buf), \"d:0:%s\\n\");\n", m->name);
 	}
 	print("\t\treadstr(r, buf);\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
 	print("\trespond(r, \"not found\");\n}\n\n");
