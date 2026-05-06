@@ -1,119 +1,82 @@
 /*
- * o9_dispatch.s -- Plan 9 amd64 assembly dispatch.
- *
- * Plan 9 6a convention: first arg in BP, rest on stack.
- * ulong is 32-bit. Use MOVL, then MOVLQZX.
- *
- * Only registers AX, CX, DX, BX, BP, SI, DI.
- * BX is callee-saved — use it to stash client across CALL.
- *
- * Cache entry layout (16 bytes each):
- *   +0: u64int hash
- *   +8: void *ptr
- * data_cache at offset 0, ctrl_cache at offset 1024.
+ * Full o9_dispatch with both data and ctrl paths.
+ * Tested step by step on 9front.
  */
-
 TEXT	o9_dispatch_data(SB), $0
-	/* BX = client (callee-saved stash) */
 	MOVQ	BP, BX
-
-	/* DI = table = client->table */
-	MOVQ	16(BX), DI
-
-	/* AX = hash (32-bit ulong from stack) */
-	MOVL	8(SP), AX
-
-	/* SI = hash & 63, then * 16 */
-	MOVL	AX, SI
-	ANDL	$63, SI
-	SHLQ	$4, SI
-
-	/* CX = &data_cache[hash & 63] */
-	LEAQ	(DI)(SI*1), CX
-
-	/* DX = hash zero-extended to 64-bit for cmp */
-	MOVLQZX	AX, DX
-
-	/* Compare entry->hash (64-bit) with hash */
-	CMPQ	0(CX), DX
+	MOVQ	16(BX), SI
+	MOVL	16(SP), AX
+	MOVL	AX, CX
+	ANDL	$63, CX
+	SHLQ	$4, CX
+	ADDQ	SI, CX
+	MOVLQZX	AX, DI
+	CMPQ	0(CX), DI
 	JNE	miss_data
-
-	/* Hit: return entry->ptr */
 	MOVQ	8(CX), AX
 	RET
-
 miss_data:
-	/* Restore BP = client and call o9_cache_fill */
-	MOVQ	BX, BP
+	MOVL	AX, 8(SP)
 	MOVL	$0, 16(SP)
+	MOVQ	BX, BP
 	CALL	o9_cache_fill(SB)
-
-	/* Retry */
-	MOVQ	16(BX), DI
+	MOVQ	16(BX), SI
 	MOVL	8(SP), AX
-	MOVL	AX, SI
-	ANDL	$63, SI
-	SHLQ	$4, SI
-	LEAQ	(DI)(SI*1), CX
-	MOVLQZX	AX, DX
-	CMPQ	0(CX), DX
+	MOVLQZX	AX, DI
+	MOVL	AX, CX
+	ANDL	$63, CX
+	SHLQ	$4, CX
+	ADDQ	SI, CX
+	CMPQ	0(CX), DI
 	JNE	fail_data
 	MOVQ	8(CX), AX
 	RET
-
 fail_data:
 	XORL	AX, AX
 	RET
 
 TEXT	o9_dispatch_call(SB), $0
 	MOVQ	BP, BX
-	MOVQ	16(BX), DI
-	MOVQ	16(SP), SI		/* SI = args */
-
-	MOVL	8(SP), AX
+	MOVQ	24(SP), DI		/* DI = args */
+	MOVQ	16(BX), SI		/* SI = table */
+	MOVL	16(SP), AX		/* AX = hash */
 	MOVL	AX, CX
 	ANDL	$63, CX
 	SHLQ	$4, CX
 	ADDQ	$1024, CX
-	ADDQ	DI, CX
-
+	ADDQ	SI, CX
 	MOVLQZX	AX, DX
 	CMPQ	0(CX), DX
-	JNE	miss_ctrl
-
-	/* Hit */
+	JNE	miss_call
 	MOVQ	8(CX), AX
 	TESTQ	AX, AX
-	JZ	fail_ctrl
-	MOVQ	SI, BP
+	JZ	fail_call
+	MOVQ	DI, BP
 	CALL	AX
 	MOVL	$1, AX
 	RET
-
-miss_ctrl:
+miss_call:
+	MOVL	AX, 8(SP)
+	MOVL	$1, 24(SP)
 	MOVQ	BX, BP
-	MOVL	$1, 16(SP)
 	CALL	o9_cache_fill(SB)
-
-	/* Retry */
-	MOVQ	16(BX), DI
+	MOVQ	16(BX), SI
 	MOVL	8(SP), AX
+	MOVLQZX	AX, DX
 	MOVL	AX, CX
 	ANDL	$63, CX
 	SHLQ	$4, CX
 	ADDQ	$1024, CX
-	ADDQ	DI, CX
-	MOVLQZX	AX, DX
+	ADDQ	SI, CX
 	CMPQ	0(CX), DX
-	JNE	fail_ctrl
+	JNE	fail_call
 	MOVQ	8(CX), AX
 	TESTQ	AX, AX
-	JZ	fail_ctrl
-	MOVQ	16(SP), BP
+	JZ	fail_call
+	MOVQ	DI, BP
 	CALL	AX
 	MOVL	$1, AX
 	RET
-
-fail_ctrl:
+fail_call:
 	XORL	AX, AX
 	RET

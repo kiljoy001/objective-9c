@@ -3,18 +3,15 @@
 #include "o9.h"
 
 /*
- * o9_dispatch.c -- C dispatch for o9 asm cache.
+ * o9_dispatch.c -- C fallback for o9 asm dispatch.
  *
- * Replaces o9_dispatch.s with a portable C implementation.
- * The .s file is kept as reference for an eventual assembly
- * optimization, but this C version is functionally identical.
+ * Only used when the asm stubs in o9_dispatch.s are unavailable
+ * (e.g., cross-compiling for a non-amd64 target).
+ * On amd64, o9_dispatch.s is linked instead for L1 performance.
  *
- * Plan 9 ABI note for future asm work:
- *   BP = 1st arg, 8(SP) = 2nd, 16(SP) = 3rd
- *   ulong is 32-bit even on amd64
- *   Callee-saved: BX, BP
- *   Cache entry: {u64int hash, void *ptr} = 16 bytes
- *   data_cache at offset 0, ctrl_cache at offset 1024
+ * The C versions are functionally identical:
+ *   - o9_dispatch_data: hot hit returns ptr, cold miss calls cache_fill + retry
+ *   - o9_dispatch_call: hot hit calls function, cold miss calls cache_fill + retry
  */
 
 extern void o9_cache_fill(void *client, ulong hash, int is_ctrl);
@@ -33,7 +30,6 @@ o9_dispatch_data(void *client, ulong hash)
 	if(entry->hash == (u64int)hash && entry->ptr != nil)
 		return entry->ptr;
 
-	/* Cache miss - try fill */
 	o9_cache_fill(client, hash, 0);
 	if(entry->hash == (u64int)hash && entry->ptr != nil)
 		return entry->ptr;
@@ -46,7 +42,6 @@ o9_dispatch_call(void *client, ulong hash, void *args)
 {
 	o9_AsmTable *table;
 	O9CacheEntry *entry;
-	void (*fn)(void*);
 
 	if(client == nil) return nil;
 	table = ((o9_Object*)client)->table;
@@ -54,16 +49,13 @@ o9_dispatch_call(void *client, ulong hash, void *args)
 
 	entry = &table->ctrl_cache[hash & 63];
 	if(entry->hash == (u64int)hash && entry->ptr != nil){
-		fn = (void (*)(void*))entry->ptr;
-		fn(args);
+		((void (*)(void*))entry->ptr)(args);
 		return (void*)1;
 	}
 
-	/* Cache miss - try fill */
 	o9_cache_fill(client, hash, 1);
 	if(entry->hash == (u64int)hash && entry->ptr != nil){
-		fn = (void (*)(void*))entry->ptr;
-		fn(args);
+		((void (*)(void*))entry->ptr)(args);
 		return (void*)1;
 	}
 
