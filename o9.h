@@ -1,11 +1,6 @@
 #ifndef _O9_H_
 #define _O9_H_
 
-#include <u.h>
-#include <libc.h>
-#include <thread.h>
-#include <9p.h>
-
 /* Universal Message Model */
 typedef struct O9Msg O9Msg;
 typedef struct O9Reply O9Reply;
@@ -14,7 +9,7 @@ struct O9Msg {
     ulong sel;
     void *args;
     int nargs;
-    Channel *replyc;
+    void *replyc;		/* Channel* */
 };
 
 struct O9Reply {
@@ -36,15 +31,8 @@ struct O9Header {
 
 #define O9_MAGIC 0x09090909
 
-/* Root Object Template */
+/* Forward declare o9_Object so AsmTable can back-links */
 typedef struct o9_Object o9_Object;
-struct o9_Object {
-    int fd;
-    void *shm_base;
-    void *table;
-    long ref;
-    Channel *dispatch_chan;
-};
 
 /* Dual Asm Table Structures (True Hashtable with Verification) */
 typedef struct O9CacheEntry O9CacheEntry;
@@ -56,7 +44,18 @@ struct O9CacheEntry {
 typedef struct o9_AsmTable {
     O9CacheEntry data_cache[64];
     O9CacheEntry ctrl_cache[64];
+    o9_Object *owner;		/* back-pointer for cache fill */
 } o9_AsmTable;
+
+/* Root Object Template */
+struct o9_Object {
+    int fd;
+    char srvname[64];		/* server name for /srv/ cache walk */
+    void *shm_base;
+    o9_AsmTable *table;
+    long ref;
+    void *dispatch_chan;	/* Channel* */
+};
 
 /* Runtime Functions */
 extern int   o9_init_client(void *client, char *srvname, int size);

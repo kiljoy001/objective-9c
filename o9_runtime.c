@@ -1,6 +1,7 @@
 #include <u.h>
 #include <libc.h>
 #include <bio.h>
+#include <thread.h>
 #include "o9.h"
 
 /*
@@ -12,27 +13,11 @@
 /* Forward declaration of the assembly-visible cache fill callback */
 void o9_cache_fill(o9_AsmTable *table, ulong hash, int is_ctrl);
 
-int
-o9_init_client(void *client, char *srvname, int size)
+static void
+o9_fill_from_buf(o9_AsmTable *table, Biobuf *bp, o9_Object *obj)
 {
-	o9_Object *obj = client;
-	o9_AsmTable *table;
-	Biobuf *bp;
-	char line[256], *p, *key, *val, *l;
-	int fd;
-	void *base;
+	char *p, *key, *val, *l;
 
-	/* 1. Open the cache metadata from the fileserver */
-	snprint(line, sizeof line, "/srv/%s", srvname);
-	fd = open(line, ORDWR);
-	if(fd < 0) return -1;
-	
-	/* In a real impl, we'd walk to /cache. 
-	 * For the MVP, we assume the fd is the root */
-	bp = Bfdopen(fd, OREAD);
-	if(bp == nil) return -1;
-
-	/* 2. Parse the /cache handshake */
 	while((l = Brdstr(bp, '\n', 1)) != nil){
 		p = strchr(l, ':');
 		if(p == nil) { free(l); continue; }
@@ -41,76 +26,94 @@ o9_init_client(void *client, char *srvname, int size)
 		val = p;
 
 		if(strcmp(key, "seg") == 0){
-			/* Tier 1: Shared Memory Pinning */
-			base = segattach(0, val, nil, size);
-			if(base == (void*)-1) return -1;
-			obj->shm_base = base;
+			if(obj == nil) { free(l); continue; }
+			obj->shm_base = segattach(0, val, nil, 8192);
+			if(obj->shm_base == (void*)-1)
+				obj->shm_base = nil;
+			free(l);
+			continue;
 		}
-		
-		/* 3. Populate Asm Tables based on offsets */
+
+		/* Populate Asm Tables based on hash prefix */
 		if(key[0] == 'd'){
-			/* Data property offset (d:hash:offset) */
-			ulong h = strtoul(key+2, nil, 10);
+			ulong h = strtoul(key+1, nil, 10);
 			long off = strtol(val, nil, 10);
-			table = obj->table;
 			table->data_cache[h & 63].hash = h;
-			table->data_cache[h & 63].ptr = (char*)obj->shm_base + off;
+			if(obj && obj->shm_base)
+				table->data_cache[h & 63].ptr = (char*)obj->shm_base + off;
 		}
 		if(key[0] == 'c'){
-			/* Control method entry (c:hash:ptr) */
-			ulong h = strtoul(key+2, nil, 10);
+			ulong h = strtoul(key+1, nil, 10);
 			void *ptr = (void*)strtoul(val, nil, 16);
-			table = obj->table;
 			table->ctrl_cache[h & 63].hash = h;
 			table->ctrl_cache[h & 63].ptr = ptr;
 		}
-		
+
 		free(l);
 	}
-	
+}
+
+int
+o9_init_client(void *client, char *srvname, int size)
+{
+	o9_Object *obj = client;
+	o9_AsmTable *table;
+	Biobuf *bp;
+	char path[256];
+	int fd;
+
+	USED(size);
+
+	/* Stash srvname and set owner back-pointer */
+	strncpy(obj->srvname, srvname, sizeof(obj->srvname)-1);
+	table = obj->table;
+	if(table)
+		table->owner = obj;
+
+	/* Open /srv/<name>/cache to read all cache entries */
+	snprint(path, sizeof path, "/srv/%s/cache", srvname);
+	fd = open(path, OREAD);
+	if(fd < 0) return -1;
+	obj->fd = fd;
+
+	/* If no table, just stash the fd and return */
+	if(table == nil) return 0;
+
+	bp = Bfdopen(fd, OREAD);
+	if(bp == nil) return -1;
+
+	o9_fill_from_buf(table, bp, obj);
+
 	Bterm(bp);
+	close(fd);
+	obj->fd = -1;
 	return 0;
 }
 
 void
 o9_cache_fill(o9_AsmTable *table, ulong hash, int is_ctrl)
 {
-	/*
-	 * Called on asm cache miss from o9_dispatch.s.
-	 * In a full implementation, this would:
-	 * 1. Walk to /srv/<class>/cache 
-	 * 2. Find the entry matching 'hash'
-	 * 3. For data: compute the SHM offset, store pointer
-	 * 4. For ctrl: store the function pointer
-	 *
-	 * For the MVP / L1 warm-path, the table is pre-filled by
-	 * o9_init_client and the cache is always hot after setup.
-	 * This function is called automatically by the asm stub
-	 * on cache miss and should rarely be hit in practice.
-	 *
-	 * For now: search the table linearly for a matching hash
-	 * in the OTHER cache (some entries may have been filled by
-	 * the parallel data/ctrl init) — degenerate fallback.
-	 */
-	int i;
-	if(is_ctrl){
-		for(i = 0; i < 64; i++){
-			if(table->data_cache[i].hash == hash){
-				table->ctrl_cache[i].hash = hash;
-				table->ctrl_cache[i].ptr = table->data_cache[i].ptr;
-				return;
-			}
-		}
-	} else {
-		for(i = 0; i < 64; i++){
-			if(table->ctrl_cache[i].hash == hash){
-				table->data_cache[i].hash = hash;
-				table->data_cache[i].ptr = table->ctrl_cache[i].ptr;
-				return;
-			}
-		}
-	}
-	/* Still a miss — caller's retry will fail and return nil. */
+	o9_Object *obj;
+	char path[256];
+	Biobuf *bp;
+	int fd;
+
+	if(table == nil) return;
+	obj = table->owner;
+	if(obj == nil || obj->srvname[0] == '\0') return;
+
+	/* Open /srv/<name>/cache and re-parse to find this hash */
+	snprint(path, sizeof path, "/srv/%s/cache", obj->srvname);
+	fd = open(path, OREAD);
+	if(fd < 0) return;
+
+	bp = Bfdopen(fd, OREAD);
+	if(bp == nil){ close(fd); return; }
+
+	o9_fill_from_buf(table, bp, obj);
+
+	Bterm(bp);
+	close(fd);
 }
 
 void*
@@ -127,10 +130,10 @@ obj9_msgSend(void *receiver, ulong selector, void *args)
         m->sel = selector;
         m->args = args;
         m->replyc = chancreate(sizeof(void*), 0);
-        
+
         sendp(obj->dispatch_chan, m);
         r = recvp(m->replyc);
-        
+
         ret = r->ret;
         chanfree(m->replyc);
         free(r);
@@ -139,5 +142,8 @@ obj9_msgSend(void *receiver, ulong selector, void *args)
     }
 
     /* Tier 3: 9P Fallback (not implemented here yet) */
+    if(obj->fd >= 0){
+        /* TODO: 9P Twalk/Twrite for remote dispatch */
+    }
     return nil;
 }
