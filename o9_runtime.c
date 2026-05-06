@@ -6,7 +6,11 @@
 /*
  * o9_runtime.c -- 9front native runtime for o9 objects.
  * Handles the handshake to "pin" shared memory and populate Asm tables.
+ * Implements lazy cache-fill for the assembly dispatch stubs.
  */
+
+/* Forward declaration of the assembly-visible cache fill callback */
+void o9_cache_fill(o9_AsmTable *table, ulong hash, int is_ctrl);
 
 int
 o9_init_client(void *client, char *srvname, int size)
@@ -71,13 +75,42 @@ o9_init_client(void *client, char *srvname, int size)
 void
 o9_cache_fill(o9_AsmTable *table, ulong hash, int is_ctrl)
 {
-    /* 
-     * In a full implementation, this would:
-     * 1. Walk to /cache
-     * 2. Read entries
-     * 3. Update the table
-     * For the MVP, we assume the table was pre-filled by o9_init_client.
-     */
+	/*
+	 * Called on asm cache miss from o9_dispatch.s.
+	 * In a full implementation, this would:
+	 * 1. Walk to /srv/<class>/cache 
+	 * 2. Find the entry matching 'hash'
+	 * 3. For data: compute the SHM offset, store pointer
+	 * 4. For ctrl: store the function pointer
+	 *
+	 * For the MVP / L1 warm-path, the table is pre-filled by
+	 * o9_init_client and the cache is always hot after setup.
+	 * This function is called automatically by the asm stub
+	 * on cache miss and should rarely be hit in practice.
+	 *
+	 * For now: search the table linearly for a matching hash
+	 * in the OTHER cache (some entries may have been filled by
+	 * the parallel data/ctrl init) — degenerate fallback.
+	 */
+	int i;
+	if(is_ctrl){
+		for(i = 0; i < 64; i++){
+			if(table->data_cache[i].hash == hash){
+				table->ctrl_cache[i].hash = hash;
+				table->ctrl_cache[i].ptr = table->data_cache[i].ptr;
+				return;
+			}
+		}
+	} else {
+		for(i = 0; i < 64; i++){
+			if(table->ctrl_cache[i].hash == hash){
+				table->data_cache[i].hash = hash;
+				table->data_cache[i].ptr = table->ctrl_cache[i].ptr;
+				return;
+			}
+		}
+	}
+	/* Still a miss — caller's retry will fail and return nil. */
 }
 
 void*
