@@ -2,60 +2,70 @@
 #include <libc.h>
 #include "o9.h"
 
-/* C implementations of the asm dispatch functions.
- * o9_dispatch.s has the same logic but in Plan 9 amd64 assembly.
- * This C version is simpler and works regardless of asm struct layout. */
+/*
+ * o9_dispatch.c -- C dispatch for o9 asm cache.
+ *
+ * Replaces o9_dispatch.s with a portable C implementation.
+ * The .s file is kept as reference for an eventual assembly
+ * optimization, but this C version is functionally identical.
+ *
+ * Plan 9 ABI note for future asm work:
+ *   BP = 1st arg, 8(SP) = 2nd, 16(SP) = 3rd
+ *   ulong is 32-bit even on amd64
+ *   Callee-saved: BX, BP
+ *   Cache entry: {u64int hash, void *ptr} = 16 bytes
+ *   data_cache at offset 0, ctrl_cache at offset 1024
+ */
 
 extern void o9_cache_fill(void *client, ulong hash, int is_ctrl);
 
 void*
 o9_dispatch_data(void *client, ulong hash)
 {
-    o9_Object *obj = client;
-    o9_AsmTable *table;
-    O9CacheEntry *entry;
+	o9_AsmTable *table;
+	O9CacheEntry *entry;
 
-    if(obj == nil) return nil;
-    table = obj->table;
-    if(table == nil) return nil;
+	if(client == nil) return nil;
+	table = ((o9_Object*)client)->table;
+	if(table == nil) return nil;
 
-    entry = &table->data_cache[hash & 63];
-    if(entry->hash == hash && entry->ptr != nil)
-        return entry->ptr;
+	entry = &table->data_cache[hash & 63];
+	if(entry->hash == (u64int)hash && entry->ptr != nil)
+		return entry->ptr;
 
-    /* Cache miss - call fill passing client (has srvname + table) */
-    o9_cache_fill(client, hash, 0);
-    if(entry->hash == hash && entry->ptr != nil)
-        return entry->ptr;
+	/* Cache miss - try fill */
+	o9_cache_fill(client, hash, 0);
+	if(entry->hash == (u64int)hash && entry->ptr != nil)
+		return entry->ptr;
 
-    return nil;
+	return nil;
 }
 
 void*
 o9_dispatch_call(void *client, ulong hash, void *args)
 {
-    o9_Object *obj = client;
-    o9_AsmTable *table;
-    O9CacheEntry *entry;
+	o9_AsmTable *table;
+	O9CacheEntry *entry;
+	void (*fn)(void*);
 
-    if(obj == nil) return nil;
-    table = obj->table;
-    if(table == nil) return nil;
+	if(client == nil) return nil;
+	table = ((o9_Object*)client)->table;
+	if(table == nil) return nil;
 
-    entry = &table->ctrl_cache[hash & 63];
-    if(entry->hash == hash && entry->ptr != nil){
-        void (*fn)(void*) = entry->ptr;
-        fn(args);
-        return (void*)1;
-    }
+	entry = &table->ctrl_cache[hash & 63];
+	if(entry->hash == (u64int)hash && entry->ptr != nil){
+		fn = (void (*)(void*))entry->ptr;
+		fn(args);
+		return (void*)1;
+	}
 
-    /* Cache miss - call fill passing client */
-    o9_cache_fill(client, hash, 1);
-    if(entry->hash == hash && entry->ptr != nil){
-        void (*fn)(void*) = entry->ptr;
-        fn(args);
-        return (void*)1;
-    }
+	/* Cache miss - try fill */
+	o9_cache_fill(client, hash, 1);
+	if(entry->hash == (u64int)hash && entry->ptr != nil){
+		fn = (void (*)(void*))entry->ptr;
+		fn(args);
+		return (void*)1;
+	}
 
-    return nil;
+	return nil;
 }
