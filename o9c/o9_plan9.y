@@ -111,7 +111,7 @@ map_type(char *t)
     if(strcmp(t, "int16") == 0) return "short";
     if(strcmp(t, "uint16") == 0) return "ushort";
     if(strcmp(t, "int8") == 0) return "char";
-    if(strcmp(t, "uchar") == 0) return "uchar";
+    if(strcmp(t, "uint8") == 0) return "uchar";
     if(strcmp(t, "bool") == 0) return "int";
     if(strcmp(t, "string") == 0) return "char*";
     if(strcmp(t, "chan") == 0) return "Channel*";
@@ -804,8 +804,8 @@ gen_cache_entries(Node *c, char *classname)
             p = find_class(m->name);
             if(p) gen_cache_entries(p, classname);
         }
-        if(m->type == NProp) print("\t\tp += snprint(p, sizeof buf - (p-buf), \"d:%%ld:%%ld\\n\", 0L, (long)o9_offsetof(%s_State, %s));\n", classname, m->name);
-        if(m->type == NMethod) print("\t\tp += snprint(p, sizeof buf - (p-buf), \"c:%%ld:%%p\\n\", 0L, (long)o9_impl_%s_%s);\n", c->name, m->name);
+        if(m->type == NProp) print("\t\tp += snprint(p, sizeof buf - (p-buf), \"d:%ld:%ld\\n\", %ldL, (long)o9_offsetof(%s_State, %s));\n", o9_hash(m->name), classname, m->name);
+        if(m->type == NMethod) print("\t\tp += snprint(p, sizeof buf - (p-buf), \"c:%ld:%p\\n\", %ldL, (long)o9_impl_%s_%s);\n", o9_hash(m->name), c->name, m->name);
     }
 }
 

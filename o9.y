@@ -190,16 +190,13 @@ get_sym_type(Node *c, char *name)
 
 %type <node> program top_levels top_level class_decl member_list member var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename
 
+%start program
+
 %%
 
 typename:
     TIDENT { $$ = $1; }
     | TTYPE { $$ = $1; }
-    | TIDENT TIDENT {
-        /* Handle cases like 'unsigned long' by merging names if needed,
-           but for now just support the basic mapping */
-        $$ = mk(NType, $2->name, $1->name, nil, nil);
-    }
     ;
 
 program:
@@ -789,7 +786,7 @@ gen_class_header(Node *c)
     Node *m;
     print("/* Generated Client Header for class %s */\n", c->name);
     print("#ifndef _O9_GEN_%s_H_\n#define _O9_GEN_%s_H_\n\n", c->name, c->name);
-    print("typedef struct %s_AsmTable {\n\tO9CacheEntry data_cache[64];\n\tO9CacheEntry ctrl_cache[64];\n} %s_AsmTable;\n\n", c->name, c->name);
+    print("typedef struct %s_AsmTable {\n\tvoid *data_cache[64];\n\tvoid (*ctrl_cache[64])(void*);\n} %s_AsmTable;\n\n", c->name, c->name);
     print("typedef struct %s_Client {\n\tint fd;\n\t%s_AsmTable *table;\n\tlong ref;\t/* ARC Counter */\n", c->name, c->name);
     for(m = c->left; m; m = m->next){
         if(m->type == NInherit) print("\t%s_Client;\n", m->name);
@@ -807,8 +804,8 @@ gen_cache_entries(Node *c, char *classname)
             p = find_class(m->name);
             if(p) gen_cache_entries(p, classname);
         }
-        if(m->type == NProp) print("\t\tp += snprint(p, sizeof buf - (p-buf), \"d:%%ld:%%ld\\n\", %ldL, (long)o9_offsetof(%s_State, %s));\n", o9_hash(m->name), classname, m->name);
-        if(m->type == NMethod) print("\t\tp += snprint(p, sizeof buf - (p-buf), \"c:%%ld:%%p\\n\", %ldL, (long)o9_impl_%s_%s);\n", o9_hash(m->name), c->name, m->name);
+        if(m->type == NProp) print("\t\tp += snprint(p, sizeof buf - (p-buf), \"d:%ld:%ld\\n\", %ldL, (long)o9_offsetof(%s_State, %s));\n", o9_hash(m->name), classname, m->name);
+        if(m->type == NMethod) print("\t\tp += snprint(p, sizeof buf - (p-buf), \"c:%ld:%p\\n\", %ldL, (long)o9_impl_%s_%s);\n", o9_hash(m->name), c->name, m->name);
     }
 }
 
@@ -823,7 +820,7 @@ gen_prop_handlers(Node *c)
             if(p) gen_prop_handlers(p);
         }
         if(m->type == NProp){
-            print("\tif(strcmp(r->fid->file->dir.name, \"%s\") == 0){\n", m->name);
+            print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
             print("\t\tsnprint(buf, sizeof buf, \"%%lld\\n\", (vlong)s->%s);\n", m->name);
             print("\t\treadstr(r, buf);\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
         }
@@ -841,7 +838,7 @@ gen_write_handlers(Node *c)
             if(p) gen_write_handlers(p);
         }
         if(m->type == NProp){
-            print("\tif(strcmp(r->fid->file->dir.name, \"%s\") == 0){\n", m->name);
+            print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
             print("\t\ts->%s = strtoll(r->ifcall.data, nil, 0);\n", m->name);
             print("\t\tr->ofcall.count = r->ifcall.count;\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
         }
@@ -926,7 +923,7 @@ gen_class_server(Node *c)
     /* 4. 9P Fileserver Facade (fsread/fswrite) */
     print("static void fsread_%s(Req *r) {\n", c->name);
     print("\tchar buf[1024];\n\t%s_Internal *s = r->srv->aux;\n", c->name);
-    print("\tchar *name = r->fid->file->dir.name;\n\n");
+    print("\tchar *name = r->fid->file->name;\n\n");
     print("\tif(strcmp(name, \"status\") == 0) { readstr(r, \"running\"); respond(r, nil); return; }\n");
     
     /* props/ sub-directory logic would go here, simplified for MVP */
@@ -949,7 +946,7 @@ gen_class_server(Node *c)
     print("\trespond(r, \"not found\");\n}\n\n");
 
     print("static void fswrite_%s(Req *r) {\n", c->name);
-    print("\t%s_Internal *s = r->srv->aux;\n\tchar *name = r->fid->file->dir.name;\n", c->name);
+    print("\t%s_Internal *s = r->srv->aux;\n\tchar *name = r->fid->file->name;\n", c->name);
     print("\tif(strcmp(name, \"ctl\") == 0) { /* TODO: parse text ctl */ respond(r, nil); return; }\n");
     print("\tif(strcmp(name, \"msg\") == 0) { /* TODO: parse binary msg */ respond(r, nil); return; }\n");
     
