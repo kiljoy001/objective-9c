@@ -47,19 +47,31 @@ typedef struct o9_AsmTable {
     o9_Object *owner;		/* back-pointer for cache fill */
 } o9_AsmTable;
 
-/* Root Object Template */
+/*
+ * Root Object Template
+ *
+ * WARNING: The asm dispatch (o9_dispatch.s) references fixed offsets:
+ *   +0:  int fd
+ *   +8:  void *shm_base
+ *   +16: o9_AsmTable *table
+ *   +24: long ref
+ *   +32: void *dispatch_chan  (Channel*)
+ * Do NOT reorder the first 5 fields or update o9_dispatch.s offsets.
+ * srvname is appended at the end and is NOT asm-accessible.
+ */
 struct o9_Object {
     int fd;
-    char srvname[64];		/* server name for /srv/ cache walk */
     void *shm_base;
     o9_AsmTable *table;
     long ref;
     void *dispatch_chan;	/* Channel* */
+    char srvname[64];		/* server name for /srv/ cache walk */
 };
 
 /* Runtime Functions */
 extern int   o9_init_client(void *client, char *srvname, int size);
 extern void* o9_dispatch_data(void *client, ulong hash);
+extern void* o9_dispatch_call(void *client, ulong hash, void *args);
 extern void  o9_ledger_update(void *client, ulong id, int delta);
 extern void  o9_clunk(int fd);
 extern void* obj9_msgSend(void *receiver, ulong selector, void *args);
