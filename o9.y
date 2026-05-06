@@ -188,7 +188,7 @@ get_sym_type(Node *c, char *name)
 %left '*' '/' '%'
 %right '!' '~' UMINUS
 
-%type <node> program top_levels top_level class_decl member_list member var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename
+%type <node> program top_levels top_level class_decl member_list member var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename param_list param
 
 %start program
 
@@ -328,9 +328,32 @@ var_decl:
     ;
 
 func_decl:
-    TFUNC '(' TIDENT '*' TIDENT ')' TIDENT '(' ')' TIDENT '{' stmt_list '}'
+    TFUNC '(' TIDENT '*' TIDENT ')' TIDENT '(' param_list ')' TIDENT '{' stmt_list '}'
     {
-        $$ = mk(NMethod, $7->name, $10->name, $12, nil);
+        Node *params = $9;
+        Node *stmts = $13;
+        $$ = mk(NMethod, $7->name, $11->name, stmts, params);
+    }
+    ;
+
+param_list:
+    /* empty */ { $$ = nil; }
+    | param { $$ = $1; }
+    | param_list ',' param {
+        if($1 == nil) $$ = $3;
+        else {
+            Node *n = $1;
+            while(n->next) n = n->next;
+            n->next = $3;
+            $$ = $1;
+        }
+    }
+    ;
+
+param:
+    TIDENT typename
+    {
+        $$ = mk(NProp, $1->name, $2->name, nil, nil);
     }
     ;
 
@@ -874,8 +897,25 @@ gen_class_server(Node *c)
         if(m->type == NMethod){
             num_locals = 0;
             mark_locals(m->left);
+            /* Register param names as locals so gen_expr emits bare names */
+            {
+                Node *p;
+                int pi = 0;
+                for(p = m->right; p; p = p->next){
+                    if(num_locals < 128) local_vars[num_locals++] = p->name;
+                }
+            }
             print("static void o9_impl_%s_%s(%s_Internal *self, O9Msg *msg) {\n", c->name, m->name, c->name);
             print("\tO9Reply *r = mallocz(sizeof(O9Reply), 1);\n");
+            /* Unpack params from msg->args (packed as vlong array for now) */
+            {
+                Node *p;
+                int pi = 0;
+                for(p = m->right; p; p = p->next){
+                    print("\t%s %s = ((vlong*)msg->args)[%d];\n", map_type(p->typename), p->name, pi);
+                    pi++;
+                }
+            }
             for(s = m->left; s; s = s->next) gen_stmt(c, s);
             print("\tr->ok = 1;\n\tsendp(msg->replyc, r);\n}\n\n");
         }
