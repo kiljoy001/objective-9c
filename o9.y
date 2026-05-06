@@ -190,8 +190,6 @@ get_sym_type(Node *c, char *name)
 
 %type <node> program top_levels top_level class_decl member_list member var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename
 
-%start program
-
 %%
 
 typename:

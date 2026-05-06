@@ -1,0 +1,3 @@
+class Simple {
+    x int64;
+}

@@ -1,114 +1,42 @@
-/* A Bison parser, made by GNU Bison 3.8.2.  */
 
-/* Bison interface for Yacc-like parsers in C
-
-   Copyright (C) 1984, 1989-1990, 2000-2015, 2018-2021 Free Software Foundation,
-   Inc.
-
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   This program is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
-
-/* As a special exception, you may create a larger work that contains
-   part or all of the Bison parser skeleton and distribute that work
-   under terms of your choice, so long as that work isn't itself a
-   parser generator using the skeleton or a modified version thereof
-   as a parser skeleton.  Alternatively, if you modify or redistribute
-   the parser skeleton itself, you may (at your option) remove this
-   special exception, which will cause the skeleton and the resulting
-   Bison output files to be licensed under the GNU General Public
-   License without this special exception.
-
-   This special exception was added by the Free Software Foundation in
-   version 2.2 of Bison.  */
-
-/* DO NOT RELY ON FEATURES THAT ARE NOT DOCUMENTED in the manual,
-   especially those whose name start with YY_ or yy_.  They are
-   private implementation details that can be changed or removed.  */
-
-#ifndef YY_YY_Y_TAB_H_INCLUDED
-# define YY_YY_Y_TAB_H_INCLUDED
-/* Debug traces.  */
-#ifndef YYDEBUG
-# define YYDEBUG 0
-#endif
-#if YYDEBUG
-extern int yydebug;
-#endif
-
-/* Token kinds.  */
-#ifndef YYTOKENTYPE
-# define YYTOKENTYPE
-  enum yytokentype
-  {
-    YYEMPTY = -2,
-    YYEOF = 0,                     /* "end of file"  */
-    YYerror = 256,                 /* error  */
-    YYUNDEF = 257,                 /* "invalid token"  */
-    TIDENT = 258,                  /* TIDENT  */
-    TTYPE = 259,                   /* TTYPE  */
-    TCLASS = 260,                  /* TCLASS  */
-    TFUNC = 261,                   /* TFUNC  */
-    TNEW = 262,                    /* TNEW  */
-    TRETURN = 263,                 /* TRETURN  */
-    TCHAN = 264,                   /* TCHAN  */
-    TEQ = 265,                     /* TEQ  */
-    TADD = 266,                    /* TADD  */
-    TSUB = 267,                    /* TSUB  */
-    TCHANSEND = 268,               /* TCHANSEND  */
-    TCHANRECV = 269                /* TCHANRECV  */
-  };
-  typedef enum yytokentype yytoken_kind_t;
-#endif
-/* Token kinds.  */
-#define YYEMPTY -2
-#define YYEOF 0
-#define YYerror 256
-#define YYUNDEF 257
-#define TIDENT 258
-#define TTYPE 259
-#define TCLASS 260
-#define TFUNC 261
-#define TNEW 262
-#define TRETURN 263
-#define TCHAN 264
-#define TEQ 265
-#define TADD 266
-#define TSUB 267
-#define TCHANSEND 268
-#define TCHANRECV 269
-
-/* Value type.  */
-#if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
-union YYSTYPE
-{
-#line 66 "o9_plan9.y"
-
-	Node *node;
-	char *name;
-
-#line 100 "y.tab.h"
-
-};
-typedef union YYSTYPE YYSTYPE;
-# define YYSTYPE_IS_TRIVIAL 1
-# define YYSTYPE_IS_DECLARED 1
-#endif
-
-
-extern YYSTYPE yylval;
-
-
-int yyparse (void);
-
-
-#endif /* !YY_YY_Y_TAB_H_INCLUDED  */
+typedef union  {
+    Node *node;
+    char *name;
+}	YYSTYPE;
+extern	YYSTYPE	yylval;
+#define	TIDENT	57346
+#define	TTYPE	57347
+#define	TINTLIT	57348
+#define	TSTRINGLIT	57349
+#define	TCHARLIT	57350
+#define	TCLASS	57351
+#define	TFUNC	57352
+#define	TMETHOD	57353
+#define	TRETURN	57354
+#define	TCHAN	57355
+#define	TIF	57356
+#define	TELSE	57357
+#define	TWHILE	57358
+#define	TSTATE	57359
+#define	TPROP	57360
+#define	TATOMIC	57361
+#define	TSTREAM	57362
+#define	TSECRET	57363
+#define	TCAP	57364
+#define	TTRUE	57365
+#define	TFALSE	57366
+#define	TEQ	57367
+#define	TADD	57368
+#define	TSUB	57369
+#define	TCHANSEND	57370
+#define	TCHANRECV	57371
+#define	TCHANTRY	57372
+#define	TEQEQ	57373
+#define	TNEQ	57374
+#define	TLE	57375
+#define	TGE	57376
+#define	TAND	57377
+#define	TOR	57378
+#define	TLSHIFT	57379
+#define	TRSHIFT	57380
+#define	UMINUS	57381

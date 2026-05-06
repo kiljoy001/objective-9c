@@ -1,15 +1,12 @@
 TARG=o9c
-OFILES=y.tab.o lex.yy.o
+OFILES=y.tab.o
 HFILES=node.h y.tab.h
 
 $TARG: $OFILES
 	9l -o $TARG $OFILES
 
 y.tab.c y.tab.h: o9.y
-	yacc -d o9.y
-
-lex.yy.c: o9.l y.tab.h
-	lex o9.l
+        yacc -d o9.y
 
 %.o: %.c $HFILES
 	9c $stem.c

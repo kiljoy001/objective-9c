@@ -1,0 +1,21 @@
+class Parent {
+    val int64;
+
+    func (Parent *p) set() void {
+        val = val;
+    }
+}
+
+class Child {
+    Parent;
+    extra int64;
+
+    func (Child *c) set_extra() void {
+        extra = extra;
+    }
+
+    ~Child() {
+        extra = extra;
+    }
+}
+

@@ -1,0 +1,18 @@
+class FlowTest {
+    int64 val;
+    chan events;
+
+    func (FlowTest *f) run() void {
+        val = 0;
+        while(val < 10) {
+            if(val == 5) {
+                events -> val;
+            } else {
+                val = val + 2;
+            }
+            if(val != 5) {
+                val = val + 1;
+            }
+        }
+    }
+}

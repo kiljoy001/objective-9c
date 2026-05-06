@@ -1,0 +1,8 @@
+class ModuloTest {
+    int64 val;
+
+    func (ModuloTest *m) run() void {
+        val = 10;
+        val = val % 3;
+    }
+}

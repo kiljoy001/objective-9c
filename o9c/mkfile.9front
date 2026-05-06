@@ -3,15 +3,11 @@
 TARG=o9c
 OFILES=\
 	y.tab.$O\
-	lex.yy.$O\
 
 HFILES=node.h
 
 y.tab.h y.tab.c: o9_plan9.y
 	yacc -d o9_plan9.y
-
-lex.yy.c: o9_plan9.l y.tab.h
-	lex o9_plan9.l
 
 $TARG:	$OFILES
 	$LD -o $target $prereq

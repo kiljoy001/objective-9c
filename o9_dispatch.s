@@ -6,28 +6,27 @@
  *   o9_dispatch_call(fid, hash, args) -> calls method via ctrl_cache
  *
  * Cache layout (o9_AsmTable):
- *   0-511:   data_cache[64]  (8 bytes each = direct pointers)
- *   512-1023: ctrl_cache[64]  (8 bytes each = function pointers)
+ *   0-1023:    data_cache[64]  (16 bytes each: {u64 hash, void *ptr})
+ *   1024-2047: ctrl_cache[64]  (16 bytes each: {u64 hash, void *ptr})
  *
  * The object struct layout:
  *   +0: int fd
  *   +8: void *shm_base
- *   +16: o9_AsmTable *table    <-- points to the 1024-byte table
+ *   +16: o9_AsmTable *table
  *   +24: Ref ref (ARC counter)
- *
- * On cache miss, fall through to o9_cache_fill() which does a
- * 9P walk+read on /cache, then retries.
  */
 
 TEXT	o9_dispatch_data(SB), $0
-	MOVQ	table+8(SP), AX		/* AX = o9_AsmTable* */
-	MOVQ	hash+16(SP), CX		/* CX = hash (0-63) */
-	SHLQ	$3, CX			/* CX = hash * 8 (byte offset) */
-	ADDQ	AX, CX			/* CX = &data_cache[hash] */
-	MOVQ	(CX), DX		/* DX = data_cache[hash] (pointer or nil) */
-	TESTQ	DX, DX
-	JZ	miss_data
-	MOVQ	DX, AX			/* return the direct pointer */
+	MOVQ	client+8(SP), AX	/* AX = client* */
+	MOVQ	16(AX), AX		/* AX = client->table */
+	MOVQ	hash+16(SP), CX		/* CX = hash */
+	MOVQ	CX, BX			/* BX = hash (for verification) */
+	ANDQ	$63, CX			/* CX = hash % 64 */
+	SHLQ	$4, CX			/* CX = index * 16 */
+	ADDQ	AX, CX			/* CX = &data_cache[index] */
+	CMPQ	(CX), BX		/* Verify entry->hash == hash */
+	JNE	miss_data
+	MOVQ	8(CX), AX		/* return entry->ptr */
 	RET
 
 miss_data:
@@ -37,33 +36,36 @@ miss_data:
 	XORL	DX, DX			/* DX = 0 (data, not ctrl) */
 	CALL	o9_cache_fill(SB)
 	/* retry dispatch */
-	MOVQ	table+8(SP), AX
+	MOVQ	client+8(SP), AX
+	MOVQ	16(AX), AX
 	MOVQ	hash+16(SP), CX
-	SHLQ	$3, CX
+	MOVQ	CX, BX
+	ANDQ	$63, CX
+	SHLQ	$4, CX
 	ADDQ	AX, CX
-	MOVQ	(CX), DX
-	TESTQ	DX, DX
-	JZ	fail
-	MOVQ	DX, AX
+	CMPQ	(CX), BX
+	JNE	fail
+	MOVQ	8(CX), AX
 	RET
 
 fail:
 	XORL	AX, AX
 	RET
 
-/*
- * o9_dispatch_call(fid, hash, args) -> calls ctrl_cache[hash](args)
- * fid in DI, hash in SI, args in DX. Not used yet — stub.
- */
 TEXT	o9_dispatch_call(SB), $0
-	MOVQ	table+8(SP), AX
-	MOVQ	hash+16(SP), CX
-	SHLQ	$3, CX
-	ADDQ	$512, CX		/* offset to ctrl_cache */
+	MOVQ	client+8(SP), AX	/* AX = client* */
+	MOVQ	16(AX), AX		/* AX = client->table */
+	MOVQ	hash+16(SP), CX		/* CX = hash */
+	MOVQ	CX, BX			/* BX = hash */
+	ANDQ	$63, CX
+	SHLQ	$4, CX
+	ADDQ	$1024, CX		/* Offset to ctrl_cache */
 	ADDQ	AX, CX
-	MOVQ	(CX), DX
+	CMPQ	(CX), BX		/* Verify entry->hash == hash */
+	JNE	miss_ctrl
+	MOVQ	8(CX), DX		/* DX = entry->ptr (function) */
 	TESTQ	DX, DX
-	JZ	miss_ctrl
+	JZ	fail
 	/* Call the cached function pointer */
 	PUSHQ	AX
 	MOVQ	args+24(SP), DI		/* DI = args */
@@ -77,12 +79,17 @@ miss_ctrl:
 	MOVL	$1, DX			/* DX = 1 (ctrl, not data) */
 	CALL	o9_cache_fill(SB)
 	/* retry dispatch */
-	MOVQ	table+8(SP), AX
+	MOVQ	client+8(SP), AX
+	MOVQ	16(AX), AX
 	MOVQ	hash+16(SP), CX
-	SHLQ	$3, CX
-	ADDQ	$512, CX
+	MOVQ	CX, BX
+	ANDQ	$63, CX
+	SHLQ	$4, CX
+	ADDQ	$1024, CX
 	ADDQ	AX, CX
-	MOVQ	(CX), DX
+	CMPQ	(CX), BX
+	JNE	fail
+	MOVQ	8(CX), DX
 	TESTQ	DX, DX
 	JZ	fail
 	PUSHQ	AX

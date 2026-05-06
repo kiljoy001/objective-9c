@@ -1,0 +1,14 @@
+class TypesTest {
+    int normal_int;
+    char* my_string;
+    vlong large_int;
+    ulong unsigned_long;
+    chan trigger;
+
+    func (TypesTest *t) reset() void {
+        normal_int = 0;
+        large_int = 0;
+        unsigned_long = 0;
+        trigger ->? normal_int;
+    }
+}
