@@ -31,10 +31,7 @@ struct O9Header {
 
 #define O9_MAGIC 0x09090909
 
-/* Forward declare o9_Object so AsmTable can back-links */
-typedef struct o9_Object o9_Object;
-
-/* Dual Asm Table Structures (True Hashtable with Verification) */
+/* Dual Asm Table Structures */
 typedef struct O9CacheEntry O9CacheEntry;
 struct O9CacheEntry {
     u64int hash;
@@ -44,7 +41,6 @@ struct O9CacheEntry {
 typedef struct o9_AsmTable {
     O9CacheEntry data_cache[64];
     O9CacheEntry ctrl_cache[64];
-    o9_Object *owner;		/* back-pointer for cache fill */
 } o9_AsmTable;
 
 /*
@@ -56,22 +52,23 @@ typedef struct o9_AsmTable {
  *   +16: o9_AsmTable *table
  *   +24: long ref
  *   +32: void *dispatch_chan  (Channel*)
- * Do NOT reorder the first 5 fields or update o9_dispatch.s offsets.
+ * Do NOT reorder the first 5 fields.
  * srvname is appended at the end and is NOT asm-accessible.
  */
-struct o9_Object {
+typedef struct o9_Object {
     int fd;
     void *shm_base;
     o9_AsmTable *table;
     long ref;
     void *dispatch_chan;	/* Channel* */
     char srvname[64];		/* server name for /srv/ cache walk */
-};
+} o9_Object;
 
 /* Runtime Functions */
 extern int   o9_init_client(void *client, char *srvname, int size);
 extern void* o9_dispatch_data(void *client, ulong hash);
 extern void* o9_dispatch_call(void *client, ulong hash, void *args);
+extern void  o9_cache_fill(void *client, ulong hash, int is_ctrl);
 extern void  o9_ledger_update(void *client, ulong id, int delta);
 extern void  o9_clunk(int fd);
 extern void* obj9_msgSend(void *receiver, ulong selector, void *args);

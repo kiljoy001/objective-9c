@@ -1,99 +1,120 @@
 /*
  * o9_dispatch.s -- Plan 9 amd64 assembly dispatch for o9 objects.
  *
- * Two-entry point design:
- *   o9_dispatch_data(fid, hash) -> returns direct pointer to property
- *   o9_dispatch_call(fid, hash, args) -> calls method via ctrl_cache
+ * Plan 9 6c/6a calling convention:
+ *   BP = first argument
+ *   8(SP) = second argument (plan9 ulong = 32 bits, stored as MOVL)
+ *   16(SP) = third argument
  *
- * Cache layout (o9_AsmTable):
- *   0-1023:    data_cache[64]  (16 bytes each: {u64 hash, void *ptr})
- *   1024-2047: ctrl_cache[64]  (16 bytes each: {u64 hash, void *ptr})
+ * o9_dispatch_data(client, hash)
+ *   BP = client, 8(SP) = hash (32-bit ulong)
+ *   returns void* in AX
  *
- * The object struct layout:
- *   +0: int fd
- *   +8: void *shm_base
- *   +16: o9_AsmTable *table
- *   +24: Ref ref (ARC counter)
+ * o9_dispatch_call(client, hash, args)
+ *   BP = client, 8(SP) = hash, 16(SP) = args
+ *   returns void* in AX (1=success, 0=fail)
+ *
+ * o9_cache_fill(client, hash, is_ctrl)
+ *   BP = client, 8(SP) = hash, 16(SP) = is_ctrl
+ *
+ * Plan 9 ulong is 32 bits even on amd64! Must use MOVL for hash,
+ * then MOVLQZX (zero-extend) to 64 bits for u64int table comparisons.
  */
 
 TEXT	o9_dispatch_data(SB), $0
-	MOVQ	client+8(SP), AX	/* AX = client* */
-	MOVQ	16(AX), AX		/* AX = client->table */
-	MOVQ	hash+16(SP), CX		/* CX = hash */
-	MOVQ	CX, BX			/* BX = hash (for verification) */
-	ANDQ	$63, CX			/* CX = hash % 64 */
-	SHLQ	$4, CX			/* CX = index * 16 */
-	ADDQ	AX, CX			/* CX = &data_cache[index] */
-	CMPQ	(CX), BX		/* Verify entry->hash == hash */
-	JNE	miss_data
-	MOVQ	8(CX), AX		/* return entry->ptr */
-	RET
+	MOVQ	BP, BX			/* BX = client (callee-saved) */
+	MOVQ	16(BX), R8		/* R8 = client->table */
 
-miss_data:
-	/* Cache miss — call o9_cache_fill(table, hash, 0) for data */
-	MOVQ	AX, DI			/* DI = table */
-	MOVQ	hash+16(SP), SI		/* SI = hash */
-	XORL	DX, DX			/* DX = 0 (data, not ctrl) */
-	CALL	o9_cache_fill(SB)
-	/* retry dispatch */
-	MOVQ	client+8(SP), AX
-	MOVQ	16(AX), AX
-	MOVQ	hash+16(SP), CX
-	MOVQ	CX, BX
-	ANDQ	$63, CX
-	SHLQ	$4, CX
-	ADDQ	AX, CX
-	CMPQ	(CX), BX
-	JNE	fail
+	/* hash is 32-bit ulong on stack */
+	MOVL	8(SP), CX		/* CX = hash (32-bit) */
+	MOVLQZX	CX, R9			/* R9 = hash (64-bit zero-extended) */
+
+	/* index = (hash & 63) * 16 */
+	ANDL	$63, CX
+	SHLQ	$4, CX			/* CX = index * 16 */
+	ADDQ	R8, CX			/* CX = &data_cache[index] */
+
+	CMPQ	(CX), R9		/* entry->hash == hash? */
+	JNE	miss_data
+
 	MOVQ	8(CX), AX
 	RET
 
-fail:
+miss_data:
+	/* o9_cache_fill(client, hash, 0)
+	 * BP=client, 8(SP)=hash, 16(SP)=0 */
+	MOVQ	BX, BP			/* keep client in BP */
+	/* 8(SP) already has hash from caller */
+	MOVL	$0, 16(SP)		/* is_ctrl = 0 */
+	CALL	o9_cache_fill(SB)
+
+	/* Retry */
+	MOVQ	16(BX), R8
+	MOVL	8(SP), CX
+	MOVLQZX	CX, R9
+	ANDL	$63, CX
+	SHLQ	$4, CX
+	ADDQ	R8, CX
+	CMPQ	(CX), R9
+	JNE	fail_data
+	MOVQ	8(CX), AX
+	RET
+
+fail_data:
 	XORL	AX, AX
 	RET
 
+
 TEXT	o9_dispatch_call(SB), $0
-	MOVQ	client+8(SP), AX	/* AX = client* */
-	MOVQ	16(AX), AX		/* AX = client->table */
-	MOVQ	hash+16(SP), CX		/* CX = hash */
-	MOVQ	CX, BX			/* BX = hash */
-	ANDQ	$63, CX
+	MOVQ	BP, BX			/* BX = client */
+	MOVL	8(SP), CX		/* CX = hash (32-bit) */
+	MOVLQZX	CX, R9			/* R9 = hash (64-bit) */
+	MOVQ	16(SP), R12		/* R12 = args */
+
+	MOVQ	16(BX), R13		/* R13 = client->table */
+
+	MOVL	R9, CX
+	ANDL	$63, CX
 	SHLQ	$4, CX
-	ADDQ	$1024, CX		/* Offset to ctrl_cache */
-	ADDQ	AX, CX
-	CMPQ	(CX), BX		/* Verify entry->hash == hash */
+	ADDQ	$1024, CX
+	ADDQ	R13, CX
+
+	CMPQ	(CX), R9
 	JNE	miss_ctrl
-	MOVQ	8(CX), DX		/* DX = entry->ptr (function) */
+
+	/* Hit */
+	MOVQ	8(CX), DX
 	TESTQ	DX, DX
-	JZ	fail
-	/* Call the cached function pointer */
-	PUSHQ	AX
-	MOVQ	args+24(SP), DI		/* DI = args */
+	JZ	fail_ctrl
+	MOVQ	R12, BP			/* BP = args (1st arg to method) */
 	CALL	DX
-	POPQ	AX
+	MOVL	$1, AX
 	RET
 
 miss_ctrl:
-	MOVQ	AX, DI
-	MOVQ	hash+16(SP), SI
-	MOVL	$1, DX			/* DX = 1 (ctrl, not data) */
+	MOVQ	BX, BP
+	MOVL	$1, 16(SP)		/* is_ctrl = 1 */
 	CALL	o9_cache_fill(SB)
-	/* retry dispatch */
-	MOVQ	client+8(SP), AX
-	MOVQ	16(AX), AX
-	MOVQ	hash+16(SP), CX
-	MOVQ	CX, BX
-	ANDQ	$63, CX
+
+	/* Retry */
+	MOVQ	16(BX), R13
+	MOVL	8(SP), CX
+	MOVLQZX	CX, R9
+	ANDL	$63, CX
 	SHLQ	$4, CX
 	ADDQ	$1024, CX
-	ADDQ	AX, CX
-	CMPQ	(CX), BX
-	JNE	fail
+	ADDQ	R13, CX
+	CMPQ	(CX), R9
+	JNE	fail_ctrl
+
 	MOVQ	8(CX), DX
 	TESTQ	DX, DX
-	JZ	fail
-	PUSHQ	AX
-	MOVQ	args+24(SP), DI
+	JZ	fail_ctrl
+	MOVQ	16(SP), BP		/* BP = args */
 	CALL	DX
-	POPQ	AX
+	MOVL	$1, AX
+	RET
+
+fail_ctrl:
+	XORL	AX, AX
 	RET

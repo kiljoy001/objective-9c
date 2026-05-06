@@ -2,10 +2,11 @@
 #include <libc.h>
 #include "o9.h"
 
-/* C implementations of the dispatch functions for testing.
- * Replaces the asm stubs in o9_dispatch.s until the asm ABI is sorted. */
+/* C implementations of the asm dispatch functions.
+ * o9_dispatch.s has the same logic but in Plan 9 amd64 assembly.
+ * This C version is simpler and works regardless of asm struct layout. */
 
-extern void o9_cache_fill(o9_AsmTable *table, ulong hash, int is_ctrl);
+extern void o9_cache_fill(void *client, ulong hash, int is_ctrl);
 
 void*
 o9_dispatch_data(void *client, ulong hash)
@@ -22,8 +23,8 @@ o9_dispatch_data(void *client, ulong hash)
     if(entry->hash == hash && entry->ptr != nil)
         return entry->ptr;
 
-    /* Cache miss - call fill and retry */
-    o9_cache_fill(table, hash, 0);
+    /* Cache miss - call fill passing client (has srvname + table) */
+    o9_cache_fill(client, hash, 0);
     if(entry->hash == hash && entry->ptr != nil)
         return entry->ptr;
 
@@ -43,14 +44,13 @@ o9_dispatch_call(void *client, ulong hash, void *args)
 
     entry = &table->ctrl_cache[hash & 63];
     if(entry->hash == hash && entry->ptr != nil){
-        /* Call the cached function pointer */
         void (*fn)(void*) = entry->ptr;
         fn(args);
         return (void*)1;
     }
 
-    /* Cache miss - call fill and retry */
-    o9_cache_fill(table, hash, 1);
+    /* Cache miss - call fill passing client */
+    o9_cache_fill(client, hash, 1);
     if(entry->hash == hash && entry->ptr != nil){
         void (*fn)(void*) = entry->ptr;
         fn(args);
