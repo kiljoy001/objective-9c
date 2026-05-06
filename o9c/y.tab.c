@@ -112,7 +112,7 @@ map_type(char *t)
     if(strcmp(t, "int16") == 0) return "short";
     if(strcmp(t, "uint16") == 0) return "ushort";
     if(strcmp(t, "int8") == 0) return "char";
-    if(strcmp(t, "uchar") == 0) return "uchar";
+    if(strcmp(t, "uint8") == 0) return "uchar";
     if(strcmp(t, "bool") == 0) return "int";
     if(strcmp(t, "string") == 0) return "char*";
     if(strcmp(t, "chan") == 0) return "Channel*";
@@ -211,7 +211,7 @@ YYSTYPE	yyval;
 #define YYEOFCODE 1
 #define YYERRCODE 2
 
-#line	412	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	404	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 
 
 Node*
@@ -605,8 +605,8 @@ gen_cache_entries(Node *c, char *classname)
             p = find_class(m->name);
             if(p) gen_cache_entries(p, classname);
         }
-        if(m->type == NProp) print("\t\tp += snprint(p, sizeof buf - (p-buf), \"d:%%ld:%%ld\\n\", 0L, (long)o9_offsetof(%s_State, %s));\n", classname, m->name);
-        if(m->type == NMethod) print("\t\tp += snprint(p, sizeof buf - (p-buf), \"c:%%ld:%%p\\n\", 0L, (long)o9_impl_%s_%s);\n", c->name, m->name);
+        if(m->type == NProp) print("\t\tp += snprint(p, sizeof buf - (p-buf), \"d:%ld:%ld\\n\", %ldL, (long)o9_offsetof(%s_State, %s));\n", o9_hash(m->name), classname, m->name);
+        if(m->type == NMethod) print("\t\tp += snprint(p, sizeof buf - (p-buf), \"c:%ld:%p\\n\", %ldL, (long)o9_impl_%s_%s);\n", o9_hash(m->name), c->name, m->name);
     }
 }
 
@@ -724,7 +724,7 @@ gen_class_server(Node *c)
     /* 4. 9P Fileserver Facade (fsread/fswrite) */
     print("static void fsread_%s(Req *r) {\n", c->name);
     print("\tchar buf[1024];\n\t%s_Internal *s = r->srv->aux;\n", c->name);
-    print("\tchar *name = r->fid->file->dir.name;\n\n");
+    print("\tchar *name = r->fid->file->name;\n\n");
     print("\tif(strcmp(name, \"status\") == 0) { readstr(r, \"running\"); respond(r, nil); return; }\n");
     
     /* props/ sub-directory logic would go here, simplified for MVP */
@@ -747,7 +747,7 @@ gen_class_server(Node *c)
     print("\trespond(r, \"not found\");\n}\n\n");
 
     print("static void fswrite_%s(Req *r) {\n", c->name);
-    print("\t%s_Internal *s = r->srv->aux;\n\tchar *name = r->fid->file->dir.name;\n", c->name);
+    print("\t%s_Internal *s = r->srv->aux;\n\tchar *name = r->fid->file->name;\n", c->name);
     print("\tif(strcmp(name, \"ctl\") == 0) { /* TODO: parse text ctl */ respond(r, nil); return; }\n");
     print("\tif(strcmp(name, \"msg\") == 0) { /* TODO: parse binary msg */ respond(r, nil); return; }\n");
     
@@ -843,23 +843,105 @@ static	const	short	yyexca[] =
 {-1, 1,
 	1, -1,
 	-2, 0,
+-1, 87,
+	4, 1,
+	-2, 69,
 };
-#define	YYNPROD	78
+#define	YYNPROD	76
 #define	YYPRIVATE 57344
-#define	YYLAST	4
+#define	YYLAST	623
 static	const	short	yyact[] =
 {
-   2,   3,   1,   0
+  79,  74,  99, 100, 101,  97, 127,  98, 105, 106,
+ 108, 110, 111, 112, 116, 117, 114, 115, 113, 107,
+ 109, 102, 103, 104,  73,  69,  63,  99, 100, 101,
+  97, 160,  98, 105, 106, 108, 110, 111, 112, 116,
+ 117, 114, 115, 113, 107, 109, 102, 103, 104, 151,
+ 122, 121,  99, 100, 101,  97, 159,  98, 105, 106,
+ 108, 110, 111, 112, 116, 117, 114, 115, 113, 107,
+ 109, 102, 103, 104,  75,  95, 150,  62,  60,  53,
+  68, 155, 119,  39,  67, 123, 124, 125,  66,  65,
+  64,  61,  57,  51, 126,  49,  47, 172, 128, 129,
+ 131, 132, 133, 134, 135, 136, 137, 138, 139, 140,
+ 141, 142, 143, 144, 145, 146, 147, 148, 149, 164,
+ 163, 161, 153, 154,  72,  71,   8,  99, 100, 101,
+  97, 157,  98, 105, 106, 108, 110, 111, 112, 116,
+ 117, 114, 115, 113, 107, 109, 102, 103, 104, 100,
+ 101, 171, 158,   5, 162, 102, 103, 104, 156, 118,
+ 116, 117,  76, 165,  70, 166, 167, 102, 103, 104,
+  99, 100, 101,  97, 173,  98, 105, 106, 108, 110,
+ 111, 112, 116, 117, 114, 115, 113, 107, 109, 102,
+ 103, 104,  59,  99, 100, 101,  97, 152,  98, 105,
+ 106, 108, 110, 111, 112, 116, 117, 114, 115, 113,
+ 107, 109, 102, 103, 104,  87,  35,  88,  89,  90,
+  96,  36,  58,  81,  56,  82,  80,  83,  55,  87,
+  35,  88,  89,  90,  91,  92,  23,  81,  86,  82,
+  54,  83,  52,  50,  48,  46,  45,  44,  91,  92,
+  43,  42,  86,  41,  40,  38,   7,   3,  84,  85,
+   6,  37, 174,  20,  93,  19,  18,  87,  35,  88,
+  89,  90,  84,  85,  17,  81, 170,  82,  93,  83,
+  16,  87,  35,  88,  89,  90,  91,  92,  15,  81,
+  86,  82,  14,  83,  78,  22,  21,  13,  12,  11,
+  91,  92,   9,   4,  86,   2,   1,   0,   0,   0,
+  84,  85,   0,   0, 169,   0,  93,   0,   0,  87,
+  35,  88,  89,  90,  84,  85,   0,  81, 168,  82,
+  93,  83,   0,  87,  35,  88,  89,  90,  91,  92,
+   0,  81,  86,  82,   0,  83,   0,   0,   0,   0,
+   0,   0,  91,  92, 100, 101,  86,   0,   0,   0,
+   0,   0,  84,  85,   0,   0,  94,   0,  93,   0,
+   0,   0, 102, 103, 104,   0,  84,  85,   0,   0,
+  77,   0,  93, 100, 101,  97,   0,  98, 105, 106,
+ 108, 110, 111, 112, 116, 117, 114, 115, 113, 107,
+ 109, 102, 103, 104, 100, 101,   0,   0,   0, 105,
+ 106, 108, 110, 111, 112, 116, 117, 114, 115, 113,
+ 107, 109, 102, 103, 104, 120,   0,  88,  89,  90,
+   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+  33,  35,   0,   0,  91,  92,  25,  26,  86,  24,
+ 130,   0,   0,  27,  28,  29,  30,  31,  32, 120,
+   0,  88,  89,  90,   0,   0,   0,   0,  84,  85,
+   0,   0,   0,   0,  93,   0,   0,   0,  91,  92,
+   0,   0,  86,   0,  34,   0,   0,  10,   0,   0,
+   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+   0,   0,  84,  85, 100, 101,   0,   0,  93, 105,
+ 106, 108, 110, 111,   0, 116, 117, 114, 115, 113,
+ 107, 109, 102, 103, 104, 100, 101,   0,   0,   0,
+ 105, 106, 108, 110,   0,   0, 116, 117, 114, 115,
+ 113, 107, 109, 102, 103, 104, 100, 101,   0,   0,
+   0, 105, 106, 108, 110,   0,   0, 116, 117,   0,
+ 115, 113, 107, 109, 102, 103, 104, 100, 101,   0,
+   0,   0, 105, 106, 108, 110,   0,   0, 116, 117,
+   0,   0, 113, 107, 109, 102, 103, 104, 100, 101,
+   0,   0,   0, 105, 106, 108, 110,   0,   0, 116,
+ 117,   0, 100, 101, 107, 109, 102, 103, 104, 108,
+ 110,   0,   0, 116, 117,   0,   0,   0, 107, 109,
+ 102, 103, 104
 };
 static	const	short	yypact[] =
 {
-  -4,-1000,-1000,-1000
+ 144,-1000, 144,-1000,-1000, 252,-1000,  76,-1000, 436,
+-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000,
+-1000,-1000,-1000, 217, 251,  30, 250, 249, 247, 246,
+ 243, 242, 241,  44, 240,-1000,  43, 239,  41, 238,
+  26, 236, 224, 220,  40, 218, 188,-1000,  25,-1000,
+  39,-1000,  33, -28,  38,  37,  36,-1000,  32,  28,
+ -29,-1000, 160,  75,-1000,-1000,-1000,-1000,-1000,  74,
+ -30,-1000,-1000, 158, 329, 315,  22,-1000,-1000, 168,
+ 155, 455,  -2,  -3, 455, 455, 455,-1000,-1000,-1000,
+-1000,-1000,-1000, 455,-1000, -48,-1000, 455, 455, 421,
+ 455, 455, 455, 455, 455, 455, 455, 455, 455, 455,
+ 455, 455, 455, 455, 455, 455, 455, 455,  24, 145,
+-1000, 455, 455,-1000,-1000,-1000,  27, 154, 378, 378,
+ 455, 357, 111, 111,-1000,-1000,-1000, 576, 576, 123,
+ 123, 123, 123, 499, 478, 562, 520, 541, 328, 328,
+-1000, 455,-1000,   2, -23,-1000,  71, 378, 102,  70,
+  69,-1000,-1000,-1000,-1000, 277, 263, 225,-1000, 136,
+-1000,  47,-1000, 211,-1000
 };
 static	const	short	yypgo[] =
 {
-   0,   3,   3,   3,   3,   3,   3,   3,   3,   3,
-   3,   3,   3,   3,   3,   3,   3,   3,   3,   3,
-   3,   2
+   0, 306, 305, 257, 303, 302, 299, 298, 297, 296,
+ 295,   1, 294,   0, 292, 288, 280, 274, 266, 265,
+ 263, 226
 };
 static	const	short	yyr1[] =
 {
@@ -867,29 +949,63 @@ static	const	short	yyr1[] =
    5,   6,   6,   6,   6,   6,   6,   6,   6,   6,
    6,   6,  15,  16,  17,  18,  19,  20,  14,   9,
    7,   7,   7,   8,  10,  11,  11,  12,  12,  12,
-  12,  12,  12,  12,  12,  12,  13,  13,  13,  13,
+  12,  12,  12,  12,  13,  13,  13,  13,  13,  13,
   13,  13,  13,  13,  13,  13,  13,  13,  13,  13,
   13,  13,  13,  13,  13,  13,  13,  13,  13,  13,
-  13,  13,  13,  13,  13,  13,  13,  13
+  13,  13,  13,  13,  13,  13
 };
 static	const	short	yyr2[] =
 {
    0,   1,   1,   0,   1,   1,   2,   1,   5,   0,
    2,   1,   1,   1,   1,   1,   1,   1,   1,   1,
    1,   1,   4,   4,   4,   3,   4,   4,   7,   2,
-   3,   4,   3,  13,   7,   0,   2,   2,   3,   4,
-   5,   6,   3,   7,  11,   7,   3,   3,   4,   3,
+   3,   4,   3,  13,   7,   0,   2,   2,   3,   5,
+   3,   7,  11,   7,   3,   3,   4,   3,   3,   3,
    3,   3,   3,   3,   3,   3,   3,   3,   3,   3,
-   3,   3,   3,   3,   3,   3,   3,   3,   2,   2,
-   2,   1,   1,   1,   1,   1,   1,   3
+   3,   3,   3,   3,   3,   3,   2,   2,   2,   1,
+   1,   1,   1,   1,   1,   3
 };
 static	const	short	yychk[] =
 {
--1000, -21,   4,   5
+-1000,  -1,  -2,  -3,  -4,   9,  -3,   4,  50,  -5,
+  51,  -6,  -7,  -8, -14, -15, -16, -17, -18, -19,
+ -20,  -9, -10, -21,  13,  10,  11,  17,  18,  19,
+  20,  21,  22,   4,  48,   5,   4,  44,   4,  53,
+   4,   4,   4,   4,   4,   4,   4,  52,   4,  52,
+   4,  52,   4,  53,   4,   4,   4,  52,   4,   4,
+  53,  52,  44,  54,  52,  52,  52,  52,  52,  54,
+   4,  50,  50,  54, -11, -11,   4,  51, -12, -13,
+ -21,  12,  14,  16,  47,  48,  27,   4,   6,   7,
+   8,  23,  24,  53,  51,  53,  52,  28,  30,  25,
+  26,  27,  44,  45,  46,  31,  32,  42,  33,  43,
+  34,  35,  36,  41,  39,  40,  37,  38,   4, -13,
+   4,  53,  53, -13, -13, -13, -13,  54, -13, -13,
+  29, -13, -13, -13, -13, -13, -13, -13, -13, -13,
+ -13, -13, -13, -13, -13, -13, -13, -13, -13, -13,
+  52,  25,  52, -13, -13,  54,   4, -13, -13,  54,
+  54,  50,  52,  50,  50, -11, -11, -11,  51,  51,
+  51,  15,  50, -11,  51
 };
 static	const	short	yydef[] =
 {
-   0,  -2,   1,   2
+   3,  -2,   4,   5,   7,   0,   6,   0,   9,   0,
+   8,  10,  11,  12,  13,  14,  15,  16,  17,  18,
+  19,  20,  21,   0,   0,   0,   0,   0,   0,   0,
+   0,   0,   0,   1,   0,   2,   0,   0,   0,   0,
+   0,   0,   0,   0,   0,   0,   0,  29,   0,  30,
+   0,  32,   0,   0,   0,   0,   0,  25,   0,   0,
+   0,  31,   0,   0,  22,  23,  24,  26,  27,   0,
+   0,  35,  35,   0,   0,   0,   0,  28,  36,   0,
+   0,   0,   0,   0,   0,   0,   0,  -2,  70,  71,
+  72,  73,  74,   0,  34,   0,  37,   0,   0,   0,
+   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+  69,   0,   0,  66,  67,  68,   0,   0,  44,  45,
+   0,  47,  48,  49,  50,  51,  52,  53,  54,  55,
+  56,  57,  58,  59,  60,  61,  62,  63,  64,  65,
+  38,   0,  40,   0,   0,  75,   0,  46,   0,   0,
+   0,  35,  39,  35,  35,   0,   0,   0,  33,  41,
+  43,   0,  35,   0,  42
 };
 static	const	short	yytok1[] =
 {
@@ -897,7 +1013,7 @@ static	const	short	yytok1[] =
    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
    0,   0,   0,  47,   0,   0,   0,  46,  41,   0,
-  53,  54,  44,   0,   0,  55,   0,  45,   0,   0,
+  53,  54,  44,   0,   0,   0,   0,  45,   0,   0,
    0,   0,   0,   0,   0,   0,   0,   0,   0,  52,
   42,   0,  43,   0,   0,   0,   0,   0,   0,   0,
    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
@@ -1193,22 +1309,22 @@ yydefault:
 	switch(yym) {
 		
 case 1:
-#line	196	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	198	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = yypt[-0].yyv.node; } break;
 case 2:
-#line	197	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	199	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = yypt[-0].yyv.node; } break;
 case 3:
-#line	201	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	203	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { ast_root = nil; } break;
 case 4:
-#line	202	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	204	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { ast_root = yypt[-0].yyv.node; } break;
 case 5:
-#line	206	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	208	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = yypt[-0].yyv.node; } break;
 case 6:
-#line	207	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	209	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { 
         Node *n = yypt[-1].yyv.node;
         while(n->next) n = n->next;
@@ -1216,16 +1332,16 @@ case 6:
         yyval.node = yypt[-1].yyv.node;
     } break;
 case 8:
-#line	221	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	223	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NClass, yypt[-3].yyv.node->name, nil, yypt[-1].yyv.node, nil);
         add_class(yypt[-3].yyv.node->name, yyval.node);
     } break;
 case 9:
-#line	228	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	230	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = nil; } break;
 case 10:
-#line	229	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	231	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { 
         if(yypt[-1].yyv.node == nil) yyval.node = yypt[-0].yyv.node;
         else {
@@ -1236,78 +1352,78 @@ case 10:
         }
     } break;
 case 22:
-#line	256	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	258	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NState, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil);
     } break;
 case 23:
-#line	263	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	265	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NProp, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil);
     } break;
 case 24:
-#line	270	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	272	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NAtomic, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil);
     } break;
 case 25:
-#line	277	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	279	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NStream, yypt[-1].yyv.node->name, nil, nil, nil);
     } break;
 case 26:
-#line	284	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	286	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NSecret, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil);
     } break;
 case 27:
-#line	291	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	293	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NCap, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil);
     } break;
 case 28:
-#line	298	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	300	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 {
         /* method name() { ... } - simplified for now */
         yyval.node = mk(NMethod, yypt[-5].yyv.node->name, "void", yypt[-1].yyv.node, nil);
     } break;
 case 29:
-#line	306	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	308	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NInherit, yypt[-1].yyv.node->name, nil, nil, nil);
     } break;
 case 30:
-#line	313	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	315	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NProp, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil);
     } break;
 case 31:
-#line	317	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	319	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 {
         char buf[128];
         snprint(buf, sizeof buf, "%s*", yypt[-3].yyv.node->name);
         yyval.node = mk(NProp, yypt[-1].yyv.node->name, buf, nil, nil);
     } break;
 case 32:
-#line	323	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	325	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NStream, yypt[-1].yyv.node->name, "chan", nil, nil);
     } break;
 case 33:
-#line	330	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	332	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NMethod, yypt[-6].yyv.node->name, yypt[-3].yyv.node->name, yypt[-1].yyv.node, nil);
     } break;
 case 34:
-#line	337	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	339	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NDestructor, yypt[-5].yyv.node->name, nil, yypt[-1].yyv.node, nil);
     } break;
 case 35:
-#line	343	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	345	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = nil; } break;
 case 36:
-#line	344	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	346	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 {
         if(yypt[-1].yyv.node == nil) yyval.node = yypt[-0].yyv.node;
         else {
@@ -1318,137 +1434,123 @@ case 36:
         }
     } break;
 case 37:
-#line	356	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	358	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = yypt[-1].yyv.node; } break;
 case 38:
-#line	357	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	359	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NLocalVar, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil); } break;
 case 39:
-#line	358	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
-{
-        char buf[128];
-        snprint(buf, sizeof buf, "%s*", yypt[-3].yyv.node->name);
-        yyval.node = mk(NLocalVar, yypt[-1].yyv.node->name, buf, nil, nil);
-    } break;
-case 40:
-#line	363	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+#line	360	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NLocalVar, yypt[-3].yyv.node->name, yypt[-4].yyv.node->name, yypt[-1].yyv.node, nil); } break;
-case 41:
-#line	364	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
-{
-        char buf[128];
-        snprint(buf, sizeof buf, "%s*", yypt[-5].yyv.node->name);
-        yyval.node = mk(NLocalVar, yypt[-3].yyv.node->name, buf, yypt[-1].yyv.node, nil);
-    } break;
-case 42:
-#line	369	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 40:
+#line	361	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NReturn, nil, nil, yypt[-1].yyv.node, nil); } break;
-case 43:
-#line	370	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 41:
+#line	362	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NIf, nil, nil, yypt[-4].yyv.node, yypt[-1].yyv.node); } break;
-case 44:
-#line	371	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 42:
+#line	363	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NIfElse, nil, nil, yypt[-8].yyv.node, mk(NElse, nil, nil, yypt[-5].yyv.node, yypt[-1].yyv.node));
     } break;
-case 45:
-#line	374	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 43:
+#line	366	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NWhile, nil, nil, yypt[-4].yyv.node, yypt[-1].yyv.node); } break;
-case 46:
-#line	378	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 44:
+#line	370	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NChanSend, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 47:
-#line	379	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 45:
+#line	371	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NChanTry, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 48:
-#line	380	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 46:
+#line	372	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NChanRecv, nil, nil, yypt[-3].yyv.node, yypt[-0].yyv.node); } break;
-case 49:
-#line	381	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 47:
+#line	373	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NAssign, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 50:
-#line	382	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 48:
+#line	374	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NAdd, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 51:
-#line	383	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 49:
+#line	375	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NSub, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 52:
-#line	384	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 50:
+#line	376	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NMul, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 53:
-#line	385	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 51:
+#line	377	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NDiv, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 54:
-#line	386	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 52:
+#line	378	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NMod, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 55:
-#line	387	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 53:
+#line	379	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NEq, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 56:
-#line	388	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 54:
+#line	380	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NNe, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 57:
-#line	389	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 55:
+#line	381	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NLt, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 58:
-#line	390	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 56:
+#line	382	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NLe, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 59:
-#line	391	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 57:
+#line	383	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NGt, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 60:
-#line	392	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 58:
+#line	384	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NGe, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 61:
-#line	393	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 59:
+#line	385	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NAnd, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 62:
-#line	394	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 60:
+#line	386	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NOr, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 63:
-#line	395	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 61:
+#line	387	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NBitAnd, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 64:
-#line	396	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 62:
+#line	388	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NBitOr, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 65:
-#line	397	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 63:
+#line	389	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NBitXor, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 66:
-#line	398	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 64:
+#line	390	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NLshift, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 67:
-#line	399	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 65:
+#line	391	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NRshift, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 68:
-#line	400	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 66:
+#line	392	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NNot, nil, nil, yypt[-0].yyv.node, nil); } break;
-case 69:
-#line	401	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 67:
+#line	393	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NBitNot, nil, nil, yypt[-0].yyv.node, nil); } break;
-case 70:
-#line	402	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 68:
+#line	394	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NNeg, nil, nil, yypt[-0].yyv.node, nil); } break;
-case 71:
-#line	403	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 69:
+#line	395	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = yypt[-0].yyv.node; } break;
-case 72:
-#line	404	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 70:
+#line	396	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NIntLit, yypt[-0].yyv.name, nil, nil, nil); } break;
-case 73:
-#line	405	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 71:
+#line	397	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NStringLit, yypt[-0].yyv.name, nil, nil, nil); } break;
-case 74:
-#line	406	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 72:
+#line	398	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NCharLit, yypt[-0].yyv.name, nil, nil, nil); } break;
-case 75:
-#line	407	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 73:
+#line	399	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NBoolLit, "1", nil, nil, nil); } break;
-case 76:
-#line	408	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 74:
+#line	400	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NBoolLit, "0", nil, nil, nil); } break;
-case 77:
-#line	409	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
+case 75:
+#line	401	"/home/scott/Repo/objective-9c/o9c/o9_plan9.y"
 { yyval.node = yypt[-1].yyv.node; } break;
 	}
 	goto yystack;  /* stack new state and value */

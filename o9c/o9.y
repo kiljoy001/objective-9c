@@ -357,17 +357,7 @@ stmt_list:
 stmt:
     expr ';' { $$ = $1; }
     | typename TIDENT ';' { $$ = mk(NLocalVar, $2->name, $1->name, nil, nil); }
-    | typename '*' TIDENT ';' {
-        char buf[128];
-        snprint(buf, sizeof buf, "%s*", $1->name);
-        $$ = mk(NLocalVar, $3->name, buf, nil, nil);
-    }
     | typename TIDENT TEQ expr ';' { $$ = mk(NLocalVar, $2->name, $1->name, $4, nil); }
-    | typename '*' TIDENT TEQ expr ';' {
-        char buf[128];
-        snprint(buf, sizeof buf, "%s*", $1->name);
-        $$ = mk(NLocalVar, $3->name, buf, $5, nil);
-    }
     | TRETURN expr ';' { $$ = mk(NReturn, nil, nil, $2, nil); }
     | TIF '(' expr ')' '{' stmt_list '}' { $$ = mk(NIf, nil, nil, $3, $6); }
     | TIF '(' expr ')' '{' stmt_list '}' TELSE '{' stmt_list '}' {
@@ -401,7 +391,7 @@ expr:
     | expr TRSHIFT expr { $$ = mk(NRshift, nil, nil, $1, $3); }
     | '!' expr { $$ = mk(NNot, nil, nil, $2, nil); }
     | '~' expr { $$ = mk(NBitNot, nil, nil, $2, nil); }
-    | '-' expr %prec UMINUS { $$ = mk(NNeg, nil, nil, $2, nil); }
+    | TSUB expr %prec UMINUS { $$ = mk(NNeg, nil, nil, $2, nil); }
     | TIDENT { $$ = $1; }
     | TINTLIT { $$ = mk(NIntLit, $1, nil, nil, nil); }
     | TSTRINGLIT { $$ = mk(NStringLit, $1, nil, nil, nil); }
