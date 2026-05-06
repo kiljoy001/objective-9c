@@ -169,7 +169,7 @@ get_sym_type(Node *c, char *name)
 
 %token <node> TIDENT TTYPE
 %token <name> TINTLIT TSTRINGLIT TCHARLIT
-%token TCLASS TFUNC TMETHOD TRETURN TCHAN TIF TELSE TWHILE
+%token TCLASS TFUNC TMETHOD TRETURN TCHAN TIF TELSE TWHILE TNEW
 %token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TTRUE TFALSE
 %token TEQ TADD TSUB TCHANSEND TCHANRECV TCHANTRY TEQEQ TNEQ TLE TGE
 %token TAND TOR TLSHIFT TRSHIFT
@@ -434,6 +434,12 @@ expr:
     | TCHARLIT { $$ = mk(NCharLit, $1, nil, nil, nil); }
     | TTRUE { $$ = mk(NBoolLit, "1", nil, nil, nil); }
     | TFALSE { $$ = mk(NBoolLit, "0", nil, nil, nil); }
+    | TNEW typename '(' call_args ')' {
+        Node *n = mk(NClass, $2->name, nil, nil, nil);
+        n->left = $2;
+        n->right = $4;
+        $$ = n;
+    }
     | '(' expr ')' { $$ = $2; }
     ;
 
@@ -622,6 +628,7 @@ yylex(void)
             
             if(strcmp(buf, "class") == 0) return TCLASS;
             if(strcmp(buf, "func") == 0) return TFUNC;
+            if(strcmp(buf, "new") == 0) return TNEW;
             if(strcmp(buf, "method") == 0) return TMETHOD;
             if(strcmp(buf, "state") == 0) return TSTATE;
             if(strcmp(buf, "prop") == 0) return TPROP;
@@ -821,16 +828,35 @@ gen_stmt(Node *c, Node *s)
     case NLocalVar:
         {
             char *cname = find_class(s->typename) ? s->typename : nil;
+            int is_new = (s->left && s->left->type == NClass && s->left->name);
             if(in_class_context || cname == nil){
                 /* Plain local variable */
                 print("\t%s %s", map_type(s->typename), s->name);
-                if(s->left){
+                if(s->left && !is_new){
                     print(" = "); gen_expr(s->left);
                 }
                 print(";\n");
+            } else if(is_new && cname){
+                /* Counter c = new Counter() -> spawn in-process server + client */
+                char *cn = cname;
+                print("\t%s_Internal *__%s = emalloc9p(sizeof(%s_Internal));\n", cn, s->name, cn);
+                print("\tmemset(__%s, 0, sizeof(%s_Internal));\n", s->name, cn);
+                print("\t__%s->dispatch_chan = chancreate(sizeof(void*), 10);\n", s->name);
+                print("\t%s_Client %s;\n", cn, s->name);
+                print("\tmemset(&%s, 0, sizeof(%s_Client));\n", s->name, cn);
+                print("\t%s.dispatch_chan = __%s->dispatch_chan;\n", s->name, s->name);
+                if(find_class(cn)){
+                    Node *cnode = find_class(cn);
+                    Node *m;
+                    for(m = cnode->left; m; m = m->next){
+                        if(m->type == NProp || m->type == NState || m->type == NAtomic){
+                            print("\t__%s->%s = 0;\n", s->name, m->name);
+                        }
+                    }
+                }
+                print("\tproccreate(%s_loop, __%s, 8192);\n", cn, s->name);
             } else {
-                /* Class-typed variable in top-level context:
-                 * Counter c; -> Counter_Client c; o9_AsmTable c_tbl; ... */
+                /* Class-typed variable with client init (no new) */
                 print("\t%s_Client %s;\n", cname, s->name);
                 print("\to9_AsmTable %s_tbl;\n", s->name);
                 print("\tmemset(&%s, 0, sizeof(%s_Client));\n", s->name, cname);
@@ -839,6 +865,7 @@ gen_stmt(Node *c, Node *s)
                 print("\to9_init_client(&%s, \"%s\", 4096);\n", s->name, cname);
             }
         }
+        break;
         break;
     case NChanSend: {
         char *t = "vlong";
