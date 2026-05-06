@@ -51,7 +51,8 @@ enum {
     NIfElse,
     NElse,
     NWhile,
-    NLocalVar
+    NLocalVar,
+    NMsgSend
 };
 
 struct Node {

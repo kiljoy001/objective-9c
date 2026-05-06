@@ -53,7 +53,8 @@ enum {
     NIfElse,
     NElse,
     NWhile,
-    NLocalVar
+    NLocalVar,
+    NMsgSend
 };
 
 struct Node {
@@ -187,8 +188,9 @@ get_sym_type(Node *c, char *name)
 %left TADD TSUB
 %left '*' '/' '%'
 %right '!' '~' UMINUS
+%left '.'
 
-%type <node> program top_levels top_level class_decl member_list member var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename param_list param
+%type <node> program top_levels top_level class_decl member_list member var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename param_list param call_args call_arg func_top_level
 
 %start program
 
@@ -216,6 +218,14 @@ top_levels:
 
 top_level:
     class_decl
+    | func_top_level
+    ;
+
+func_top_level:
+    TFUNC TIDENT '(' ')' '{' stmt_list '}'
+    {
+        $$ = mk(NMethod, $2->name, "void", $6, nil);
+    }
     ;
 
 class_decl:
@@ -379,8 +389,8 @@ stmt_list:
 
 stmt:
     expr ';' { $$ = $1; }
-    | typename TIDENT ';' { $$ = mk(NLocalVar, $2->name, $1->name, nil, nil); }
-    | typename TIDENT TEQ expr ';' { $$ = mk(NLocalVar, $2->name, $1->name, $4, nil); }
+    | typename TIDENT ';' { $$ = mk(NLocalVar, $2->name, $1->name, nil, nil); if(find_class($1->name)) add_var_class($2->name, $1->name); }
+    | typename TIDENT TEQ expr ';' { $$ = mk(NLocalVar, $2->name, $1->name, $4, nil); if(find_class($1->name)) add_var_class($2->name, $1->name); }
     | TRETURN expr ';' { $$ = mk(NReturn, nil, nil, $2, nil); }
     | TIF '(' expr ')' '{' stmt_list '}' { $$ = mk(NIf, nil, nil, $3, $6); }
     | TIF '(' expr ')' '{' stmt_list '}' TELSE '{' stmt_list '}' {
@@ -415,6 +425,9 @@ expr:
     | '!' expr { $$ = mk(NNot, nil, nil, $2, nil); }
     | '~' expr { $$ = mk(NBitNot, nil, nil, $2, nil); }
     | TSUB expr %prec UMINUS { $$ = mk(NNeg, nil, nil, $2, nil); }
+    | expr '.' TIDENT '(' call_args ')' {
+        $$ = mk(NMsgSend, $3->name, nil, $1, $5);
+    }
     | TIDENT { $$ = $1; }
     | TINTLIT { $$ = mk(NIntLit, $1, nil, nil, nil); }
     | TSTRINGLIT { $$ = mk(NStringLit, $1, nil, nil, nil); }
@@ -422,6 +435,24 @@ expr:
     | TTRUE { $$ = mk(NBoolLit, "1", nil, nil, nil); }
     | TFALSE { $$ = mk(NBoolLit, "0", nil, nil, nil); }
     | '(' expr ')' { $$ = $2; }
+    ;
+
+call_args:
+    /* empty */ { $$ = nil; }
+    | call_arg { $$ = $1; }
+    | call_args ',' call_arg {
+        if($1 == nil) $$ = $3;
+        else {
+            Node *n = $1;
+            while(n->next) n = n->next;
+            n->next = $3;
+            $$ = $1;
+        }
+    }
+    ;
+
+call_arg:
+    expr { $$ = $1; }
     ;
 
 %%
@@ -617,6 +648,36 @@ yylex(void)
 
 char *local_vars[128];
 int num_locals = 0;
+int in_class_context = 1;		/* 0 when generating top-level main() */
+
+/* Variable-to-class symbol table */
+typedef struct VarClass VarClass;
+struct VarClass {
+    char *varname;
+    char *classname;
+};
+VarClass var_classes[128];
+int num_var_classes = 0;
+
+void
+add_var_class(char *varname, char *classname)
+{
+    if(num_var_classes >= 128) return;
+    var_classes[num_var_classes].varname = varname;
+    var_classes[num_var_classes].classname = classname;
+    num_var_classes++;
+}
+
+char*
+get_var_class(char *varname)
+{
+    int i;
+    for(i=0; i<num_var_classes; i++){
+        if(strcmp(var_classes[i].varname, varname) == 0)
+            return var_classes[i].classname;
+    }
+    return nil;
+}
 
 void
 mark_locals(Node *n)
@@ -650,8 +711,10 @@ gen_expr(Node *e)
     case NIdent:
         if(is_local(e->name))
             print("%s", e->name);
-        else
+        else if(in_class_context)
             print("self->%s", e->name);
+        else
+            print("%s", e->name);
         break;
     case NIntLit:
         print("%s", e->name);
@@ -664,6 +727,22 @@ gen_expr(Node *e)
         break;
     case NBoolLit:
         print("%s", e->name);
+        break;
+    case NMsgSend:
+        /* c.method(args...) -> obj9_msgSend(&c, hash, __args) */
+        print("{ vlong __args[] = {");
+        {
+            Node *a;
+            int first = 1;
+            for(a = e->right; a; a = a->next){
+                if(!first) print(", ");
+                gen_expr(a);
+                first = 0;
+            }
+        }
+        print("}; obj9_msgSend(&");
+        gen_expr(e->left);
+        print(", 0x%lx, __args); }", o9_hash(e->name));
         break;
     case NAdd:
         print("("); gen_expr(e->left); print(" + "); gen_expr(e->right); print(")");
@@ -740,11 +819,26 @@ gen_stmt(Node *c, Node *s)
     if(s == nil) return;
     switch(s->type){
     case NLocalVar:
-        print("\t%s %s", map_type(s->typename), s->name);
-        if(s->left){
-            print(" = "); gen_expr(s->left);
+        {
+            char *cname = find_class(s->typename) ? s->typename : nil;
+            if(in_class_context || cname == nil){
+                /* Plain local variable */
+                print("\t%s %s", map_type(s->typename), s->name);
+                if(s->left){
+                    print(" = "); gen_expr(s->left);
+                }
+                print(";\n");
+            } else {
+                /* Class-typed variable in top-level context:
+                 * Counter c; -> Counter_Client c; o9_AsmTable c_tbl; ... */
+                print("\t%s_Client %s;\n", cname, s->name);
+                print("\to9_AsmTable %s_tbl;\n", s->name);
+                print("\tmemset(&%s, 0, sizeof(%s_Client));\n", s->name, cname);
+                print("\tmemset(&%s_tbl, 0, sizeof(o9_AsmTable));\n", s->name);
+                print("\t%s.table = &%s_tbl;\n", s->name, s->name);
+                print("\to9_init_client(&%s, \"%s\", 4096);\n", s->name, cname);
+            }
         }
-        print(";\n");
         break;
     case NChanSend: {
         char *t = "vlong";
@@ -800,7 +894,7 @@ gen_class_header(Node *c)
     print("/* Generated Client Header for class %s */\n", c->name);
     print("#ifndef _O9_GEN_%s_H_\n#define _O9_GEN_%s_H_\n\n", c->name, c->name);
     print("typedef struct %s_AsmTable {\n\tvoid *data_cache[64];\n\tvoid (*ctrl_cache[64])(void*);\n} %s_AsmTable;\n\n", c->name, c->name);
-    print("typedef struct %s_Client {\n\tint fd;\n\t%s_AsmTable *table;\n\tlong ref;\t/* ARC Counter */\n", c->name, c->name);
+    print("typedef struct %s_Client {\n\tint fd;\n\to9_AsmTable *table;\n\tlong ref;\t/* ARC Counter */\n\tvoid *dispatch_chan;\n", c->name);
     for(m = c->left; m; m = m->next){
         if(m->type == NInherit) print("\t%s_Client;\n", m->name);
     }
@@ -1031,15 +1125,11 @@ codegen(Node *root)
     Node *n;
     
     print("/* Generated o9 Source */\n");
-    print("#include <u.h>\n#include <libc.h>\n#include <thread.h>\n#include <fcall.h>\n#include <9p.h>\n\n");
+    print("#include <u.h>\n#include <libc.h>\n#include <thread.h>\n#include <fcall.h>\n#include <9p.h>\n#include \"o9.h\"\n\n");
     print("#ifndef _O9_COMMON_\n#define _O9_COMMON_\n");
     print("#define o9_offsetof(s, m) (long)(&(((s*)0)->m))\n");
     print("typedef struct ArcEntry {\n\tulong id;\n\tlong count;\n} ArcEntry;\n\n");
     print("typedef struct ArcLedger {\n\tArcEntry entries[64];\n} ArcLedger;\n");
-    print("typedef struct O9Msg O9Msg;\n");
-    print("typedef struct O9Reply O9Reply;\n");
-    print("struct O9Msg {\n\tulong sel;\n\tvoid *args;\n\tint nargs;\n\tChannel *replyc;\n};\n");
-    print("struct O9Reply {\n\tint ok;\n\tvoid *ret;\n\tchar *err;\n};\n");
     print("#endif\n\n");
 
     for(n = root; n; n = n->next){
@@ -1047,16 +1137,36 @@ codegen(Node *root)
             gen_class_header(n);
         }
     }
+    Node *main_func = nil;
     Node *last = nil;
     for(n = root; n; n = n->next){
         if(n->type == NClass) {
             gen_class_server(n);
             last = n;
         }
+        if(n->type == NMethod && strcmp(n->name, "main") == 0){
+            main_func = n;
+        }
     }
-    if(last) {
-        print("void\nthreadmain(int argc, char **argv)\n{\n\to9_main_%s(argc, argv);\n}\n", last->name);
+    print("void\nthreadmain(int argc, char **argv)\n{\n");
+    if(last){
+        print("\to9_main_%s(argc, argv);\n", last->name);
     }
+    if(main_func){
+        num_locals = 0;
+        mark_locals(main_func->left);
+        in_class_context = 0;
+        for(n = main_func->left; n; n = n->next)
+            gen_stmt(nil, n);
+    }
+    /* Also need a global flag for class init tracking */
+    if(main_func && last){
+        /* The class server was started by o9_main_Counter above.
+         * Variables declared in main() still need o9_Object init if
+         * they are class-typed. The var_class table tracks which
+         * variables map to which classes. This is a TODO for now. */
+    }
+    print("\tthreadexitsall(nil);\n}\n");
 }
 
 int
