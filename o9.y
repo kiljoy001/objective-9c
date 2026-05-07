@@ -54,7 +54,11 @@ enum {
     NElse,
     NWhile,
     NLocalVar,
-    NMsgSend
+    NMsgSend,
+    NPropAccessor,
+    NMethodDec,
+    NRetType,
+    NExprBody
 };
 
 struct Node {
@@ -171,6 +175,7 @@ get_sym_type(Node *c, char *name)
 %token <name> TINTLIT TSTRINGLIT TCHARLIT
 %token TCLASS TFUNC TMETHOD TRETURN TCHAN TIF TELSE TWHILE TNEW
 %token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TTRUE TFALSE
+%token TGET TSET
 %token TEQ TADD TSUB TCHANSEND TCHANRECV TCHANTRY TEQEQ TNEQ TLE TGE
 %token TAND TOR TLSHIFT TRSHIFT
 
@@ -264,21 +269,33 @@ member:
     ;
 
 state_decl:
-    TSTATE TIDENT TIDENT ';'
+    TSTATE typename TIDENT ';'
     {
         $$ = mk(NState, $3->name, $2->name, nil, nil);
     }
     ;
 
 prop_decl:
-    TPROP TIDENT TIDENT ';'
+    TPROP typename TIDENT ';'
     {
         $$ = mk(NProp, $3->name, $2->name, nil, nil);
+    }
+    | TPROP typename TIDENT '{' TGET '{' stmt_list '}' '}'
+    {
+        $$ = mk(NPropAccessor, $3->name, $2->name, $7, nil);
+    }
+    | TPROP typename TIDENT '{' TSET '{' stmt_list '}' '}'
+    {
+        $$ = mk(NPropAccessor, $3->name, $2->name, nil, $7);
+    }
+    | TPROP typename TIDENT '{' TGET '{' stmt_list '}' TSET '{' stmt_list '}' '}'
+    {
+        $$ = mk(NPropAccessor, $3->name, $2->name, $7, $11);
     }
     ;
 
 atomic_decl:
-    TATOMIC TIDENT TIDENT ';'
+    TATOMIC typename TIDENT ';'
     {
         $$ = mk(NAtomic, $3->name, $2->name, nil, nil);
     }
@@ -292,24 +309,49 @@ stream_decl:
     ;
 
 secret_decl:
-    TSECRET TIDENT TIDENT ';'
+    TSECRET typename TIDENT ';'
     {
         $$ = mk(NSecret, $3->name, $2->name, nil, nil);
     }
     ;
 
 cap_decl:
-    TCAP TIDENT TIDENT ';'
+    TCAP typename TIDENT ';'
     {
         $$ = mk(NCap, $3->name, $2->name, nil, nil);
     }
     ;
 
+/* 
+ * C#-style method declaration.
+ * Return type first:  method int64 getValue() { return val; }
+ * No return type (void implied):  method inc(int64 n) { val += n; }
+ * Expression body:  method int64 double() => val * 2;
+ * Backward compat:  method inc() { }
+ *
+ * Two S/R conflicts on the TIDENT/( ambiguity are benign:
+ * After "method TIDENT", lookahead TIDENT/TTYPE => shift (return-type path)
+ * After "method TIDENT", lookahead '(' => shift (bare-name path)
+ * Both default shift actions produce the correct parse.
+ */
 method_decl:
-    TMETHOD TIDENT '(' ')' '{' stmt_list '}'
+    TMETHOD typename TIDENT '(' param_list ')' '{' stmt_list '}'
     {
-        /* method name() { ... } - simplified for now */
-        $$ = mk(NMethod, $2->name, "void", $6, nil);
+        $$ = mk(NMethod, $3->name, $2->name, $8, $5);
+    }
+    | TMETHOD typename TIDENT '(' param_list ')' '=>' expr ';'
+    {
+        Node *body = mk(NReturn, nil, nil, $8, nil);
+        $$ = mk(NMethod, $3->name, $2->name, body, $5);
+    }
+    | TMETHOD TIDENT '(' param_list ')' '{' stmt_list '}'
+    {
+        $$ = mk(NMethod, $2->name, "void", $6, $4);
+    }
+    | TMETHOD TIDENT '(' param_list ')' '=>' expr ';'
+    {
+        Node *body = mk(NReturn, nil, nil, $6, nil);
+        $$ = mk(NMethod, $2->name, "void", body, $4);
     }
     ;
 
@@ -364,6 +406,10 @@ param:
     TIDENT typename
     {
         $$ = mk(NProp, $1->name, $2->name, nil, nil);
+    }
+    | typename TIDENT
+    {
+        $$ = mk(NProp, $2->name, $1->name, nil, nil);
     }
     ;
 
@@ -644,6 +690,18 @@ yylex(void)
             if(strcmp(buf, "true") == 0) return TTRUE;
             if(strcmp(buf, "false") == 0) return TFALSE;
             if(strcmp(buf, "bool") == 0) return TTYPE;
+            if(strcmp(buf, "int64") == 0) return TTYPE;
+            if(strcmp(buf, "uint64") == 0) return TTYPE;
+            if(strcmp(buf, "int32") == 0) return TTYPE;
+            if(strcmp(buf, "uint32") == 0) return TTYPE;
+            if(strcmp(buf, "int16") == 0) return TTYPE;
+            if(strcmp(buf, "uint16") == 0) return TTYPE;
+            if(strcmp(buf, "int8") == 0) return TTYPE;
+            if(strcmp(buf, "uint8") == 0) return TTYPE;
+            if(strcmp(buf, "void") == 0) return TTYPE;
+            if(strcmp(buf, "string") == 0) return TTYPE;
+            if(strcmp(buf, "get") == 0) return TGET;
+            if(strcmp(buf, "set") == 0) return TSET;
             return TIDENT;
         }
         return c;
@@ -656,6 +714,7 @@ yylex(void)
 char *local_vars[128];
 int num_locals = 0;
 int in_class_context = 1;		/* 0 when generating top-level main() */
+int in_method_body = 0;		/* 1 when generating inside a method impl */
 
 /* Variable-to-class symbol table */
 typedef struct VarClass VarClass;
@@ -737,19 +796,25 @@ gen_expr(Node *e)
         break;
     case NMsgSend:
         /* c.method(args...) -> obj9_msgSend(&c, hash, __args) */
-        print("{ vlong __args[] = {");
         {
+            /* Cast to get the count */
+            int nargs = 0;
             Node *a;
-            int first = 1;
-            for(a = e->right; a; a = a->next){
-                if(!first) print(", ");
-                gen_expr(a);
-                first = 0;
+            for(a = e->right; a; a = a->next) nargs++;
+            print("({ vlong __args[%d] = {", nargs);
+            {
+                int first = 1;
+                for(a = e->right; a; a = a->next){
+                    if(!first) print(", ");
+                    gen_expr(a);
+                    first = 0;
+                }
             }
+            /* obj9_msgSend returns void* (r->ret). Cast to vlong for assignment. */
+            print("}; (vlong)obj9_msgSend(&");
+            gen_expr(e->left);
+            print(", 0x%lx, __args); })", o9_hash(e->name));
         }
-        print("}; obj9_msgSend(&");
-        gen_expr(e->left);
-        print(", 0x%lx, __args); }", o9_hash(e->name));
         break;
     case NAdd:
         print("("); gen_expr(e->left); print(" + "); gen_expr(e->right); print(")");
@@ -837,8 +902,14 @@ gen_stmt(Node *c, Node *s)
                 }
                 print(";\n");
             } else if(is_new && cname){
-                /* Counter c = new Counter() -> spawn in-process server + client */
+                /* Counter c = new Counter(...) -> spawn in-process server + client */
                 char *cn = cname;
+                /* Count constructor args from TNEW node's call_args (s->left->right) */
+                int nctor = 0;
+                {
+                    Node *ca;
+                    for(ca = s->left->right; ca; ca = ca->next) nctor++;
+                }
                 print("\t%s_Internal *__%s = emalloc9p(sizeof(%s_Internal));\n", cn, s->name, cn);
                 print("\tmemset(__%s, 0, sizeof(%s_Internal));\n", s->name, cn);
                 print("\t__%s->dispatch_chan = chancreate(sizeof(void*), 10);\n", s->name);
@@ -855,6 +926,21 @@ gen_stmt(Node *c, Node *s)
                     }
                 }
                 print("\tproccreate(%s_loop, __%s, 8192);\n", cn, s->name);
+                /* Send constructor args if any */
+                if(nctor > 0){
+                    /* Find a method named same as the class = constructor */
+                    print("\t{ vlong __init_args[%d] = {", nctor);
+                    {
+                        int first = 1;
+                        Node *ca;
+                        for(ca = s->left->right; ca; ca = ca->next){
+                            if(!first) print(", ");
+                            gen_expr(ca);
+                            first = 0;
+                        }
+                    }
+                    print("}; obj9_msgSend(&%s, 0x%lx, __init_args); }\n", s->name, o9_hash(cname));
+                }
             } else {
                 /* Class-typed variable with client init (no new) */
                 print("\t%s_Client %s;\n", cname, s->name);
@@ -889,7 +975,11 @@ gen_stmt(Node *c, Node *s)
         print("\t"); gen_expr(s->left); print(" = "); gen_expr(s->right); print(";\n");
         break;
     case NReturn:
-        print("\treturn "); gen_expr(s->left); print(";\n");
+        if(in_method_body){
+            print("\tr->ret = (void*)("); gen_expr(s->left); print(");\n\tgoto done;\n");
+        } else {
+            print("\treturn "); gen_expr(s->left); print(";\n");
+        }
         break;
     case NIf:
         print("\tif("); gen_expr(s->left); print("){\n");
@@ -1037,7 +1127,10 @@ gen_class_server(Node *c)
                     pi++;
                 }
             }
+            in_method_body = 1;
             for(s = m->left; s; s = s->next) gen_stmt(c, s);
+            in_method_body = 0;
+            print("done:\n");
             print("\tr->ok = 1;\n\tsendp(msg->replyc, r);\n}\n\n");
         }
         if(m->type == NDestructor){
@@ -1092,6 +1185,20 @@ gen_class_server(Node *c)
                 print("\t\tsnprint(buf, sizeof buf, \"%s\\n\", (%s)s->%s);\n", fmt, cast, m->name);
                 print("\t\treadstr(r, buf); respond(r, nil); return;\n\t}\n");
             }
+        }
+        if(m->type == NPropAccessor && m->left /* has getter */){
+            /* Custom getter body — emit directly, use 's' as self ref */
+            char *t = map_type(m->typename);
+            print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
+            print("\t\tchar buf[1024];\n");
+            Node *old_c = c;
+            /* Wrap gen_stmt in a context where 's' is the internal state and
+             * the getter's return sets a temp variable, then snprint it */
+            {
+                Node *gs;
+                for(gs = m->left; gs; gs = gs->next) gen_stmt(c, gs);
+            }
+            print("\t\trespond(r, nil); return;\n\t}\n");
         }
     }
     print("\trespond(r, \"not found\");\n}\n\n");
