@@ -1,16 +1,13 @@
 class LogicTest {
     int64 val;
-    char* s;
-
+    string s;
     func (LogicTest *l) run() void {
         bool b = true;
         bool b2 = false;
-        
         if (b && !b2) {
             val = (1 << 5) | 0x01;
             s = "hello logic";
         }
-        
         val = -val;
         val = ~val;
     }

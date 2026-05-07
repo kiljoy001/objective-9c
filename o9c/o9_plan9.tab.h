@@ -76,24 +76,22 @@ extern int yydebug;
     TCAP = 277,                    /* TCAP  */
     TTRUE = 278,                   /* TTRUE  */
     TFALSE = 279,                  /* TFALSE  */
-    TGET = 280,                    /* TGET  */
-    TSET = 281,                    /* TSET  */
-    TARROW = 282,                  /* TARROW  */
-    TEQ = 283,                     /* TEQ  */
-    TADD = 284,                    /* TADD  */
-    TSUB = 285,                    /* TSUB  */
-    TCHANSEND = 286,               /* TCHANSEND  */
-    TCHANRECV = 287,               /* TCHANRECV  */
-    TCHANTRY = 288,                /* TCHANTRY  */
-    TEQEQ = 289,                   /* TEQEQ  */
-    TNEQ = 290,                    /* TNEQ  */
-    TLE = 291,                     /* TLE  */
-    TGE = 292,                     /* TGE  */
-    TAND = 293,                    /* TAND  */
-    TOR = 294,                     /* TOR  */
-    TLSHIFT = 295,                 /* TLSHIFT  */
-    TRSHIFT = 296,                 /* TRSHIFT  */
-    UMINUS = 297                   /* UMINUS  */
+    TARROW = 280,                  /* TARROW  */
+    TEQ = 281,                     /* TEQ  */
+    TADD = 282,                    /* TADD  */
+    TSUB = 283,                    /* TSUB  */
+    TCHANSEND = 284,               /* TCHANSEND  */
+    TCHANRECV = 285,               /* TCHANRECV  */
+    TCHANTRY = 286,                /* TCHANTRY  */
+    TEQEQ = 287,                   /* TEQEQ  */
+    TNEQ = 288,                    /* TNEQ  */
+    TLE = 289,                     /* TLE  */
+    TGE = 290,                     /* TGE  */
+    TAND = 291,                    /* TAND  */
+    TOR = 292,                     /* TOR  */
+    TLSHIFT = 293,                 /* TLSHIFT  */
+    TRSHIFT = 294,                 /* TRSHIFT  */
+    UMINUS = 295                   /* UMINUS  */
   };
   typedef enum yytokentype yytoken_kind_t;
 #endif
@@ -102,12 +100,12 @@ extern int yydebug;
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 union YYSTYPE
 {
-#line 170 "o9_plan9.y"
+#line 166 "o9_plan9.y"
 
     Node *node;
     char *name;
 
-#line 111 "o9_plan9.tab.h"
+#line 109 "o9_plan9.tab.h"
 
 };
 typedef union YYSTYPE YYSTYPE;

@@ -1,6 +1,6 @@
 class TypesTest {
     int normal_int;
-    char* my_string;
+    string my_string;
     vlong large_int;
     ulong unsigned_long;
     chan trigger;

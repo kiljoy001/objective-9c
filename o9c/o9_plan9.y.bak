@@ -54,7 +54,11 @@ enum {
     NElse,
     NWhile,
     NLocalVar,
-    NMsgSend
+    NMsgSend,
+    NPropAccessor,
+    NMethodDec,
+    NRetType,
+    NExprBody
 };
 
 struct Node {
@@ -171,7 +175,8 @@ get_sym_type(Node *c, char *name)
 %token <node> TIDENT TTYPE
 %token <name> TINTLIT TSTRINGLIT TCHARLIT
 %token TCLASS TFUNC TMETHOD TRETURN TCHAN TIF TELSE TWHILE TNEW
-%token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TTRUE TFALSE TARROW
+%token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TTRUE TFALSE
+%token TGET TSET TARROW
 %token TEQ TADD TSUB TCHANSEND TCHANRECV TCHANTRY TEQEQ TNEQ TLE TGE
 %token TAND TOR TLSHIFT TRSHIFT
 
@@ -275,6 +280,18 @@ prop_decl:
     TPROP typename TIDENT ';'
     {
         $$ = mk(NProp, $3->name, $2->name, nil, nil);
+    }
+    | TPROP typename TIDENT '{' TGET '{' stmt_list '}' '}'
+    {
+        $$ = mk(NPropAccessor, $3->name, $2->name, $7, nil);
+    }
+    | TPROP typename TIDENT '{' TSET '{' stmt_list '}' '}'
+    {
+        $$ = mk(NPropAccessor, $3->name, $2->name, nil, $7);
+    }
+    | TPROP typename TIDENT '{' TGET '{' stmt_list '}' TSET '{' stmt_list '}' '}'
+    {
+        $$ = mk(NPropAccessor, $3->name, $2->name, $7, $11);
     }
     ;
 
@@ -687,6 +704,8 @@ yylex(void)
             if(strcmp(buf, "ulong") == 0) return TTYPE;
             if(strcmp(buf, "ushort") == 0) return TTYPE;
             if(strcmp(buf, "uchar") == 0) return TTYPE;
+            if(strcmp(buf, "get") == 0) return TGET;
+            if(strcmp(buf, "set") == 0) return TSET;
             return TIDENT;
         }
         return c;
@@ -1177,6 +1196,18 @@ gen_class_server(Node *c)
                 print("\t\tsnprint(buf, sizeof buf, \"%s\\n\", (%s)s->%s);\n", fmt, cast, m->name);
                 print("\t\treadstr(r, buf); respond(r, nil); return;\n\t}\n");
             }
+        }
+        if(m->type == NPropAccessor && m->left /* has getter */){
+            /* Custom getter body — emit directly, use 's' as self ref */
+            print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
+            print("\t\tchar buf[1024];\n");
+            /* Wrap gen_stmt in a context where 's' is the internal state and
+             * the getter's return sets a temp variable, then snprint it */
+            {
+                Node *gs;
+                for(gs = m->left; gs; gs = gs->next) gen_stmt(c, gs);
+            }
+            print("\t\trespond(r, nil); return;\n\t}\n");
         }
     }
     print("\trespond(r, \"not found\");\n}\n\n");
