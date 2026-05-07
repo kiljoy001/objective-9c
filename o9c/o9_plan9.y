@@ -717,6 +717,7 @@ char *local_vars[128];
 int num_locals = 0;
 int in_class_context = 1;		/* 0 when generating top-level main() */
 int in_method_body = 0;		/* 1 when generating inside a method impl */
+int has_return = 0;			/* 1 when a return statement was emitted */
 
 /* Variable-to-class symbol table */
 typedef struct VarClass VarClass;
@@ -983,6 +984,7 @@ gen_stmt(Node *c, Node *s)
         break;
     case NReturn:
         if(in_method_body){
+            has_return = 1;
             print("\tr->ret = (void*)("); gen_expr(s->left); print(");\n\tgoto done;\n");
         } else {
             print("\treturn "); gen_expr(s->left); print(";\n");
@@ -1134,9 +1136,10 @@ gen_class_server(Node *c)
                 }
             }
             in_method_body = 1;
+            has_return = 0;
             for(s = m->left; s; s = s->next) gen_stmt(c, s);
             in_method_body = 0;
-            print("done:\n");
+            if(has_return) print("done:\n");
             print("\tr->ok = 1;\n\tsendp(msg->replyc, r);\n}\n\n");
         }
         if(m->type == NDestructor){

@@ -73,10 +73,13 @@ o9_init_client(void *client, char *srvname, int size)
 void
 o9_cache_fill(void *client, ulong hash, int is_ctrl)
 {
-	o9_Object *obj = client;
-	char path[256];
-	Biobuf *bp;
-	int fd;
+    o9_Object *obj = client;
+    char path[256];
+    Biobuf *bp;
+    int fd;
+
+    USED(hash);
+    USED(is_ctrl);
 
 	if(obj == nil || obj->srvname[0] == '\0') return;
 
