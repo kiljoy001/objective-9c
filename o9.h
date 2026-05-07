@@ -73,13 +73,15 @@ extern void  o9_ledger_update(void *client, ulong id, int delta);
 extern void  o9_clunk(int fd);
 extern void* obj9_msgSend(void *receiver, ulong selector, void *args);
 
-/* 9P-native Hashing */
+/* 9P-native Hashing (djb2) */
 static ulong
 o9_hash(char *s)
 {
-    ulong h = 0;
-    while(*s) h = h*31 + *s++;
-    return h;
+    ulong hash = 5381;
+    int c;
+    while ((c = *s++))
+        hash = ((hash << 5) + hash) + c;
+    return hash;
 }
 
 #endif

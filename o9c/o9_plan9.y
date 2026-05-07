@@ -819,7 +819,7 @@ gen_expr(Node *e)
                 print("((vlong)obj9_msgSend(&");
             }
             gen_expr(e->left);
-            print(", 0x%lx, o9_call_args))", o9_hash(e->name));
+            print(", 0x%lux, o9_call_args))", o9_hash(e->name));
         }
         break;
     case NAdd:
@@ -946,7 +946,7 @@ gen_stmt(Node *c, Node *s)
                         first = 0;
                         ai++;
                     }
-                    print("\tobj9_msgSend(&%s, 0x%lx, o9_call_args);\n", s->name, o9_hash(cname));
+                    print("\tobj9_msgSend(&%s, 0x%lux, o9_call_args);\n", s->name, o9_hash(cname));
                 }
             } else {
                 /* Class-typed variable with client init (no new) */
@@ -1164,9 +1164,9 @@ gen_class_server(Node *c)
     print("\t\tswitch(m->sel){\n");
     for(m = c->left; m; m = m->next){
         if(m->type == NMethod)
-            print("\t\tcase 0x%lx: o9_impl_%s_%s(self, m); break;\n", o9_hash(m->name), c->name, m->name);
+            print("\t\tcase 0x%lux: o9_impl_%s_%s(self, m); break;\n", o9_hash(m->name), c->name, m->name);
     }
-    print("\t\tcase 0x%lx: o9_cleanup_%s(self); threadexits(nil); break;\n", o9_hash("destroy"), c->name);
+    print("\t\tcase 0x%lux: o9_cleanup_%s(self); threadexits(nil); break;\n", o9_hash("destroy"), c->name);
     print("\t\tdefault: { O9Reply *r = mallocz(sizeof(O9Reply), 1); r->err = \"bad selector\"; sendp(m->replyc, r); } break;\n");
     print("\t\t}\n\t}\n}\n\n");
 
