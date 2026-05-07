@@ -1254,7 +1254,7 @@ o9_hash(char *str)
     int c;
     while ((c = *str++))
         hash = ((hash << 5) + hash) + c;
-    return hash;
+    return hash & 0xFFFFFFFFul;
 }
 
 void

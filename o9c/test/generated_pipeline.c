@@ -94,11 +94,11 @@ static void Counter_loop(void *v) {
 		m = recvp(self->dispatch_chan);
 		if(m == nil) continue;
 		switch(m->sel){
-		case 0xd0a834ada145: o9_impl_Counter_Counter(self, m); break;
-		case 0x1ae710fdcb98a2: o9_impl_Counter_getValue(self, m); break;
+		case 0x34ada145: o9_impl_Counter_Counter(self, m); break;
+		case 0xfdcb98a2: o9_impl_Counter_getValue(self, m); break;
 		case 0xb88801f: o9_impl_Counter_inc(self, m); break;
-		case 0x652f93d5b20: o9_impl_Counter_double(self, m); break;
-		case 0xd0b2097af1ef: o9_cleanup_Counter(self); threadexits(nil); break;
+		case 0xf93d5b20: o9_impl_Counter_double(self, m); break;
+		case 0x97af1ef: o9_cleanup_Counter(self); threadexits(nil); break;
 		default: { O9Reply *r = mallocz(sizeof(O9Reply), 1); r->err = "bad selector"; sendp(m->replyc, r); } break;
 		}
 	}
@@ -163,10 +163,10 @@ threadmain(int argc, char **argv)
 	__c->val = 0;
 	proccreate(Counter_loop, __c, 8192);
 	o9_call_args[0]=10;
-	obj9_msgSend(&c, 0xd0a834ada145, o9_call_args);
+	obj9_msgSend(&c, 0x34ada145, o9_call_args);
 	(o9_call_args[0]=5, (vlong)obj9_msgSend(&c, 0xb88801f, o9_call_args));
 	(o9_call_args[0]=1, (vlong)obj9_msgSend(&c, 0xb88801f, o9_call_args));
-	vlong v = ((vlong)obj9_msgSend(&c, 0x1ae710fdcb98a2, o9_call_args));
-	vlong d = ((vlong)obj9_msgSend(&c, 0x652f93d5b20, o9_call_args));
+	vlong v = ((vlong)obj9_msgSend(&c, 0xfdcb98a2, o9_call_args));
+	vlong d = ((vlong)obj9_msgSend(&c, 0xf93d5b20, o9_call_args));
 	threadexitsall(nil);
 }

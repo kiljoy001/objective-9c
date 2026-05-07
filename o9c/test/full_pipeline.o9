@@ -3,6 +3,7 @@ class Counter {
     method Counter(int64 n) { val = n; }
     method int64 getValue() { return val; }
     method void inc(int64 n) { val = val + n; }
+    method int64 double() => val * 2;
 }
 
 func main() {
@@ -10,4 +11,5 @@ func main() {
     c.inc(5);
     c.inc(1);
     int64 v = c.getValue();
+    int64 d = c.double();
 }

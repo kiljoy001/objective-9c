@@ -81,7 +81,7 @@ o9_hash(char *s)
     int c;
     while ((c = *s++))
         hash = ((hash << 5) + hash) + c;
-    return hash;
+    return hash & 0xFFFFFFFFul;
 }
 
 #endif

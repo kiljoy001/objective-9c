@@ -1,0 +1,58 @@
+#!/bin/rc
+# transpile.rc - run the transpile pipeline on 9front
+cd /usr/scott/o9_new
+
+# Pull source and grammar from GitHub
+hget https://raw.githubusercontent.com/kiljoy001/objective-9c/main/o9c/o9_plan9.y > o9_plan9.y
+hget https://raw.githubusercontent.com/kiljoy001/objective-9c/main/o9c/test/simple_pipe.o9 > t.o9
+echo SOURCE_OK
+
+# Rebuild compiler
+rm -f y.tab.* o9c
+yacc -d o9_plan9.y >[2] /tmp/yerr.txt
+6c -o y.tab.6 y.tab.c >[2] /tmp/cerr.txt
+6l -o o9c y.tab.6 >[2] /tmp/lerr.txt
+echo BUILD_OK
+
+# Transpile to C
+./o9c < t.o9 > out.c 2>/tmp/otrans.txt
+# Check if output was produced
+for i in `{seq 1 3}
+    if(test -s out.c) break
+    sleep 1
+}
+if(test -s out.c) {
+    echo TRANS_OK
+} else {
+    cat /tmp/otrans.txt
+    echo TRANS_FAIL
+    exit trans_fail
+}
+
+# Compile generated C
+6c -FVw out.c >[2] /tmp/ccerr.txt
+if(~ $status 0) {
+    echo CC_OK
+} else {
+    cat /tmp/ccerr.txt
+    exit cc_fail
+}
+
+# Build against runtime
+6c -FVw o9_runtime.c >[2] /dev/null
+6a o9_dispatch.s >[2] /dev/null
+6l -o o9_asm_test out.6 o9_runtime.6 o9_dispatch.6 >[2] /dev/null
+if(~ $status 0) {
+    ls -l o9_asm_test
+    echo PIPELINE_OK
+} else {
+    echo LD_FAIL
+}
+
+# Run existing e2e tests
+echo === E2E TESTS ===
+hget https://raw.githubusercontent.com/kiljoy001/objective-9c/main/test_e2e.c > test_e2e.c
+6c -FVw test_e2e.c >[2] /dev/null
+6l -o test_e2e test_e2e.6 o9_runtime.6 o9_dispatch.6 >[2] /dev/null
+./test_e2e
+echo E2E_DONE
