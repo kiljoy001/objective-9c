@@ -77,21 +77,23 @@ extern int yydebug;
     TTRUE = 278,                   /* TTRUE  */
     TFALSE = 279,                  /* TFALSE  */
     TARROW = 280,                  /* TARROW  */
-    TEQ = 281,                     /* TEQ  */
-    TADD = 282,                    /* TADD  */
-    TSUB = 283,                    /* TSUB  */
-    TCHANSEND = 284,               /* TCHANSEND  */
-    TCHANRECV = 285,               /* TCHANRECV  */
-    TCHANTRY = 286,                /* TCHANTRY  */
-    TEQEQ = 287,                   /* TEQEQ  */
-    TNEQ = 288,                    /* TNEQ  */
-    TLE = 289,                     /* TLE  */
-    TGE = 290,                     /* TGE  */
-    TAND = 291,                    /* TAND  */
-    TOR = 292,                     /* TOR  */
-    TLSHIFT = 293,                 /* TLSHIFT  */
-    TRSHIFT = 294,                 /* TRSHIFT  */
-    UMINUS = 295                   /* UMINUS  */
+    TGET = 281,                    /* TGET  */
+    TSET = 282,                    /* TSET  */
+    TEQ = 283,                     /* TEQ  */
+    TADD = 284,                    /* TADD  */
+    TSUB = 285,                    /* TSUB  */
+    TCHANSEND = 286,               /* TCHANSEND  */
+    TCHANRECV = 287,               /* TCHANRECV  */
+    TCHANTRY = 288,                /* TCHANTRY  */
+    TEQEQ = 289,                   /* TEQEQ  */
+    TNEQ = 290,                    /* TNEQ  */
+    TLE = 291,                     /* TLE  */
+    TGE = 292,                     /* TGE  */
+    TAND = 293,                    /* TAND  */
+    TOR = 294,                     /* TOR  */
+    TLSHIFT = 295,                 /* TLSHIFT  */
+    TRSHIFT = 296,                 /* TRSHIFT  */
+    UMINUS = 297                   /* UMINUS  */
   };
   typedef enum yytokentype yytoken_kind_t;
 #endif
@@ -105,7 +107,7 @@ union YYSTYPE
     Node *node;
     char *name;
 
-#line 109 "o9_plan9.tab.h"
+#line 111 "o9_plan9.tab.h"
 
 };
 typedef union YYSTYPE YYSTYPE;
