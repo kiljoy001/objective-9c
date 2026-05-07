@@ -4,13 +4,9 @@
 #include "o9.h"
 
 /*
- * Full pipeline test: run a generated Counter server, call methods,
- * verify return values propagate correctly.
+ * Full pipeline test: constructor, method params, return values, expression body.
  *
- * This tests the complete stack WITHOUT generated o9 source code:
- * - new-style C# syntax semantics: constructor, return values, params
- * - obj9_msgSend with correct 32-bit hashes
- * - vlong return value unwrapping
+ * Uses o9_Object as the client handle (dispatch_chan at correct +32 offset).
  */
 
 typedef struct Counter_Internal Counter_Internal;
@@ -87,37 +83,41 @@ threadmain(int argc, char **argv)
 {
     USED(argc); USED(argv);
 
-    /* Create in-process Counter server */
     Counter_Internal state;
+    o9_Object client;
     vlong o9_call_args[64];
 
     memset(&state, 0, sizeof(state));
+    memset(&client, 0, sizeof(client));
+
     state.dispatch_chan = chancreate(sizeof(void*), 10);
+    client.dispatch_chan = state.dispatch_chan;
+
     proccreate(Counter_loop, &state, 8192);
     sleep(100);
 
     print("=== Constructor: new Counter(10) ===\n");
     o9_call_args[0] = 10;
-    obj9_msgSend(&state, 0x34ada145, o9_call_args);
+    obj9_msgSend(&client, 0x34ada145, o9_call_args);
     print("  val=%lld\n", state.val);
     if(state.val == 10){ pass++; print("  PASS\n"); }
     else { fail++; print("  FAIL: expected 10\n"); }
 
-    print("\n=== Method call: inc(5) via comma expr ===\n");
+    print("\n=== Method call: inc(5) ===\n");
     o9_call_args[0] = 5;
-    (vlong)obj9_msgSend(&state, 0xb88801f, o9_call_args);
+    (vlong)obj9_msgSend(&client, 0xb88801f, o9_call_args);
     print("  val=%lld\n", state.val);
     if(state.val == 15){ pass++; print("  PASS\n"); }
     else { fail++; print("  FAIL: expected 15\n"); }
 
     print("\n=== Return value: getValue() ===\n");
-    vlong v = ((vlong)obj9_msgSend(&state, 0xfdcb98a2, o9_call_args));
+    vlong v = ((vlong)obj9_msgSend(&client, 0xfdcb98a2, o9_call_args));
     print("  v=%lld\n", v);
     if(v == 15){ pass++; print("  PASS\n"); }
     else { fail++; print("  FAIL: expected 15\n"); }
 
     print("\n=== Expression body: double() ===\n");
-    vlong d = ((vlong)obj9_msgSend(&state, 0xf93d5b20, o9_call_args));
+    vlong d = ((vlong)obj9_msgSend(&client, 0xf93d5b20, o9_call_args));
     print("  d=%lld\n", d);
     if(d == 30){ pass++; print("  PASS\n"); }
     else { fail++; print("  FAIL: expected 30\n"); }
