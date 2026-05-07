@@ -1,4 +1,5 @@
-%{
+
+#line	2	"/n/linux/objective-9c/o9c/o9_plan9.y"
 #include <u.h>
 #include <libc.h>
 #include <bio.h>
@@ -162,337 +163,63 @@ get_sym_type(Node *c, char *name)
     }
     return "vlong";
 }
-%}
 
-%union {
+#line	167	"/n/linux/objective-9c/o9c/o9_plan9.y"
+typedef union  {
     Node *node;
     char *name;
-}
+} YYSTYPE;
+extern	int	yyerrflag;
+#ifndef	YYMAXDEPTH
+#define	YYMAXDEPTH	150
+#endif
+YYSTYPE	yylval;
+YYSTYPE	yyval;
+#define	TIDENT	57346
+#define	TTYPE	57347
+#define	TINTLIT	57348
+#define	TSTRINGLIT	57349
+#define	TCHARLIT	57350
+#define	TCLASS	57351
+#define	TFUNC	57352
+#define	TMETHOD	57353
+#define	TRETURN	57354
+#define	TCHAN	57355
+#define	TIF	57356
+#define	TELSE	57357
+#define	TWHILE	57358
+#define	TNEW	57359
+#define	TSTATE	57360
+#define	TPROP	57361
+#define	TATOMIC	57362
+#define	TSTREAM	57363
+#define	TSECRET	57364
+#define	TCAP	57365
+#define	TTRUE	57366
+#define	TFALSE	57367
+#define	TARROW	57368
+#define	TGET	57369
+#define	TSET	57370
+#define	TEQ	57371
+#define	TADD	57372
+#define	TSUB	57373
+#define	TCHANSEND	57374
+#define	TCHANRECV	57375
+#define	TCHANTRY	57376
+#define	TEQEQ	57377
+#define	TNEQ	57378
+#define	TLE	57379
+#define	TGE	57380
+#define	TAND	57381
+#define	TOR	57382
+#define	TLSHIFT	57383
+#define	TRSHIFT	57384
+#define	UMINUS	57385
+#define YYEOFCODE 1
+#define YYERRCODE 2
 
-%token <node> TIDENT TTYPE
-%token <name> TINTLIT TSTRINGLIT TCHARLIT
-%token TCLASS TFUNC TMETHOD TRETURN TCHAN TIF TELSE TWHILE TNEW TPRINT
-%token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TTRUE TFALSE TARROW
-%token TGET TSET
-%token TEQ TADD TSUB TCHANSEND TCHANRECV TCHANTRY TEQEQ TNEQ TLE TGE
-%token TAND TOR TLSHIFT TRSHIFT
+#line	495	"/n/linux/objective-9c/o9c/o9_plan9.y"
 
-%left TEQ
-%left TCHANSEND TCHANTRY
-%right TCHANRECV
-%left TOR
-%left TAND
-%left '|'
-%left '^'
-%left '&'
-%left TEQEQ TNEQ
-%left '<' '>' TLE TGE
-%left TLSHIFT TRSHIFT
-%left TADD TSUB
-%left '*' '/' '%'
-%right '!' '~' UMINUS
-%left '.'
-
-%type <node> program top_levels top_level class_decl member_list member var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename param_list param call_args call_arg func_top_level
-
-%start program
-
-%%
-
-typename:
-    TIDENT { $$ = $1; }
-    | TTYPE { $$ = $1; }
-    ;
-
-program:
-    /* empty */ { ast_root = nil; }
-    | top_levels { ast_root = $1; }
-    ;
-
-top_levels:
-    top_level { $$ = $1; }
-    | top_levels top_level { 
-        Node *n = $1;
-        while(n->next) n = n->next;
-        n->next = $2;
-        $$ = $1;
-    }
-    ;
-
-top_level:
-    class_decl
-    | func_top_level
-    ;
-
-func_top_level:
-    TFUNC TIDENT '(' ')' '{' stmt_list '}'
-    {
-        $$ = mk(NMethod, $2->name, "void", $6, nil);
-    }
-    ;
-
-class_decl:
-    TCLASS TIDENT '{' member_list '}'
-    {
-        $$ = mk(NClass, $2->name, nil, $4, nil);
-        add_class($2->name, $$);
-    }
-    ;
-
-member_list:
-    /* empty */ { $$ = nil; }
-    | member_list member { 
-        if($1 == nil) $$ = $2;
-        else {
-            Node *n = $1;
-            while(n->next) n = n->next;
-            n->next = $2;
-            $$ = $1;
-        }
-    }
-    ;
-
-member:
-    var_decl
-    | func_decl
-    | method_decl
-    | state_decl
-    | prop_decl
-    | atomic_decl
-    | stream_decl
-    | secret_decl
-    | cap_decl
-    | inherit_decl
-    | destructor_decl
-    ;
-
-state_decl:
-    TSTATE typename TIDENT ';'
-    {
-        $$ = mk(NState, $3->name, $2->name, nil, nil);
-    }
-    ;
-
-prop_decl:
-    TPROP typename TIDENT ';'
-    {
-        $$ = mk(NProp, $3->name, $2->name, nil, nil);
-    }
-    ;
-
-atomic_decl:
-    TATOMIC typename TIDENT ';'
-    {
-        $$ = mk(NAtomic, $3->name, $2->name, nil, nil);
-    }
-    ;
-
-stream_decl:
-    TSTREAM TIDENT ';'
-    {
-        $$ = mk(NStream, $2->name, nil, nil, nil);
-    }
-    ;
-
-secret_decl:
-    TSECRET typename TIDENT ';'
-    {
-        $$ = mk(NSecret, $3->name, $2->name, nil, nil);
-    }
-    ;
-
-cap_decl:
-    TCAP typename TIDENT ';'
-    {
-        $$ = mk(NCap, $3->name, $2->name, nil, nil);
-    }
-    ;
-
-/* 
- * C#-style method declaration.
- * Return type first:  method int64 getValue() { return val; }
- * No return type (void implied):  method inc(int64 n) { val += n; }
- * Expression body:  method int64 double() => val * 2;
- * Backward compat:  method inc() { }
- *
- * Two S/R conflicts on the TIDENT/( ambiguity are benign:
- * After "method TIDENT", lookahead TIDENT/TTYPE => shift (return-type path)
- * After "method TIDENT", lookahead '(' => shift (bare-name path)
- * Both default shift actions produce the correct parse.
- */
-method_decl:
-    TMETHOD typename TIDENT '(' param_list ')' '{' stmt_list '}'
-    {
-        $$ = mk(NMethod, $3->name, $2->name, $8, $5);
-    }
-    | TMETHOD typename TIDENT '(' param_list ')' TARROW expr ';'
-    {
-        Node *body = mk(NReturn, nil, nil, $8, nil);
-        $$ = mk(NMethod, $3->name, $2->name, body, $5);
-    }
-    | TMETHOD TIDENT '(' param_list ')' '{' stmt_list '}'
-    {
-        $$ = mk(NMethod, $2->name, "void", $7, $4);
-    }
-    | TMETHOD TIDENT '(' param_list ')' TARROW expr ';'
-    {
-        Node *body = mk(NReturn, nil, nil, $7, nil);
-        $$ = mk(NMethod, $2->name, "void", body, $4);
-    }
-    ;
-
-inherit_decl:
-    TIDENT ';'
-    {
-        $$ = mk(NInherit, $1->name, nil, nil, nil);
-    }
-    ;
-
-var_decl:
-    typename TIDENT ';'
-    {
-        $$ = mk(NProp, $2->name, $1->name, nil, nil);
-    }
-    | typename '*' TIDENT ';'
-    {
-        char buf[128];
-        snprint(buf, sizeof buf, "%s*", $1->name);
-        $$ = mk(NProp, $3->name, buf, nil, nil);
-    }
-    | TCHAN TIDENT ';'
-    {
-        $$ = mk(NStream, $2->name, "chan", nil, nil);
-    }
-    ;
-
-func_decl:
-    TFUNC '(' typename '*' TIDENT ')' TIDENT '(' param_list ')' typename '{' stmt_list '}'
-    {
-        Node *params = $9;
-        Node *stmts = $13;
-        $$ = mk(NMethod, $7->name, $11->name, stmts, params);
-    }
-    ;
-
-param_list:
-    /* empty */ { $$ = nil; }
-    | param { $$ = $1; }
-    | param_list ',' param {
-        if($1 == nil) $$ = $3;
-        else {
-            Node *n = $1;
-            while(n->next) n = n->next;
-            n->next = $3;
-            $$ = $1;
-        }
-    }
-    ;
-
-param:
-    typename TIDENT
-    {
-        $$ = mk(NProp, $2->name, $1->name, nil, nil);
-    }
-    ;
-
-destructor_decl:
-    '~' TIDENT '(' ')' '{' stmt_list '}'
-    {
-        $$ = mk(NDestructor, $2->name, nil, $6, nil);
-    }
-    ;
-
-stmt_list:
-    /* empty */ { $$ = nil; }
-    | stmt_list stmt {
-        if($1 == nil) $$ = $2;
-        else {
-            Node *n = $1;
-            while(n->next) n = n->next;
-            n->next = $2;
-            $$ = $1;
-        }
-    }
-    ;
-
-stmt:
-    expr ';' { $$ = $1; }
-    | typename TIDENT ';' { $$ = mk(NLocalVar, $2->name, $1->name, nil, nil); if(find_class($1->name)) add_var_class($2->name, $1->name); }
-    | typename TIDENT TEQ expr ';' { $$ = mk(NLocalVar, $2->name, $1->name, $4, nil); if(find_class($1->name)) add_var_class($2->name, $1->name); }
-    | TRETURN expr ';' { $$ = mk(NReturn, nil, nil, $2, nil); }
-    | TPRINT '(' call_args ')' ';' {
-        $$ = mk(NFuncCall, "print", nil, $3, nil);
-    }
-    | TIF '(' expr ')' '{' stmt_list '}' { $$ = mk(NIf, nil, nil, $3, $6); }
-    | TIF '(' expr ')' '{' stmt_list '}' TELSE '{' stmt_list '}' {
-        $$ = mk(NIfElse, nil, nil, $3, mk(NElse, nil, nil, $6, $10));
-    }
-    | TWHILE '(' expr ')' '{' stmt_list '}' { $$ = mk(NWhile, nil, nil, $3, $6); }
-    ;
-
-expr:
-    expr TCHANSEND expr { $$ = mk(NChanSend, nil, nil, $1, $3); }
-    | expr TCHANTRY expr { $$ = mk(NChanTry, nil, nil, $1, $3); }
-    | expr TEQ TCHANRECV expr { $$ = mk(NChanRecv, nil, nil, $1, $4); }
-    | expr TEQ expr { $$ = mk(NAssign, nil, nil, $1, $3); }
-    | expr TADD expr { $$ = mk(NAdd, nil, nil, $1, $3); }
-    | expr TSUB expr { $$ = mk(NSub, nil, nil, $1, $3); }
-    | expr '*' expr { $$ = mk(NMul, nil, nil, $1, $3); }
-    | expr '/' expr { $$ = mk(NDiv, nil, nil, $1, $3); }
-    | expr '%' expr { $$ = mk(NMod, nil, nil, $1, $3); }
-    | expr TEQEQ expr { $$ = mk(NEq, nil, nil, $1, $3); }
-    | expr TNEQ expr { $$ = mk(NNe, nil, nil, $1, $3); }
-    | expr '<' expr { $$ = mk(NLt, nil, nil, $1, $3); }
-    | expr TLE expr { $$ = mk(NLe, nil, nil, $1, $3); }
-    | expr '>' expr { $$ = mk(NGt, nil, nil, $1, $3); }
-    | expr TGE expr { $$ = mk(NGe, nil, nil, $1, $3); }
-    | expr TAND expr { $$ = mk(NAnd, nil, nil, $1, $3); }
-    | expr TOR expr { $$ = mk(NOr, nil, nil, $1, $3); }
-    | expr '&' expr { $$ = mk(NBitAnd, nil, nil, $1, $3); }
-    | expr '|' expr { $$ = mk(NBitOr, nil, nil, $1, $3); }
-    | expr '^' expr { $$ = mk(NBitXor, nil, nil, $1, $3); }
-    | expr TLSHIFT expr { $$ = mk(NLshift, nil, nil, $1, $3); }
-    | expr TRSHIFT expr { $$ = mk(NRshift, nil, nil, $1, $3); }
-    | '!' expr { $$ = mk(NNot, nil, nil, $2, nil); }
-    | '~' expr { $$ = mk(NBitNot, nil, nil, $2, nil); }
-    | TSUB expr %prec UMINUS { $$ = mk(NNeg, nil, nil, $2, nil); }
-    | expr '.' TIDENT '(' call_args ')' {
-        $$ = mk(NMsgSend, $3->name, nil, $1, $5);
-    }
-    | TIDENT { $$ = $1; }
-    | TINTLIT { $$ = mk(NIntLit, $1, nil, nil, nil); }
-    | TSTRINGLIT { $$ = mk(NStringLit, $1, nil, nil, nil); }
-    | TCHARLIT { $$ = mk(NCharLit, $1, nil, nil, nil); }
-    | TTRUE { $$ = mk(NBoolLit, "1", nil, nil, nil); }
-    | TFALSE { $$ = mk(NBoolLit, "0", nil, nil, nil); }
-    | TNEW typename '(' call_args ')' {
-        Node *n = mk(NClass, $2->name, nil, nil, nil);
-        n->left = $2;
-        n->right = $4;
-        $$ = n;
-    }
-    | '(' expr ')' { $$ = $2; }
-    ;
-
-call_args:
-    /* empty */ { $$ = nil; }
-    | call_arg { $$ = $1; }
-    | call_args ',' call_arg {
-        if($1 == nil) $$ = $3;
-        else {
-            Node *n = $1;
-            while(n->next) n = n->next;
-            n->next = $3;
-            $$ = $1;
-        }
-    }
-    ;
-
-call_arg:
-    expr { $$ = $1; }
-    ;
-
-%%
 
 Node*
 mk(int type, char *name, char *typename, Node *l, Node *r)
@@ -675,7 +402,6 @@ yylex(void)
             if(strcmp(buf, "while") == 0) return TWHILE;
             if(strcmp(buf, "true") == 0) return TTRUE;
             if(strcmp(buf, "false") == 0) return TFALSE;
-            if(strcmp(buf, "print") == 0) return TPRINT;
             if(strcmp(buf, "bool") == 0) return TTYPE;
             if(strcmp(buf, "uint64") == 0) return TTYPE;
             if(strcmp(buf, "int32") == 0) return TTYPE;
@@ -1322,4 +1048,822 @@ main(int argc, char **argv)
         codegen(ast_root);
     exits(nil);
     return 0;
+}
+short	yyexca[] =
+{-1, 1,
+	1, -1,
+	-2, 0,
+-1, 81,
+	4, 1,
+	-2, 80,
+};
+#define	YYNPROD	92
+#define	YYPRIVATE 57344
+#define	YYLAST	971
+short	yyact[] =
+{
+  74,  73, 170,  92, 169,  57, 213, 205,  93, 199,
+ 138, 186, 185, 186,  28, 175, 186, 137, 174, 138,
+ 214, 138,  99,  98,  97,  96,  95,  89,  67,  60,
+  58,  55,  46,  48,  50,  51, 165,  53,  54, 217,
+ 190, 216, 104, 105, 106, 102,  61, 103, 110, 111,
+ 113, 115, 116, 117, 121, 122, 119, 120, 118, 112,
+ 114, 107, 108, 109,  94, 197, 164, 123, 177, 196,
+ 200, 189, 210, 140,  41,  11, 100, 125, 105, 106,
+ 129, 130, 131, 107, 108, 109,  14, 181, 133, 123,
+ 134, 172,  94, 132, 128, 136, 107, 108, 109, 176,
+ 127,  91, 123, 123, 141, 142, 144, 145, 146, 147,
+ 148, 149, 150, 151, 152, 153, 154, 155, 156, 157,
+ 158, 159, 160, 161, 162,  70,  63,  45,  12, 167,
+ 168,  42,  90, 188, 171,   6,   7,  49,  40,  94,
+  47,  40,  38,  40, 163, 180, 179, 178,  30,  31,
+ 139,  29, 105, 106, 135, 124,  32,  33,  34,  35,
+  36,  37,  69, 121, 122,  68,  66, 182,  65,  64,
+ 107, 108, 109,  62, 171,  43, 123, 187,  59, 192,
+  56,  52, 191, 171,  44,  10, 194,   9, 171, 198,
+  39,   3, 202,   5,   8, 201,  15,  25,  24,  23,
+  22,  94, 206, 207, 208,  21,  20,  19,  72,  27,
+  26,  18,  17,  16, 215,  13,   4,   2,   1,   0,
+   0,   0, 218, 219, 104, 105, 106, 102,   0, 103,
+ 110, 111, 113, 115, 116, 117, 121, 122, 119, 120,
+ 118, 112, 114, 107, 108, 109,   0,   0,   0, 123,
+ 104, 105, 106, 102, 204, 103, 110, 111, 113, 115,
+ 116, 117, 121, 122, 119, 120, 118, 112, 114, 107,
+ 108, 109,   0,   0,   0, 123, 104, 105, 106, 102,
+ 195, 103, 110, 111, 113, 115, 116, 117, 121, 122,
+ 119, 120, 118, 112, 114, 107, 108, 109,   0,   0,
+   0, 123, 104, 105, 106, 102, 166, 103, 110, 111,
+ 113, 115, 116, 117, 121, 122, 119, 120, 118, 112,
+ 114, 107, 108, 109,   0,   0,   0, 123, 104, 105,
+ 106, 102, 101, 103, 110, 111, 113, 115, 116, 117,
+ 121, 122, 119, 120, 118, 112, 114, 107, 108, 109,
+   0,   0,   0, 123,   0, 184, 104, 105, 106, 102,
+   0, 103, 110, 111, 113, 115, 116, 117, 121, 122,
+ 119, 120, 118, 112, 114, 107, 108, 109,   0,   0,
+   0, 123,   0, 183, 104, 105, 106, 102,   0, 103,
+ 110, 111, 113, 115, 116, 117, 121, 122, 119, 120,
+ 118, 112, 114, 107, 108, 109,   0,   0,   0, 123,
+   0, 173, 104, 105, 106, 102,   0, 103, 110, 111,
+ 113, 115, 116, 117, 121, 122, 119, 120, 118, 112,
+ 114, 107, 108, 109, 105, 106, 102, 123, 103, 110,
+ 111, 113, 115, 116, 117, 121, 122, 119, 120, 118,
+ 112, 114, 107, 108, 109,   0,   0,   0, 123,  81,
+  40,  82,  83,  84,   0,   0,   0,  75,   0,  76,
+   0,  77,  87,   0,   0,   0,   0,   0,   0,  85,
+  86,  81,  40,  82,  83,  84,  80,   0,   0,  75,
+   0,  76,   0,  77,  87,   0,   0,   0,   0,   0,
+   0,  85,  86,   0,   0,   0,  78,  79,  80,   0,
+  88,   0,   0, 221,   0,   0,   0,   0,   0,   0,
+   0,   0,   0,   0,   0,   0,   0,   0,  78,  79,
+   0,   0,  88,   0,   0, 220,  81,  40,  82,  83,
+  84,   0,   0,   0,  75,   0,  76,   0,  77,  87,
+   0,   0,   0,   0,   0,   0,  85,  86,  81,  40,
+  82,  83,  84,  80,   0,   0,  75,   0,  76,   0,
+  77,  87,   0,   0,   0,   0,   0,   0,  85,  86,
+   0,   0,   0,  78,  79,  80,   0,  88,   0,   0,
+ 212,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+   0,   0,   0,   0,   0,  78,  79,   0,   0,  88,
+   0,   0, 211,  81,  40,  82,  83,  84,   0,   0,
+   0,  75,   0,  76,   0,  77,  87,   0,   0,   0,
+   0,   0,   0,  85,  86,  81,  40,  82,  83,  84,
+  80,   0,   0,  75,   0,  76,   0,  77,  87,   0,
+   0,   0,   0,   0,   0,  85,  86,   0,   0,   0,
+  78,  79,  80,   0,  88,   0,   0, 209,   0,   0,
+   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+   0,   0,  78,  79,   0,   0,  88,   0,   0, 203,
+  81,  40,  82,  83,  84,   0,   0,   0,  75,   0,
+  76,   0,  77,  87,   0,   0,   0,   0,   0,   0,
+  85,  86,  81,  40,  82,  83,  84,  80,   0,   0,
+  75,   0,  76,   0,  77,  87,   0,   0,   0,   0,
+   0,   0,  85,  86,   0,   0,   0,  78,  79,  80,
+   0,  88,   0,   0, 193,   0,   0,   0,   0,   0,
+   0,   0,   0,   0,   0,   0,   0,   0,   0,  78,
+  79,   0,   0,  88, 105, 106,  71,   0,   0, 110,
+ 111, 113, 115, 116, 117, 121, 122, 119, 120, 118,
+ 112, 114, 107, 108, 109, 105, 106,   0, 123,   0,
+ 110, 111, 113, 115, 116,   0, 121, 122, 119, 120,
+ 118, 112, 114, 107, 108, 109, 105, 106,   0, 123,
+   0, 110, 111, 113, 115,   0,   0, 121, 122, 119,
+ 120, 118, 112, 114, 107, 108, 109, 105, 106,   0,
+ 123,   0, 110, 111, 113, 115,   0,   0, 121, 122,
+   0, 120, 118, 112, 114, 107, 108, 109, 105, 106,
+   0, 123,   0, 110, 111, 113, 115,   0,   0, 121,
+ 122,   0,   0, 118, 112, 114, 107, 108, 109, 105,
+ 106,   0, 123,   0, 110, 111, 113, 115,   0,   0,
+ 121, 122,   0,   0,   0, 112, 114, 107, 108, 109,
+   0,   0, 126, 123,  82,  83,  84, 126,   0,  82,
+  83,  84,   0,   0,   0,  87,   0,   0,   0,   0,
+  87,   0,  85,  86,   0,   0,   0,  85,  86,  80,
+   0, 143,   0,   0,  80,   0,   0,   0,   0,   0,
+   0,   0,   0,   0,   0,   0,   0,   0,   0,  78,
+  79,   0,   0,  88,  78,  79, 105, 106,  88,   0,
+   0,   0,   0, 113, 115,   0,   0, 121, 122,   0,
+   0,   0, 112, 114, 107, 108, 109,   0,   0,   0,
+ 123
+};
+short	yypact[] =
+{
+ 126,-1000, 126,-1000,-1000,-1000, 183, 181,-1000,  18,
+  73,-1000,  30, 138,  17,-1000,-1000,-1000,-1000,-1000,
+-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000, 127, 180,
+  72, 136, 133, 133, 133, 177, 133, 133, -28, 176,
+-1000,-1000, -29, 174, -30, 133, 169,  71, 165,-1000,
+ 164, 162, -31, 161, 158,-1000,  70, 708,-1000, -32,
+-1000,  84,  46, 133, -33, -34, -35,-1000, -36, -37,
+  20,-1000,-1000, 273, 151, 893,  45,  39, 893, 893,
+ 893,  38,-1000,-1000,-1000,-1000,-1000, 133, 893,-1000,
+ 150, 133, -39,-1000, 146,-1000,-1000,-1000,-1000,-1000,
+  16,-1000, 893, 893, 888, 893, 893, 893, 893, 893,
+ 893, 893, 893, 893, 893, 893, 893, 893, 893, 893,
+ 893, 893, 893, 140,   7, 247,  38, 893, 893,  49,
+  49,  49, 893,  36, 355, -38, -41,  42, 133,-1000,
+-1000, 734, 734, 893, 404,  35,  35,  49,  49,  49,
+ 916, 916, 122, 122, 122, 122, 776, 755, 839, 797,
+ 818,  48,  48,  32,-1000, 893,-1000, 327, 299, -44,
+-1000, 383, 893,-1000, 129,  14,-1000, 893,-1000, 686,
+ 734, 893, 221,  12,   8,-1000, 893, -47,  15,-1000,
+ 893, 631, 195,-1000, -49,-1000,-1000,-1000,-1000,-1000,
+ 133, 609,  13,-1000,-1000,-1000, 554, 532, -50,-1000,
+-1000,   5,-1000, 133, -16, -18,-1000,-1000, 477, 455,
+-1000,-1000
+};
+short	yypgo[] =
+{
+   0, 218, 217, 191, 216, 215, 213, 212, 211, 210,
+ 209,   5, 208,   1, 207, 206, 205, 200, 199, 198,
+ 197,   0,   3,   8,   4,   2, 193
+};
+short	yyr1[] =
+{
+   0,  21,  21,   1,   1,   2,   2,   3,   3,  26,
+   4,   5,   5,   6,   6,   6,   6,   6,   6,   6,
+   6,   6,   6,   6,  15,  16,  17,  18,  19,  20,
+  14,  14,  14,  14,   9,   7,   7,   7,   8,  22,
+  22,  22,  23,  10,  11,  11,  12,  12,  12,  12,
+  12,  12,  12,  13,  13,  13,  13,  13,  13,  13,
+  13,  13,  13,  13,  13,  13,  13,  13,  13,  13,
+  13,  13,  13,  13,  13,  13,  13,  13,  13,  13,
+  13,  13,  13,  13,  13,  13,  13,  13,  24,  24,
+  24,  25
+};
+short	yyr2[] =
+{
+   0,   1,   1,   0,   1,   1,   2,   1,   1,   7,
+   5,   0,   2,   1,   1,   1,   1,   1,   1,   1,
+   1,   1,   1,   1,   4,   4,   4,   3,   4,   4,
+   9,   9,   8,   8,   2,   3,   4,   3,  14,   0,
+   1,   3,   2,   7,   0,   2,   2,   3,   5,   3,
+   7,  11,   7,   3,   3,   4,   3,   3,   3,   3,
+   3,   3,   3,   3,   3,   3,   3,   3,   3,   3,
+   3,   3,   3,   3,   3,   2,   2,   2,   6,   4,
+   1,   1,   1,   1,   1,   1,   5,   3,   0,   1,
+   3,   1
+};
+short	yychk[] =
+{
+-1000,  -1,  -2,  -3,  -4, -26,   9,  10,  -3,   4,
+   4,  57,  55,  -5,  56,  58,  -6,  -7,  -8, -14,
+ -15, -16, -17, -18, -19, -20,  -9, -10, -21,  13,
+  10,  11,  18,  19,  20,  21,  22,  23,   4,  52,
+   5,  57,   4,  48,   4,  55, -21,   4, -21,   4,
+ -21, -21,   4, -21, -21,  59,   4, -11,  59,   4,
+  59, -21,   4,  55,   4,   4,   4,  59,   4,   4,
+  55,  58, -12, -13, -21,  12,  14,  16,  51,  52,
+  31,   4,   6,   7,   8,  24,  25,  17,  55,  59,
+  48,  55, -22, -23, -21,  59,  59,  59,  59,  59,
+  56,  59,  32,  34,  29,  30,  31,  48,  49,  50,
+  35,  36,  46,  37,  47,  38,  39,  40,  45,  43,
+  44,  41,  42,  54,   4, -13,   4,  55,  55, -13,
+ -13, -13,  55, -21, -13,   4, -22,  56,  60,   4,
+  57, -13, -13,  33, -13, -13, -13, -13, -13, -13,
+ -13, -13, -13, -13, -13, -13, -13, -13, -13, -13,
+ -13, -13, -13,   4,  59,  29,  59, -13, -13, -24,
+ -25, -13,  55,  56,  56,  56,  57,  26, -23, -11,
+ -13,  55, -13,  56,  56,  56,  60, -24,   4,  57,
+  26, -11, -13,  58, -24,  59,  57,  57, -25,  56,
+  55, -11, -13,  58,  59,  56, -11, -11, -22,  58,
+  59,  58,  58,  56,  15, -21,  57,  57, -11, -11,
+  58,  58
+};
+short	yydef[] =
+{
+   3,  -2,   4,   5,   7,   8,   0,   0,   6,   0,
+   0,  11,   0,   0,   0,  10,  12,  13,  14,  15,
+  16,  17,  18,  19,  20,  21,  22,  23,   0,   0,
+   0,   0,   0,   0,   0,   0,   0,   0,   1,   0,
+   2,  44,   0,   0,   0,   0,   0,   1,   0,   1,
+   0,   0,   0,   0,   0,  34,   0,   0,  35,   0,
+  37,   0,   0,  39,   0,   0,   0,  27,   0,   0,
+   0,   9,  45,   0,   0,   0,   0,   0,   0,   0,
+   0,  -2,  81,  82,  83,  84,  85,   0,   0,  36,
+   0,  39,   0,  40,   0,  24,  25,  26,  28,  29,
+   0,  46,   0,   0,   0,   0,   0,   0,   0,   0,
+   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+   0,   0,   0,   0,   0,   0,  80,   0,   0,  75,
+  76,  77,  88,   0,   0,   0,   0,   0,   0,  42,
+  44,  53,  54,   0,  56,  57,  58,  59,  60,  61,
+  62,  63,  64,  65,  66,  67,  68,  69,  70,  71,
+  72,  73,  74,   0,  47,   0,  49,   0,   0,   0,
+  89,  91,  88,  87,   0,   0,  44,   0,  41,   0,
+  55,  88,   0,   0,   0,  79,   0,   0,   0,  44,
+   0,   0,   0,  43,   0,  48,  44,  44,  90,  86,
+  39,   0,   0,  32,  33,  78,   0,   0,   0,  30,
+  31,  50,  52,   0,   0,   0,  44,  44,   0,   0,
+  51,  38
+};
+short	yytok1[] =
+{
+   1,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+   0,   0,   0,  51,   0,   0,   0,  50,  45,   0,
+  55,  56,  48,   0,  60,   0,  54,  49,   0,   0,
+   0,   0,   0,   0,   0,   0,   0,   0,   0,  59,
+  46,   0,  47,   0,   0,   0,   0,   0,   0,   0,
+   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+   0,   0,   0,   0,  44,   0,   0,   0,   0,   0,
+   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
+   0,   0,   0,  57,  43,  58,  52
+};
+short	yytok2[] =
+{
+   2,   3,   4,   5,   6,   7,   8,   9,  10,  11,
+  12,  13,  14,  15,  16,  17,  18,  19,  20,  21,
+  22,  23,  24,  25,  26,  27,  28,  29,  30,  31,
+  32,  33,  34,  35,  36,  37,  38,  39,  40,  41,
+  42,  53
+};
+long	yytok3[] =
+{
+   0
+};
+
+#line	1	"/sys/lib/yaccpar"
+#define YYFLAG 		-1000
+#define	yyclearin	yychar = -1
+#define	yyerrok		yyerrflag = 0
+
+#ifdef	yydebug
+#include	"y.debug"
+
+char*
+yytokname(int yyc)
+{
+	static char x[16];
+
+	if(yyc > 0 && yyc <= sizeof(yytoknames)/sizeof(yytoknames[0]))
+	if(yytoknames[yyc-1])
+		return yytoknames[yyc-1];
+	sprint(x, "<%d>", yyc);
+	return x;
+}
+
+char*
+yystatname(int yys)
+{
+	static char x[16];
+
+	if(yys >= 0 && yys < sizeof(yystates)/sizeof(yystates[0]))
+	if(yystates[yys])
+		return yystates[yys];
+	sprint(x, "<%d>\n", yys);
+	return x;
+}
+#else
+#define	yydebug		0
+#define yytokname(x)	""
+#define yystatname(x)	""
+#endif
+
+/*	parser for yacc output	*/
+
+int	yynerrs = 0;		/* number of errors */
+int	yyerrflag = 0;		/* error recovery flag */
+
+
+long
+yylex1(void)
+{
+	long yychar;
+	long *t3p;
+	int c;
+
+	yychar = yylex();
+	if(yychar <= 0) {
+		c = yytok1[0];
+		goto out;
+	}
+	if(yychar < sizeof(yytok1)/sizeof(yytok1[0])) {
+		c = yytok1[yychar];
+		goto out;
+	}
+	if(yychar >= YYPRIVATE)
+		if(yychar < YYPRIVATE+sizeof(yytok2)/sizeof(yytok2[0])) {
+			c = yytok2[yychar-YYPRIVATE];
+			goto out;
+		}
+	for(t3p=yytok3;; t3p+=2) {
+		c = t3p[0];
+		if(c == yychar) {
+			c = t3p[1];
+			goto out;
+		}
+		if(c == 0)
+			break;
+	}
+	c = 0;
+
+out:
+	if(c == 0)
+		c = yytok2[1];	/* unknown char */
+	if(yydebug >= 3)
+		fprint(2, "lex %.4lux %s\n", yychar, yytokname(c));
+	return c;
+}
+
+int
+yyparse(void)
+{
+	struct
+	{
+		YYSTYPE	yyv;
+		int	yys;
+	} yys[YYMAXDEPTH], *yyp, *yypt;
+	short *yyxi;
+	int yyj, yym, yystate, yyn, yyg;
+	long yychar;
+	YYSTYPE save1, save2;
+	int save3, save4;
+
+	save1 = yylval;
+	save2 = yyval;
+	save3 = yynerrs;
+	save4 = yyerrflag;
+
+	yystate = 0;
+	yychar = -1;
+	yynerrs = 0;
+	yyerrflag = 0;
+	yyp = &yys[-1];
+	goto yystack;
+
+ret0:
+	yyn = 0;
+	goto ret;
+
+ret1:
+	yyn = 1;
+	goto ret;
+
+ret:
+	yylval = save1;
+	yyval = save2;
+	yynerrs = save3;
+	yyerrflag = save4;
+	return yyn;
+
+yystack:
+	/* put a state and value onto the stack */
+	if(yydebug >= 4)
+		fprint(2, "char %s in %s", yytokname(yychar), yystatname(yystate));
+
+	yyp++;
+	if(yyp >= &yys[YYMAXDEPTH]) {
+		yyerror("yacc stack overflow");
+		goto ret1;
+	}
+	yyp->yys = yystate;
+	yyp->yyv = yyval;
+
+yynewstate:
+	yyn = yypact[yystate];
+	if(yyn <= YYFLAG)
+		goto yydefault; /* simple state */
+	if(yychar < 0)
+		yychar = yylex1();
+	yyn += yychar;
+	if(yyn < 0 || yyn >= YYLAST)
+		goto yydefault;
+	yyn = yyact[yyn];
+	if(yychk[yyn] == yychar) { /* valid shift */
+		yychar = -1;
+		yyval = yylval;
+		yystate = yyn;
+		if(yyerrflag > 0)
+			yyerrflag--;
+		goto yystack;
+	}
+
+yydefault:
+	/* default state action */
+	yyn = yydef[yystate];
+	if(yyn == -2) {
+		if(yychar < 0)
+			yychar = yylex1();
+
+		/* look through exception table */
+		for(yyxi=yyexca;; yyxi+=2)
+			if(yyxi[0] == -1 && yyxi[1] == yystate)
+				break;
+		for(yyxi += 2;; yyxi += 2) {
+			yyn = yyxi[0];
+			if(yyn < 0 || yyn == yychar)
+				break;
+		}
+		yyn = yyxi[1];
+		if(yyn < 0)
+			goto ret0;
+	}
+	if(yyn == 0) {
+		/* error ... attempt to resume parsing */
+		switch(yyerrflag) {
+		case 0:   /* brand new error */
+			yyerror("syntax error");
+			yynerrs++;
+			if(yydebug >= 1) {
+				fprint(2, "%s", yystatname(yystate));
+				fprint(2, "saw %s\n", yytokname(yychar));
+			}
+
+		case 1:
+		case 2: /* incompletely recovered error ... try again */
+			yyerrflag = 3;
+
+			/* find a state where "error" is a legal shift action */
+			while(yyp >= yys) {
+				yyn = yypact[yyp->yys] + YYERRCODE;
+				if(yyn >= 0 && yyn < YYLAST) {
+					yystate = yyact[yyn];  /* simulate a shift of "error" */
+					if(yychk[yystate] == YYERRCODE)
+						goto yystack;
+				}
+
+				/* the current yyp has no shift onn "error", pop stack */
+				if(yydebug >= 2)
+					fprint(2, "error recovery pops state %d, uncovers %d\n",
+						yyp->yys, (yyp-1)->yys );
+				yyp--;
+			}
+			/* there is no state on the stack with an error shift ... abort */
+			goto ret1;
+
+		case 3:  /* no shift yet; clobber input char */
+			if(yydebug >= 2)
+				fprint(2, "error recovery discards %s\n", yytokname(yychar));
+			if(yychar == YYEOFCODE)
+				goto ret1;
+			yychar = -1;
+			goto yynewstate;   /* try again in the same state */
+		}
+	}
+
+	/* reduction by production yyn */
+	if(yydebug >= 2)
+		fprint(2, "reduce %d in:\n\t%s", yyn, yystatname(yystate));
+
+	yypt = yyp;
+	yyp -= yyr2[yyn];
+	yyval = (yyp+1)->yyv;
+	yym = yyn;
+
+	/* consult goto table to find next state */
+	yyn = yyr1[yyn];
+	yyg = yypgo[yyn];
+	yyj = yyg + yyp->yys + 1;
+
+	if(yyj >= YYLAST || yychk[yystate=yyact[yyj]] != -yyn)
+		yystate = yyact[yyg];
+	switch(yym) {
+		
+case 1:
+#line	203	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = yypt[-0].yyv.node; } break;
+case 2:
+#line	204	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = yypt[-0].yyv.node; } break;
+case 3:
+#line	208	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ ast_root = nil; } break;
+case 4:
+#line	209	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ ast_root = yypt[-0].yyv.node; } break;
+case 5:
+#line	213	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = yypt[-0].yyv.node; } break;
+case 6:
+#line	214	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ 
+        Node *n = yypt[-1].yyv.node;
+        while(n->next) n = n->next;
+        n->next = yypt[-0].yyv.node;
+        yyval.node = yypt[-1].yyv.node;
+    } break;
+case 9:
+#line	229	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        yyval.node = mk(NMethod, yypt[-5].yyv.node->name, "void", yypt[-1].yyv.node, nil);
+    } break;
+case 10:
+#line	236	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        yyval.node = mk(NClass, yypt[-3].yyv.node->name, nil, yypt[-1].yyv.node, nil);
+        add_class(yypt[-3].yyv.node->name, yyval.node);
+    } break;
+case 11:
+#line	243	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = nil; } break;
+case 12:
+#line	244	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ 
+        if(yypt[-1].yyv.node == nil) yyval.node = yypt[-0].yyv.node;
+        else {
+            Node *n = yypt[-1].yyv.node;
+            while(n->next) n = n->next;
+            n->next = yypt[-0].yyv.node;
+            yyval.node = yypt[-1].yyv.node;
+        }
+    } break;
+case 24:
+#line	271	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        yyval.node = mk(NState, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil);
+    } break;
+case 25:
+#line	278	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        yyval.node = mk(NProp, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil);
+    } break;
+case 26:
+#line	285	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        yyval.node = mk(NAtomic, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil);
+    } break;
+case 27:
+#line	292	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        yyval.node = mk(NStream, yypt[-1].yyv.node->name, nil, nil, nil);
+    } break;
+case 28:
+#line	299	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        yyval.node = mk(NSecret, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil);
+    } break;
+case 29:
+#line	306	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        yyval.node = mk(NCap, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil);
+    } break;
+case 30:
+#line	325	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        yyval.node = mk(NMethod, yypt[-6].yyv.node->name, yypt[-7].yyv.node->name, yypt[-1].yyv.node, yypt[-4].yyv.node);
+    } break;
+case 31:
+#line	329	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        Node *body = mk(NReturn, nil, nil, yypt[-1].yyv.node, nil);
+        yyval.node = mk(NMethod, yypt[-6].yyv.node->name, yypt[-7].yyv.node->name, body, yypt[-4].yyv.node);
+    } break;
+case 32:
+#line	334	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        yyval.node = mk(NMethod, yypt[-6].yyv.node->name, "void", yypt[-1].yyv.node, yypt[-4].yyv.node);
+    } break;
+case 33:
+#line	338	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        Node *body = mk(NReturn, nil, nil, yypt[-1].yyv.node, nil);
+        yyval.node = mk(NMethod, yypt[-6].yyv.node->name, "void", body, yypt[-4].yyv.node);
+    } break;
+case 34:
+#line	346	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        yyval.node = mk(NInherit, yypt[-1].yyv.node->name, nil, nil, nil);
+    } break;
+case 35:
+#line	353	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        yyval.node = mk(NProp, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil);
+    } break;
+case 36:
+#line	357	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        char buf[128];
+        snprint(buf, sizeof buf, "%s*", yypt[-3].yyv.node->name);
+        yyval.node = mk(NProp, yypt[-1].yyv.node->name, buf, nil, nil);
+    } break;
+case 37:
+#line	363	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        yyval.node = mk(NStream, yypt[-1].yyv.node->name, "chan", nil, nil);
+    } break;
+case 38:
+#line	370	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        Node *params = yypt[-5].yyv.node;
+        Node *stmts = yypt[-1].yyv.node;
+        yyval.node = mk(NMethod, yypt[-7].yyv.node->name, yypt[-3].yyv.node->name, stmts, params);
+    } break;
+case 39:
+#line	378	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = nil; } break;
+case 40:
+#line	379	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = yypt[-0].yyv.node; } break;
+case 41:
+#line	380	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        if(yypt[-2].yyv.node == nil) yyval.node = yypt[-0].yyv.node;
+        else {
+            Node *n = yypt[-2].yyv.node;
+            while(n->next) n = n->next;
+            n->next = yypt[-0].yyv.node;
+            yyval.node = yypt[-2].yyv.node;
+        }
+    } break;
+case 42:
+#line	393	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        yyval.node = mk(NProp, yypt[-0].yyv.node->name, yypt[-1].yyv.node->name, nil, nil);
+    } break;
+case 43:
+#line	400	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        yyval.node = mk(NDestructor, yypt[-5].yyv.node->name, nil, yypt[-1].yyv.node, nil);
+    } break;
+case 44:
+#line	406	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = nil; } break;
+case 45:
+#line	407	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        if(yypt[-1].yyv.node == nil) yyval.node = yypt[-0].yyv.node;
+        else {
+            Node *n = yypt[-1].yyv.node;
+            while(n->next) n = n->next;
+            n->next = yypt[-0].yyv.node;
+            yyval.node = yypt[-1].yyv.node;
+        }
+    } break;
+case 46:
+#line	419	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = yypt[-1].yyv.node; } break;
+case 47:
+#line	420	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NLocalVar, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil); if(find_class(yypt[-2].yyv.node->name)) add_var_class(yypt[-1].yyv.node->name, yypt[-2].yyv.node->name); } break;
+case 48:
+#line	421	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NLocalVar, yypt[-3].yyv.node->name, yypt[-4].yyv.node->name, yypt[-1].yyv.node, nil); if(find_class(yypt[-4].yyv.node->name)) add_var_class(yypt[-3].yyv.node->name, yypt[-4].yyv.node->name); } break;
+case 49:
+#line	422	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NReturn, nil, nil, yypt[-1].yyv.node, nil); } break;
+case 50:
+#line	423	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NIf, nil, nil, yypt[-4].yyv.node, yypt[-1].yyv.node); } break;
+case 51:
+#line	424	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        yyval.node = mk(NIfElse, nil, nil, yypt[-8].yyv.node, mk(NElse, nil, nil, yypt[-5].yyv.node, yypt[-1].yyv.node));
+    } break;
+case 52:
+#line	427	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NWhile, nil, nil, yypt[-4].yyv.node, yypt[-1].yyv.node); } break;
+case 53:
+#line	431	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NChanSend, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 54:
+#line	432	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NChanTry, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 55:
+#line	433	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NChanRecv, nil, nil, yypt[-3].yyv.node, yypt[-0].yyv.node); } break;
+case 56:
+#line	434	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NAssign, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 57:
+#line	435	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NAdd, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 58:
+#line	436	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NSub, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 59:
+#line	437	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NMul, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 60:
+#line	438	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NDiv, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 61:
+#line	439	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NMod, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 62:
+#line	440	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NEq, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 63:
+#line	441	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NNe, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 64:
+#line	442	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NLt, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 65:
+#line	443	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NLe, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 66:
+#line	444	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NGt, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 67:
+#line	445	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NGe, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 68:
+#line	446	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NAnd, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 69:
+#line	447	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NOr, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 70:
+#line	448	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NBitAnd, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 71:
+#line	449	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NBitOr, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 72:
+#line	450	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NBitXor, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 73:
+#line	451	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NLshift, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 74:
+#line	452	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NRshift, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 75:
+#line	453	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NNot, nil, nil, yypt[-0].yyv.node, nil); } break;
+case 76:
+#line	454	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NBitNot, nil, nil, yypt[-0].yyv.node, nil); } break;
+case 77:
+#line	455	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NNeg, nil, nil, yypt[-0].yyv.node, nil); } break;
+case 78:
+#line	456	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        yyval.node = mk(NMsgSend, yypt[-3].yyv.node->name, nil, yypt[-5].yyv.node, yypt[-1].yyv.node);
+    } break;
+case 79:
+#line	459	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        yyval.node = mk(NFuncCall, yypt[-3].yyv.node->name, nil, yypt[-1].yyv.node, nil);
+    } break;
+case 80:
+#line	462	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = yypt[-0].yyv.node; } break;
+case 81:
+#line	463	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NIntLit, yypt[-0].yyv.name, nil, nil, nil); } break;
+case 82:
+#line	464	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NStringLit, yypt[-0].yyv.name, nil, nil, nil); } break;
+case 83:
+#line	465	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NCharLit, yypt[-0].yyv.name, nil, nil, nil); } break;
+case 84:
+#line	466	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NBoolLit, "1", nil, nil, nil); } break;
+case 85:
+#line	467	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NBoolLit, "0", nil, nil, nil); } break;
+case 86:
+#line	468	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        Node *n = mk(NClass, yypt[-3].yyv.node->name, nil, nil, nil);
+        n->left = yypt[-3].yyv.node;
+        n->right = yypt[-1].yyv.node;
+        yyval.node = n;
+    } break;
+case 87:
+#line	474	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = yypt[-1].yyv.node; } break;
+case 88:
+#line	478	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = nil; } break;
+case 89:
+#line	479	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = yypt[-0].yyv.node; } break;
+case 90:
+#line	480	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        if(yypt[-2].yyv.node == nil) yyval.node = yypt[-0].yyv.node;
+        else {
+            Node *n = yypt[-2].yyv.node;
+            while(n->next) n = n->next;
+            n->next = yypt[-0].yyv.node;
+            yyval.node = yypt[-2].yyv.node;
+        }
+    } break;
+case 91:
+#line	492	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = yypt[-0].yyv.node; } break;
+	}
+	goto yystack;  /* stack new state and value */
 }

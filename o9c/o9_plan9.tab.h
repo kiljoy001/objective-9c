@@ -68,32 +68,33 @@ extern int yydebug;
     TELSE = 269,                   /* TELSE  */
     TWHILE = 270,                  /* TWHILE  */
     TNEW = 271,                    /* TNEW  */
-    TSTATE = 272,                  /* TSTATE  */
-    TPROP = 273,                   /* TPROP  */
-    TATOMIC = 274,                 /* TATOMIC  */
-    TSTREAM = 275,                 /* TSTREAM  */
-    TSECRET = 276,                 /* TSECRET  */
-    TCAP = 277,                    /* TCAP  */
-    TTRUE = 278,                   /* TTRUE  */
-    TFALSE = 279,                  /* TFALSE  */
-    TARROW = 280,                  /* TARROW  */
-    TGET = 281,                    /* TGET  */
-    TSET = 282,                    /* TSET  */
-    TEQ = 283,                     /* TEQ  */
-    TADD = 284,                    /* TADD  */
-    TSUB = 285,                    /* TSUB  */
-    TCHANSEND = 286,               /* TCHANSEND  */
-    TCHANRECV = 287,               /* TCHANRECV  */
-    TCHANTRY = 288,                /* TCHANTRY  */
-    TEQEQ = 289,                   /* TEQEQ  */
-    TNEQ = 290,                    /* TNEQ  */
-    TLE = 291,                     /* TLE  */
-    TGE = 292,                     /* TGE  */
-    TAND = 293,                    /* TAND  */
-    TOR = 294,                     /* TOR  */
-    TLSHIFT = 295,                 /* TLSHIFT  */
-    TRSHIFT = 296,                 /* TRSHIFT  */
-    UMINUS = 297                   /* UMINUS  */
+    TPRINT = 272,                  /* TPRINT  */
+    TSTATE = 273,                  /* TSTATE  */
+    TPROP = 274,                   /* TPROP  */
+    TATOMIC = 275,                 /* TATOMIC  */
+    TSTREAM = 276,                 /* TSTREAM  */
+    TSECRET = 277,                 /* TSECRET  */
+    TCAP = 278,                    /* TCAP  */
+    TTRUE = 279,                   /* TTRUE  */
+    TFALSE = 280,                  /* TFALSE  */
+    TARROW = 281,                  /* TARROW  */
+    TGET = 282,                    /* TGET  */
+    TSET = 283,                    /* TSET  */
+    TEQ = 284,                     /* TEQ  */
+    TADD = 285,                    /* TADD  */
+    TSUB = 286,                    /* TSUB  */
+    TCHANSEND = 287,               /* TCHANSEND  */
+    TCHANRECV = 288,               /* TCHANRECV  */
+    TCHANTRY = 289,                /* TCHANTRY  */
+    TEQEQ = 290,                   /* TEQEQ  */
+    TNEQ = 291,                    /* TNEQ  */
+    TLE = 292,                     /* TLE  */
+    TGE = 293,                     /* TGE  */
+    TAND = 294,                    /* TAND  */
+    TOR = 295,                     /* TOR  */
+    TLSHIFT = 296,                 /* TLSHIFT  */
+    TRSHIFT = 297,                 /* TRSHIFT  */
+    UMINUS = 298                   /* UMINUS  */
   };
   typedef enum yytokentype yytoken_kind_t;
 #endif
@@ -107,7 +108,7 @@ union YYSTYPE
     Node *node;
     char *name;
 
-#line 111 "o9_plan9.tab.h"
+#line 112 "o9_plan9.tab.h"
 
 };
 typedef union YYSTYPE YYSTYPE;
