@@ -1,0 +1,53 @@
+#!/bin/rc
+# test_pipeline.rc — run full transpile pipeline on 9front
+cd /usr/scott/o9_new
+
+# Step 1: Build the latest compiler from grammar
+rm -f y.tab.* o9c
+hget https://raw.githubusercontent.com/kiljoy001/objective-9c/main/o9c/o9_plan9.y > o9_plan9.y
+yacc -d o9_plan9.y >[2] /tmp/yerr.txt
+6c -o y.tab.6 y.tab.c >[2] /tmp/cerr.txt
+6l -o o9c y.tab.6 >[2] /tmp/lerr.txt
+echo BUILD_OK
+
+# Step 2: Pull the o9 source and runtime
+hget https://raw.githubusercontent.com/kiljoy001/objective-9c/main/o9c/test/pipeline_src.o9 > src.o9
+hget https://raw.githubusercontent.com/kiljoy001/objective-9c/main/o9.h > o9.h
+hget https://raw.githubusercontent.com/kiljoy001/objective-9c/main/o9_runtime.c > o9_runtime.c
+hget https://raw.githubusercontent.com/kiljoy001/objective-9c/main/o9_dispatch.s > o9_dispatch.s
+echo SOURCES_OK
+
+# Step 3: Transpile to C (redirect works on 9front side)
+./o9c < src.o9 > out.c 2>/tmp/otrans.txt
+if(test -s out.c) {
+  echo TRANS_OK
+} else {
+  cat /tmp/otrans.txt
+  exit TRANS_FAIL
+}
+wc -l out.c
+
+# Step 4: Compile generated C
+6c -FVw out.c >[2] /tmp/ccerr.txt
+if(~ $status 0) {
+  echo CC_OK
+} else {
+  cat /tmp/ccerr.txt
+  exit CC_FAIL
+}
+
+# Step 5: Build runtime
+6c -FVw o9_runtime.c >[2] /dev/null
+6a o9_dispatch.s >[2] /dev/null
+
+# Step 6: Link and run
+6l -o pipeline_test out.6 o9_runtime.6 o9_dispatch.6 >[2] /dev/null
+if(~ $status 0) {
+  echo LINK_OK
+  ls -l pipeline_test
+  echo === RUN ===
+  ./pipeline_test
+  echo === ALL_DONE ===
+} else {
+  echo LINK_FAIL
+}
