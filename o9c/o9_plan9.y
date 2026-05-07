@@ -404,11 +404,7 @@ param_list:
     ;
 
 param:
-    TIDENT typename
-    {
-        $$ = mk(NProp, $1->name, $2->name, nil, nil);
-    }
-    | typename TIDENT
+    typename TIDENT
     {
         $$ = mk(NProp, $2->name, $1->name, nil, nil);
     }
