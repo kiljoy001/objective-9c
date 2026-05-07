@@ -54,7 +54,8 @@ enum {
     NElse,
     NWhile,
     NLocalVar,
-    NMsgSend
+    NMsgSend,
+    NFuncCall
 };
 
 struct Node {
@@ -454,6 +455,9 @@ expr:
     | TSUB expr %prec UMINUS { $$ = mk(NNeg, nil, nil, $2, nil); }
     | expr '.' TIDENT '(' call_args ')' {
         $$ = mk(NMsgSend, $3->name, nil, $1, $5);
+    }
+    | TIDENT '(' call_args ')' {
+        $$ = mk(NFuncCall, $1->name, nil, $3, nil);
     }
     | TIDENT { $$ = $1; }
     | TINTLIT { $$ = mk(NIntLit, $1, nil, nil, nil); }
@@ -869,6 +873,32 @@ gen_expr(Node *e)
         break;
     case NNeg:
         print("-"); gen_expr(e->left);
+        break;
+    case NFuncCall:
+        /* Built-in functions like print(...) */
+        if(strcmp(e->name, "print") == 0){
+            /* Emit print("fmt", args...) directly */
+            print("print(");
+            int first = 1;
+            Node *a;
+            for(a = e->left; a; a = a->next){
+                if(!first) print(", ");
+                gen_expr(a);
+                first = 0;
+            }
+            print(")");
+        } else {
+            /* Unknown function call — just emit as-is */
+            print("%s(", e->name);
+            int first = 1;
+            Node *a;
+            for(a = e->left; a; a = a->next){
+                if(!first) print(", ");
+                gen_expr(a);
+                first = 0;
+            }
+            print(")");
+        }
         break;
     }
 }

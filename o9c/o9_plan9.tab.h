@@ -102,7 +102,7 @@ extern int yydebug;
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 union YYSTYPE
 {
-#line 166 "o9_plan9.y"
+#line 167 "o9_plan9.y"
 
     Node *node;
     char *name;
