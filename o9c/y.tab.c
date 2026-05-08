@@ -189,36 +189,35 @@ YYSTYPE	yyval;
 #define	TELSE	57357
 #define	TWHILE	57358
 #define	TNEW	57359
-#define	TSTATE	57360
-#define	TPROP	57361
-#define	TATOMIC	57362
-#define	TSTREAM	57363
-#define	TSECRET	57364
-#define	TCAP	57365
-#define	TTRUE	57366
-#define	TFALSE	57367
-#define	TARROW	57368
-#define	TGET	57369
-#define	TSET	57370
-#define	TEQ	57371
-#define	TADD	57372
-#define	TSUB	57373
-#define	TCHANSEND	57374
-#define	TCHANRECV	57375
-#define	TCHANTRY	57376
-#define	TEQEQ	57377
-#define	TNEQ	57378
-#define	TLE	57379
-#define	TGE	57380
-#define	TAND	57381
-#define	TOR	57382
-#define	TLSHIFT	57383
-#define	TRSHIFT	57384
-#define	UMINUS	57385
+#define	TPRINT	57360
+#define	TSTATE	57361
+#define	TPROP	57362
+#define	TATOMIC	57363
+#define	TSTREAM	57364
+#define	TSECRET	57365
+#define	TCAP	57366
+#define	TTRUE	57367
+#define	TFALSE	57368
+#define	TARROW	57369
+#define	TEQ	57370
+#define	TADD	57371
+#define	TSUB	57372
+#define	TCHANSEND	57373
+#define	TCHANRECV	57374
+#define	TCHANTRY	57375
+#define	TEQEQ	57376
+#define	TNEQ	57377
+#define	TLE	57378
+#define	TGE	57379
+#define	TAND	57380
+#define	TOR	57381
+#define	TLSHIFT	57382
+#define	TRSHIFT	57383
+#define	UMINUS	57384
 #define YYEOFCODE 1
 #define YYERRCODE 2
 
-#line	495	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	494	"/n/linux/objective-9c/o9c/o9_plan9.y"
 
 
 Node*
@@ -402,6 +401,7 @@ yylex(void)
             if(strcmp(buf, "while") == 0) return TWHILE;
             if(strcmp(buf, "true") == 0) return TTRUE;
             if(strcmp(buf, "false") == 0) return TFALSE;
+            if(strcmp(buf, "print") == 0) return TPRINT;
             if(strcmp(buf, "bool") == 0) return TTYPE;
             if(strcmp(buf, "uint64") == 0) return TTYPE;
             if(strcmp(buf, "int32") == 0) return TTYPE;
@@ -761,7 +761,7 @@ gen_class_header(Node *c)
     print("/* Generated Client Header for class %s */\n", c->name);
     print("#ifndef _O9_GEN_%s_H_\n#define _O9_GEN_%s_H_\n\n", c->name, c->name);
     print("typedef struct %s_AsmTable {\n\tvoid *data_cache[64];\n\tvoid (*ctrl_cache[64])(void*);\n} %s_AsmTable;\n\n", c->name, c->name);
-    print("typedef struct %s_Client {\n\tint fd;\n\to9_AsmTable *table;\n\tlong ref;\t/* ARC Counter */\n\tvoid *dispatch_chan;\n", c->name);
+    print("typedef struct %s_Client {\n\tint fd;\n\tvoid *shm_base;\n\to9_AsmTable *table;\n\tlong ref;\t/* ARC Counter */\n\tvoid *dispatch_chan;\n", c->name);
     for(m = c->left; m; m = m->next){
         if(m->type == NInherit) print("\t%s_Client;\n", m->name);
     }
@@ -1053,145 +1053,135 @@ short	yyexca[] =
 {-1, 1,
 	1, -1,
 	-2, 0,
--1, 81,
+-1, 82,
 	4, 1,
 	-2, 80,
 };
 #define	YYNPROD	92
 #define	YYPRIVATE 57344
-#define	YYLAST	971
+#define	YYLAST	879
 short	yyact[] =
 {
-  74,  73, 170,  92, 169,  57, 213, 205,  93, 199,
- 138, 186, 185, 186,  28, 175, 186, 137, 174, 138,
- 214, 138,  99,  98,  97,  96,  95,  89,  67,  60,
-  58,  55,  46,  48,  50,  51, 165,  53,  54, 217,
- 190, 216, 104, 105, 106, 102,  61, 103, 110, 111,
- 113, 115, 116, 117, 121, 122, 119, 120, 118, 112,
- 114, 107, 108, 109,  94, 197, 164, 123, 177, 196,
- 200, 189, 210, 140,  41,  11, 100, 125, 105, 106,
- 129, 130, 131, 107, 108, 109,  14, 181, 133, 123,
- 134, 172,  94, 132, 128, 136, 107, 108, 109, 176,
- 127,  91, 123, 123, 141, 142, 144, 145, 146, 147,
+  74,  73, 169, 168,  93,  57, 215, 207,  94, 201,
+ 139, 185, 184, 185,  28, 176, 185, 138, 175, 139,
+ 216, 139, 197, 100,  99,  98,  97,  96,  90,  67,
+  60,  58,  46,  48,  50,  51, 166,  53,  54,  55,
+ 219, 218, 105, 106, 107, 103,  61, 104, 111, 112,
+ 114, 116, 117, 118, 122, 123, 120, 121, 119, 113,
+ 115, 108, 109, 110,  95, 191, 165, 124, 106, 107,
+ 178, 200, 212, 111, 112, 114, 116, 126, 199, 122,
+ 123, 131, 132, 133, 113, 115, 108, 109, 110, 134,
+ 141, 135, 124,  95, 190, 202,  41, 137,  11, 177,
+ 101,  14, 182, 173, 130, 142, 143, 145, 146, 147,
  148, 149, 150, 151, 152, 153, 154, 155, 156, 157,
- 158, 159, 160, 161, 162,  70,  63,  45,  12, 167,
- 168,  42,  90, 188, 171,   6,   7,  49,  40,  94,
-  47,  40,  38,  40, 163, 180, 179, 178,  30,  31,
- 139,  29, 105, 106, 135, 124,  32,  33,  34,  35,
-  36,  37,  69, 121, 122,  68,  66, 182,  65,  64,
- 107, 108, 109,  62, 171,  43, 123, 187,  59, 192,
-  56,  52, 191, 171,  44,  10, 194,   9, 171, 198,
-  39,   3, 202,   5,   8, 201,  15,  25,  24,  23,
-  22,  94, 206, 207, 208,  21,  20,  19,  72,  27,
-  26,  18,  17,  16, 215,  13,   4,   2,   1,   0,
-   0,   0, 218, 219, 104, 105, 106, 102,   0, 103,
- 110, 111, 113, 115, 116, 117, 121, 122, 119, 120,
- 118, 112, 114, 107, 108, 109,   0,   0,   0, 123,
- 104, 105, 106, 102, 204, 103, 110, 111, 113, 115,
- 116, 117, 121, 122, 119, 120, 118, 112, 114, 107,
- 108, 109,   0,   0,   0, 123, 104, 105, 106, 102,
- 195, 103, 110, 111, 113, 115, 116, 117, 121, 122,
- 119, 120, 118, 112, 114, 107, 108, 109,   0,   0,
-   0, 123, 104, 105, 106, 102, 166, 103, 110, 111,
- 113, 115, 116, 117, 121, 122, 119, 120, 118, 112,
- 114, 107, 108, 109,   0,   0,   0, 123, 104, 105,
- 106, 102, 101, 103, 110, 111, 113, 115, 116, 117,
- 121, 122, 119, 120, 118, 112, 114, 107, 108, 109,
-   0,   0,   0, 123,   0, 184, 104, 105, 106, 102,
-   0, 103, 110, 111, 113, 115, 116, 117, 121, 122,
- 119, 120, 118, 112, 114, 107, 108, 109,   0,   0,
-   0, 123,   0, 183, 104, 105, 106, 102,   0, 103,
- 110, 111, 113, 115, 116, 117, 121, 122, 119, 120,
- 118, 112, 114, 107, 108, 109,   0,   0,   0, 123,
-   0, 173, 104, 105, 106, 102,   0, 103, 110, 111,
- 113, 115, 116, 117, 121, 122, 119, 120, 118, 112,
- 114, 107, 108, 109, 105, 106, 102, 123, 103, 110,
- 111, 113, 115, 116, 117, 121, 122, 119, 120, 118,
- 112, 114, 107, 108, 109,   0,   0,   0, 123,  81,
-  40,  82,  83,  84,   0,   0,   0,  75,   0,  76,
-   0,  77,  87,   0,   0,   0,   0,   0,   0,  85,
-  86,  81,  40,  82,  83,  84,  80,   0,   0,  75,
-   0,  76,   0,  77,  87,   0,   0,   0,   0,   0,
-   0,  85,  86,   0,   0,   0,  78,  79,  80,   0,
-  88,   0,   0, 221,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,   0,   0,   0,   0,  78,  79,
-   0,   0,  88,   0,   0, 220,  81,  40,  82,  83,
-  84,   0,   0,   0,  75,   0,  76,   0,  77,  87,
-   0,   0,   0,   0,   0,   0,  85,  86,  81,  40,
-  82,  83,  84,  80,   0,   0,  75,   0,  76,   0,
-  77,  87,   0,   0,   0,   0,   0,   0,  85,  86,
-   0,   0,   0,  78,  79,  80,   0,  88,   0,   0,
- 212,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,   0,  78,  79,   0,   0,  88,
-   0,   0, 211,  81,  40,  82,  83,  84,   0,   0,
-   0,  75,   0,  76,   0,  77,  87,   0,   0,   0,
-   0,   0,   0,  85,  86,  81,  40,  82,  83,  84,
-  80,   0,   0,  75,   0,  76,   0,  77,  87,   0,
-   0,   0,   0,   0,   0,  85,  86,   0,   0,   0,
-  78,  79,  80,   0,  88,   0,   0, 209,   0,   0,
-   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,  78,  79,   0,   0,  88,   0,   0, 203,
-  81,  40,  82,  83,  84,   0,   0,   0,  75,   0,
-  76,   0,  77,  87,   0,   0,   0,   0,   0,   0,
-  85,  86,  81,  40,  82,  83,  84,  80,   0,   0,
-  75,   0,  76,   0,  77,  87,   0,   0,   0,   0,
-   0,   0,  85,  86,   0,   0,   0,  78,  79,  80,
-   0,  88,   0,   0, 193,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,   0,   0,   0,   0,   0,  78,
-  79,   0,   0,  88, 105, 106,  71,   0,   0, 110,
- 111, 113, 115, 116, 117, 121, 122, 119, 120, 118,
- 112, 114, 107, 108, 109, 105, 106,   0, 123,   0,
- 110, 111, 113, 115, 116,   0, 121, 122, 119, 120,
- 118, 112, 114, 107, 108, 109, 105, 106,   0, 123,
-   0, 110, 111, 113, 115,   0,   0, 121, 122, 119,
- 120, 118, 112, 114, 107, 108, 109, 105, 106,   0,
- 123,   0, 110, 111, 113, 115,   0,   0, 121, 122,
-   0, 120, 118, 112, 114, 107, 108, 109, 105, 106,
-   0, 123,   0, 110, 111, 113, 115,   0,   0, 121,
- 122,   0,   0, 118, 112, 114, 107, 108, 109, 105,
- 106,   0, 123,   0, 110, 111, 113, 115,   0,   0,
- 121, 122,   0,   0,   0, 112, 114, 107, 108, 109,
-   0,   0, 126, 123,  82,  83,  84, 126,   0,  82,
-  83,  84,   0,   0,   0,  87,   0,   0,   0,   0,
-  87,   0,  85,  86,   0,   0,   0,  85,  86,  80,
-   0, 143,   0,   0,  80,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,   0,   0,   0,   0,   0,  78,
-  79,   0,   0,  88,  78,  79, 105, 106,  88,   0,
-   0,   0,   0, 113, 115,   0,   0, 121, 122,   0,
-   0,   0, 112, 114, 107, 108, 109,   0,   0,   0,
- 123
+ 158, 159, 160, 161, 162, 163, 129, 108, 109, 110,
+ 170, 171, 172, 124, 189, 128,  92,  70,  63,  45,
+  95,  12, 124,  91,  38,  40, 181, 180, 179,  42,
+  30,  31, 127,  29,  83,  84,  85,  49,  40,  32,
+  33,  34,  35,  36,  37,  88,   6,   7, 183,   5,
+  47,  40, 164,  86,  87, 170, 140, 188,  81, 136,
+ 193, 125,  69, 192, 170,  68, 195, 170, 198,  66,
+  65,  39,  43, 204, 106, 107, 203,  15,  79,  80,
+  64,  62,  89,  95,  59, 208, 209, 210,  56,  52,
+  44,  10, 108, 109, 110,   9, 217,   3, 124,  25,
+   8,  24,  23,  22, 220, 221, 105, 106, 107, 103,
+  21, 104, 111, 112, 114, 116, 117, 118, 122, 123,
+ 120, 121, 119, 113, 115, 108, 109, 110,  20,  19,
+  72, 124, 105, 106, 107, 103, 206, 104, 111, 112,
+ 114, 116, 117, 118, 122, 123, 120, 121, 119, 113,
+ 115, 108, 109, 110,  27,  26,  18, 124, 105, 106,
+ 107, 103, 196, 104, 111, 112, 114, 116, 117, 118,
+ 122, 123, 120, 121, 119, 113, 115, 108, 109, 110,
+  17,  16,  13, 124, 105, 106, 107, 103, 167, 104,
+ 111, 112, 114, 116, 117, 118, 122, 123, 120, 121,
+ 119, 113, 115, 108, 109, 110,   4,   2,   1, 124,
+ 105, 106, 107, 103, 102, 104, 111, 112, 114, 116,
+ 117, 118, 122, 123, 120, 121, 119, 113, 115, 108,
+ 109, 110,   0,   0,   0, 124,   0, 187, 105, 106,
+ 107, 103,   0, 104, 111, 112, 114, 116, 117, 118,
+ 122, 123, 120, 121, 119, 113, 115, 108, 109, 110,
+   0,   0,   0, 124,   0, 186, 105, 106, 107, 103,
+   0, 104, 111, 112, 114, 116, 117, 118, 122, 123,
+ 120, 121, 119, 113, 115, 108, 109, 110,   0,   0,
+   0, 124,   0, 174, 105, 106, 107, 103,   0, 104,
+ 111, 112, 114, 116, 117, 118, 122, 123, 120, 121,
+ 119, 113, 115, 108, 109, 110,   0,   0,   0, 124,
+  82,  40,  83,  84,  85,   0,   0,   0,  75,   0,
+  77,   0,  78,  88,  76,  82,  40,  83,  84,  85,
+   0,  86,  87,  75,   0,  77,  81,  78,  88,  76,
+  82,  40,  83,  84,  85,   0,  86,  87,  75,   0,
+  77,  81,  78,  88,  76,   0,  79,  80,   0,   0,
+  89,  86,  87, 223,   0,   0,  81,   0,   0,   0,
+   0,  79,  80,   0,   0,  89,   0,   0, 222,   0,
+   0,   0,   0,   0,   0,   0,  79,  80,   0,   0,
+  89,   0,   0, 214,  82,  40,  83,  84,  85,   0,
+   0,   0,  75,   0,  77,   0,  78,  88,  76,  82,
+  40,  83,  84,  85,   0,  86,  87,  75,   0,  77,
+  81,  78,  88,  76,  82,  40,  83,  84,  85,   0,
+  86,  87,  75,   0,  77,  81,  78,  88,  76,   0,
+  79,  80,   0,   0,  89,  86,  87, 213,   0,   0,
+  81,   0,   0,   0,   0,  79,  80,   0,   0,  89,
+   0,   0, 211,   0,   0,   0,   0,   0,   0,   0,
+  79,  80,   0,   0,  89,   0,   0, 205,  82,  40,
+  83,  84,  85,   0,   0,   0,  75,   0,  77,   0,
+  78,  88,  76,   0,   0,   0,   0,   0,   0,  86,
+  87,   0, 106, 107,  81,   0,   0, 111, 112, 114,
+ 116, 117, 118, 122, 123, 120, 121, 119, 113, 115,
+ 108, 109, 110,   0,  79,  80, 124,   0,  89,   0,
+   0, 194, 106, 107, 103,   0, 104, 111, 112, 114,
+ 116, 117, 118, 122, 123, 120, 121, 119, 113, 115,
+ 108, 109, 110,   0,   0,   0, 124,  82,  40,  83,
+  84,  85,   0,   0,   0,  75,   0,  77,   0,  78,
+  88,  76,   0,   0,   0,   0,   0,   0,  86,  87,
+   0, 106, 107,  81,   0,   0, 111, 112, 114, 116,
+ 117,   0, 122, 123, 120, 121, 119, 113, 115, 108,
+ 109, 110,   0,  79,  80, 124,   0,  89, 106, 107,
+  71,   0,   0, 111, 112, 114, 116,   0,   0, 122,
+ 123, 120, 121, 119, 113, 115, 108, 109, 110, 106,
+ 107,   0, 124,   0, 111, 112, 114, 116,   0,   0,
+ 122, 123,   0, 121, 119, 113, 115, 108, 109, 110,
+ 106, 107,   0, 124,   0, 111, 112, 114, 116,   0,
+   0, 122, 123,   0,   0, 119, 113, 115, 108, 109,
+ 110,   0,   0, 127, 124,  83,  84,  85,   0,   0,
+   0,   0,   0,   0,   0,   0,  88,   0,   0,   0,
+   0,   0,   0,   0,  86,  87,   0, 106, 107,  81,
+   0, 144,   0,   0, 114, 116,   0,   0, 122, 123,
+   0,   0,   0, 113, 115, 108, 109, 110,   0,  79,
+  80, 124,   0,  89, 106, 107,   0,   0,   0,   0,
+   0,   0,   0,   0,   0, 122, 123,   0,   0,   0,
+   0,   0, 108, 109, 110,   0,   0,   0, 124
 };
 short	yypact[] =
 {
- 126,-1000, 126,-1000,-1000,-1000, 183, 181,-1000,  18,
-  73,-1000,  30, 138,  17,-1000,-1000,-1000,-1000,-1000,
--1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000, 127, 180,
-  72, 136, 133, 133, 133, 177, 133, 133, -28, 176,
--1000,-1000, -29, 174, -30, 133, 169,  71, 165,-1000,
- 164, 162, -31, 161, 158,-1000,  70, 708,-1000, -32,
--1000,  84,  46, 133, -33, -34, -35,-1000, -36, -37,
-  20,-1000,-1000, 273, 151, 893,  45,  39, 893, 893,
- 893,  38,-1000,-1000,-1000,-1000,-1000, 133, 893,-1000,
- 150, 133, -39,-1000, 146,-1000,-1000,-1000,-1000,-1000,
-  16,-1000, 893, 893, 888, 893, 893, 893, 893, 893,
- 893, 893, 893, 893, 893, 893, 893, 893, 893, 893,
- 893, 893, 893, 140,   7, 247,  38, 893, 893,  49,
-  49,  49, 893,  36, 355, -38, -41,  42, 133,-1000,
--1000, 734, 734, 893, 404,  35,  35,  49,  49,  49,
- 916, 916, 122, 122, 122, 122, 776, 755, 839, 797,
- 818,  48,  48,  32,-1000, 893,-1000, 327, 299, -44,
--1000, 383, 893,-1000, 129,  14,-1000, 893,-1000, 686,
- 734, 893, 221,  12,   8,-1000, 893, -47,  15,-1000,
- 893, 631, 195,-1000, -49,-1000,-1000,-1000,-1000,-1000,
- 133, 609,  13,-1000,-1000,-1000, 554, 532, -50,-1000,
--1000,   5,-1000, 133, -16, -18,-1000,-1000, 477, 455,
--1000,-1000
+ 157,-1000, 157,-1000,-1000,-1000, 211, 207,-1000,  42,
+  87,-1000,  46, 140,  40,-1000,-1000,-1000,-1000,-1000,
+-1000,-1000,-1000,-1000,-1000,-1000,-1000,-1000, 145, 206,
+  85, 166, 153, 153, 153, 205, 153, 153, -19, 204,
+-1000,-1000, -27, 200, -28, 153, 197,  84, 196,-1000,
+ 186, 185, -29, 181, 178,-1000,  83, 683,-1000, -30,
+-1000,  96,  82, 153, -31, -32, -33,-1000, -34, -35,
+  45,-1000,-1000, 276, 177, 148,  81,  72,  50, 148,
+ 148, 148,-1000,-1000,-1000,-1000,-1000,-1000, 153, 148,
+-1000, 175, 153, -38,-1000, 172,-1000,-1000,-1000,-1000,
+-1000,  34,-1000, 148, 148, 799, 148, 148, 148, 148,
+ 148, 148, 148, 148, 148, 148, 148, 148, 148, 148,
+ 148, 148, 148, 148, 168,   8, 250,-1000, 148, 148,
+ 148,  89,  89,  89,  49, 358, -37, -40,  43, 153,
+-1000,-1000, 603, 603, 148, 633,  80,  80,  89,  89,
+  89, 798, 798, 825, 825, 825, 825, 709, 682,  39,
+ 730, 751, 165, 165,  48,-1000, 148,-1000, -43,-1000,
+ 386, 330, 302, 148,-1000, 130,  38,-1000, 148,-1000,
+ 604, 603, 148, 224, -36, 148,  22,  15, -46,  41,
+-1000, 148, 550, 198,-1000, -48,-1000,-1000,-1000,-1000,
+-1000,-1000, 153, 535,  14,-1000,-1000,-1000, 520, 466,
+ -49,-1000,-1000,   5,-1000, 153, -15, -16,-1000,-1000,
+ 451, 436,-1000,-1000
 };
 short	yypgo[] =
 {
-   0, 218, 217, 191, 216, 215, 213, 212, 211, 210,
- 209,   5, 208,   1, 207, 206, 205, 200, 199, 198,
- 197,   0,   3,   8,   4,   2, 193
+   0, 328, 327, 217, 326, 302, 301, 300, 276, 275,
+ 274,   5, 250,   1, 249, 248, 230, 223, 222, 221,
+ 219,   0,   4,   8,   3,   2, 169
 };
 short	yyr1[] =
 {
@@ -1200,7 +1190,7 @@ short	yyr1[] =
    6,   6,   6,   6,  15,  16,  17,  18,  19,  20,
   14,  14,  14,  14,   9,   7,   7,   7,   8,  22,
   22,  22,  23,  10,  11,  11,  12,  12,  12,  12,
-  12,  12,  12,  13,  13,  13,  13,  13,  13,  13,
+  12,  12,  12,  12,  13,  13,  13,  13,  13,  13,
   13,  13,  13,  13,  13,  13,  13,  13,  13,  13,
   13,  13,  13,  13,  13,  13,  13,  13,  13,  13,
   13,  13,  13,  13,  13,  13,  13,  13,  24,  24,
@@ -1213,37 +1203,37 @@ short	yyr2[] =
    1,   1,   1,   1,   4,   4,   4,   3,   4,   4,
    9,   9,   8,   8,   2,   3,   4,   3,  14,   0,
    1,   3,   2,   7,   0,   2,   2,   3,   5,   3,
-   7,  11,   7,   3,   3,   4,   3,   3,   3,   3,
+   5,   7,  11,   7,   3,   3,   4,   3,   3,   3,
    3,   3,   3,   3,   3,   3,   3,   3,   3,   3,
-   3,   3,   3,   3,   3,   2,   2,   2,   6,   4,
+   3,   3,   3,   3,   3,   3,   2,   2,   2,   6,
    1,   1,   1,   1,   1,   1,   5,   3,   0,   1,
    3,   1
 };
 short	yychk[] =
 {
 -1000,  -1,  -2,  -3,  -4, -26,   9,  10,  -3,   4,
-   4,  57,  55,  -5,  56,  58,  -6,  -7,  -8, -14,
+   4,  56,  54,  -5,  55,  57,  -6,  -7,  -8, -14,
  -15, -16, -17, -18, -19, -20,  -9, -10, -21,  13,
-  10,  11,  18,  19,  20,  21,  22,  23,   4,  52,
-   5,  57,   4,  48,   4,  55, -21,   4, -21,   4,
- -21, -21,   4, -21, -21,  59,   4, -11,  59,   4,
-  59, -21,   4,  55,   4,   4,   4,  59,   4,   4,
-  55,  58, -12, -13, -21,  12,  14,  16,  51,  52,
-  31,   4,   6,   7,   8,  24,  25,  17,  55,  59,
-  48,  55, -22, -23, -21,  59,  59,  59,  59,  59,
-  56,  59,  32,  34,  29,  30,  31,  48,  49,  50,
-  35,  36,  46,  37,  47,  38,  39,  40,  45,  43,
-  44,  41,  42,  54,   4, -13,   4,  55,  55, -13,
- -13, -13,  55, -21, -13,   4, -22,  56,  60,   4,
-  57, -13, -13,  33, -13, -13, -13, -13, -13, -13,
+  10,  11,  19,  20,  21,  22,  23,  24,   4,  51,
+   5,  56,   4,  47,   4,  54, -21,   4, -21,   4,
+ -21, -21,   4, -21, -21,  58,   4, -11,  58,   4,
+  58, -21,   4,  54,   4,   4,   4,  58,   4,   4,
+  54,  57, -12, -13, -21,  12,  18,  14,  16,  50,
+  51,  30,   4,   6,   7,   8,  25,  26,  17,  54,
+  58,  47,  54, -22, -23, -21,  58,  58,  58,  58,
+  58,  55,  58,  31,  33,  28,  29,  30,  47,  48,
+  49,  34,  35,  45,  36,  46,  37,  38,  39,  44,
+  42,  43,  40,  41,  53,   4, -13,   4,  54,  54,
+  54, -13, -13, -13, -21, -13,   4, -22,  55,  59,
+   4,  56, -13, -13,  32, -13, -13, -13, -13, -13,
  -13, -13, -13, -13, -13, -13, -13, -13, -13, -13,
- -13, -13, -13,   4,  59,  29,  59, -13, -13, -24,
- -25, -13,  55,  56,  56,  56,  57,  26, -23, -11,
- -13,  55, -13,  56,  56,  56,  60, -24,   4,  57,
-  26, -11, -13,  58, -24,  59,  57,  57, -25,  56,
-  55, -11, -13,  58,  59,  56, -11, -11, -22,  58,
-  59,  58,  58,  56,  15, -21,  57,  57, -11, -11,
-  58,  58
+ -13, -13, -13, -13,   4,  58,  28,  58, -24, -25,
+ -13, -13, -13,  54,  55,  55,  55,  56,  27, -23,
+ -11, -13,  54, -13,  55,  59,  55,  55, -24,   4,
+  56,  27, -11, -13,  57, -24,  58,  58, -25,  56,
+  56,  55,  54, -11, -13,  57,  58,  55, -11, -11,
+ -22,  57,  58,  57,  57,  55,  15, -21,  56,  56,
+ -11, -11,  57,  57
 };
 short	yydef[] =
 {
@@ -1255,37 +1245,37 @@ short	yydef[] =
    0,   0,   0,   0,   0,  34,   0,   0,  35,   0,
   37,   0,   0,  39,   0,   0,   0,  27,   0,   0,
    0,   9,  45,   0,   0,   0,   0,   0,   0,   0,
-   0,  -2,  81,  82,  83,  84,  85,   0,   0,  36,
-   0,  39,   0,  40,   0,  24,  25,  26,  28,  29,
-   0,  46,   0,   0,   0,   0,   0,   0,   0,   0,
+   0,   0,  -2,  81,  82,  83,  84,  85,   0,   0,
+  36,   0,  39,   0,  40,   0,  24,  25,  26,  28,
+  29,   0,  46,   0,   0,   0,   0,   0,   0,   0,
    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,   0,   0,  80,   0,   0,  75,
-  76,  77,  88,   0,   0,   0,   0,   0,   0,  42,
-  44,  53,  54,   0,  56,  57,  58,  59,  60,  61,
+   0,   0,   0,   0,   0,   0,   0,  80,  88,   0,
+   0,  76,  77,  78,   0,   0,   0,   0,   0,   0,
+  42,  44,  54,  55,   0,  57,  58,  59,  60,  61,
   62,  63,  64,  65,  66,  67,  68,  69,  70,  71,
-  72,  73,  74,   0,  47,   0,  49,   0,   0,   0,
-  89,  91,  88,  87,   0,   0,  44,   0,  41,   0,
-  55,  88,   0,   0,   0,  79,   0,   0,   0,  44,
-   0,   0,   0,  43,   0,  48,  44,  44,  90,  86,
-  39,   0,   0,  32,  33,  78,   0,   0,   0,  30,
-  31,  50,  52,   0,   0,   0,  44,  44,   0,   0,
-  51,  38
+  72,  73,  74,  75,   0,  47,   0,  49,   0,  89,
+  91,   0,   0,  88,  87,   0,   0,  44,   0,  41,
+   0,  56,  88,   0,   0,   0,   0,   0,   0,   0,
+  44,   0,   0,   0,  43,   0,  48,  50,  90,  44,
+  44,  86,  39,   0,   0,  32,  33,  79,   0,   0,
+   0,  30,  31,  51,  53,   0,   0,   0,  44,  44,
+   0,   0,  52,  38
 };
 short	yytok1[] =
 {
    1,   0,   0,   0,   0,   0,   0,   0,   0,   0,
    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,  51,   0,   0,   0,  50,  45,   0,
-  55,  56,  48,   0,  60,   0,  54,  49,   0,   0,
-   0,   0,   0,   0,   0,   0,   0,   0,   0,  59,
-  46,   0,  47,   0,   0,   0,   0,   0,   0,   0,
+   0,   0,   0,  50,   0,   0,   0,  49,  44,   0,
+  54,  55,  47,   0,  59,   0,  53,  48,   0,   0,
+   0,   0,   0,   0,   0,   0,   0,   0,   0,  58,
+  45,   0,  46,   0,   0,   0,   0,   0,   0,   0,
    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,   0,  44,   0,   0,   0,   0,   0,
+   0,   0,   0,   0,  43,   0,   0,   0,   0,   0,
    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
    0,   0,   0,   0,   0,   0,   0,   0,   0,   0,
-   0,   0,   0,  57,  43,  58,  52
+   0,   0,   0,  56,  42,  57,  51
 };
 short	yytok2[] =
 {
@@ -1293,7 +1283,7 @@ short	yytok2[] =
   12,  13,  14,  15,  16,  17,  18,  19,  20,  21,
   22,  23,  24,  25,  26,  27,  28,  29,  30,  31,
   32,  33,  34,  35,  36,  37,  38,  39,  40,  41,
-  42,  53
+  52
 };
 long	yytok3[] =
 {
@@ -1538,22 +1528,22 @@ yydefault:
 	switch(yym) {
 		
 case 1:
-#line	203	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	202	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = yypt[-0].yyv.node; } break;
 case 2:
-#line	204	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	203	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = yypt[-0].yyv.node; } break;
 case 3:
-#line	208	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	207	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { ast_root = nil; } break;
 case 4:
-#line	209	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	208	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { ast_root = yypt[-0].yyv.node; } break;
 case 5:
-#line	213	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	212	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = yypt[-0].yyv.node; } break;
 case 6:
-#line	214	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	213	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { 
         Node *n = yypt[-1].yyv.node;
         while(n->next) n = n->next;
@@ -1561,21 +1551,21 @@ case 6:
         yyval.node = yypt[-1].yyv.node;
     } break;
 case 9:
-#line	229	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	228	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NMethod, yypt[-5].yyv.node->name, "void", yypt[-1].yyv.node, nil);
     } break;
 case 10:
-#line	236	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	235	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NClass, yypt[-3].yyv.node->name, nil, yypt[-1].yyv.node, nil);
         add_class(yypt[-3].yyv.node->name, yyval.node);
     } break;
 case 11:
-#line	243	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	242	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = nil; } break;
 case 12:
-#line	244	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	243	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { 
         if(yypt[-1].yyv.node == nil) yyval.node = yypt[-0].yyv.node;
         else {
@@ -1586,94 +1576,94 @@ case 12:
         }
     } break;
 case 24:
-#line	271	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	270	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NState, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil);
     } break;
 case 25:
-#line	278	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	277	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NProp, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil);
     } break;
 case 26:
-#line	285	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	284	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NAtomic, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil);
     } break;
 case 27:
-#line	292	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	291	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NStream, yypt[-1].yyv.node->name, nil, nil, nil);
     } break;
 case 28:
-#line	299	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	298	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NSecret, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil);
     } break;
 case 29:
-#line	306	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	305	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NCap, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil);
     } break;
 case 30:
-#line	325	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	324	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NMethod, yypt[-6].yyv.node->name, yypt[-7].yyv.node->name, yypt[-1].yyv.node, yypt[-4].yyv.node);
     } break;
 case 31:
-#line	329	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	328	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         Node *body = mk(NReturn, nil, nil, yypt[-1].yyv.node, nil);
         yyval.node = mk(NMethod, yypt[-6].yyv.node->name, yypt[-7].yyv.node->name, body, yypt[-4].yyv.node);
     } break;
 case 32:
-#line	334	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	333	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NMethod, yypt[-6].yyv.node->name, "void", yypt[-1].yyv.node, yypt[-4].yyv.node);
     } break;
 case 33:
-#line	338	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	337	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         Node *body = mk(NReturn, nil, nil, yypt[-1].yyv.node, nil);
         yyval.node = mk(NMethod, yypt[-6].yyv.node->name, "void", body, yypt[-4].yyv.node);
     } break;
 case 34:
-#line	346	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	345	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NInherit, yypt[-1].yyv.node->name, nil, nil, nil);
     } break;
 case 35:
-#line	353	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	352	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NProp, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil);
     } break;
 case 36:
-#line	357	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	356	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         char buf[128];
         snprint(buf, sizeof buf, "%s*", yypt[-3].yyv.node->name);
         yyval.node = mk(NProp, yypt[-1].yyv.node->name, buf, nil, nil);
     } break;
 case 37:
-#line	363	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	362	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NStream, yypt[-1].yyv.node->name, "chan", nil, nil);
     } break;
 case 38:
-#line	370	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	369	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         Node *params = yypt[-5].yyv.node;
         Node *stmts = yypt[-1].yyv.node;
         yyval.node = mk(NMethod, yypt[-7].yyv.node->name, yypt[-3].yyv.node->name, stmts, params);
     } break;
 case 39:
-#line	378	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	377	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = nil; } break;
 case 40:
-#line	379	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	378	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = yypt[-0].yyv.node; } break;
 case 41:
-#line	380	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	379	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         if(yypt[-2].yyv.node == nil) yyval.node = yypt[-0].yyv.node;
         else {
@@ -1684,20 +1674,20 @@ case 41:
         }
     } break;
 case 42:
-#line	393	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	392	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NProp, yypt[-0].yyv.node->name, yypt[-1].yyv.node->name, nil, nil);
     } break;
 case 43:
-#line	400	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	399	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NDestructor, yypt[-5].yyv.node->name, nil, yypt[-1].yyv.node, nil);
     } break;
 case 44:
-#line	406	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	405	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = nil; } break;
 case 45:
-#line	407	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	406	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         if(yypt[-1].yyv.node == nil) yyval.node = yypt[-0].yyv.node;
         else {
@@ -1708,133 +1698,133 @@ case 45:
         }
     } break;
 case 46:
-#line	419	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	418	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = yypt[-1].yyv.node; } break;
 case 47:
-#line	420	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	419	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NLocalVar, yypt[-1].yyv.node->name, yypt[-2].yyv.node->name, nil, nil); if(find_class(yypt[-2].yyv.node->name)) add_var_class(yypt[-1].yyv.node->name, yypt[-2].yyv.node->name); } break;
 case 48:
-#line	421	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	420	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NLocalVar, yypt[-3].yyv.node->name, yypt[-4].yyv.node->name, yypt[-1].yyv.node, nil); if(find_class(yypt[-4].yyv.node->name)) add_var_class(yypt[-3].yyv.node->name, yypt[-4].yyv.node->name); } break;
 case 49:
-#line	422	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	421	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NReturn, nil, nil, yypt[-1].yyv.node, nil); } break;
 case 50:
-#line	423	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NIf, nil, nil, yypt[-4].yyv.node, yypt[-1].yyv.node); } break;
+#line	422	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{
+        yyval.node = mk(NFuncCall, "print", nil, yypt[-2].yyv.node, nil);
+    } break;
 case 51:
-#line	424	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	425	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NIf, nil, nil, yypt[-4].yyv.node, yypt[-1].yyv.node); } break;
+case 52:
+#line	426	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NIfElse, nil, nil, yypt[-8].yyv.node, mk(NElse, nil, nil, yypt[-5].yyv.node, yypt[-1].yyv.node));
     } break;
-case 52:
-#line	427	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NWhile, nil, nil, yypt[-4].yyv.node, yypt[-1].yyv.node); } break;
 case 53:
-#line	431	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NChanSend, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+#line	429	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NWhile, nil, nil, yypt[-4].yyv.node, yypt[-1].yyv.node); } break;
 case 54:
-#line	432	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NChanTry, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 55:
 #line	433	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NChanRecv, nil, nil, yypt[-3].yyv.node, yypt[-0].yyv.node); } break;
-case 56:
+{ yyval.node = mk(NChanSend, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 55:
 #line	434	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NAssign, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 57:
+{ yyval.node = mk(NChanTry, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 56:
 #line	435	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NAdd, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 58:
+{ yyval.node = mk(NChanRecv, nil, nil, yypt[-3].yyv.node, yypt[-0].yyv.node); } break;
+case 57:
 #line	436	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NSub, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 59:
+{ yyval.node = mk(NAssign, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 58:
 #line	437	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NMul, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 60:
+{ yyval.node = mk(NAdd, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 59:
 #line	438	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NDiv, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 61:
+{ yyval.node = mk(NSub, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 60:
 #line	439	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NMod, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 62:
+{ yyval.node = mk(NMul, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 61:
 #line	440	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NEq, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 63:
+{ yyval.node = mk(NDiv, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 62:
 #line	441	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NNe, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 64:
+{ yyval.node = mk(NMod, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 63:
 #line	442	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NLt, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 65:
+{ yyval.node = mk(NEq, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 64:
 #line	443	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NLe, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 66:
+{ yyval.node = mk(NNe, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 65:
 #line	444	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NGt, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 67:
+{ yyval.node = mk(NLt, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 66:
 #line	445	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NGe, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 68:
+{ yyval.node = mk(NLe, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 67:
 #line	446	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NAnd, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 69:
+{ yyval.node = mk(NGt, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 68:
 #line	447	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NOr, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 70:
+{ yyval.node = mk(NGe, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 69:
 #line	448	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NBitAnd, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 71:
+{ yyval.node = mk(NAnd, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 70:
 #line	449	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NBitOr, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 72:
+{ yyval.node = mk(NOr, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 71:
 #line	450	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NBitXor, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 73:
+{ yyval.node = mk(NBitAnd, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 72:
 #line	451	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NLshift, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 74:
+{ yyval.node = mk(NBitOr, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 73:
 #line	452	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NRshift, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
-case 75:
+{ yyval.node = mk(NBitXor, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 74:
 #line	453	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NNot, nil, nil, yypt[-0].yyv.node, nil); } break;
-case 76:
+{ yyval.node = mk(NLshift, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 75:
 #line	454	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NBitNot, nil, nil, yypt[-0].yyv.node, nil); } break;
-case 77:
+{ yyval.node = mk(NRshift, nil, nil, yypt[-2].yyv.node, yypt[-0].yyv.node); } break;
+case 76:
 #line	455	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{ yyval.node = mk(NNeg, nil, nil, yypt[-0].yyv.node, nil); } break;
-case 78:
+{ yyval.node = mk(NNot, nil, nil, yypt[-0].yyv.node, nil); } break;
+case 77:
 #line	456	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NBitNot, nil, nil, yypt[-0].yyv.node, nil); } break;
+case 78:
+#line	457	"/n/linux/objective-9c/o9c/o9_plan9.y"
+{ yyval.node = mk(NNeg, nil, nil, yypt[-0].yyv.node, nil); } break;
+case 79:
+#line	458	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         yyval.node = mk(NMsgSend, yypt[-3].yyv.node->name, nil, yypt[-5].yyv.node, yypt[-1].yyv.node);
     } break;
-case 79:
-#line	459	"/n/linux/objective-9c/o9c/o9_plan9.y"
-{
-        yyval.node = mk(NFuncCall, yypt[-3].yyv.node->name, nil, yypt[-1].yyv.node, nil);
-    } break;
 case 80:
-#line	462	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	461	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = yypt[-0].yyv.node; } break;
 case 81:
-#line	463	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	462	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NIntLit, yypt[-0].yyv.name, nil, nil, nil); } break;
 case 82:
-#line	464	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	463	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NStringLit, yypt[-0].yyv.name, nil, nil, nil); } break;
 case 83:
-#line	465	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	464	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NCharLit, yypt[-0].yyv.name, nil, nil, nil); } break;
 case 84:
-#line	466	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	465	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NBoolLit, "1", nil, nil, nil); } break;
 case 85:
-#line	467	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	466	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = mk(NBoolLit, "0", nil, nil, nil); } break;
 case 86:
-#line	468	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	467	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         Node *n = mk(NClass, yypt[-3].yyv.node->name, nil, nil, nil);
         n->left = yypt[-3].yyv.node;
@@ -1842,16 +1832,16 @@ case 86:
         yyval.node = n;
     } break;
 case 87:
-#line	474	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	473	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = yypt[-1].yyv.node; } break;
 case 88:
-#line	478	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	477	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = nil; } break;
 case 89:
-#line	479	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	478	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = yypt[-0].yyv.node; } break;
 case 90:
-#line	480	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	479	"/n/linux/objective-9c/o9c/o9_plan9.y"
 {
         if(yypt[-2].yyv.node == nil) yyval.node = yypt[-0].yyv.node;
         else {
@@ -1862,7 +1852,7 @@ case 90:
         }
     } break;
 case 91:
-#line	492	"/n/linux/objective-9c/o9c/o9_plan9.y"
+#line	491	"/n/linux/objective-9c/o9c/o9_plan9.y"
 { yyval.node = yypt[-0].yyv.node; } break;
 	}
 	goto yystack;  /* stack new state and value */

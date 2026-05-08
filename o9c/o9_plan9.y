@@ -1187,13 +1187,11 @@ gen_class_server(Node *c)
     print("\t\tdefault: { O9Reply *r = mallocz(sizeof(O9Reply), 1); r->err = \"bad selector\"; sendp(m->replyc, r); } break;\n");
     print("\t\t}\n\t}\n}\n\n");
 
-    /* 4. 9P Fileserver Facade (fsread/fswrite) */
+    /* 4. 9P Fileserver Facade — clone pattern */
     print("static void fsread_%s(Req *r) {\n", c->name);
-    print("\tchar buf[1024];\n\t%s_Internal *s = r->srv->aux;\n", c->name);
-    print("\tchar *name = r->fid->file->name;\n\n");
+    print("\tchar buf[1024];\n\tchar *name = r->fid->file->name;\n\t%s_Internal *inst = r->fid->file->aux;\n\n", c->name);
     print("\tif(strcmp(name, \"status\") == 0) { readstr(r, \"running\"); respond(r, nil); return; }\n");
-    
-    /* props/ sub-directory logic would go here, simplified for MVP */
+    print("\tif(inst == nil) { respond(r, \"clone read\"); return; }\n\n");
     for(m = c->left; m; m = m->next){
         if(m->type == NProp || m->type == NAtomic){
             char *t = map_type(m->typename);
@@ -1201,11 +1199,11 @@ gen_class_server(Node *c)
             char *cast = type_cast(t);
             if(strcmp(fmt, "%s") == 0) {
                 print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
-                print("\t\tsnprint(buf, sizeof buf, \"%%s\\n\", s->%s ? s->%s : \"\");\n", m->name, m->name);
+                print("\t\tsnprint(buf, sizeof buf, \"%%s\\n\", inst->%s ? inst->%s : \"\");\n", m->name, m->name);
                 print("\t\treadstr(r, buf); respond(r, nil); return;\n\t}\n");
             } else {
                 print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
-                print("\t\tsnprint(buf, sizeof buf, \"%s\\n\", (%s)s->%s);\n", fmt, cast, m->name);
+                print("\t\tsnprint(buf, sizeof buf, \"%s\\n\", (%s)inst->%s);\n", fmt, cast, m->name);
                 print("\t\treadstr(r, buf); respond(r, nil); return;\n\t}\n");
             }
         }
@@ -1213,41 +1211,46 @@ gen_class_server(Node *c)
     print("\trespond(r, \"not found\");\n}\n\n");
 
     print("static void fswrite_%s(Req *r) {\n", c->name);
-    print("\t%s_Internal *s = r->srv->aux;\n\tchar *name = r->fid->file->name;\n", c->name);
-    print("\tif(strcmp(name, \"ctl\") == 0) { /* TODO: parse text ctl */ respond(r, nil); return; }\n");
-    print("\tif(strcmp(name, \"msg\") == 0) { /* TODO: parse binary msg */ respond(r, nil); return; }\n");
-    
+    print("\tchar *name = r->fid->file->name;\n\t%s_Internal *inst = r->fid->file->aux;\n", c->name);
+    print("\tif(strcmp(name, \"ctl\") == 0) { /* TODO: parse ctl */ respond(r, nil); return; }\n");
     for(m = c->left; m; m = m->next){
         if(m->type == NProp || m->type == NAtomic){
             char *t = map_type(m->typename);
             if(strcmp(type_fmt(t), "%s") == 0) {
                 print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
-                print("\t\tfree(s->%s);\n", m->name);
-                print("\t\ts->%s = strdup(r->ifcall.data);\n", m->name);
+                print("\t\tfree(inst->%s);\n", m->name);
+                print("\t\tinst->%s = strdup(r->ifcall.data);\n", m->name);
                 print("\t\tr->ofcall.count = r->ifcall.count;\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
             } else {
                 print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
-                print("\t\ts->%s = (%s)strtoll(r->ifcall.data, nil, 0);\n", m->name, type_cast(t));
+                print("\t\tinst->%s = (%s)strtoll(r->ifcall.data, nil, 0);\n", m->name, type_cast(t));
                 print("\t\tr->ofcall.count = r->ifcall.count;\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
             }
         }
     }
     print("\trespond(r, \"read only or not found\");\n}\n\n");
 
-    print("Srv o9srv_%s;\n\n", c->name);
-
+    print("Srv o9srv_%s;\n", c->name);
+    print("static int %s_next_id = 0;\n", c->name);
+    print("static Tree *%s_tree;\n", c->name);
+    print("int %s_create_instance(%s_Internal *inst) {\n", c->name, c->name);
+    print("\tchar name[16];\n\tint id = %s_next_id++;\n\tsnprint(name, sizeof name, \"%d\", id);\n", c->name);
+    print("\tFile *dir = createfile(%s_tree->root, name, nil, 0755, nil);\n", c->name);
+    print("\tif(dir == nil) return -1;\n");
+    print("\tcreatefile(dir, \"status\", nil, 0444, nil);\n");
+    for(m = c->left; m; m = m->next){
+        if(m->type == NProp || m->type == NAtomic)
+            print("\tcreatefile(dir, \"%s\", inst, 0666, nil);\n", m->name);
+    }
+    print("\treturn id;\n}\n");
     print("void o9_main_%s(int argc, char **argv) {\n", c->name);
     print("\t%s_Internal *s = emalloc9p(sizeof(%s_Internal));\n", c->name, c->name);
     print("\tmemset(s, 0, sizeof(%s_Internal));\n", c->name);
     print("\ts->dispatch_chan = chancreate(sizeof(void*), 10);\n");
     print("\to9srv_%s.read = fsread_%s;\n\to9srv_%s.write = fswrite_%s;\n", c->name, c->name, c->name, c->name);
-    print("\to9srv_%s.aux = s;\n", c->name);
-    print("\tTree *t = alloctree(nil, nil, 0555, nil);\n\to9srv_%s.tree = t;\n", c->name);
-    print("\tcreatefile(t->root, \"ctl\", nil, 0222, nil);\n");
-    print("\tcreatefile(t->root, \"msg\", nil, 0222, nil);\n");
-    print("\tcreatefile(t->root, \"status\", nil, 0444, nil);\n");
-    print("\tcreatefile(t->root, \"cache\", nil, 0444, nil);\n");
-    for(m = c->left; m; m = m->next) if(m->type == NProp || m->type == NAtomic) print("\tcreatefile(t->root, \"%s\", nil, 0666, nil);\n", m->name);
+    print("\t%s_tree = alloctree(nil, nil, 0555, nil);\n\to9srv_%s.tree = %s_tree;\n", c->name, c->name, c->name);
+    print("\tcreatefile(%s_tree->root, \"clone\", nil, 0222, nil);\n", c->name);
+    print("\tcreatefile(%s_tree->root, \"status\", nil, 0444, nil);\n", c->name);
     print("\tproccreate(%s_loop, s, 8192);\n", c->name);
     print("\tthreadpostmountsrv(&o9srv_%s, \"%s\", nil, MREPL);\n}\n", c->name, c->name);
 }
