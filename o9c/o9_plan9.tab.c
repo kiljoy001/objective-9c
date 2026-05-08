@@ -2778,8 +2778,8 @@ gen_stmt(Node *c, Node *s)
                     }
                 }
                 print("\tproccreate(%s_loop, __%s, 8192);\n", cn, s->name);
-                /* Register in /srv/<class>/<id>/ instance tree */
-                print("\t%s_create_instance(__%s);\n", cn, s->name);
+                /* Register in /srv/<class>/<name>/ instance tree */
+                print("\t%s_create_instance(__%s, \"%s\");\n", cn, s->name, s->name);
                 /* Send constructor args if any — stack-allocated, no global race */
                 if(nctor > 0){
                     Node *ca;
@@ -3081,12 +3081,9 @@ gen_class_server(Node *c)
         }
     }
     print("\trespond(r, \"read only or not found\");\n}\n\n");
-
     print("Srv o9srv_%s;\n", c->name);
-    print("static int %s_next_id = 0;\n", c->name);
     print("static Tree *%s_tree;\n", c->name);
-    print("int %s_create_instance(%s_Internal *inst) {\n", c->name, c->name);
-    print("\tchar name[16];\n\tint id = %s_next_id++;\n\tsnprint(name, sizeof name, \"%%d\", id);\n", c->name);
+    print("int %s_create_instance(%s_Internal *inst, char *name) {\n", c->name, c->name);
     print("\tFile *dir = createfile(%s_tree->root, name, nil, 0755, nil);\n", c->name);
     print("\tif(dir == nil) return -1;\n");
     print("\tcreatefile(dir, \"status\", nil, 0444, nil);\n");
@@ -3094,7 +3091,7 @@ gen_class_server(Node *c)
         if(m->type == NProp || m->type == NAtomic)
             print("\tcreatefile(dir, \"%s\", inst, 0666, nil);\n", m->name);
     }
-    print("\treturn id;\n}\n");
+    print("\treturn 0;\n}\n");
     print("void o9_main_%s(int argc, char **argv) {\n", c->name);
     print("\t%s_Internal *s = emalloc9p(sizeof(%s_Internal));\n", c->name, c->name);
     print("\tmemset(s, 0, sizeof(%s_Internal));\n", c->name);
