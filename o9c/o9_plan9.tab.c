@@ -256,7 +256,92 @@ get_sym_type(Node *c, char *name)
 #  endif
 # endif
 
-#include "o9_plan9.tab.h"
+
+/* Debug traces.  */
+#ifndef YYDEBUG
+# define YYDEBUG 0
+#endif
+#if YYDEBUG
+extern int yydebug;
+#endif
+
+/* Token kinds.  */
+#ifndef YYTOKENTYPE
+# define YYTOKENTYPE
+  enum yytokentype
+  {
+    YYEMPTY = -2,
+    YYEOF = 0,                     /* "end of file"  */
+    YYerror = 256,                 /* error  */
+    YYUNDEF = 257,                 /* "invalid token"  */
+    TIDENT = 258,                  /* TIDENT  */
+    TTYPE = 259,                   /* TTYPE  */
+    TINTLIT = 260,                 /* TINTLIT  */
+    TSTRINGLIT = 261,              /* TSTRINGLIT  */
+    TCHARLIT = 262,                /* TCHARLIT  */
+    TCLASS = 263,                  /* TCLASS  */
+    TFUNC = 264,                   /* TFUNC  */
+    TMETHOD = 265,                 /* TMETHOD  */
+    TRETURN = 266,                 /* TRETURN  */
+    TCHAN = 267,                   /* TCHAN  */
+    TIF = 268,                     /* TIF  */
+    TELSE = 269,                   /* TELSE  */
+    TWHILE = 270,                  /* TWHILE  */
+    TNEW = 271,                    /* TNEW  */
+    TPRINT = 272,                  /* TPRINT  */
+    TSTATE = 273,                  /* TSTATE  */
+    TPROP = 274,                   /* TPROP  */
+    TATOMIC = 275,                 /* TATOMIC  */
+    TSTREAM = 276,                 /* TSTREAM  */
+    TSECRET = 277,                 /* TSECRET  */
+    TCAP = 278,                    /* TCAP  */
+    TTRUE = 279,                   /* TTRUE  */
+    TFALSE = 280,                  /* TFALSE  */
+    TARROW = 281,                  /* TARROW  */
+    TEQ = 282,                     /* TEQ  */
+    TADD = 283,                    /* TADD  */
+    TSUB = 284,                    /* TSUB  */
+    TCHANSEND = 285,               /* TCHANSEND  */
+    TCHANRECV = 286,               /* TCHANRECV  */
+    TCHANTRY = 287,                /* TCHANTRY  */
+    TEQEQ = 288,                   /* TEQEQ  */
+    TNEQ = 289,                    /* TNEQ  */
+    TLE = 290,                     /* TLE  */
+    TGE = 291,                     /* TGE  */
+    TAND = 292,                    /* TAND  */
+    TOR = 293,                     /* TOR  */
+    TLSHIFT = 294,                 /* TLSHIFT  */
+    TRSHIFT = 295,                 /* TRSHIFT  */
+    UMINUS = 296                   /* UMINUS  */
+  };
+  typedef enum yytokentype yytoken_kind_t;
+#endif
+
+/* Value type.  */
+#if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
+union YYSTYPE
+{
+#line 167 "o9_plan9.y"
+
+    Node *node;
+    char *name;
+
+#line 330 "o9_plan9.tab.c"
+
+};
+typedef union YYSTYPE YYSTYPE;
+# define YYSTYPE_IS_TRIVIAL 1
+# define YYSTYPE_IS_DECLARED 1
+#endif
+
+
+extern YYSTYPE yylval;
+
+
+int yyparse (void);
+
+
+
 /* Symbol kind.  */
 enum yysymbol_kind_t
 {
@@ -1569,31 +1654,31 @@ yyreduce:
   case 2: /* typename: TIDENT  */
 #line 202 "o9_plan9.y"
            { (yyval.node) = (yyvsp[0].node); }
-#line 1573 "o9_plan9.tab.c"
+#line 1658 "o9_plan9.tab.c"
     break;
 
   case 3: /* typename: TTYPE  */
 #line 203 "o9_plan9.y"
             { (yyval.node) = (yyvsp[0].node); }
-#line 1579 "o9_plan9.tab.c"
+#line 1664 "o9_plan9.tab.c"
     break;
 
   case 4: /* program: %empty  */
 #line 207 "o9_plan9.y"
                 { ast_root = nil; }
-#line 1585 "o9_plan9.tab.c"
+#line 1670 "o9_plan9.tab.c"
     break;
 
   case 5: /* program: top_levels  */
 #line 208 "o9_plan9.y"
                  { ast_root = (yyvsp[0].node); }
-#line 1591 "o9_plan9.tab.c"
+#line 1676 "o9_plan9.tab.c"
     break;
 
   case 6: /* top_levels: top_level  */
 #line 212 "o9_plan9.y"
               { (yyval.node) = (yyvsp[0].node); }
-#line 1597 "o9_plan9.tab.c"
+#line 1682 "o9_plan9.tab.c"
     break;
 
   case 7: /* top_levels: top_levels top_level  */
@@ -1604,7 +1689,7 @@ yyreduce:
         n->next = (yyvsp[0].node);
         (yyval.node) = (yyvsp[-1].node);
     }
-#line 1608 "o9_plan9.tab.c"
+#line 1693 "o9_plan9.tab.c"
     break;
 
   case 10: /* func_top_level: TFUNC TIDENT '(' ')' '{' stmt_list '}'  */
@@ -1612,7 +1697,7 @@ yyreduce:
     {
         (yyval.node) = mk(NMethod, (yyvsp[-5].node)->name, "void", (yyvsp[-1].node), nil);
     }
-#line 1616 "o9_plan9.tab.c"
+#line 1701 "o9_plan9.tab.c"
     break;
 
   case 11: /* class_decl: TCLASS TIDENT '{' member_list '}'  */
@@ -1621,13 +1706,13 @@ yyreduce:
         (yyval.node) = mk(NClass, (yyvsp[-3].node)->name, nil, (yyvsp[-1].node), nil);
         add_class((yyvsp[-3].node)->name, (yyval.node));
     }
-#line 1625 "o9_plan9.tab.c"
+#line 1710 "o9_plan9.tab.c"
     break;
 
   case 12: /* member_list: %empty  */
 #line 242 "o9_plan9.y"
                 { (yyval.node) = nil; }
-#line 1631 "o9_plan9.tab.c"
+#line 1716 "o9_plan9.tab.c"
     break;
 
   case 13: /* member_list: member_list member  */
@@ -1641,7 +1726,7 @@ yyreduce:
             (yyval.node) = (yyvsp[-1].node);
         }
     }
-#line 1645 "o9_plan9.tab.c"
+#line 1730 "o9_plan9.tab.c"
     break;
 
   case 25: /* state_decl: TSTATE typename TIDENT ';'  */
@@ -1649,7 +1734,7 @@ yyreduce:
     {
         (yyval.node) = mk(NState, (yyvsp[-1].node)->name, (yyvsp[-2].node)->name, nil, nil);
     }
-#line 1653 "o9_plan9.tab.c"
+#line 1738 "o9_plan9.tab.c"
     break;
 
   case 26: /* prop_decl: TPROP typename TIDENT ';'  */
@@ -1657,7 +1742,7 @@ yyreduce:
     {
         (yyval.node) = mk(NProp, (yyvsp[-1].node)->name, (yyvsp[-2].node)->name, nil, nil);
     }
-#line 1661 "o9_plan9.tab.c"
+#line 1746 "o9_plan9.tab.c"
     break;
 
   case 27: /* atomic_decl: TATOMIC typename TIDENT ';'  */
@@ -1665,7 +1750,7 @@ yyreduce:
     {
         (yyval.node) = mk(NAtomic, (yyvsp[-1].node)->name, (yyvsp[-2].node)->name, nil, nil);
     }
-#line 1669 "o9_plan9.tab.c"
+#line 1754 "o9_plan9.tab.c"
     break;
 
   case 28: /* stream_decl: TSTREAM TIDENT ';'  */
@@ -1673,7 +1758,7 @@ yyreduce:
     {
         (yyval.node) = mk(NStream, (yyvsp[-1].node)->name, nil, nil, nil);
     }
-#line 1677 "o9_plan9.tab.c"
+#line 1762 "o9_plan9.tab.c"
     break;
 
   case 29: /* secret_decl: TSECRET typename TIDENT ';'  */
@@ -1681,7 +1766,7 @@ yyreduce:
     {
         (yyval.node) = mk(NSecret, (yyvsp[-1].node)->name, (yyvsp[-2].node)->name, nil, nil);
     }
-#line 1685 "o9_plan9.tab.c"
+#line 1770 "o9_plan9.tab.c"
     break;
 
   case 30: /* cap_decl: TCAP typename TIDENT ';'  */
@@ -1689,7 +1774,7 @@ yyreduce:
     {
         (yyval.node) = mk(NCap, (yyvsp[-1].node)->name, (yyvsp[-2].node)->name, nil, nil);
     }
-#line 1693 "o9_plan9.tab.c"
+#line 1778 "o9_plan9.tab.c"
     break;
 
   case 31: /* method_decl: TMETHOD typename TIDENT '(' param_list ')' '{' stmt_list '}'  */
@@ -1697,7 +1782,7 @@ yyreduce:
     {
         (yyval.node) = mk(NMethod, (yyvsp[-6].node)->name, (yyvsp[-7].node)->name, (yyvsp[-1].node), (yyvsp[-4].node));
     }
-#line 1701 "o9_plan9.tab.c"
+#line 1786 "o9_plan9.tab.c"
     break;
 
   case 32: /* method_decl: TMETHOD typename TIDENT '(' param_list ')' TARROW expr ';'  */
@@ -1706,7 +1791,7 @@ yyreduce:
         Node *body = mk(NReturn, nil, nil, (yyvsp[-1].node), nil);
         (yyval.node) = mk(NMethod, (yyvsp[-6].node)->name, (yyvsp[-7].node)->name, body, (yyvsp[-4].node));
     }
-#line 1710 "o9_plan9.tab.c"
+#line 1795 "o9_plan9.tab.c"
     break;
 
   case 33: /* method_decl: TMETHOD TIDENT '(' param_list ')' '{' stmt_list '}'  */
@@ -1714,7 +1799,7 @@ yyreduce:
     {
         (yyval.node) = mk(NMethod, (yyvsp[-6].node)->name, "void", (yyvsp[-1].node), (yyvsp[-4].node));
     }
-#line 1718 "o9_plan9.tab.c"
+#line 1803 "o9_plan9.tab.c"
     break;
 
   case 34: /* method_decl: TMETHOD TIDENT '(' param_list ')' TARROW expr ';'  */
@@ -1723,7 +1808,7 @@ yyreduce:
         Node *body = mk(NReturn, nil, nil, (yyvsp[-1].node), nil);
         (yyval.node) = mk(NMethod, (yyvsp[-6].node)->name, "void", body, (yyvsp[-4].node));
     }
-#line 1727 "o9_plan9.tab.c"
+#line 1812 "o9_plan9.tab.c"
     break;
 
   case 35: /* inherit_decl: TIDENT ';'  */
@@ -1731,7 +1816,7 @@ yyreduce:
     {
         (yyval.node) = mk(NInherit, (yyvsp[-1].node)->name, nil, nil, nil);
     }
-#line 1735 "o9_plan9.tab.c"
+#line 1820 "o9_plan9.tab.c"
     break;
 
   case 36: /* var_decl: typename TIDENT ';'  */
@@ -1739,7 +1824,7 @@ yyreduce:
     {
         (yyval.node) = mk(NProp, (yyvsp[-1].node)->name, (yyvsp[-2].node)->name, nil, nil);
     }
-#line 1743 "o9_plan9.tab.c"
+#line 1828 "o9_plan9.tab.c"
     break;
 
   case 37: /* var_decl: typename '*' TIDENT ';'  */
@@ -1749,7 +1834,7 @@ yyreduce:
         snprint(buf, sizeof buf, "%s*", (yyvsp[-3].node)->name);
         (yyval.node) = mk(NProp, (yyvsp[-1].node)->name, buf, nil, nil);
     }
-#line 1753 "o9_plan9.tab.c"
+#line 1838 "o9_plan9.tab.c"
     break;
 
   case 38: /* var_decl: TCHAN TIDENT ';'  */
@@ -1757,7 +1842,7 @@ yyreduce:
     {
         (yyval.node) = mk(NStream, (yyvsp[-1].node)->name, "chan", nil, nil);
     }
-#line 1761 "o9_plan9.tab.c"
+#line 1846 "o9_plan9.tab.c"
     break;
 
   case 39: /* func_decl: TFUNC '(' typename '*' TIDENT ')' TIDENT '(' param_list ')' typename '{' stmt_list '}'  */
@@ -1767,19 +1852,19 @@ yyreduce:
         Node *stmts = (yyvsp[-1].node);
         (yyval.node) = mk(NMethod, (yyvsp[-7].node)->name, (yyvsp[-3].node)->name, stmts, params);
     }
-#line 1771 "o9_plan9.tab.c"
+#line 1856 "o9_plan9.tab.c"
     break;
 
   case 40: /* param_list: %empty  */
 #line 377 "o9_plan9.y"
                 { (yyval.node) = nil; }
-#line 1777 "o9_plan9.tab.c"
+#line 1862 "o9_plan9.tab.c"
     break;
 
   case 41: /* param_list: param  */
 #line 378 "o9_plan9.y"
             { (yyval.node) = (yyvsp[0].node); }
-#line 1783 "o9_plan9.tab.c"
+#line 1868 "o9_plan9.tab.c"
     break;
 
   case 42: /* param_list: param_list ',' param  */
@@ -1793,7 +1878,7 @@ yyreduce:
             (yyval.node) = (yyvsp[-2].node);
         }
     }
-#line 1797 "o9_plan9.tab.c"
+#line 1882 "o9_plan9.tab.c"
     break;
 
   case 43: /* param: typename TIDENT  */
@@ -1801,7 +1886,7 @@ yyreduce:
     {
         (yyval.node) = mk(NProp, (yyvsp[0].node)->name, (yyvsp[-1].node)->name, nil, nil);
     }
-#line 1805 "o9_plan9.tab.c"
+#line 1890 "o9_plan9.tab.c"
     break;
 
   case 44: /* destructor_decl: '~' TIDENT '(' ')' '{' stmt_list '}'  */
@@ -1809,13 +1894,13 @@ yyreduce:
     {
         (yyval.node) = mk(NDestructor, (yyvsp[-5].node)->name, nil, (yyvsp[-1].node), nil);
     }
-#line 1813 "o9_plan9.tab.c"
+#line 1898 "o9_plan9.tab.c"
     break;
 
   case 45: /* stmt_list: %empty  */
 #line 405 "o9_plan9.y"
                 { (yyval.node) = nil; }
-#line 1819 "o9_plan9.tab.c"
+#line 1904 "o9_plan9.tab.c"
     break;
 
   case 46: /* stmt_list: stmt_list stmt  */
@@ -1829,31 +1914,31 @@ yyreduce:
             (yyval.node) = (yyvsp[-1].node);
         }
     }
-#line 1833 "o9_plan9.tab.c"
+#line 1918 "o9_plan9.tab.c"
     break;
 
   case 47: /* stmt: expr ';'  */
 #line 418 "o9_plan9.y"
              { (yyval.node) = (yyvsp[-1].node); }
-#line 1839 "o9_plan9.tab.c"
+#line 1924 "o9_plan9.tab.c"
     break;
 
   case 48: /* stmt: typename TIDENT ';'  */
 #line 419 "o9_plan9.y"
                           { (yyval.node) = mk(NLocalVar, (yyvsp[-1].node)->name, (yyvsp[-2].node)->name, nil, nil); if(find_class((yyvsp[-2].node)->name)) add_var_class((yyvsp[-1].node)->name, (yyvsp[-2].node)->name); }
-#line 1845 "o9_plan9.tab.c"
+#line 1930 "o9_plan9.tab.c"
     break;
 
   case 49: /* stmt: typename TIDENT TEQ expr ';'  */
 #line 420 "o9_plan9.y"
                                    { (yyval.node) = mk(NLocalVar, (yyvsp[-3].node)->name, (yyvsp[-4].node)->name, (yyvsp[-1].node), nil); if(find_class((yyvsp[-4].node)->name)) add_var_class((yyvsp[-3].node)->name, (yyvsp[-4].node)->name); }
-#line 1851 "o9_plan9.tab.c"
+#line 1936 "o9_plan9.tab.c"
     break;
 
   case 50: /* stmt: TRETURN expr ';'  */
 #line 421 "o9_plan9.y"
                        { (yyval.node) = mk(NReturn, nil, nil, (yyvsp[-1].node), nil); }
-#line 1857 "o9_plan9.tab.c"
+#line 1942 "o9_plan9.tab.c"
     break;
 
   case 51: /* stmt: TPRINT '(' call_args ')' ';'  */
@@ -1861,13 +1946,13 @@ yyreduce:
                                    {
         (yyval.node) = mk(NFuncCall, "print", nil, (yyvsp[-2].node), nil);
     }
-#line 1865 "o9_plan9.tab.c"
+#line 1950 "o9_plan9.tab.c"
     break;
 
   case 52: /* stmt: TIF '(' expr ')' '{' stmt_list '}'  */
 #line 425 "o9_plan9.y"
                                          { (yyval.node) = mk(NIf, nil, nil, (yyvsp[-4].node), (yyvsp[-1].node)); }
-#line 1871 "o9_plan9.tab.c"
+#line 1956 "o9_plan9.tab.c"
     break;
 
   case 53: /* stmt: TIF '(' expr ')' '{' stmt_list '}' TELSE '{' stmt_list '}'  */
@@ -1875,163 +1960,163 @@ yyreduce:
                                                                  {
         (yyval.node) = mk(NIfElse, nil, nil, (yyvsp[-8].node), mk(NElse, nil, nil, (yyvsp[-5].node), (yyvsp[-1].node)));
     }
-#line 1879 "o9_plan9.tab.c"
+#line 1964 "o9_plan9.tab.c"
     break;
 
   case 54: /* stmt: TWHILE '(' expr ')' '{' stmt_list '}'  */
 #line 429 "o9_plan9.y"
                                             { (yyval.node) = mk(NWhile, nil, nil, (yyvsp[-4].node), (yyvsp[-1].node)); }
-#line 1885 "o9_plan9.tab.c"
+#line 1970 "o9_plan9.tab.c"
     break;
 
   case 55: /* expr: expr TCHANSEND expr  */
 #line 433 "o9_plan9.y"
                         { (yyval.node) = mk(NChanSend, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 1891 "o9_plan9.tab.c"
+#line 1976 "o9_plan9.tab.c"
     break;
 
   case 56: /* expr: expr TCHANTRY expr  */
 #line 434 "o9_plan9.y"
                          { (yyval.node) = mk(NChanTry, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 1897 "o9_plan9.tab.c"
+#line 1982 "o9_plan9.tab.c"
     break;
 
   case 57: /* expr: expr TEQ TCHANRECV expr  */
 #line 435 "o9_plan9.y"
                               { (yyval.node) = mk(NChanRecv, nil, nil, (yyvsp[-3].node), (yyvsp[0].node)); }
-#line 1903 "o9_plan9.tab.c"
+#line 1988 "o9_plan9.tab.c"
     break;
 
   case 58: /* expr: expr TEQ expr  */
 #line 436 "o9_plan9.y"
                     { (yyval.node) = mk(NAssign, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 1909 "o9_plan9.tab.c"
+#line 1994 "o9_plan9.tab.c"
     break;
 
   case 59: /* expr: expr TADD expr  */
 #line 437 "o9_plan9.y"
                      { (yyval.node) = mk(NAdd, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 1915 "o9_plan9.tab.c"
+#line 2000 "o9_plan9.tab.c"
     break;
 
   case 60: /* expr: expr TSUB expr  */
 #line 438 "o9_plan9.y"
                      { (yyval.node) = mk(NSub, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 1921 "o9_plan9.tab.c"
+#line 2006 "o9_plan9.tab.c"
     break;
 
   case 61: /* expr: expr '*' expr  */
 #line 439 "o9_plan9.y"
                     { (yyval.node) = mk(NMul, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 1927 "o9_plan9.tab.c"
+#line 2012 "o9_plan9.tab.c"
     break;
 
   case 62: /* expr: expr '/' expr  */
 #line 440 "o9_plan9.y"
                     { (yyval.node) = mk(NDiv, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 1933 "o9_plan9.tab.c"
+#line 2018 "o9_plan9.tab.c"
     break;
 
   case 63: /* expr: expr '%' expr  */
 #line 441 "o9_plan9.y"
                     { (yyval.node) = mk(NMod, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 1939 "o9_plan9.tab.c"
+#line 2024 "o9_plan9.tab.c"
     break;
 
   case 64: /* expr: expr TEQEQ expr  */
 #line 442 "o9_plan9.y"
                       { (yyval.node) = mk(NEq, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 1945 "o9_plan9.tab.c"
+#line 2030 "o9_plan9.tab.c"
     break;
 
   case 65: /* expr: expr TNEQ expr  */
 #line 443 "o9_plan9.y"
                      { (yyval.node) = mk(NNe, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 1951 "o9_plan9.tab.c"
+#line 2036 "o9_plan9.tab.c"
     break;
 
   case 66: /* expr: expr '<' expr  */
 #line 444 "o9_plan9.y"
                     { (yyval.node) = mk(NLt, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 1957 "o9_plan9.tab.c"
+#line 2042 "o9_plan9.tab.c"
     break;
 
   case 67: /* expr: expr TLE expr  */
 #line 445 "o9_plan9.y"
                     { (yyval.node) = mk(NLe, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 1963 "o9_plan9.tab.c"
+#line 2048 "o9_plan9.tab.c"
     break;
 
   case 68: /* expr: expr '>' expr  */
 #line 446 "o9_plan9.y"
                     { (yyval.node) = mk(NGt, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 1969 "o9_plan9.tab.c"
+#line 2054 "o9_plan9.tab.c"
     break;
 
   case 69: /* expr: expr TGE expr  */
 #line 447 "o9_plan9.y"
                     { (yyval.node) = mk(NGe, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 1975 "o9_plan9.tab.c"
+#line 2060 "o9_plan9.tab.c"
     break;
 
   case 70: /* expr: expr TAND expr  */
 #line 448 "o9_plan9.y"
                      { (yyval.node) = mk(NAnd, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 1981 "o9_plan9.tab.c"
+#line 2066 "o9_plan9.tab.c"
     break;
 
   case 71: /* expr: expr TOR expr  */
 #line 449 "o9_plan9.y"
                     { (yyval.node) = mk(NOr, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 1987 "o9_plan9.tab.c"
+#line 2072 "o9_plan9.tab.c"
     break;
 
   case 72: /* expr: expr '&' expr  */
 #line 450 "o9_plan9.y"
                     { (yyval.node) = mk(NBitAnd, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 1993 "o9_plan9.tab.c"
+#line 2078 "o9_plan9.tab.c"
     break;
 
   case 73: /* expr: expr '|' expr  */
 #line 451 "o9_plan9.y"
                     { (yyval.node) = mk(NBitOr, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 1999 "o9_plan9.tab.c"
+#line 2084 "o9_plan9.tab.c"
     break;
 
   case 74: /* expr: expr '^' expr  */
 #line 452 "o9_plan9.y"
                     { (yyval.node) = mk(NBitXor, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 2005 "o9_plan9.tab.c"
+#line 2090 "o9_plan9.tab.c"
     break;
 
   case 75: /* expr: expr TLSHIFT expr  */
 #line 453 "o9_plan9.y"
                         { (yyval.node) = mk(NLshift, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 2011 "o9_plan9.tab.c"
+#line 2096 "o9_plan9.tab.c"
     break;
 
   case 76: /* expr: expr TRSHIFT expr  */
 #line 454 "o9_plan9.y"
                         { (yyval.node) = mk(NRshift, nil, nil, (yyvsp[-2].node), (yyvsp[0].node)); }
-#line 2017 "o9_plan9.tab.c"
+#line 2102 "o9_plan9.tab.c"
     break;
 
   case 77: /* expr: '!' expr  */
 #line 455 "o9_plan9.y"
                { (yyval.node) = mk(NNot, nil, nil, (yyvsp[0].node), nil); }
-#line 2023 "o9_plan9.tab.c"
+#line 2108 "o9_plan9.tab.c"
     break;
 
   case 78: /* expr: '~' expr  */
 #line 456 "o9_plan9.y"
                { (yyval.node) = mk(NBitNot, nil, nil, (yyvsp[0].node), nil); }
-#line 2029 "o9_plan9.tab.c"
+#line 2114 "o9_plan9.tab.c"
     break;
 
   case 79: /* expr: TSUB expr  */
 #line 457 "o9_plan9.y"
                              { (yyval.node) = mk(NNeg, nil, nil, (yyvsp[0].node), nil); }
-#line 2035 "o9_plan9.tab.c"
+#line 2120 "o9_plan9.tab.c"
     break;
 
   case 80: /* expr: expr '.' TIDENT '(' call_args ')'  */
@@ -2039,7 +2124,7 @@ yyreduce:
                                         {
         (yyval.node) = mk(NMsgSend, (yyvsp[-3].node)->name, nil, (yyvsp[-5].node), (yyvsp[-1].node));
     }
-#line 2043 "o9_plan9.tab.c"
+#line 2128 "o9_plan9.tab.c"
     break;
 
   case 81: /* expr: expr '.' TIDENT  */
@@ -2048,43 +2133,43 @@ yyreduce:
         /* Property read: c.val -> self->val via obj9_msgSend for now */
         (yyval.node) = mk(NMsgSend, (yyvsp[0].node)->name, nil, (yyvsp[-2].node), nil);
     }
-#line 2052 "o9_plan9.tab.c"
+#line 2137 "o9_plan9.tab.c"
     break;
 
   case 82: /* expr: TIDENT  */
 #line 465 "o9_plan9.y"
              { (yyval.node) = (yyvsp[0].node); }
-#line 2058 "o9_plan9.tab.c"
+#line 2143 "o9_plan9.tab.c"
     break;
 
   case 83: /* expr: TINTLIT  */
 #line 466 "o9_plan9.y"
               { (yyval.node) = mk(NIntLit, (yyvsp[0].name), nil, nil, nil); }
-#line 2064 "o9_plan9.tab.c"
+#line 2149 "o9_plan9.tab.c"
     break;
 
   case 84: /* expr: TSTRINGLIT  */
 #line 467 "o9_plan9.y"
                  { (yyval.node) = mk(NStringLit, (yyvsp[0].name), nil, nil, nil); }
-#line 2070 "o9_plan9.tab.c"
+#line 2155 "o9_plan9.tab.c"
     break;
 
   case 85: /* expr: TCHARLIT  */
 #line 468 "o9_plan9.y"
                { (yyval.node) = mk(NCharLit, (yyvsp[0].name), nil, nil, nil); }
-#line 2076 "o9_plan9.tab.c"
+#line 2161 "o9_plan9.tab.c"
     break;
 
   case 86: /* expr: TTRUE  */
 #line 469 "o9_plan9.y"
             { (yyval.node) = mk(NBoolLit, "1", nil, nil, nil); }
-#line 2082 "o9_plan9.tab.c"
+#line 2167 "o9_plan9.tab.c"
     break;
 
   case 87: /* expr: TFALSE  */
 #line 470 "o9_plan9.y"
              { (yyval.node) = mk(NBoolLit, "0", nil, nil, nil); }
-#line 2088 "o9_plan9.tab.c"
+#line 2173 "o9_plan9.tab.c"
     break;
 
   case 88: /* expr: TNEW typename '(' call_args ')'  */
@@ -2095,25 +2180,25 @@ yyreduce:
         n->right = (yyvsp[-1].node);
         (yyval.node) = n;
     }
-#line 2099 "o9_plan9.tab.c"
+#line 2184 "o9_plan9.tab.c"
     break;
 
   case 89: /* expr: '(' expr ')'  */
 #line 477 "o9_plan9.y"
                    { (yyval.node) = (yyvsp[-1].node); }
-#line 2105 "o9_plan9.tab.c"
+#line 2190 "o9_plan9.tab.c"
     break;
 
   case 90: /* call_args: %empty  */
 #line 481 "o9_plan9.y"
                 { (yyval.node) = nil; }
-#line 2111 "o9_plan9.tab.c"
+#line 2196 "o9_plan9.tab.c"
     break;
 
   case 91: /* call_args: call_arg  */
 #line 482 "o9_plan9.y"
                { (yyval.node) = (yyvsp[0].node); }
-#line 2117 "o9_plan9.tab.c"
+#line 2202 "o9_plan9.tab.c"
     break;
 
   case 92: /* call_args: call_args ',' call_arg  */
@@ -2127,17 +2212,17 @@ yyreduce:
             (yyval.node) = (yyvsp[-2].node);
         }
     }
-#line 2131 "o9_plan9.tab.c"
+#line 2216 "o9_plan9.tab.c"
     break;
 
   case 93: /* call_arg: expr  */
 #line 495 "o9_plan9.y"
          { (yyval.node) = (yyvsp[0].node); }
-#line 2137 "o9_plan9.tab.c"
+#line 2222 "o9_plan9.tab.c"
     break;
 
 
-#line 2141 "o9_plan9.tab.c"
+#line 2226 "o9_plan9.tab.c"
 
       default: break;
     }
