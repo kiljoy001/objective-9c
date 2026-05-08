@@ -936,6 +936,7 @@ gen_stmt(Node *c, Node *s)
                 print("\t__%s->dispatch_chan = chancreate(sizeof(void*), 10);\n", s->name);
                 print("\t%s_Client %s;\n", cn, s->name);
                 print("\tmemset(&%s, 0, sizeof(%s_Client));\n", s->name, cn);
+                print("\t%s.shm_base = __%s;\n", s->name, s->name);
                 print("\t%s.dispatch_chan = __%s->dispatch_chan;\n", s->name, s->name);
                 if(find_class(cn)){
                     Node *cnode = find_class(cn);
@@ -1043,15 +1044,17 @@ gen_class_header(Node *c)
 void
 gen_cache_entries(Node *c, char *classname)
 {
+    /* Emits snprint statements that fill a runtime cache buffer */
     Node *m, *p;
     if(c == nil) return;
+    print("\t\tp += snprint(p, sizeof cachebuf - (p-cachebuf), \"seg:%s\\n\");\n", classname);
     for(m = c->left; m; m = m->next){
         if(m->type == NInherit){
             p = find_class(m->name);
             if(p) gen_cache_entries(p, classname);
         }
-        if(m->type == NProp) print("\t\tp += snprint(p, sizeof buf - (p-buf), \"d:%ld:%ld\\n\", %ldL, (long)o9_offsetof(%s_State, %s));\n", o9_hash(m->name), classname, m->name);
-        if(m->type == NMethod) print("\t\tp += snprint(p, sizeof buf - (p-buf), \"c:%ld:%p\\n\", %ldL, (long)o9_impl_%s_%s);\n", o9_hash(m->name), c->name, m->name);
+        if(m->type == NProp) print("\t\tp += snprint(p, sizeof cachebuf - (p-cachebuf), \"d:%%ld:%%ld\\n\", %ldL, (long)o9_offsetof(%s_Internal, %s));\n", o9_hash(m->name), classname, m->name);
+        if(m->type == NMethod) print("\t\tp += snprint(p, sizeof cachebuf - (p-cachebuf), \"c:%%ld:%%p\\n\", %ldL, o9_impl_%s_%s);\n", o9_hash(m->name), c->name, m->name);
     }
 }
 
@@ -1190,6 +1193,11 @@ gen_class_server(Node *c)
     print("static void fsread_%s(Req *r) {\n", c->name);
     print("\tchar buf[1024];\n\tchar *name = r->fid->file->name;\n\t%s_Internal *inst = r->fid->file->aux;\n\n", c->name);
     print("\tif(strcmp(name, \"status\") == 0) { readstr(r, \"running\"); respond(r, nil); return; }\n");
+    print("\tif(strcmp(name, \"cache\") == 0) {\n");
+    print("\t\tchar cachebuf[4096];\n\t\tchar *p = cachebuf;\n");
+    /* Call gen_cache_entries for this class */
+    gen_cache_entries(c, c->name);
+    print("\t\treadstr(r, cachebuf); respond(r, nil); return;\n\t}\n");
     print("\tif(inst == nil) { respond(r, \"clone read\"); return; }\n\n");
     for(m = c->left; m; m = m->next){
         if(m->type == NProp || m->type == NAtomic){
@@ -1267,13 +1275,15 @@ gen_class_server(Node *c)
     }
     print("\treturn 0;\n}\n");
     print("void o9_main_%s(int argc, char **argv) {\n", c->name);
-    print("\t%s_Internal *s = emalloc9p(sizeof(%s_Internal));\n", c->name, c->name);
+    print("\t%s_Internal *s = segattach(0, nil, \"o9/%s\", sizeof(%s_Internal));\n", c->name, c->name, c->name);
+    print("\tif(s == (void*)-1){ fprint(2, \"o9_main_%s: segattach failed\\n\"); threadexits(\"segattach\"); }\n", c->name);
     print("\tmemset(s, 0, sizeof(%s_Internal));\n", c->name);
     print("\ts->dispatch_chan = chancreate(sizeof(void*), 10);\n");
     print("\to9srv_%s.read = fsread_%s;\n\to9srv_%s.write = fswrite_%s;\n", c->name, c->name, c->name, c->name);
     print("\t%s_tree = alloctree(nil, nil, 0555, nil);\n\to9srv_%s.tree = %s_tree;\n", c->name, c->name, c->name);
     print("\tcreatefile(%s_tree->root, \"clone\", nil, 0222, nil);\n", c->name);
     print("\tcreatefile(%s_tree->root, \"status\", nil, 0444, nil);\n", c->name);
+    print("\tcreatefile(%s_tree->root, \"cache\", nil, 0444, nil);\n", c->name);
     print("\tproccreate(%s_loop, s, 8192);\n", c->name);
     print("\tthreadpostmountsrv(&o9srv_%s, \"%s\", nil, MREPL);\n}\n", c->name, c->name);
 }

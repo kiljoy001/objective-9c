@@ -6,6 +6,10 @@
 
 /*
  * o9_runtime.c -- 9front native runtime for o9 objects.
+ * Supports Tiered Performance Model:
+ *   Tier 1: SHM direct pointer (segattach) via /cache d:<hash>:<offset>
+ *   Tier 2: CSP channel dispatch (obj9_msgSend)
+ *   Tier 3: 9P network dispatch (future)
  */
 
 void o9_cache_fill(void *client, ulong hash, int is_ctrl);
@@ -24,7 +28,11 @@ o9_fill_from_buf(o9_AsmTable *table, Biobuf *bp)
 
 		if(key[0] == 'd'){
 			ulong h = strtoul(key+1, nil, 10);
-			if(table) table->data_cache[h & 63].hash = h;
+			long off = strtol(val, nil, 10);
+			if(table){
+				table->data_cache[h & 63].hash = h;
+				table->data_cache[h & 63].ptr = (void*)(intptr)off;
+			}
 		}
 		if(key[0] == 'c'){
 			ulong h = strtoul(key+1, nil, 10);
@@ -34,6 +42,7 @@ o9_fill_from_buf(o9_AsmTable *table, Biobuf *bp)
 				table->ctrl_cache[h & 63].ptr = ptr;
 			}
 		}
+		/* 'seg:' line is informational only — client derives seg tag from srvname */
 		free(l);
 	}
 }
@@ -45,6 +54,7 @@ o9_init_client(void *client, char *srvname, int size)
 	o9_AsmTable *table;
 	Biobuf *bp;
 	char path[256];
+	char tag[64];
 	int fd;
 
 	USED(size);
@@ -67,6 +77,22 @@ o9_init_client(void *client, char *srvname, int size)
 	Bterm(bp);
 	close(fd);
 	obj->fd = -1;
+
+	/* Map shared memory segment — server creates as o9/<classname> */
+	snprint(tag, sizeof tag, "o9/%s", srvname);
+	obj->shm_base = segattach(0, nil, tag, 0);
+	if(obj->shm_base == (void*)-1)
+		obj->shm_base = nil;	/* fall back to CSP-only dispatch */
+
+	/* Convert data_cache offsets to absolute pointers for Tier 1 access */
+	if(obj->shm_base != nil){
+		int i;
+		for(i = 0; i < 64; i++){
+			if(table->data_cache[i].ptr != nil)
+				table->data_cache[i].ptr = (char*)obj->shm_base + (intptr)table->data_cache[i].ptr;
+		}
+	}
+
 	return 0;
 }
 
@@ -96,7 +122,6 @@ o9_cache_fill(void *client, ulong hash, int is_ctrl)
 	close(fd);
 }
 
-void*
 obj9_msgSend(void *receiver, ulong selector, void *args)
 {
     o9_Object *obj = receiver;
@@ -119,4 +144,17 @@ obj9_msgSend(void *receiver, ulong selector, void *args)
     }
 
     return nil;
+}
+
+void
+o9_ledger_update(void *client, ulong id, int delta)
+{
+	USED(client); USED(id); USED(delta);
+	/* TODO: atomic ARC update — requires ainc/adec */
+}
+
+void
+o9_clunk(int fd)
+{
+	close(fd);
 }

@@ -3,7 +3,7 @@ OFILES=y.tab.o
 HFILES=node.h y.tab.h
 
 $TARG: $OFILES
-	9l -o $TARG $OFILES
+	9l -o $TARG $OFILES -lbio
 
 y.tab.c y.tab.h: o9.y
         yacc -d o9.y
