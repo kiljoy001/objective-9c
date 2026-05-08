@@ -947,21 +947,20 @@ gen_stmt(Node *c, Node *s)
                     }
                 }
                 print("\tproccreate(%s_loop, __%s, 8192);\n", cn, s->name);
-                /* Send constructor args if any */
+                /* Register in /srv/<class>/<id>/ instance tree */
+                print("\t%s_create_instance(__%s);\n", cn, s->name);
+                /* Send constructor args if any — stack-allocated, no global race */
                 if(nctor > 0){
-                    /* Use global o9_call_args buffer (Plan 9 C compatible) */
-                    int first = 1;
                     Node *ca;
                     int ai = 0;
+                    print("\t{ vlong __a[%d];\n", nctor);
                     for(ca = s->left->right; ca; ca = ca->next){
-                        if(first) print("\to9_call_args[%d]=", ai);
-                        else      print("\t\no9_call_args[%d]=", ai);
+                        print("\t__a[%d] = ", ai);
                         gen_expr(ca);
                         print(";\n");
-                        first = 0;
                         ai++;
                     }
-                    print("\tobj9_msgSend(&%s, 0x%lux, o9_call_args);\n", s->name, o9_hash(cname));
+                    print("\tobj9_msgSend(&%s, 0x%lux, __a); }\n", s->name, o9_hash(cname));
                 }
             } else {
                 /* Class-typed variable with client init (no new) */
@@ -1213,6 +1212,28 @@ gen_class_server(Node *c)
     print("static void fswrite_%s(Req *r) {\n", c->name);
     print("\tchar *name = r->fid->file->name;\n\t%s_Internal *inst = r->fid->file->aux;\n", c->name);
     print("\tif(strcmp(name, \"ctl\") == 0) { /* TODO: parse ctl */ respond(r, nil); return; }\n");
+    /* Method dispatch: write to method file triggers CSP call */
+    for(m = c->left; m; m = m->next){
+        if(m->type == NMethod && strcmp(m->name, "main") != 0){
+            int np = 0;
+            Node *p;
+            for(p = m->right; p; p = p->next) np++;
+            print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
+            if(np > 0){
+                print("\t\tvlong __wargs[%d] = {0};\n", np);
+                print("\t\t__wargs[0] = strtoll(r->ifcall.data, nil, 0);\n");
+            }
+            /* Direct channel send — inst is the Internal struct with dispatch_chan */
+            {
+                char *a = np > 0 ? "__wargs" : "nil";
+                print("\t\t{ O9Msg __wm = {0x%lux, %s, %d, chancreate(sizeof(void*), 0)};\n", o9_hash(m->name), a, np);
+                print("\t\tsendp(inst->dispatch_chan, &__wm);\n");
+                print("\t\trecvp(__wm.replyc);\n");
+                print("\t\tchanfree(__wm.replyc); }\n");
+            }
+            print("\t\tr->ofcall.count = r->ifcall.count;\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
+        }
+    }
     for(m = c->left; m; m = m->next){
         if(m->type == NProp || m->type == NAtomic){
             char *t = map_type(m->typename);
@@ -1234,7 +1255,7 @@ gen_class_server(Node *c)
     print("static int %s_next_id = 0;\n", c->name);
     print("static Tree *%s_tree;\n", c->name);
     print("int %s_create_instance(%s_Internal *inst) {\n", c->name, c->name);
-    print("\tchar name[16];\n\tint id = %s_next_id++;\n\tsnprint(name, sizeof name, \"%d\", id);\n", c->name);
+    print("\tchar name[16];\n\tint id = %s_next_id++;\n\tsnprint(name, sizeof name, \"%%d\", id);\n", c->name);
     print("\tFile *dir = createfile(%s_tree->root, name, nil, 0755, nil);\n", c->name);
     print("\tif(dir == nil) return -1;\n");
     print("\tcreatefile(dir, \"status\", nil, 0444, nil);\n");
