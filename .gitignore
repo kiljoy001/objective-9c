@@ -1,1 +1,13 @@
 *.6
+*.o
+*.tab.c
+*.tab.h
+*.tab.o
+*.new
+*.bak
+out.c
+t.c
+o9c.bak
+y.tab.c
+y.tab.h
+y.tab.o
