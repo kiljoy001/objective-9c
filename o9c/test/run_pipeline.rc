@@ -1,0 +1,5 @@
+#!/bin/rc
+o9c < test/pipeline_src.o9 > t.c 2>/tmp/o9err.txt
+6c -FVw -I.. t.c
+6l -o pipeline_test t.6 ../o9_runtime.6 ../o9_dispatch.6
+ls -l pipeline_test
