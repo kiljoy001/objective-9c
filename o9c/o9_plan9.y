@@ -458,6 +458,10 @@ expr:
     | expr '.' TIDENT '(' call_args ')' {
         $$ = mk(NMsgSend, $3->name, nil, $1, $5);
     }
+    | expr '.' TIDENT {
+        /* Property read: c.val -> self->val via obj9_msgSend for now */
+        $$ = mk(NMsgSend, $3->name, nil, $1, nil);
+    }
     | TIDENT { $$ = $1; }
     | TINTLIT { $$ = mk(NIntLit, $1, nil, nil, nil); }
     | TSTRINGLIT { $$ = mk(NStringLit, $1, nil, nil, nil); }

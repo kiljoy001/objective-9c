@@ -8,6 +8,8 @@ class Counter {
 func main() {
     Counter c = new Counter(10);
     c.inc(5);
-    c.inc(1);
-    print("hello from o9");
+    while(c.getValue() < 1000) {
+        c.inc(1);
+    }
+    print("done");
 }

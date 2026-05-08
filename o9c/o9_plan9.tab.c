@@ -681,7 +681,7 @@ union yyalloc
 /* YYNNTS -- Number of nonterminals.  */
 #define YYNNTS  27
 /* YYNRULES -- Number of rules.  */
-#define YYNRULES  92
+#define YYNRULES  93
 /* YYNSTATES -- Number of states.  */
 #define YYNSTATES  225
 
@@ -744,8 +744,8 @@ static const yytype_int16 yyrline[] =
      421,   422,   425,   426,   429,   433,   434,   435,   436,   437,
      438,   439,   440,   441,   442,   443,   444,   445,   446,   447,
      448,   449,   450,   451,   452,   453,   454,   455,   456,   457,
-     458,   461,   462,   463,   464,   465,   466,   467,   473,   477,
-     478,   479,   491
+     458,   461,   465,   466,   467,   468,   469,   470,   471,   477,
+     481,   482,   483,   495
 };
 #endif
 
@@ -834,20 +834,20 @@ static const yytype_int8 yydefact[] =
       15,    24,    45,    35,     0,     2,     0,     0,     2,     0,
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
       40,     0,    38,     0,     0,     0,    28,     0,     0,     0,
-      36,     0,    81,    82,    83,    84,     0,     0,     0,     0,
-       0,    85,    86,     0,     0,     0,     0,    10,     0,    46,
+      36,     0,    82,    83,    84,    85,     0,     0,     0,     0,
+       0,    86,    87,     0,     0,     0,     0,    10,     0,    46,
        0,     0,     0,     0,    41,    40,    25,    26,    27,    29,
-      30,     0,    37,    81,     0,     0,     0,     0,    89,    79,
+      30,     0,    37,    82,     0,     0,     0,     0,    90,    79,
       77,    78,     0,     0,     0,     0,     0,     0,     0,     0,
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
        0,     0,     0,     0,     0,     0,    47,     0,    43,     0,
-       0,     0,    45,    50,     0,     0,    89,    92,     0,    90,
-      88,     0,    48,     0,    58,    59,    60,    55,    56,    64,
+       0,     0,    45,    50,     0,     0,    90,    93,     0,    91,
+      89,     0,    48,     0,    58,    59,    60,    55,    56,    64,
       65,    67,    69,    70,    71,    75,    76,    73,    74,    72,
-      66,    68,    61,    62,    63,     0,     0,     0,    45,    42,
-       0,     0,     0,     0,     0,     0,     0,     0,    57,    89,
-       0,     0,     0,     0,    45,    44,    45,    45,    87,    51,
-      91,    49,     0,    40,    34,    33,     0,     0,     0,     0,
+      66,    68,    61,    62,    63,    81,     0,     0,    45,    42,
+       0,     0,     0,     0,     0,     0,     0,     0,    57,    90,
+       0,     0,     0,     0,    45,    44,    45,    45,    88,    51,
+      92,    49,     0,    40,    34,    33,     0,     0,     0,     0,
       80,     0,    32,    31,    52,    54,     0,     0,     0,    45,
       45,     0,     0,    53,    39
 };
@@ -1087,8 +1087,8 @@ static const yytype_int8 yyr1[] =
       82,    82,    82,    82,    82,    83,    83,    83,    83,    83,
       83,    83,    83,    83,    83,    83,    83,    83,    83,    83,
       83,    83,    83,    83,    83,    83,    83,    83,    83,    83,
-      83,    83,    83,    83,    83,    83,    83,    83,    83,    84,
-      84,    84,    85
+      83,    83,    83,    83,    83,    83,    83,    83,    83,    83,
+      84,    84,    84,    85
 };
 
 /* YYR2[RULE-NUM] -- Number of symbols on the right-hand side of rule RULE-NUM.  */
@@ -1102,8 +1102,8 @@ static const yytype_int8 yyr2[] =
        3,     5,     7,    11,     7,     3,     3,     4,     3,     3,
        3,     3,     3,     3,     3,     3,     3,     3,     3,     3,
        3,     3,     3,     3,     3,     3,     3,     2,     2,     2,
-       6,     1,     1,     1,     1,     1,     1,     5,     3,     0,
-       1,     3,     1
+       6,     3,     1,     1,     1,     1,     1,     1,     5,     3,
+       0,     1,     3,     1
 };
 
 
@@ -2042,73 +2042,82 @@ yyreduce:
 #line 2043 "o9_plan9.tab.c"
     break;
 
-  case 81: /* expr: TIDENT  */
+  case 81: /* expr: expr '.' TIDENT  */
 #line 461 "o9_plan9.y"
-             { (yyval.node) = (yyvsp[0].node); }
-#line 2049 "o9_plan9.tab.c"
+                      {
+        /* Property read: c.val -> self->val via obj9_msgSend for now */
+        (yyval.node) = mk(NMsgSend, (yyvsp[0].node)->name, nil, (yyvsp[-2].node), nil);
+    }
+#line 2052 "o9_plan9.tab.c"
     break;
 
-  case 82: /* expr: TINTLIT  */
-#line 462 "o9_plan9.y"
-              { (yyval.node) = mk(NIntLit, (yyvsp[0].name), nil, nil, nil); }
-#line 2055 "o9_plan9.tab.c"
-    break;
-
-  case 83: /* expr: TSTRINGLIT  */
-#line 463 "o9_plan9.y"
-                 { (yyval.node) = mk(NStringLit, (yyvsp[0].name), nil, nil, nil); }
-#line 2061 "o9_plan9.tab.c"
-    break;
-
-  case 84: /* expr: TCHARLIT  */
-#line 464 "o9_plan9.y"
-               { (yyval.node) = mk(NCharLit, (yyvsp[0].name), nil, nil, nil); }
-#line 2067 "o9_plan9.tab.c"
-    break;
-
-  case 85: /* expr: TTRUE  */
+  case 82: /* expr: TIDENT  */
 #line 465 "o9_plan9.y"
-            { (yyval.node) = mk(NBoolLit, "1", nil, nil, nil); }
-#line 2073 "o9_plan9.tab.c"
+             { (yyval.node) = (yyvsp[0].node); }
+#line 2058 "o9_plan9.tab.c"
     break;
 
-  case 86: /* expr: TFALSE  */
+  case 83: /* expr: TINTLIT  */
 #line 466 "o9_plan9.y"
-             { (yyval.node) = mk(NBoolLit, "0", nil, nil, nil); }
-#line 2079 "o9_plan9.tab.c"
+              { (yyval.node) = mk(NIntLit, (yyvsp[0].name), nil, nil, nil); }
+#line 2064 "o9_plan9.tab.c"
     break;
 
-  case 87: /* expr: TNEW typename '(' call_args ')'  */
+  case 84: /* expr: TSTRINGLIT  */
 #line 467 "o9_plan9.y"
+                 { (yyval.node) = mk(NStringLit, (yyvsp[0].name), nil, nil, nil); }
+#line 2070 "o9_plan9.tab.c"
+    break;
+
+  case 85: /* expr: TCHARLIT  */
+#line 468 "o9_plan9.y"
+               { (yyval.node) = mk(NCharLit, (yyvsp[0].name), nil, nil, nil); }
+#line 2076 "o9_plan9.tab.c"
+    break;
+
+  case 86: /* expr: TTRUE  */
+#line 469 "o9_plan9.y"
+            { (yyval.node) = mk(NBoolLit, "1", nil, nil, nil); }
+#line 2082 "o9_plan9.tab.c"
+    break;
+
+  case 87: /* expr: TFALSE  */
+#line 470 "o9_plan9.y"
+             { (yyval.node) = mk(NBoolLit, "0", nil, nil, nil); }
+#line 2088 "o9_plan9.tab.c"
+    break;
+
+  case 88: /* expr: TNEW typename '(' call_args ')'  */
+#line 471 "o9_plan9.y"
                                       {
         Node *n = mk(NClass, (yyvsp[-3].node)->name, nil, nil, nil);
         n->left = (yyvsp[-3].node);
         n->right = (yyvsp[-1].node);
         (yyval.node) = n;
     }
-#line 2090 "o9_plan9.tab.c"
+#line 2099 "o9_plan9.tab.c"
     break;
 
-  case 88: /* expr: '(' expr ')'  */
-#line 473 "o9_plan9.y"
-                   { (yyval.node) = (yyvsp[-1].node); }
-#line 2096 "o9_plan9.tab.c"
-    break;
-
-  case 89: /* call_args: %empty  */
+  case 89: /* expr: '(' expr ')'  */
 #line 477 "o9_plan9.y"
+                   { (yyval.node) = (yyvsp[-1].node); }
+#line 2105 "o9_plan9.tab.c"
+    break;
+
+  case 90: /* call_args: %empty  */
+#line 481 "o9_plan9.y"
                 { (yyval.node) = nil; }
-#line 2102 "o9_plan9.tab.c"
+#line 2111 "o9_plan9.tab.c"
     break;
 
-  case 90: /* call_args: call_arg  */
-#line 478 "o9_plan9.y"
+  case 91: /* call_args: call_arg  */
+#line 482 "o9_plan9.y"
                { (yyval.node) = (yyvsp[0].node); }
-#line 2108 "o9_plan9.tab.c"
+#line 2117 "o9_plan9.tab.c"
     break;
 
-  case 91: /* call_args: call_args ',' call_arg  */
-#line 479 "o9_plan9.y"
+  case 92: /* call_args: call_args ',' call_arg  */
+#line 483 "o9_plan9.y"
                              {
         if((yyvsp[-2].node) == nil) (yyval.node) = (yyvsp[0].node);
         else {
@@ -2118,17 +2127,17 @@ yyreduce:
             (yyval.node) = (yyvsp[-2].node);
         }
     }
-#line 2122 "o9_plan9.tab.c"
+#line 2131 "o9_plan9.tab.c"
     break;
 
-  case 92: /* call_arg: expr  */
-#line 491 "o9_plan9.y"
+  case 93: /* call_arg: expr  */
+#line 495 "o9_plan9.y"
          { (yyval.node) = (yyvsp[0].node); }
-#line 2128 "o9_plan9.tab.c"
+#line 2137 "o9_plan9.tab.c"
     break;
 
 
-#line 2132 "o9_plan9.tab.c"
+#line 2141 "o9_plan9.tab.c"
 
       default: break;
     }
@@ -2321,7 +2330,7 @@ yyreturnlab:
   return yyresult;
 }
 
-#line 494 "o9_plan9.y"
+#line 498 "o9_plan9.y"
 
 
 Node*
