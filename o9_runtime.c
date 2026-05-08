@@ -122,6 +122,7 @@ o9_cache_fill(void *client, ulong hash, int is_ctrl)
 	close(fd);
 }
 
+void*
 obj9_msgSend(void *receiver, ulong selector, void *args)
 {
     o9_Object *obj = receiver;

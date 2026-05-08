@@ -1199,6 +1199,25 @@ gen_class_server(Node *c)
     gen_cache_entries(c, c->name);
     print("\t\treadstr(r, cachebuf); respond(r, nil); return;\n\t}\n");
     print("\tif(inst == nil) { respond(r, \"clone read\"); return; }\n\n");
+    /* Method file reads: check for stored O9Reply in fid aux */
+    for(m = c->left; m; m = m->next){
+        if(m->type == NMethod && strcmp(m->name, "main") != 0 && strcmp(m->typename, "void") != 0){
+            char *t = map_type(m->typename);
+            char *fmt = type_fmt(t);
+            char *cast = type_cast(t);
+            print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
+            print("\t\tO9Reply *__o9rep = r->fid->aux;\n");
+            print("\t\tif(__o9rep == nil){ respond(r, \"no pending reply\"); return; }\n");
+            if(strcmp(fmt, "%s") == 0){
+                print("\t\tsnprint(buf, sizeof buf, \"%%s\\n\", (char*)__o9rep->ret);\n");
+            } else {
+                print("\t\tsnprint(buf, sizeof buf, \"%s\\n\", (%s)__o9rep->ret);\n", fmt, cast);
+            }
+            print("\t\tr->fid->aux = nil;\n");
+            print("\t\tfree(__o9rep);\n");
+            print("\t\treadstr(r, buf); respond(r, nil); return;\n\t}\n");
+        }
+    }
     for(m = c->left; m; m = m->next){
         if(m->type == NProp || m->type == NAtomic){
             char *t = map_type(m->typename);
@@ -1236,7 +1255,14 @@ gen_class_server(Node *c)
                 char *a = np > 0 ? "__wargs" : "nil";
                 print("\t\t{ O9Msg __wm = {0x%lux, %s, %d, chancreate(sizeof(void*), 0)};\n", o9_hash(m->name), a, np);
                 print("\t\tsendp(inst->dispatch_chan, &__wm);\n");
-                print("\t\trecvp(__wm.replyc);\n");
+                if(strcmp(m->typename, "void") != 0){
+                    /* Return-value method: store O9Reply in fid aux for readback */
+                    print("\t\tO9Reply *__o9rep = recvp(__wm.replyc);\n");
+                    print("\t\tr->fid->aux = __o9rep;\n");
+                } else {
+                    /* Void method: discard reply */
+                    print("\t\trecvp(__wm.replyc);\n");
+                }
                 print("\t\tchanfree(__wm.replyc); }\n");
             }
             print("\t\tr->ofcall.count = r->ifcall.count;\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
@@ -1270,8 +1296,10 @@ gen_class_server(Node *c)
             print("\t{ File *__f = createfile(dir, \"%s\", nil, 0666, nil); if(__f) __f->aux = inst; }\n", m->name);
     }
     for(m = c->left; m; m = m->next){
-        if(m->type == NMethod && strcmp(m->name, "main") != 0)
-            print("\t{ File *__f = createfile(dir, \"%s\", nil, 0222, nil); if(__f) __f->aux = inst; }\n", m->name);
+        if(m->type == NMethod && strcmp(m->name, "main") != 0){
+            char *perm = (strcmp(m->typename, "void") == 0) ? "0222" : "0644";
+            print("\t{ File *__f = createfile(dir, \"%s\", nil, %s, nil); if(__f) __f->aux = inst; }\n", m->name, perm);
+        }
     }
     print("\treturn 0;\n}\n");
     print("void o9_main_%s(int argc, char **argv) {\n", c->name);
