@@ -3086,10 +3086,15 @@ gen_class_server(Node *c)
     print("int %s_create_instance(%s_Internal *inst, char *name) {\n", c->name, c->name);
     print("\tFile *dir = createfile(%s_tree->root, name, nil, 0755, nil);\n", c->name);
     print("\tif(dir == nil) return -1;\n");
+    print("\tdir->aux = inst;\n");
     print("\tcreatefile(dir, \"status\", nil, 0444, nil);\n");
     for(m = c->left; m; m = m->next){
         if(m->type == NProp || m->type == NAtomic)
-            print("\tcreatefile(dir, \"%s\", inst, 0666, nil);\n", m->name);
+            print("\t{ File *__f = createfile(dir, \"%s\", nil, 0666, nil); if(__f) __f->aux = inst; }\n", m->name);
+    }
+    for(m = c->left; m; m = m->next){
+        if(m->type == NMethod && strcmp(m->name, "main") != 0)
+            print("\t{ File *__f = createfile(dir, \"%s\", nil, 0222, nil); if(__f) __f->aux = inst; }\n", m->name);
     }
     print("\treturn 0;\n}\n");
     print("void o9_main_%s(int argc, char **argv) {\n", c->name);
