@@ -1321,6 +1321,7 @@ gen_class_server(Node *c)
     }
     print("\treturn 0;\n}\n");
     print("void o9_main_%s(int argc, char **argv) {\n", c->name);
+    print("\tUSED(argc); USED(argv);\n");
     print("\t%s_Internal *s = emalloc9p(sizeof(%s_Internal));\n", c->name, c->name);
     print("\tmemset(s, 0, sizeof(%s_Internal));\n", c->name);
     print("\ts->dispatch_chan = chancreate(sizeof(void*), 10);\n");
