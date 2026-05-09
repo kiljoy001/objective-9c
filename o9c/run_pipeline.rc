@@ -3,7 +3,13 @@
 # Usage: cd /n/o9repo/objective-9c && rc o9c/run_pipeline.rc
 
 rm /srv/Counter >[2]/dev/null
+
+echo '[*] Building o9c compiler...'
 cd o9c
+rm -f y.tab.c y.tab.h y.tab.6 o9c
+yacc -d o9_plan9.y
+6c -o y.tab.6 y.tab.c
+6l -o o9c y.tab.6 -lbio
 
 echo '[*] Generating C from pipeline_src.o9...'
 ./o9c < test/pipeline_src.o9 2> out.c
