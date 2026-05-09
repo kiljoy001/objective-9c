@@ -1116,7 +1116,7 @@ gen_class_server(Node *c)
 
     /* 1. State Structure (internal authoritative state) */
     print("typedef struct %s_Internal %s_Internal;\n", c->name, c->name);
-    print("struct %s_Internal {\n\tArcLedger ledger;\n", c->name);
+    print("struct %s_Internal {\n\tArcLedger ledger;\n\tlong ref;\t/* ARC reference count */\n", c->name);
     for(m = c->left; m; m = m->next){
         if(m->type == NInherit) print("\t%s_Internal;\n", m->name);
         if(m->type == NProp || m->type == NState || m->type == NAtomic) 
@@ -1174,6 +1174,22 @@ gen_class_server(Node *c)
     }
     print("\tchanfree(self->dispatch_chan);\n");
     print("\tfree(self);\n");
+    print("}\n\n");
+
+    /* 2b. ARC attach/destroyfid callbacks */
+    print("static void o9_attach_%s(Req *r) {\n", c->name);
+    print("\t%s_Internal *self = r->srv->aux;\n", c->name);
+    print("\tainc(&self->ref);\n");
+    print("\trespond(r, nil);\n");
+    print("}\n\n");
+    print("static void o9_destroyfid_%s(Fid *f) {\n", c->name);
+    print("\t%s_Internal *self = f->fidpool->srv->aux;\n", c->name);
+    print("\tif(adec(&self->ref) == 0){\n");
+    print("\t\tO9Msg *m = mallocz(sizeof(O9Msg), 1);\n");
+    print("\t\tm->sel = 0x%lux;\n", o9_hash("destroy"));
+    print("\t\tm->replyc = nil;\n");
+    print("\t\tsendp(self->dispatch_chan, m);\n");
+    print("\t}\n");
     print("}\n\n");
 
     /* 3. CSP Dispatch Loop */
@@ -1307,6 +1323,9 @@ gen_class_server(Node *c)
     print("\tmemset(s, 0, sizeof(%s_Internal));\n", c->name);
     print("\ts->dispatch_chan = chancreate(sizeof(void*), 10);\n");
     print("\to9srv_%s.read = fsread_%s;\n\to9srv_%s.write = fswrite_%s;\n", c->name, c->name, c->name, c->name);
+    print("\to9srv_%s.aux = s;\n", c->name);
+    print("\to9srv_%s.attach = o9_attach_%s;\n", c->name, c->name);
+    print("\to9srv_%s.destroyfid = o9_destroyfid_%s;\n", c->name, c->name);
     print("\t%s_tree = alloctree(nil, nil, 0555, nil);\n\to9srv_%s.tree = %s_tree;\n", c->name, c->name, c->name);
     print("\tcreatefile(%s_tree->root, \"clone\", nil, 0222, nil);\n", c->name);
     print("\tcreatefile(%s_tree->root, \"status\", nil, 0444, nil);\n", c->name);

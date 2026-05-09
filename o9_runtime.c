@@ -9,8 +9,29 @@
  * Supports Tiered Performance Model:
  *   Tier 1: SHM direct pointer (segattach) via /cache d:<hash>:<offset>
  *   Tier 2: CSP channel dispatch (obj9_msgSend)
- *   Tier 3: 9P network dispatch (future)
+ *   Tier 3: 9P network dispatch (fid aux readback)
  */
+
+/* Atomic helpers: use ainc/adec on 9front, __sync on Linux plan9port */
+static long
+o9_atomic_inc(long *p)
+{
+#ifdef __9FRONT__
+	return ainc(p);
+#else
+	return __sync_fetch_and_add(p, 1) + 1;
+#endif
+}
+
+static long
+o9_atomic_dec(long *p)
+{
+#ifdef __9FRONT__
+	return adec(p);
+#else
+	return __sync_fetch_and_add(p, -1) - 1;
+#endif
+}
 
 void o9_cache_fill(void *client, ulong hash, int is_ctrl);
 
@@ -150,8 +171,23 @@ obj9_msgSend(void *receiver, ulong selector, void *args)
 void
 o9_ledger_update(void *client, ulong id, int delta)
 {
-	USED(client); USED(id); USED(delta);
-	/* TODO: atomic ARC update — requires ainc/adec */
+	o9_Object *obj = client;
+	USED(id);
+	if(obj == nil) return;
+	if(delta > 0){
+		while(delta--) o9_atomic_inc(&obj->ref);
+	} else {
+		while(delta++) o9_atomic_dec(&obj->ref);
+	}
+}
+
+long
+o9_ledger_value(void *client, ulong id)
+{
+	o9_Object *obj = client;
+	USED(id);
+	if(obj == nil) return 0;
+	return obj->ref;
 }
 
 void

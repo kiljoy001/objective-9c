@@ -43,8 +43,7 @@ typedef struct o9_AsmTable {
     O9CacheEntry ctrl_cache[64];
 } o9_AsmTable;
 
-/*
- * Root Object Template
+/* Root Object Template
  *
  * WARNING: The asm dispatch (o9_dispatch.s) references fixed offsets:
  *   +0:  int fd
@@ -59,7 +58,7 @@ typedef struct o9_Object {
     int fd;
     void *shm_base;
     o9_AsmTable *table;
-    long ref;
+    long ref;           /* ARC — shared reference count */
     void *dispatch_chan;	/* Channel* */
     char srvname[64];		/* server name for /srv/ cache walk */
 } o9_Object;
@@ -70,6 +69,7 @@ extern void* o9_dispatch_data(void *client, ulong hash);
 extern void* o9_dispatch_call(void *client, ulong hash, void *args);
 extern void  o9_cache_fill(void *client, ulong hash, int is_ctrl);
 extern void  o9_ledger_update(void *client, ulong id, int delta);
+extern long  o9_ledger_value(void *client, ulong id);
 extern void  o9_clunk(int fd);
 extern void* obj9_msgSend(void *receiver, ulong selector, void *args);
 
