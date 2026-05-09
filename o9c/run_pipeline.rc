@@ -27,6 +27,6 @@ echo '[*] Linking...'
 6l -o o9_test out.6 o9_runtime.6 o9_dispatch.6 -lthread -l9p
 
 echo '[*] Running...'
-./o9_test 2>&1
+./o9_test
 
 echo '[*] Done. Exit code:' $status
