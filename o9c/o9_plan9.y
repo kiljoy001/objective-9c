@@ -415,9 +415,10 @@ stmt_list:
     ;
 
 stmt:
-    expr ';' { $$ = $1; }
-    | typename TIDENT ';' { $$ = mk(NLocalVar, $2->name, $1->name, nil, nil); if(find_class($1->name)) add_var_class($2->name, $1->name); }
+    typename TIDENT ';' { $$ = mk(NLocalVar, $2->name, $1->name, nil, nil); if(find_class($1->name)) add_var_class($2->name, $1->name); }
     | typename TIDENT TEQ expr ';' { $$ = mk(NLocalVar, $2->name, $1->name, $4, nil); if(find_class($1->name)) add_var_class($2->name, $1->name); }
+    | expr '.' TIDENT TEQ expr ';' { $$ = mk(NAssign, $3->name, nil, $1, $5); }
+    | expr ';' { $$ = $1; }
     | TRETURN expr ';' { $$ = mk(NReturn, nil, nil, $2, nil); }
     | TPRINT '(' call_args ')' ';' {
         $$ = mk(NFuncCall, "print", nil, $3, nil);
@@ -994,6 +995,19 @@ gen_stmt(Node *c, Node *s)
         break;
     }
     case NAssign:
+        if(s->name != nil && s->left != nil && s->left->type == NIdent && s->left->name != nil){
+            /* Property write: obj.prop = expr */
+            char *cname = get_var_class(s->left->name);
+            if(cname != nil && find_class(cname)){
+                /* Direct struct write via shm_base */
+                print("\t{ %s_Client *__c = (%s_Client*)&", cname, cname);
+                gen_expr(s->left);
+                print(";\n\t\tif(__c->shm_base){ ((%s_Internal*)__c->shm_base)->%s = (vlong)(", cname, s->name);
+                gen_expr(s->right);
+                print("); } }\n");
+                break;
+            }
+        }
         print("\t"); gen_expr(s->left); print(" = "); gen_expr(s->right); print(";\n");
         break;
     case NReturn:
