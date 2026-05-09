@@ -15,10 +15,10 @@ echo '[*] Generating C from pipeline_src.o9...'
 ./o9c < test/pipeline_src.o9 2> out.c
 
 echo '[*] Compiling generated C...'
-6c -FVw out.c
+6c -FVw -I. -I.. out.c
 
 echo '[*] Compiling runtime...'
-6c -FVw ../o9_runtime.c
+6c -FVw -I. -I.. ../o9_runtime.c
 
 echo '[*] Assembling dispatch...'
 6a ../o9_dispatch.s
