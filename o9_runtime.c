@@ -12,25 +12,17 @@
  *   Tier 3: 9P network dispatch (fid aux readback)
  */
 
-/* Atomic helpers: use ainc/adec on 9front, __sync on Linux plan9port */
+/* Atomic helpers — 9front has ainc/adec in libc, no portable fallback needed */
 static long
 o9_atomic_inc(long *p)
 {
-#ifdef __9FRONT__
 	return ainc(p);
-#else
-	return __sync_fetch_and_add(p, 1) + 1;
-#endif
 }
 
 static long
 o9_atomic_dec(long *p)
 {
-#ifdef __9FRONT__
 	return adec(p);
-#else
-	return __sync_fetch_and_add(p, -1) - 1;
-#endif
 }
 
 void o9_cache_fill(void *client, ulong hash, int is_ctrl);

@@ -1183,7 +1183,8 @@ gen_class_server(Node *c)
     print("\trespond(r, nil);\n");
     print("}\n\n");
     print("static void o9_destroyfid_%s(Fid *f) {\n", c->name);
-    print("\t%s_Internal *self = f->fidpool->srv->aux;\n", c->name);
+    print("\tUSED(f);\n");
+    print("\t%s_Internal *self = f->pool->srv->aux;\n", c->name);
     print("\tif(adec(&self->ref) == 0){\n");
     print("\t\tO9Msg *m = mallocz(sizeof(O9Msg), 1);\n");
     print("\t\tm->sel = 0x%lux;\n", o9_hash("destroy"));
@@ -1213,6 +1214,7 @@ gen_class_server(Node *c)
     print("\t\tchar cachebuf[4096];\n\t\tchar *p = cachebuf;\n");
     /* Call gen_cache_entries for this class */
     gen_cache_entries(c, c->name);
+    print("\t\tUSED(p);\n");
     print("\t\treadstr(r, cachebuf); respond(r, nil); return;\n\t}\n");
     print("\tif(inst == nil) { respond(r, \"clone read\"); return; }\n\n");
     /* Method file reads: check for stored O9Reply in fid aux */
@@ -1375,6 +1377,7 @@ codegen(Node *root)
         }
     }
     print("void\nthreadmain(int argc, char **argv)\n{\n");
+    print("\tUSED(argc); USED(argv);\n");
     if(last){
         print("\to9_main_%s(argc, argv);\n", last->name);
     }
