@@ -55,7 +55,8 @@ enum {
     NWhile,
     NLocalVar,
     NMsgSend,
-    NFuncCall
+    NFuncCall,
+    NFor
 };
 
 struct Node {
@@ -171,10 +172,10 @@ get_sym_type(Node *c, char *name)
 
 %token <node> TIDENT TTYPE
 %token <name> TINTLIT TSTRINGLIT TCHARLIT
-%token TCLASS TFUNC TMETHOD TRETURN TCHAN TIF TELSE TWHILE TNEW TPRINT
+%token TCLASS TFUNC TMETHOD TRETURN TCHAN TIF TELSE TWHILE TFOR TNEW TPRINT
 %token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TTRUE TFALSE TARROW
 %token TEQ TADD TSUB TCHANSEND TCHANRECV TCHANTRY TEQEQ TNEQ TLE TGE
-%token TAND TOR TLSHIFT TRSHIFT
+%token TAND TOR TLSHIFT TRSHIFT TFORSEMI
 
 %left TEQ
 %left TCHANSEND TCHANTRY
@@ -192,7 +193,7 @@ get_sym_type(Node *c, char *name)
 %right '!' '~' UMINUS
 %left '.'
 
-%type <node> program top_levels top_level class_decl member_list member var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename param_list param call_args call_arg func_top_level
+%type <node> program top_levels top_level class_decl member_list member var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename param_list param call_args call_arg func_top_level for_init for_cond for_step
 
 %start program
 
@@ -428,6 +429,22 @@ stmt:
         $$ = mk(NIfElse, nil, nil, $3, mk(NElse, nil, nil, $6, $10));
     }
     | TWHILE '(' expr ')' '{' stmt_list '}' { $$ = mk(NWhile, nil, nil, $3, $6); }
+    | TFOR '(' for_init TFORSEMI for_cond TFORSEMI for_step ')' '{' stmt_list '}' { $$ = mk(NFor, nil, nil, $3, mk(NFor, nil, nil, $5, $7)); $$->right->next = $10; }
+    ;
+
+for_init:
+    expr { $$ = $1; }
+    | /* empty */ { $$ = nil; }
+    ;
+
+for_cond:
+    expr { $$ = $1; }
+    | /* empty */ { $$ = nil; }
+    ;
+
+for_step:
+    expr { $$ = $1; }
+    | /* empty */ { $$ = nil; }
     ;
 
 expr:
@@ -514,6 +531,7 @@ yyerror(char *s)
 }
 
 static Biobuf *bin;
+static int for_paren_depth = -1;	/* >=0 when inside for(...) — ';' returns TFORSEMI */
 
 int
 yylex(void)
@@ -523,6 +541,13 @@ yylex(void)
     while((c = Bgetc(bin)) != Beof){
         if(isspace(c))
             continue;
+        /* Inside for(...): track paren depth, convert ';' to TFORSEMI */
+        if(for_paren_depth >= 0){
+            if(c == '(') { for_paren_depth++; return '('; }
+            if(c == ')' && for_paren_depth > 0) { for_paren_depth--; return ')'; }
+            if(c == ')' && for_paren_depth == 0) { for_paren_depth = -1; return ')'; }
+            if(c == ';') return TFORSEMI;
+        }
         if(c == '~')
             return '~';
         if(c == '='){
@@ -673,6 +698,7 @@ yylex(void)
             if(strcmp(buf, "if") == 0) return TIF;
             if(strcmp(buf, "else") == 0) return TELSE;
             if(strcmp(buf, "while") == 0) return TWHILE;
+            if(strcmp(buf, "for") == 0){ for_paren_depth = 0; return TFOR; }
             if(strcmp(buf, "true") == 0) return TTRUE;
             if(strcmp(buf, "false") == 0) return TFALSE;
             if(strcmp(buf, "print") == 0) return TPRINT;
@@ -1033,6 +1059,18 @@ gen_stmt(Node *c, Node *s)
     case NWhile:
         print("\twhile("); gen_expr(s->left); print("){\n");
         for(n = s->right; n; n = n->next) gen_stmt(c, n);
+        print("\t}\n");
+        break;
+    case NFor:
+        /* s->left=init, s->right->left=cond, s->right->right=step, s->right->next=body */
+        print("\tfor(");
+        if(s->left) gen_expr(s->left);
+        print("; ");
+        if(s->right->left) gen_expr(s->right->left);
+        print("; ");
+        if(s->right->right) gen_expr(s->right->right);
+        print("){\n");
+        for(n = s->right->next; n; n = n->next) gen_stmt(c, n);
         print("\t}\n");
         break;
     default:
