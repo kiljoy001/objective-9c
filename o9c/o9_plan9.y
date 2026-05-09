@@ -877,8 +877,8 @@ gen_expr(Node *e)
     case NFuncCall:
         /* Built-in functions like print(...) */
         if(strcmp(e->name, "print") == 0){
-            /* Emit print("fmt", args...) directly */
-            print("print(");
+            /* Emit fprint(1, "fmt", args...) — stdout on both plan9port and 9front */
+            print("fprint(1, ");
             int first = 1;
             Node *a;
             for(a = e->left; a; a = a->next){

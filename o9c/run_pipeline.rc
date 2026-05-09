@@ -1,0 +1,27 @@
+#!/bin/rc
+# run_pipeline.rc — o9 full transpile + compile + run test on 9front
+# Usage: cd /n/o9repo/objective-9c && rc o9c/run_pipeline.rc
+
+rm /srv/Counter >[2]/dev/null
+cd o9c
+
+echo '[*] Generating C from pipeline_src.o9...'
+./o9c < test/pipeline_src.o9 2> out.c
+
+echo '[*] Compiling generated C...'
+cd ..
+6c -FVw o9c/out.c
+
+echo '[*] Compiling runtime...'
+6c -FVw o9_runtime.c
+
+echo '[*] Assembling dispatch...'
+6a o9_dispatch.s
+
+echo '[*] Linking...'
+6l -o o9_test o9c/out.6 o9_runtime.6 o9_dispatch.6 -lthread -l9p
+
+echo '[*] Running...'
+./o9_test 2>&1
+
+echo '[*] Done. Exit code:' $status
