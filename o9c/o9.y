@@ -1016,14 +1016,40 @@ gen_expr(Node *e)
     case NFuncCall:
         /* Built-in functions like print(...) */
         if(strcmp(e->name, "print") == 0){
-            /* Emit fprint(1, "fmt", args...) — stdout on both plan9port and 9front */
+            /* Emit fprint(1, "fmt", args...) */
             print("fprint(1, ");
-            int first = 1;
-            Node *a;
-            for(a = e->left; a; a = a->next){
-                if(!first) print(", ");
+            Node *a = e->left;
+            if(a == nil){
+                print("\"\"");
+            } else if(a->type == NStringLit && a->next == nil){
+                /* Single string literal — use as format directly */
                 gen_expr(a);
-                first = 0;
+            } else {
+                /* First arg is our format string or the value itself */
+                int first = 1;
+                Node *first_arg = a;
+                if(first_arg->type == NStringLit){
+                    /* Format string provided */
+                    gen_expr(first_arg);
+                    first = 0;
+                    for(a = first_arg->next; a; a = a->next){
+                        if(!first) print(", ");
+                        gen_expr(a);
+                        first = 0;
+                    }
+                } else if(first_arg->next == nil){
+                    /* Single non-string arg — use %lld as format */
+                    print("\"%%lld\"");
+                    print(", ");
+                    gen_expr(first_arg);
+                } else {
+                    /* Multiple args, first not a string — print bare */
+                    for(a = first_arg; a; a = a->next){
+                        if(!first) print(", ");
+                        gen_expr(a);
+                        first = 0;
+                    }
+                }
             }
             print(")");
         } else {
