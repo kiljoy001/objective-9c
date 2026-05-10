@@ -56,6 +56,7 @@ enum {
     NWhile,
     NLocalVar,
     NMsgSend,
+    NPropRead,
     NFuncCall,
     NFor
 };
@@ -489,6 +490,9 @@ expr:
     | '!' expr { $$ = mk(NNot, nil, nil, $2, nil); }
     | '~' expr { $$ = mk(NBitNot, nil, nil, $2, nil); }
     | TSUB expr %prec UMINUS { $$ = mk(NNeg, nil, nil, $2, nil); }
+    | expr '.' TIDENT {
+        $$ = mk(NPropRead, $3->name, nil, $1, nil);
+    }
     | expr '.' TIDENT '(' call_args ')' {
         $$ = mk(NMsgSend, $3->name, nil, $1, $5);
     }
@@ -879,6 +883,28 @@ gen_expr(Node *e)
             }
             gen_expr(e->left);
             print(", 0x%lux, o9_call_args))", o9_hash(e->name));
+        }
+        break;
+    case NPropRead:
+        /* obj.prop — property read via SHM */
+        /* emit: (vlong)((ClassName_Internal*)((ClassName_Client*)&obj)->shm_base)->prop */
+        {
+            /* If left is an ident, try to look up its class */
+            if(e->left && e->left->type == NIdent && e->left->name){
+                char *cn = get_var_class(e->left->name);
+                if(cn != nil){
+                    print("(vlong)((%s_Internal*)((%s_Client*)&", cn, cn);
+                    gen_expr(e->left);
+                    print(")->shm_base)->%s", e->name);
+                } else {
+                    /* Fallback: direct struct access */
+                    gen_expr(e->left);
+                    print(".%s", e->name);
+                }
+            } else {
+                gen_expr(e->left);
+                print(".%s", e->name);
+            }
         }
         break;
     case NAdd:
