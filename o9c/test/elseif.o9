@@ -1,0 +1,18 @@
+// Tests: if/else if/else chains
+class Test {
+    int64 x;
+    method void test(int64 a) {
+        if(a > 100){
+            x = 1;
+        } else if(a > 50){
+            x = 2;
+        } else if(a > 20){
+            x = 3;
+        } else if(a > 10){
+            x = 4;
+        } else {
+            x = 5;
+        }
+    }
+}
+func main() { }

@@ -52,6 +52,7 @@ enum {
     NIf,
     NIfElse,
     NElse,
+    NElseIf,
     NWhile,
     NLocalVar,
     NMsgSend,
@@ -172,7 +173,7 @@ get_sym_type(Node *c, char *name)
 
 %token <node> TIDENT TTYPE
 %token <name> TINTLIT TSTRINGLIT TCHARLIT
-%token TCLASS TFUNC TMETHOD TRETURN TCHAN TIF TELSE TWHILE TFOR TNEW TPRINT
+%token TCLASS TFUNC TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT
 %token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TTRUE TFALSE TARROW
 %token TEQ TADD TSUB TCHANSEND TCHANRECV TCHANTRY TEQEQ TNEQ TLE TGE
 %token TAND TOR TLSHIFT TRSHIFT TFORSEMI
@@ -193,7 +194,7 @@ get_sym_type(Node *c, char *name)
 %right '!' '~' UMINUS
 %left '.'
 
-%type <node> program top_levels top_level class_decl member_list member var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename param_list param call_args call_arg func_top_level for_init for_cond for_step
+%type <node> program top_levels top_level class_decl member_list member var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename param_list param call_args call_arg func_top_level for_init for_cond for_step else_clause
 
 %start program
 
@@ -426,7 +427,13 @@ stmt:
     }
     | TIF '(' expr ')' '{' stmt_list '}' { $$ = mk(NIf, nil, nil, $3, $6); }
     | TIF '(' expr ')' '{' stmt_list '}' TELSE '{' stmt_list '}' {
-        $$ = mk(NIfElse, nil, nil, $3, mk(NElse, nil, nil, $6, $10));
+        $$ = mk(NIfElse, nil, nil, $3, $6);
+        $$->next = mk(NElse, nil, nil, $10, nil);
+    }
+    | TIF '(' expr ')' '{' stmt_list '}' TELIF '(' expr ')' '{' stmt_list '}' else_clause {
+        $$ = mk(NIfElse, nil, nil, $3, $6);
+        $$->next = mk(NElseIf, nil, nil, $10, $13);
+        if($15) $$->next->next = $15;
     }
     | TWHILE '(' expr ')' '{' stmt_list '}' { $$ = mk(NWhile, nil, nil, $3, $6); }
     | TFOR '(' for_init TFORSEMI for_cond TFORSEMI for_step ')' '{' stmt_list '}' { $$ = mk(NFor, nil, nil, $3, mk(NFor, nil, nil, $5, $7)); $$->right->next = $10; }
@@ -445,6 +452,15 @@ for_cond:
 for_step:
     expr { $$ = $1; }
     | /* empty */ { $$ = nil; }
+    ;
+
+else_clause:
+    /* empty */ { $$ = nil; }
+    | TELSE '{' stmt_list '}' { $$ = mk(NElse, nil, nil, $3, nil); }
+    | TELIF '(' expr ')' '{' stmt_list '}' else_clause {
+        $$ = mk(NElseIf, nil, nil, $3, $6);
+        $$->next = $8;
+    }
     ;
 
 expr:
@@ -532,13 +548,30 @@ yyerror(char *s)
 
 static Biobuf *bin;
 static int for_paren_depth = -1;	/* >=0 when inside for(...) — ';' returns TFORSEMI */
+static int pushback[8];		/* multi-char pushback buffer (Plan 9 Bungetc only pushes 1) */
+static int npush = 0;
+
+static int
+lex_getc(void)
+{
+	if(npush > 0)
+		return pushback[--npush];
+	return Bgetc(bin);
+}
+
+static void
+lex_ungetc(int c)
+{
+	if(npush < 8)
+		pushback[npush++] = c;
+}
 
 int
 yylex(void)
 {
     int c;
 
-    while((c = Bgetc(bin)) != Beof){
+    while((c = lex_getc()) != Beof){
         if(isspace(c))
             continue;
         /* Inside for(...): track paren depth, convert ';' to TFORSEMI */
@@ -551,45 +584,45 @@ yylex(void)
         if(c == '~')
             return '~';
         if(c == '='){
-            if((c = Bgetc(bin)) == '=') return TEQEQ;
+            if((c = lex_getc()) == '=') return TEQEQ;
             if(c == '>') return TARROW;
-            Bungetc(bin);
+            lex_ungetc(c);
             return TEQ;
         }
         if(c == '&'){
-            if((c = Bgetc(bin)) == '&') return TAND;
-            Bungetc(bin);
+            if((c = lex_getc()) == '&') return TAND;
+            lex_ungetc(c);
             return '&';
         }
         if(c == '|'){
-            if((c = Bgetc(bin)) == '|') return TOR;
-            Bungetc(bin);
+            if((c = lex_getc()) == '|') return TOR;
+            lex_ungetc(c);
             return '|';
         }
         if(c == '!'){
-            if((c = Bgetc(bin)) == '=') return TNEQ;
-            Bungetc(bin);
+            if((c = lex_getc()) == '=') return TNEQ;
+            lex_ungetc(c);
             return '!';
         }
         if(c == '<'){
-            if((c = Bgetc(bin)) == '-') return TCHANRECV;
+            if((c = lex_getc()) == '-') return TCHANRECV;
             if(c == '=') return TLE;
             if(c == '<') return TLSHIFT;
-            Bungetc(bin);
+            lex_ungetc(c);
             return '<';
         }
         if(c == '>'){
-            if((c = Bgetc(bin)) == '=') return TGE;
+            if((c = lex_getc()) == '=') return TGE;
             if(c == '>') return TRSHIFT;
-            Bungetc(bin);
+            lex_ungetc(c);
             return '>';
         }
         if(c == '"'){
             char buf[1024];
             int i = 0;
-            while((c = Bgetc(bin)) != Beof && c != '"' && i < 1023) {
+            while((c = lex_getc()) != Beof && c != '"' && i < 1023) {
                 if(c == '\\'){
-                    if((c = Bgetc(bin)) == Beof) break;
+                    if((c = lex_getc()) == Beof) break;
                     if(c == 'n') buf[i++] = '\n';
                     else if(c == 't') buf[i++] = '\t';
                     else buf[i++] = c;
@@ -604,9 +637,9 @@ yylex(void)
         if(c == '\''){
             char buf[16];
             int i = 0;
-            while((c = Bgetc(bin)) != Beof && c != '\'' && i < 15) {
+            while((c = lex_getc()) != Beof && c != '\'' && i < 15) {
                 if(c == '\\'){
-                    if((c = Bgetc(bin)) == Beof) break;
+                    if((c = lex_getc()) == Beof) break;
                     buf[i++] = c;
                 } else {
                     buf[i++] = c;
@@ -617,29 +650,29 @@ yylex(void)
             return TCHARLIT;
         }
         if(c == '-'){
-            if((c = Bgetc(bin)) == '>'){
-                if((c = Bgetc(bin)) == '?') return TCHANTRY;
-                Bungetc(bin);
+            if((c = lex_getc()) == '>'){
+                if((c = lex_getc()) == '?') return TCHANTRY;
+                lex_ungetc(c);
                 return TCHANSEND;
             }
-            Bungetc(bin);
+            lex_ungetc(c);
             return TSUB;
         }
         if(c == '/'){
-            if((c = Bgetc(bin)) == '/'){
-                while((c = Bgetc(bin)) != Beof && c != '\n');
+            if((c = lex_getc()) == '/'){
+                while((c = lex_getc()) != Beof && c != '\n');
                 continue;
             }
             if(c == '*'){
-                while((c = Bgetc(bin)) != Beof){
+                while((c = lex_getc()) != Beof){
                     if(c == '*'){
-                        if((c = Bgetc(bin)) == '/') break;
-                        Bungetc(bin);
+                        if((c = lex_getc()) == '/') break;
+                        lex_ungetc(c);
                     }
                 }
                 continue;
             }
-            Bungetc(bin);
+            lex_ungetc(c);
             return '/';
         }
         if(c == '+') return TADD;
@@ -649,23 +682,23 @@ yylex(void)
             int i = 0;
             buf[i++] = c;
             if(c == '0'){
-                c = Bgetc(bin);
+                c = lex_getc();
                 if(c == 'x' || c == 'X'){
                     buf[i++] = c;
-                    while(isxdigit(c = Bgetc(bin))) {
+                    while(isxdigit(c = lex_getc())) {
                         if(i < 63) buf[i++] = c;
                     }
-                    Bungetc(bin);
+                    lex_ungetc(c);
                     buf[i] = '\0';
                     yylval.name = strdup(buf);
                     return TINTLIT;
                 }
-                Bungetc(bin);
+                lex_ungetc(c);
             }
-            while(isdigit(c = Bgetc(bin))) {
+            while(isdigit(c = lex_getc())) {
                 if(i < 63) buf[i++] = c;
             }
-            Bungetc(bin);
+            lex_ungetc(c);
             buf[i] = '\0';
             yylval.name = strdup(buf);
             return TINTLIT;
@@ -675,10 +708,10 @@ yylex(void)
             char buf[64];
             int i = 0;
             buf[i++] = c;
-            while(isalnum(c = Bgetc(bin)) || c == '_') {
+            while(isalnum(c = lex_getc()) || c == '_') {
                 if(i < 63) buf[i++] = c;
             }
-            Bungetc(bin);
+            lex_ungetc(c);
             buf[i] = '\0';
             
             yylval.node = mk(NIdent, buf, nil, nil, nil);
@@ -696,7 +729,17 @@ yylex(void)
             if(strcmp(buf, "chan") == 0) return TCHAN;
             if(strcmp(buf, "return") == 0) return TRETURN;
             if(strcmp(buf, "if") == 0) return TIF;
-            if(strcmp(buf, "else") == 0) return TELSE;
+            if(strcmp(buf, "else") == 0){
+                int nc = lex_getc();
+                while(nc == ' ' || nc == '\t') nc = lex_getc();
+                if(nc == 'i'){
+                    int nc2 = lex_getc();
+                    if(nc2 == 'f') return TELIF;
+                    lex_ungetc(nc2);
+                }
+                lex_ungetc(nc);
+                return TELSE;
+            }
             if(strcmp(buf, "while") == 0) return TWHILE;
             if(strcmp(buf, "for") == 0){ for_paren_depth = 0; return TFOR; }
             if(strcmp(buf, "true") == 0) return TTRUE;
@@ -1051,10 +1094,32 @@ gen_stmt(Node *c, Node *s)
         break;
     case NIfElse:
         print("\tif("); gen_expr(s->left); print("){\n");
-        for(n = s->right->left; n; n = n->next) gen_stmt(c, n);
-        print("\t} else {\n");
-        for(n = s->right->right; n; n = n->next) gen_stmt(c, n);
-        print("\t}\n");
+        for(n = s->right; n; n = n->next) gen_stmt(c, n);
+        /* Walk the else/elseif chain via ->next */
+        if(s->next){
+            Node *tail = s->next;
+            int closed = 0;
+            while(tail){
+                if(tail->type == NElseIf){
+                    print("\t} else if("); gen_expr(tail->left); print("){\n");
+                    for(n = tail->right; n; n = n->next) gen_stmt(c, n);
+                } else if(tail->type == NElse){
+                    print("\t} else {\n");
+                    for(n = tail->left; n; n = n->next) gen_stmt(c, n);
+                    print("\t}\n");
+                    closed = 1;
+                    break;
+                }
+                tail = tail->next;
+            }
+            if(!closed)
+                print("\t}\n");
+        } else {
+            print("\t}\n");
+        }
+        break;
+    case NElseIf:
+        /* Should not be reached as a top-level statement — handled by NIfElse chain */
         break;
     case NWhile:
         print("\twhile("); gen_expr(s->left); print("){\n");

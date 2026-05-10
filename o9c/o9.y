@@ -52,13 +52,12 @@ enum {
     NIf,
     NIfElse,
     NElse,
+    NElseIf,
     NWhile,
     NLocalVar,
     NMsgSend,
-    NPropAccessor,
-    NMethodDec,
-    NRetType,
-    NExprBody
+    NFuncCall,
+    NFor
 };
 
 struct Node {
@@ -102,6 +101,7 @@ void  yyerror(char *s);
 int   yylex(void);
 int   yyparse(void);
 ulong o9_hash(char *str);
+void  add_var_class(char *varname, char *classname);
 
 Node *ast_root;
 
@@ -173,11 +173,10 @@ get_sym_type(Node *c, char *name)
 
 %token <node> TIDENT TTYPE
 %token <name> TINTLIT TSTRINGLIT TCHARLIT
-%token TCLASS TFUNC TMETHOD TRETURN TCHAN TIF TELSE TWHILE TNEW
-%token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TTRUE TFALSE
-%token TGET TSET
+%token TCLASS TFUNC TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT
+%token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TTRUE TFALSE TARROW
 %token TEQ TADD TSUB TCHANSEND TCHANRECV TCHANTRY TEQEQ TNEQ TLE TGE
-%token TAND TOR TLSHIFT TRSHIFT
+%token TAND TOR TLSHIFT TRSHIFT TFORSEMI
 
 %left TEQ
 %left TCHANSEND TCHANTRY
@@ -195,7 +194,7 @@ get_sym_type(Node *c, char *name)
 %right '!' '~' UMINUS
 %left '.'
 
-%type <node> program top_levels top_level class_decl member_list member var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename param_list param call_args call_arg func_top_level
+%type <node> program top_levels top_level class_decl member_list member var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename param_list param call_args call_arg func_top_level for_init for_cond for_step else_clause
 
 %start program
 
@@ -280,18 +279,6 @@ prop_decl:
     {
         $$ = mk(NProp, $3->name, $2->name, nil, nil);
     }
-    | TPROP typename TIDENT '{' TGET '{' stmt_list '}' '}'
-    {
-        $$ = mk(NPropAccessor, $3->name, $2->name, $7, nil);
-    }
-    | TPROP typename TIDENT '{' TSET '{' stmt_list '}' '}'
-    {
-        $$ = mk(NPropAccessor, $3->name, $2->name, nil, $7);
-    }
-    | TPROP typename TIDENT '{' TGET '{' stmt_list '}' TSET '{' stmt_list '}' '}'
-    {
-        $$ = mk(NPropAccessor, $3->name, $2->name, $7, $11);
-    }
     ;
 
 atomic_decl:
@@ -339,18 +326,18 @@ method_decl:
     {
         $$ = mk(NMethod, $3->name, $2->name, $8, $5);
     }
-    | TMETHOD typename TIDENT '(' param_list ')' '=>' expr ';'
+    | TMETHOD typename TIDENT '(' param_list ')' TARROW expr ';'
     {
         Node *body = mk(NReturn, nil, nil, $8, nil);
         $$ = mk(NMethod, $3->name, $2->name, body, $5);
     }
     | TMETHOD TIDENT '(' param_list ')' '{' stmt_list '}'
     {
-        $$ = mk(NMethod, $2->name, "void", $6, $4);
+        $$ = mk(NMethod, $2->name, "void", $7, $4);
     }
-    | TMETHOD TIDENT '(' param_list ')' '=>' expr ';'
+    | TMETHOD TIDENT '(' param_list ')' TARROW expr ';'
     {
-        Node *body = mk(NReturn, nil, nil, $6, nil);
+        Node *body = mk(NReturn, nil, nil, $7, nil);
         $$ = mk(NMethod, $2->name, "void", body, $4);
     }
     ;
@@ -380,7 +367,7 @@ var_decl:
     ;
 
 func_decl:
-    TFUNC '(' TIDENT '*' TIDENT ')' TIDENT '(' param_list ')' TIDENT '{' stmt_list '}'
+    TFUNC '(' typename '*' TIDENT ')' TIDENT '(' param_list ')' typename '{' stmt_list '}'
     {
         Node *params = $9;
         Node *stmts = $13;
@@ -403,11 +390,7 @@ param_list:
     ;
 
 param:
-    TIDENT typename
-    {
-        $$ = mk(NProp, $1->name, $2->name, nil, nil);
-    }
-    | typename TIDENT
+    typename TIDENT
     {
         $$ = mk(NProp, $2->name, $1->name, nil, nil);
     }
@@ -434,15 +417,50 @@ stmt_list:
     ;
 
 stmt:
-    expr ';' { $$ = $1; }
-    | typename TIDENT ';' { $$ = mk(NLocalVar, $2->name, $1->name, nil, nil); if(find_class($1->name)) add_var_class($2->name, $1->name); }
+    typename TIDENT ';' { $$ = mk(NLocalVar, $2->name, $1->name, nil, nil); if(find_class($1->name)) add_var_class($2->name, $1->name); }
     | typename TIDENT TEQ expr ';' { $$ = mk(NLocalVar, $2->name, $1->name, $4, nil); if(find_class($1->name)) add_var_class($2->name, $1->name); }
+    | expr '.' TIDENT TEQ expr ';' { $$ = mk(NAssign, $3->name, nil, $1, $5); }
+    | expr ';' { $$ = $1; }
     | TRETURN expr ';' { $$ = mk(NReturn, nil, nil, $2, nil); }
+    | TPRINT '(' call_args ')' ';' {
+        $$ = mk(NFuncCall, "print", nil, $3, nil);
+    }
     | TIF '(' expr ')' '{' stmt_list '}' { $$ = mk(NIf, nil, nil, $3, $6); }
     | TIF '(' expr ')' '{' stmt_list '}' TELSE '{' stmt_list '}' {
-        $$ = mk(NIfElse, nil, nil, $3, mk(NElse, nil, nil, $6, $10));
+        $$ = mk(NIfElse, nil, nil, $3, $6);
+        $$->next = mk(NElse, nil, nil, $10, nil);
+    }
+    | TIF '(' expr ')' '{' stmt_list '}' TELIF '(' expr ')' '{' stmt_list '}' else_clause {
+        $$ = mk(NIfElse, nil, nil, $3, $6);
+        $$->next = mk(NElseIf, nil, nil, $10, $13);
+        if($15) $$->next->next = $15;
     }
     | TWHILE '(' expr ')' '{' stmt_list '}' { $$ = mk(NWhile, nil, nil, $3, $6); }
+    | TFOR '(' for_init TFORSEMI for_cond TFORSEMI for_step ')' '{' stmt_list '}' { $$ = mk(NFor, nil, nil, $3, mk(NFor, nil, nil, $5, $7)); $$->right->next = $10; }
+    ;
+
+for_init:
+    expr { $$ = $1; }
+    | /* empty */ { $$ = nil; }
+    ;
+
+for_cond:
+    expr { $$ = $1; }
+    | /* empty */ { $$ = nil; }
+    ;
+
+for_step:
+    expr { $$ = $1; }
+    | /* empty */ { $$ = nil; }
+    ;
+
+else_clause:
+    /* empty */ { $$ = nil; }
+    | TELSE '{' stmt_list '}' { $$ = mk(NElse, nil, nil, $3, nil); }
+    | TELIF '(' expr ')' '{' stmt_list '}' else_clause {
+        $$ = mk(NElseIf, nil, nil, $3, $6);
+        $$->next = $8;
+    }
     ;
 
 expr:
@@ -529,56 +547,82 @@ yyerror(char *s)
 }
 
 static Biobuf *bin;
+static int for_paren_depth = -1;	/* >=0 when inside for(...) — ';' returns TFORSEMI */
+static int pushback[8];		/* multi-char pushback buffer (Plan 9 Bungetc only pushes 1) */
+static int npush = 0;
+
+static int
+lex_getc(void)
+{
+	if(npush > 0)
+		return pushback[--npush];
+	return Bgetc(bin);
+}
+
+static void
+lex_ungetc(int c)
+{
+	if(npush < 8)
+		pushback[npush++] = c;
+}
 
 int
 yylex(void)
 {
     int c;
 
-    while((c = Bgetc(bin)) != Beof){
+    while((c = lex_getc()) != Beof){
         if(isspace(c))
             continue;
+        /* Inside for(...): track paren depth, convert ';' to TFORSEMI */
+        if(for_paren_depth >= 0){
+            if(c == '(') { for_paren_depth++; return '('; }
+            if(c == ')' && for_paren_depth > 0) { for_paren_depth--; return ')'; }
+            if(c == ')' && for_paren_depth == 0) { for_paren_depth = -1; return ')'; }
+            if(c == ';') return TFORSEMI;
+        }
         if(c == '~')
             return '~';
         if(c == '='){
-            if((c = Bgetc(bin)) == '=') return TEQEQ;
-            Bungetc(bin);
+            if((c = lex_getc()) == '=') return TEQEQ;
+            if(c == '>') return TARROW;
+            lex_ungetc(c);
             return TEQ;
         }
         if(c == '&'){
-            if((c = Bgetc(bin)) == '&') return TAND;
-            Bungetc(bin);
+            if((c = lex_getc()) == '&') return TAND;
+            lex_ungetc(c);
             return '&';
         }
         if(c == '|'){
-            if((c = Bgetc(bin)) == '|') return TOR;
-            Bungetc(bin);
+            if((c = lex_getc()) == '|') return TOR;
+            lex_ungetc(c);
             return '|';
         }
         if(c == '!'){
-            if((c = Bgetc(bin)) == '=') return TNEQ;
-            Bungetc(bin);
+            if((c = lex_getc()) == '=') return TNEQ;
+            lex_ungetc(c);
             return '!';
         }
         if(c == '<'){
-            if((c = Bgetc(bin)) == '-') return TCHANRECV;
+            if((c = lex_getc()) == '-') return TCHANRECV;
             if(c == '=') return TLE;
             if(c == '<') return TLSHIFT;
-            Bungetc(bin);
+            lex_ungetc(c);
             return '<';
         }
         if(c == '>'){
-            if((c = Bgetc(bin)) == '=') return TGE;
+            if((c = lex_getc()) == '=') return TGE;
             if(c == '>') return TRSHIFT;
-            Bungetc(bin);
+            lex_ungetc(c);
             return '>';
         }
         if(c == '"'){
             char buf[1024];
             int i = 0;
-            while((c = Bgetc(bin)) != Beof && c != '"' && i < 1023) {
+            while((c = lex_getc()) != Beof && c != '"' && i < 1023) {
                 if(c == '\\'){
-                    if((c = Bgetc(bin)) == Beof) break;
+                    if((c = lex_getc()) == Beof) break;
                     if(c == 'n') buf[i++] = '\n';
                     else if(c == 't') buf[i++] = '\t';
                     else buf[i++] = c;
@@ -593,9 +637,9 @@ yylex(void)
         if(c == '\''){
             char buf[16];
             int i = 0;
-            while((c = Bgetc(bin)) != Beof && c != '\'' && i < 15) {
+            while((c = lex_getc()) != Beof && c != '\'' && i < 15) {
                 if(c == '\\'){
-                    if((c = Bgetc(bin)) == Beof) break;
+                    if((c = lex_getc()) == Beof) break;
                     buf[i++] = c;
                 } else {
                     buf[i++] = c;
@@ -606,29 +650,29 @@ yylex(void)
             return TCHARLIT;
         }
         if(c == '-'){
-            if((c = Bgetc(bin)) == '>'){
-                if((c = Bgetc(bin)) == '?') return TCHANTRY;
-                Bungetc(bin);
+            if((c = lex_getc()) == '>'){
+                if((c = lex_getc()) == '?') return TCHANTRY;
+                lex_ungetc(c);
                 return TCHANSEND;
             }
-            Bungetc(bin);
+            lex_ungetc(c);
             return TSUB;
         }
         if(c == '/'){
-            if((c = Bgetc(bin)) == '/'){
-                while((c = Bgetc(bin)) != Beof && c != '\n');
+            if((c = lex_getc()) == '/'){
+                while((c = lex_getc()) != Beof && c != '\n');
                 continue;
             }
             if(c == '*'){
-                while((c = Bgetc(bin)) != Beof){
+                while((c = lex_getc()) != Beof){
                     if(c == '*'){
-                        if((c = Bgetc(bin)) == '/') break;
-                        Bungetc(bin);
+                        if((c = lex_getc()) == '/') break;
+                        lex_ungetc(c);
                     }
                 }
                 continue;
             }
-            Bungetc(bin);
+            lex_ungetc(c);
             return '/';
         }
         if(c == '+') return TADD;
@@ -638,23 +682,23 @@ yylex(void)
             int i = 0;
             buf[i++] = c;
             if(c == '0'){
-                c = Bgetc(bin);
+                c = lex_getc();
                 if(c == 'x' || c == 'X'){
                     buf[i++] = c;
-                    while(isxdigit(c = Bgetc(bin))) {
+                    while(isxdigit(c = lex_getc())) {
                         if(i < 63) buf[i++] = c;
                     }
-                    Bungetc(bin);
+                    lex_ungetc(c);
                     buf[i] = '\0';
                     yylval.name = strdup(buf);
                     return TINTLIT;
                 }
-                Bungetc(bin);
+                lex_ungetc(c);
             }
-            while(isdigit(c = Bgetc(bin))) {
+            while(isdigit(c = lex_getc())) {
                 if(i < 63) buf[i++] = c;
             }
-            Bungetc(bin);
+            lex_ungetc(c);
             buf[i] = '\0';
             yylval.name = strdup(buf);
             return TINTLIT;
@@ -664,10 +708,10 @@ yylex(void)
             char buf[64];
             int i = 0;
             buf[i++] = c;
-            while(isalnum(c = Bgetc(bin)) || c == '_') {
+            while(isalnum(c = lex_getc()) || c == '_') {
                 if(i < 63) buf[i++] = c;
             }
-            Bungetc(bin);
+            lex_ungetc(c);
             buf[i] = '\0';
             
             yylval.node = mk(NIdent, buf, nil, nil, nil);
@@ -685,12 +729,23 @@ yylex(void)
             if(strcmp(buf, "chan") == 0) return TCHAN;
             if(strcmp(buf, "return") == 0) return TRETURN;
             if(strcmp(buf, "if") == 0) return TIF;
-            if(strcmp(buf, "else") == 0) return TELSE;
+            if(strcmp(buf, "else") == 0){
+                int nc = lex_getc();
+                while(nc == ' ' || nc == '\t') nc = lex_getc();
+                if(nc == 'i'){
+                    int nc2 = lex_getc();
+                    if(nc2 == 'f') return TELIF;
+                    lex_ungetc(nc2);
+                }
+                lex_ungetc(nc);
+                return TELSE;
+            }
             if(strcmp(buf, "while") == 0) return TWHILE;
+            if(strcmp(buf, "for") == 0){ for_paren_depth = 0; return TFOR; }
             if(strcmp(buf, "true") == 0) return TTRUE;
             if(strcmp(buf, "false") == 0) return TFALSE;
+            if(strcmp(buf, "print") == 0) return TPRINT;
             if(strcmp(buf, "bool") == 0) return TTYPE;
-            if(strcmp(buf, "int64") == 0) return TTYPE;
             if(strcmp(buf, "uint64") == 0) return TTYPE;
             if(strcmp(buf, "int32") == 0) return TTYPE;
             if(strcmp(buf, "uint32") == 0) return TTYPE;
@@ -700,8 +755,13 @@ yylex(void)
             if(strcmp(buf, "uint8") == 0) return TTYPE;
             if(strcmp(buf, "void") == 0) return TTYPE;
             if(strcmp(buf, "string") == 0) return TTYPE;
-            if(strcmp(buf, "get") == 0) return TGET;
-            if(strcmp(buf, "set") == 0) return TSET;
+            if(strcmp(buf, "int") == 0) return TTYPE;
+            if(strcmp(buf, "char") == 0) return TTYPE;
+            if(strcmp(buf, "vlong") == 0) return TTYPE;
+            if(strcmp(buf, "uvlong") == 0) return TTYPE;
+            if(strcmp(buf, "ulong") == 0) return TTYPE;
+            if(strcmp(buf, "ushort") == 0) return TTYPE;
+            if(strcmp(buf, "uchar") == 0) return TTYPE;
             return TIDENT;
         }
         return c;
@@ -715,6 +775,7 @@ char *local_vars[128];
 int num_locals = 0;
 int in_class_context = 1;		/* 0 when generating top-level main() */
 int in_method_body = 0;		/* 1 when generating inside a method impl */
+int has_return = 0;			/* 1 when a return statement was emitted */
 
 /* Variable-to-class symbol table */
 typedef struct VarClass VarClass;
@@ -795,25 +856,29 @@ gen_expr(Node *e)
         print("%s", e->name);
         break;
     case NMsgSend:
-        /* c.method(args...) -> obj9_msgSend(&c, hash, __args) */
+        /* c.method(args...) -> obj9_msgSend(&c, hash, o9_call_args) */
+        /* Plan 9 C-compatible: comma expressions for multi-arg, simple call for 0-arg */
         {
-            /* Cast to get the count */
             int nargs = 0;
             Node *a;
             for(a = e->right; a; a = a->next) nargs++;
-            print("({ vlong __args[%d] = {", nargs);
-            {
+            if(nargs > 0){
+                /* Assign args to global buffer using comma ops */
+                int i = 0;
                 int first = 1;
                 for(a = e->right; a; a = a->next){
-                    if(!first) print(", ");
+                    if(first) print("(o9_call_args[%d]=", i);
+                    else      print(", o9_call_args[%d]=", i);
                     gen_expr(a);
                     first = 0;
+                    i++;
                 }
+                print(", (vlong)obj9_msgSend(&");
+            } else {
+                print("((vlong)obj9_msgSend(&");
             }
-            /* obj9_msgSend returns void* (r->ret). Cast to vlong for assignment. */
-            print("}; (vlong)obj9_msgSend(&");
             gen_expr(e->left);
-            print(", 0x%lx, __args); })", o9_hash(e->name));
+            print(", 0x%lux, o9_call_args))", o9_hash(e->name));
         }
         break;
     case NAdd:
@@ -879,6 +944,32 @@ gen_expr(Node *e)
     case NNeg:
         print("-"); gen_expr(e->left);
         break;
+    case NFuncCall:
+        /* Built-in functions like print(...) */
+        if(strcmp(e->name, "print") == 0){
+            /* Emit fprint(1, "fmt", args...) — stdout on both plan9port and 9front */
+            print("fprint(1, ");
+            int first = 1;
+            Node *a;
+            for(a = e->left; a; a = a->next){
+                if(!first) print(", ");
+                gen_expr(a);
+                first = 0;
+            }
+            print(")");
+        } else {
+            /* Unknown function call — just emit as-is */
+            print("%s(", e->name);
+            int first = 1;
+            Node *a;
+            for(a = e->left; a; a = a->next){
+                if(!first) print(", ");
+                gen_expr(a);
+                first = 0;
+            }
+            print(")");
+        }
+        break;
     }
 }
 
@@ -915,6 +1006,7 @@ gen_stmt(Node *c, Node *s)
                 print("\t__%s->dispatch_chan = chancreate(sizeof(void*), 10);\n", s->name);
                 print("\t%s_Client %s;\n", cn, s->name);
                 print("\tmemset(&%s, 0, sizeof(%s_Client));\n", s->name, cn);
+                print("\t%s.shm_base = __%s;\n", s->name, s->name);
                 print("\t%s.dispatch_chan = __%s->dispatch_chan;\n", s->name, s->name);
                 if(find_class(cn)){
                     Node *cnode = find_class(cn);
@@ -926,20 +1018,20 @@ gen_stmt(Node *c, Node *s)
                     }
                 }
                 print("\tproccreate(%s_loop, __%s, 8192);\n", cn, s->name);
-                /* Send constructor args if any */
+                /* Register in /srv/<class>/<name>/ instance tree */
+                print("\t%s_create_instance(__%s, \"%s\");\n", cn, s->name, s->name);
+                /* Send constructor args if any — stack-allocated, no global race */
                 if(nctor > 0){
-                    /* Find a method named same as the class = constructor */
-                    print("\t{ vlong __init_args[%d] = {", nctor);
-                    {
-                        int first = 1;
-                        Node *ca;
-                        for(ca = s->left->right; ca; ca = ca->next){
-                            if(!first) print(", ");
-                            gen_expr(ca);
-                            first = 0;
-                        }
+                    Node *ca;
+                    int ai = 0;
+                    print("\t{ vlong __a[%d];\n", nctor);
+                    for(ca = s->left->right; ca; ca = ca->next){
+                        print("\t__a[%d] = ", ai);
+                        gen_expr(ca);
+                        print(";\n");
+                        ai++;
                     }
-                    print("}; obj9_msgSend(&%s, 0x%lx, __init_args); }\n", s->name, o9_hash(cname));
+                    print("\tobj9_msgSend(&%s, 0x%lux, __a); }\n", s->name, o9_hash(cname));
                 }
             } else {
                 /* Class-typed variable with client init (no new) */
@@ -972,10 +1064,24 @@ gen_stmt(Node *c, Node *s)
         break;
     }
     case NAssign:
+        if(s->name != nil && s->left != nil && s->left->type == NIdent && s->left->name != nil){
+            /* Property write: obj.prop = expr */
+            char *cname = get_var_class(s->left->name);
+            if(cname != nil && find_class(cname)){
+                /* Direct struct write via shm_base */
+                print("\t{ %s_Client *__c = (%s_Client*)&", cname, cname);
+                gen_expr(s->left);
+                print(";\n\t\tif(__c->shm_base){ ((%s_Internal*)__c->shm_base)->%s = (vlong)(", cname, s->name);
+                gen_expr(s->right);
+                print("); } }\n");
+                break;
+            }
+        }
         print("\t"); gen_expr(s->left); print(" = "); gen_expr(s->right); print(";\n");
         break;
     case NReturn:
         if(in_method_body){
+            has_return = 1;
             print("\tr->ret = (void*)("); gen_expr(s->left); print(");\n\tgoto done;\n");
         } else {
             print("\treturn "); gen_expr(s->left); print(";\n");
@@ -988,14 +1094,48 @@ gen_stmt(Node *c, Node *s)
         break;
     case NIfElse:
         print("\tif("); gen_expr(s->left); print("){\n");
-        for(n = s->right->left; n; n = n->next) gen_stmt(c, n);
-        print("\t} else {\n");
-        for(n = s->right->right; n; n = n->next) gen_stmt(c, n);
-        print("\t}\n");
+        for(n = s->right; n; n = n->next) gen_stmt(c, n);
+        /* Walk the else/elseif chain via ->next */
+        if(s->next){
+            Node *tail = s->next;
+            int closed = 0;
+            while(tail){
+                if(tail->type == NElseIf){
+                    print("\t} else if("); gen_expr(tail->left); print("){\n");
+                    for(n = tail->right; n; n = n->next) gen_stmt(c, n);
+                } else if(tail->type == NElse){
+                    print("\t} else {\n");
+                    for(n = tail->left; n; n = n->next) gen_stmt(c, n);
+                    print("\t}\n");
+                    closed = 1;
+                    break;
+                }
+                tail = tail->next;
+            }
+            if(!closed)
+                print("\t}\n");
+        } else {
+            print("\t}\n");
+        }
+        break;
+    case NElseIf:
+        /* Should not be reached as a top-level statement — handled by NIfElse chain */
         break;
     case NWhile:
         print("\twhile("); gen_expr(s->left); print("){\n");
         for(n = s->right; n; n = n->next) gen_stmt(c, n);
+        print("\t}\n");
+        break;
+    case NFor:
+        /* s->left=init, s->right->left=cond, s->right->right=step, s->right->next=body */
+        print("\tfor(");
+        if(s->left) gen_expr(s->left);
+        print("; ");
+        if(s->right->left) gen_expr(s->right->left);
+        print("; ");
+        if(s->right->right) gen_expr(s->right->right);
+        print("){\n");
+        for(n = s->right->next; n; n = n->next) gen_stmt(c, n);
         print("\t}\n");
         break;
     default:
@@ -1011,7 +1151,7 @@ gen_class_header(Node *c)
     print("/* Generated Client Header for class %s */\n", c->name);
     print("#ifndef _O9_GEN_%s_H_\n#define _O9_GEN_%s_H_\n\n", c->name, c->name);
     print("typedef struct %s_AsmTable {\n\tvoid *data_cache[64];\n\tvoid (*ctrl_cache[64])(void*);\n} %s_AsmTable;\n\n", c->name, c->name);
-    print("typedef struct %s_Client {\n\tint fd;\n\to9_AsmTable *table;\n\tlong ref;\t/* ARC Counter */\n\tvoid *dispatch_chan;\n", c->name);
+    print("typedef struct %s_Client {\n\tint fd;\n\tvoid *shm_base;\n\to9_AsmTable *table;\n\tlong ref;\t/* ARC Counter */\n\tvoid *dispatch_chan;\n", c->name);
     for(m = c->left; m; m = m->next){
         if(m->type == NInherit) print("\t%s_Client;\n", m->name);
     }
@@ -1021,15 +1161,17 @@ gen_class_header(Node *c)
 void
 gen_cache_entries(Node *c, char *classname)
 {
+    /* Emits snprint statements that fill a runtime cache buffer */
     Node *m, *p;
     if(c == nil) return;
+    print("\t\tp += snprint(p, sizeof cachebuf - (p-cachebuf), \"seg:%s\\n\");\n", classname);
     for(m = c->left; m; m = m->next){
         if(m->type == NInherit){
             p = find_class(m->name);
             if(p) gen_cache_entries(p, classname);
         }
-        if(m->type == NProp) print("\t\tp += snprint(p, sizeof buf - (p-buf), \"d:%ld:%ld\\n\", %ldL, (long)o9_offsetof(%s_State, %s));\n", o9_hash(m->name), classname, m->name);
-        if(m->type == NMethod) print("\t\tp += snprint(p, sizeof buf - (p-buf), \"c:%ld:%p\\n\", %ldL, (long)o9_impl_%s_%s);\n", o9_hash(m->name), c->name, m->name);
+        if(m->type == NProp) print("\t\tp += snprint(p, sizeof cachebuf - (p-cachebuf), \"d:%%ld:%%ld\\n\", %ldL, (long)o9_offsetof(%s_Internal, %s));\n", o9_hash(m->name), classname, m->name);
+        if(m->type == NMethod) print("\t\tp += snprint(p, sizeof cachebuf - (p-cachebuf), \"c:%%ld:%%p\\n\", %ldL, o9_impl_%s_%s);\n", o9_hash(m->name), c->name, m->name);
     }
 }
 
@@ -1091,7 +1233,7 @@ gen_class_server(Node *c)
 
     /* 1. State Structure (internal authoritative state) */
     print("typedef struct %s_Internal %s_Internal;\n", c->name, c->name);
-    print("struct %s_Internal {\n\tArcLedger ledger;\n", c->name);
+    print("struct %s_Internal {\n\tArcLedger ledger;\n\tlong ref;\t/* ARC reference count */\n", c->name);
     for(m = c->left; m; m = m->next){
         if(m->type == NInherit) print("\t%s_Internal;\n", m->name);
         if(m->type == NProp || m->type == NState || m->type == NAtomic) 
@@ -1111,7 +1253,6 @@ gen_class_server(Node *c)
             /* Register param names as locals so gen_expr emits bare names */
             {
                 Node *p;
-                int pi = 0;
                 for(p = m->right; p; p = p->next){
                     if(num_locals < 128) local_vars[num_locals++] = p->name;
                 }
@@ -1128,9 +1269,10 @@ gen_class_server(Node *c)
                 }
             }
             in_method_body = 1;
+            has_return = 0;
             for(s = m->left; s; s = s->next) gen_stmt(c, s);
             in_method_body = 0;
-            print("done:\n");
+            if(has_return) print("done:\n");
             print("\tr->ok = 1;\n\tsendp(msg->replyc, r);\n}\n\n");
         }
         if(m->type == NDestructor){
@@ -1151,6 +1293,23 @@ gen_class_server(Node *c)
     print("\tfree(self);\n");
     print("}\n\n");
 
+    /* 2b. ARC attach/destroyfid callbacks */
+    print("static void o9_attach_%s(Req *r) {\n", c->name);
+    print("\t%s_Internal *self = r->srv->aux;\n", c->name);
+    print("\tainc(&self->ref);\n");
+    print("\trespond(r, nil);\n");
+    print("}\n\n");
+    print("static void o9_destroyfid_%s(Fid *f) {\n", c->name);
+    print("\tUSED(f);\n");
+    print("\t%s_Internal *self = f->pool->srv->aux;\n", c->name);
+    print("\tif(adec(&self->ref) == 0){\n");
+    print("\t\tO9Msg *m = mallocz(sizeof(O9Msg), 1);\n");
+    print("\t\tm->sel = 0x%lux;\n", o9_hash("destroy"));
+    print("\t\tm->replyc = nil;\n");
+    print("\t\tsendp(self->dispatch_chan, m);\n");
+    print("\t}\n");
+    print("}\n\n");
+
     /* 3. CSP Dispatch Loop */
     print("static void %s_loop(void *v) {\n", c->name);
     print("\t%s_Internal *self = v;\n\tO9Msg *m;\n", c->name);
@@ -1158,19 +1317,42 @@ gen_class_server(Node *c)
     print("\t\tswitch(m->sel){\n");
     for(m = c->left; m; m = m->next){
         if(m->type == NMethod)
-            print("\t\tcase 0x%lx: o9_impl_%s_%s(self, m); break;\n", o9_hash(m->name), c->name, m->name);
+            print("\t\tcase 0x%lux: o9_impl_%s_%s(self, m); break;\n", o9_hash(m->name), c->name, m->name);
     }
-    print("\t\tcase 0x%lx: o9_cleanup_%s(self); threadexits(nil); break;\n", o9_hash("destroy"), c->name);
+    print("\t\tcase 0x%lux: o9_cleanup_%s(self); threadexits(nil); break;\n", o9_hash("destroy"), c->name);
     print("\t\tdefault: { O9Reply *r = mallocz(sizeof(O9Reply), 1); r->err = \"bad selector\"; sendp(m->replyc, r); } break;\n");
     print("\t\t}\n\t}\n}\n\n");
 
-    /* 4. 9P Fileserver Facade (fsread/fswrite) */
+    /* 4. 9P Fileserver Facade — clone pattern */
     print("static void fsread_%s(Req *r) {\n", c->name);
-    print("\tchar buf[1024];\n\t%s_Internal *s = r->srv->aux;\n", c->name);
-    print("\tchar *name = r->fid->file->name;\n\n");
+    print("\tchar buf[1024];\n\tchar *name = r->fid->file->name;\n\t%s_Internal *inst = r->fid->file->aux;\n\n", c->name);
     print("\tif(strcmp(name, \"status\") == 0) { readstr(r, \"running\"); respond(r, nil); return; }\n");
-    
-    /* props/ sub-directory logic would go here, simplified for MVP */
+    print("\tif(strcmp(name, \"cache\") == 0) {\n");
+    print("\t\tchar cachebuf[4096];\n\t\tchar *p = cachebuf;\n");
+    /* Call gen_cache_entries for this class */
+    gen_cache_entries(c, c->name);
+    print("\t\tUSED(p);\n");
+    print("\t\treadstr(r, cachebuf); respond(r, nil); return;\n\t}\n");
+    print("\tif(inst == nil) { respond(r, \"clone read\"); return; }\n\n");
+    /* Method file reads: check for stored O9Reply in fid aux */
+    for(m = c->left; m; m = m->next){
+        if(m->type == NMethod && strcmp(m->name, "main") != 0 && strcmp(m->typename, "void") != 0){
+            char *t = map_type(m->typename);
+            char *fmt = type_fmt(t);
+            char *cast = type_cast(t);
+            print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
+            print("\t\tO9Reply *__o9rep = r->fid->aux;\n");
+            print("\t\tif(__o9rep == nil){ respond(r, \"no pending reply\"); return; }\n");
+            if(strcmp(fmt, "%s") == 0){
+                print("\t\tsnprint(buf, sizeof buf, \"%%s\\n\", (char*)__o9rep->ret);\n");
+            } else {
+                print("\t\tsnprint(buf, sizeof buf, \"%s\\n\", (%s)__o9rep->ret);\n", fmt, cast);
+            }
+            print("\t\tr->fid->aux = nil;\n");
+            print("\t\tfree(__o9rep);\n");
+            print("\t\treadstr(r, buf); respond(r, nil); return;\n\t}\n");
+        }
+    }
     for(m = c->left; m; m = m->next){
         if(m->type == NProp || m->type == NAtomic){
             char *t = map_type(m->typename);
@@ -1178,67 +1360,96 @@ gen_class_server(Node *c)
             char *cast = type_cast(t);
             if(strcmp(fmt, "%s") == 0) {
                 print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
-                print("\t\tsnprint(buf, sizeof buf, \"%%s\\n\", s->%s ? s->%s : \"\");\n", m->name, m->name);
+                print("\t\tsnprint(buf, sizeof buf, \"%%s\\n\", inst->%s ? inst->%s : \"\");\n", m->name, m->name);
                 print("\t\treadstr(r, buf); respond(r, nil); return;\n\t}\n");
             } else {
                 print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
-                print("\t\tsnprint(buf, sizeof buf, \"%s\\n\", (%s)s->%s);\n", fmt, cast, m->name);
+                print("\t\tsnprint(buf, sizeof buf, \"%s\\n\", (%s)inst->%s);\n", fmt, cast, m->name);
                 print("\t\treadstr(r, buf); respond(r, nil); return;\n\t}\n");
             }
-        }
-        if(m->type == NPropAccessor && m->left /* has getter */){
-            /* Custom getter body — emit directly, use 's' as self ref */
-            char *t = map_type(m->typename);
-            print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
-            print("\t\tchar buf[1024];\n");
-            Node *old_c = c;
-            /* Wrap gen_stmt in a context where 's' is the internal state and
-             * the getter's return sets a temp variable, then snprint it */
-            {
-                Node *gs;
-                for(gs = m->left; gs; gs = gs->next) gen_stmt(c, gs);
-            }
-            print("\t\trespond(r, nil); return;\n\t}\n");
         }
     }
     print("\trespond(r, \"not found\");\n}\n\n");
 
     print("static void fswrite_%s(Req *r) {\n", c->name);
-    print("\t%s_Internal *s = r->srv->aux;\n\tchar *name = r->fid->file->name;\n", c->name);
-    print("\tif(strcmp(name, \"ctl\") == 0) { /* TODO: parse text ctl */ respond(r, nil); return; }\n");
-    print("\tif(strcmp(name, \"msg\") == 0) { /* TODO: parse binary msg */ respond(r, nil); return; }\n");
-    
+    print("\tchar *name = r->fid->file->name;\n\t%s_Internal *inst = r->fid->file->aux;\n", c->name);
+    print("\tif(strcmp(name, \"ctl\") == 0) { /* TODO: parse ctl */ respond(r, nil); return; }\n");
+    /* Method dispatch: write to method file triggers CSP call */
+    for(m = c->left; m; m = m->next){
+        if(m->type == NMethod && strcmp(m->name, "main") != 0){
+            int np = 0;
+            Node *p;
+            for(p = m->right; p; p = p->next) np++;
+            print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
+            if(np > 0){
+                print("\t\tvlong __wargs[%d] = {0};\n", np);
+                print("\t\t__wargs[0] = strtoll(r->ifcall.data, nil, 0);\n");
+            }
+            /* Direct channel send — inst is the Internal struct with dispatch_chan */
+            {
+                char *a = np > 0 ? "__wargs" : "nil";
+                print("\t\t{ O9Msg __wm = {0x%lux, %s, %d, chancreate(sizeof(void*), 0)};\n", o9_hash(m->name), a, np);
+                print("\t\tsendp(inst->dispatch_chan, &__wm);\n");
+                if(strcmp(m->typename, "void") != 0){
+                    /* Return-value method: store O9Reply in fid aux for readback */
+                    print("\t\tO9Reply *__o9rep = recvp(__wm.replyc);\n");
+                    print("\t\tr->fid->aux = __o9rep;\n");
+                } else {
+                    /* Void method: discard reply */
+                    print("\t\trecvp(__wm.replyc);\n");
+                }
+                print("\t\tchanfree(__wm.replyc); }\n");
+            }
+            print("\t\tr->ofcall.count = r->ifcall.count;\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
+        }
+    }
     for(m = c->left; m; m = m->next){
         if(m->type == NProp || m->type == NAtomic){
             char *t = map_type(m->typename);
             if(strcmp(type_fmt(t), "%s") == 0) {
                 print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
-                print("\t\tfree(s->%s);\n", m->name);
-                print("\t\ts->%s = strdup(r->ifcall.data);\n", m->name);
+                print("\t\tfree(inst->%s);\n", m->name);
+                print("\t\tinst->%s = strdup(r->ifcall.data);\n", m->name);
                 print("\t\tr->ofcall.count = r->ifcall.count;\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
             } else {
                 print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
-                print("\t\ts->%s = (%s)strtoll(r->ifcall.data, nil, 0);\n", m->name, type_cast(t));
+                print("\t\tinst->%s = (%s)strtoll(r->ifcall.data, nil, 0);\n", m->name, type_cast(t));
                 print("\t\tr->ofcall.count = r->ifcall.count;\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
             }
         }
     }
     print("\trespond(r, \"read only or not found\");\n}\n\n");
-
-    print("Srv o9srv_%s;\n\n", c->name);
-
+    print("Srv o9srv_%s;\n", c->name);
+    print("static Tree *%s_tree;\n", c->name);
+    print("int %s_create_instance(%s_Internal *inst, char *name) {\n", c->name, c->name);
+    print("\tFile *dir = createfile(%s_tree->root, name, nil, 0755, nil);\n", c->name);
+    print("\tif(dir == nil) return -1;\n");
+    print("\tdir->aux = inst;\n");
+    print("\tcreatefile(dir, \"status\", nil, 0444, nil);\n");
+    for(m = c->left; m; m = m->next){
+        if(m->type == NProp || m->type == NAtomic)
+            print("\t{ File *__f = createfile(dir, \"%s\", nil, 0666, nil); if(__f) __f->aux = inst; }\n", m->name);
+    }
+    for(m = c->left; m; m = m->next){
+        if(m->type == NMethod && strcmp(m->name, "main") != 0){
+            char *perm = (strcmp(m->typename, "void") == 0) ? "0222" : "0644";
+            print("\t{ File *__f = createfile(dir, \"%s\", nil, %s, nil); if(__f) __f->aux = inst; }\n", m->name, perm);
+        }
+    }
+    print("\treturn 0;\n}\n");
     print("void o9_main_%s(int argc, char **argv) {\n", c->name);
+    print("\tUSED(argc); USED(argv);\n");
     print("\t%s_Internal *s = emalloc9p(sizeof(%s_Internal));\n", c->name, c->name);
     print("\tmemset(s, 0, sizeof(%s_Internal));\n", c->name);
     print("\ts->dispatch_chan = chancreate(sizeof(void*), 10);\n");
     print("\to9srv_%s.read = fsread_%s;\n\to9srv_%s.write = fswrite_%s;\n", c->name, c->name, c->name, c->name);
     print("\to9srv_%s.aux = s;\n", c->name);
-    print("\tTree *t = alloctree(nil, nil, 0555, nil);\n\to9srv_%s.tree = t;\n", c->name);
-    print("\tcreatefile(t->root, \"ctl\", nil, 0222, nil);\n");
-    print("\tcreatefile(t->root, \"msg\", nil, 0222, nil);\n");
-    print("\tcreatefile(t->root, \"status\", nil, 0444, nil);\n");
-    print("\tcreatefile(t->root, \"cache\", nil, 0444, nil);\n");
-    for(m = c->left; m; m = m->next) if(m->type == NProp || m->type == NAtomic) print("\tcreatefile(t->root, \"%s\", nil, 0666, nil);\n", m->name);
+    print("\to9srv_%s.attach = o9_attach_%s;\n", c->name, c->name);
+    print("\to9srv_%s.destroyfid = o9_destroyfid_%s;\n", c->name, c->name);
+    print("\t%s_tree = alloctree(nil, nil, 0555, nil);\n\to9srv_%s.tree = %s_tree;\n", c->name, c->name, c->name);
+    print("\tcreatefile(%s_tree->root, \"clone\", nil, 0222, nil);\n", c->name);
+    print("\tcreatefile(%s_tree->root, \"status\", nil, 0444, nil);\n", c->name);
+    print("\tcreatefile(%s_tree->root, \"cache\", nil, 0444, nil);\n", c->name);
     print("\tproccreate(%s_loop, s, 8192);\n", c->name);
     print("\tthreadpostmountsrv(&o9srv_%s, \"%s\", nil, MREPL);\n}\n", c->name, c->name);
 }
@@ -1250,7 +1461,7 @@ o9_hash(char *str)
     int c;
     while ((c = *str++))
         hash = ((hash << 5) + hash) + c;
-    return hash;
+    return hash & 0xFFFFFFFFul;
 }
 
 void
@@ -1262,6 +1473,7 @@ codegen(Node *root)
     print("#include <u.h>\n#include <libc.h>\n#include <thread.h>\n#include <fcall.h>\n#include <9p.h>\n#include \"o9.h\"\n\n");
     print("#ifndef _O9_COMMON_\n#define _O9_COMMON_\n");
     print("#define o9_offsetof(s, m) (long)(&(((s*)0)->m))\n");
+    print("vlong o9_call_args[64];\n");
     print("typedef struct ArcEntry {\n\tulong id;\n\tlong count;\n} ArcEntry;\n\n");
     print("typedef struct ArcLedger {\n\tArcEntry entries[64];\n} ArcLedger;\n");
     print("#endif\n\n");
@@ -1283,6 +1495,7 @@ codegen(Node *root)
         }
     }
     print("void\nthreadmain(int argc, char **argv)\n{\n");
+    print("\tUSED(argc); USED(argv);\n");
     if(last){
         print("\to9_main_%s(argc, argv);\n", last->name);
     }
