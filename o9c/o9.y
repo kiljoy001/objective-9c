@@ -882,7 +882,19 @@ gen_expr(Node *e)
         print("%s", e->name);
         break;
     case NStringLit:
-        print("\"%s\"", e->name);
+        {
+            /* Re-escape special chars for C output */
+            char *s;
+            print("\"");
+            for(s = e->name; *s; s++){
+                if(*s == '\n') print("\\n");
+                else if(*s == '\t') print("\\t");
+                else if(*s == '\\') print("\\\\");
+                else if(*s == '"') print("\\\"");
+                else print("%c", *s);
+            }
+            print("\"");
+        }
         break;
     case NCharLit:
         print("'%s'", e->name);

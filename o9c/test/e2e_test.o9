@@ -1,0 +1,18 @@
+class Counter {
+    int64 val;
+    method Counter(int64 n) {
+        val = n;
+    }
+    method void inc(int64 n) {
+        val = val + n;
+    }
+}
+
+func main() {
+    Counter c = new Counter(0);
+    c.inc(42);
+    int64 x = c.val;
+    print("value: ");
+    print(x);
+    print("\n");
+}
