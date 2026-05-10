@@ -103,6 +103,7 @@ int   yylex(void);
 int   yyparse(void);
 ulong o9_hash(char *str);
 void  add_var_class(char *varname, char *classname);
+int   is_primitive(char *t);
 
 Node *ast_root;
 
@@ -151,6 +152,31 @@ type_cast(char *t)
        strcmp(t, "short") == 0 || strcmp(t, "ushort") == 0 ||
        strcmp(t, "char") == 0 || strcmp(t, "uchar") == 0) return t;
     return "vlong"; /* fallback */
+}
+
+int
+is_primitive(char *t)
+{
+    if(t == nil) return 1;
+    if(strcmp(t, "int64") == 0) return 1;
+    if(strcmp(t, "uint64") == 0) return 1;
+    if(strcmp(t, "int32") == 0) return 1;
+    if(strcmp(t, "uint32") == 0) return 1;
+    if(strcmp(t, "int16") == 0) return 1;
+    if(strcmp(t, "uint16") == 0) return 1;
+    if(strcmp(t, "int8") == 0) return 1;
+    if(strcmp(t, "uint8") == 0) return 1;
+    if(strcmp(t, "bool") == 0) return 1;
+    if(strcmp(t, "string") == 0) return 1;
+    if(strcmp(t, "int") == 0) return 1;
+    if(strcmp(t, "char") == 0) return 1;
+    if(strcmp(t, "vlong") == 0) return 1;
+    if(strcmp(t, "uvlong") == 0) return 1;
+    if(strcmp(t, "ulong") == 0) return 1;
+    if(strcmp(t, "ushort") == 0) return 1;
+    if(strcmp(t, "uchar") == 0) return 1;
+    if(strcmp(t, "void") == 0) return 1;
+    return 0;
 }
 
 char*
@@ -550,9 +576,12 @@ yyerror(char *s)
     fprint(2, "o9c: error: %s\n", s);
 }
 
-static Biobuf *bin;
+static char *input_buf;
+static int input_pos;
+static int input_len;
+static int in_prescan;		/* 1 during prescan phase, 0 during parse */
 static int for_paren_depth = -1;	/* >=0 when inside for(...) — ';' returns TFORSEMI */
-static int pushback[8];		/* multi-char pushback buffer (Plan 9 Bungetc only pushes 1) */
+static int pushback[8];		/* multi-char pushback buffer */
 static int npush = 0;
 
 static int
@@ -560,7 +589,9 @@ lex_getc(void)
 {
 	if(npush > 0)
 		return pushback[--npush];
-	return Bgetc(bin);
+	if(input_pos >= input_len)
+		return Beof;
+	return (unsigned char)input_buf[input_pos++];
 }
 
 static void
@@ -1542,12 +1573,226 @@ codegen(Node *root)
     print("\tthreadexitsall(nil);\n}\n");
 }
 
+/* Two-pass parser: prescan registers all type names, then yyparse() resolves them */
+
+static void
+prescan(void)
+{
+    int c;
+    int i;
+    char buf[64];
+    input_pos = 0;
+    in_prescan = 1;
+    
+    while(input_pos < input_len){
+        c = (unsigned char)input_buf[input_pos++];
+        if(isspace(c) || c == '{' || c == '}' || c == ';' || c == '(' || c == ')')
+            continue;
+        /* Skip string literals */
+        if(c == '"'){
+            while(input_pos < input_len && input_buf[input_pos] != '"')
+                input_pos++;
+            if(input_pos < input_len) input_pos++;
+            continue;
+        }
+        /* Skip char literals */
+        if(c == '\''){
+            if(input_pos < input_len && input_buf[input_pos] == '\\')
+                input_pos++;
+            if(input_pos < input_len) input_pos++;
+            if(input_pos < input_len) input_pos++;
+            continue;
+        }
+        /* Skip line comments */
+        if(c == '/' && input_pos < input_len && input_buf[input_pos] == '/'){
+            while(input_pos < input_len && input_buf[input_pos] != '\n')
+                input_pos++;
+            continue;
+        }
+        /* Skip block comments */
+        if(c == '/' && input_pos < input_len && input_buf[input_pos] == '*'){
+            input_pos++; /* skip * */
+            while(input_pos + 1 < input_len && !(input_buf[input_pos] == '*' && input_buf[input_pos+1] == '/')){
+                if(input_buf[input_pos] == '*' && input_pos + 1 < input_len && input_buf[input_pos+1] == '/')
+                    break;
+                input_pos++;
+            }
+            if(input_pos + 1 < input_len) input_pos += 2; /* skip */ 
+            continue;
+        }
+        /* Skip numbers */
+        if(isdigit(c)){
+            if(c == '0' && input_pos < input_len && (input_buf[input_pos] == 'x' || input_buf[input_pos] == 'X'))
+                input_pos++; /* skip x */
+            while(input_pos < input_len && isxdigit((unsigned char)input_buf[input_pos]))
+                input_pos++;
+            continue;
+        }
+        /* Identifiers and keywords */
+        if(isalpha(c) || c == '_'){
+            i = 0;
+            buf[i++] = c;
+            while(i < 63 && input_pos < input_len && (isalnum((unsigned char)input_buf[input_pos]) || input_buf[input_pos] == '_'))
+                buf[i++] = input_buf[input_pos++];
+            buf[i] = '\0';
+            
+            if(strcmp(buf, "class") == 0){
+                /* Read next token (should be class name) */
+                while(input_pos < input_len && isspace((unsigned char)input_buf[input_pos]))
+                    input_pos++;
+                i = 0;
+                while(i < 63 && input_pos < input_len && (isalnum((unsigned char)input_buf[input_pos]) || input_buf[input_pos] == '_'))
+                    buf[i++] = input_buf[input_pos++];
+                buf[i] = '\0';
+                if(i > 0){
+                    /* Register as a known class */
+                    Node *n = mk(NClass, buf, nil, nil, nil);
+                    add_class(buf, n);
+                }
+            }
+            continue;
+        }
+    }
+    /* Reset for parse phase */
+    input_pos = 0;
+    in_prescan = 0;
+    npush = 0;
+}
+
+/* Type checker: walks the AST and validates all member references */
+/* Returns number of errors (0 = clean) */
+
+static int
+member_exists(Node *cnode, char *name)
+{
+    Node *m, *p;
+    if(cnode == nil) return -1;
+    for(m = cnode->left; m; m = m->next){
+        if(m->type == NInherit){
+            p = find_class(m->name);
+            if(p && member_exists(p, name) >= 0) return 2;
+        }
+        if(m->name && strcmp(m->name, name) == 0) return m->type;
+    }
+    return -1;
+}
+
+static void
+typecheck_expr(Node *e, int *errs)
+{
+    if(e == nil) return;
+    
+    switch(e->type){
+    case NPropRead:
+        /* Check: prop read, must not be a method */
+        if(e->left && e->left->type == NIdent && e->left->name){
+            char *cn = get_var_class(e->left->name);
+            if(cn == nil || find_class(cn) == nil){
+                fprint(2, "o9c: error: unknown type for '%s'\n", e->left->name);
+                (*errs)++;
+            } else {
+                int mt = member_exists(find_class(cn), e->name);
+                if(mt == NMethod){
+                    fprint(2, "o9c: error: '%s' is a method, not a property\n", e->name);
+                    (*errs)++;
+                } else if(mt < 0){
+                    fprint(2, "o9c: error: '%s' has no member '%s'\n", cn, e->name);
+                    (*errs)++;
+                }
+            }
+        }
+        break;
+    case NMsgSend:
+        /* Check: method call, must be a method, not a property */
+        if(e->left && e->left->type == NIdent && e->left->name){
+            char *cn = get_var_class(e->left->name);
+            if(cn == nil || find_class(cn) == nil){
+                fprint(2, "o9c: error: unknown type for '%s'\n", e->left->name);
+                (*errs)++;
+            } else {
+                int mt = member_exists(find_class(cn), e->name);
+                if(mt >= 0 && mt != NMethod){
+                    fprint(2, "o9c: error: '%s' is a property, not a method\n", e->name);
+                    (*errs)++;
+                } else if(mt < 0){
+                    fprint(2, "o9c: error: '%s' has no member '%s'\n", cn, e->name);
+                    (*errs)++;
+                }
+            }
+        }
+        break;
+    case NAssign:
+        if(e->name != nil && e->left && e->left->type == NIdent && e->left->name){
+            char *cn = get_var_class(e->left->name);
+            if(cn && find_class(cn)){
+                int mt = member_exists(find_class(cn), e->name);
+                if(mt == NMethod){
+                    fprint(2, "o9c: error: cannot assign to method '%s'\n", e->name);
+                    (*errs)++;
+                } else if(mt < 0){
+                    fprint(2, "o9c: error: '%s' has no member '%s'\n", cn, e->name);
+                    (*errs)++;
+                }
+            }
+        }
+        break;
+    case NLocalVar:
+        /* Check typename is a known type */
+        if(e->typename && !is_primitive(e->typename) && find_class(e->typename) == nil){
+            fprint(2, "o9c: error: unknown type '%s'\n", e->typename);
+            (*errs)++;
+        }
+        break;
+    }
+}
+
+static void
+check_node(Node *n, int *errs)
+{
+    if(n == nil) return;
+    typecheck_expr(n, errs);
+    check_node(n->left, errs);
+    check_node(n->right, errs);
+    check_node(n->next, errs);
+}
+
+static int
+typecheck(Node *root)
+{
+    int errors = 0;
+    Node *n;
+    
+    for(n = root; n; n = n->next)
+        check_node(n, &errors);
+    
+    return errors;
+}
+
 int
 main(int argc, char **argv)
 {
-    bin = Bfdopen(0, OREAD);
-    if(yyparse() == 0)
-        codegen(ast_root);
+    long n, total = 0, cap = 8192;
+    
+    input_buf = malloc(cap);
+    if(input_buf == nil) sysfatal("malloc: input buffer");
+    while((n = read(0, input_buf + total, cap - total)) > 0){
+        total += n;
+        if(total + 1024 >= cap){
+            cap *= 2;
+            input_buf = realloc(input_buf, cap);
+            if(input_buf == nil) sysfatal("realloc: input buffer");
+        }
+    }
+    input_len = total;
+    
+    prescan();
+    
+    if(yyparse() == 0){
+        if(typecheck(ast_root) == 0)
+            codegen(ast_root);
+    } else {
+        fprint(2, "o9c: parse failed\n");
+    }
     exits(nil);
     return 0;
 }
