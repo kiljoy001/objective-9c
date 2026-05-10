@@ -1749,21 +1749,22 @@ typecheck_expr(Node *e, int *errs)
 static void
 check_node(Node *n, int *errs)
 {
+    Node *c;
     if(n == nil) return;
-    typecheck_expr(n, errs);
-    check_node(n->left, errs);
-    check_node(n->right, errs);
-    check_node(n->next, errs);
+    /* Walk the next chain at this level */
+    for(c = n; c; c = c->next){
+        typecheck_expr(c, errs);
+        check_node(c->left, errs);
+        check_node(c->right, errs);
+    }
 }
 
 static int
 typecheck(Node *root)
 {
     int errors = 0;
-    Node *n;
     
-    for(n = root; n; n = n->next)
-        check_node(n, &errors);
+    check_node(root, &errors);
     
     return errors;
 }
