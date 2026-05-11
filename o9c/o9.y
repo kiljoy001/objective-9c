@@ -903,27 +903,36 @@ gen_expr(Node *e)
         print("%s", e->name);
         break;
     case NMsgSend:
-        /* c.method(args...) -> obj9_msgSend(&c, hash, o9_call_args) */
-        /* Plan 9 C-compatible: comma expressions for multi-arg, simple call for 0-arg */
+        /* c.method(args...) -> try o9_dispatch_call, fallback to obj9_msgSend */
+        /* Pack: args[0]=shm_base (Internal*), then real args at [1..N] */
         {
             int nargs = 0;
             Node *a;
             for(a = e->right; a; a = a->next) nargs++;
-            if(nargs > 0){
-                /* Assign args to global buffer using comma ops */
-                int i = 0;
-                int first = 1;
+            /* Load args array: args[0]=shm_base, args[1..N]=real args */
+            print("(o9_call_args[0]=");
+            if(e->left && e->left->type == NIdent && e->left->name){
+                char *__cnx = get_var_class(e->left->name);
+                if(__cnx) print("(vlong)((%s_Client*)&", __cnx);
+                gen_expr(e->left);
+                if(__cnx) print(")->shm_base");
+            } else {
+                print("(vlong)&");
+                gen_expr(e->left);
+            }
+            {
+                int i = 1;
                 for(a = e->right; a; a = a->next){
-                    if(first) print("(o9_call_args[%d]=", i);
-                    else      print(", o9_call_args[%d]=", i);
+                    print(", o9_call_args[%d]=", i);
                     gen_expr(a);
-                    first = 0;
                     i++;
                 }
-                print(", (vlong)obj9_msgSend(&");
-            } else {
-                print("((vlong)obj9_msgSend(&");
             }
+            /* Try ctrl dispatch, fallback to CSP */
+            print(", (vlong)o9_dispatch_call(&");
+            gen_expr(e->left);
+            print(", 0x%lux, o9_call_args) || ", o9_hash(e->name));
+            print("(vlong)obj9_msgSend(&");
             gen_expr(e->left);
             print(", 0x%lux, o9_call_args))", o9_hash(e->name));
         }
@@ -1266,7 +1275,7 @@ gen_cache_entries(Node *c, char *classname)
             if(p) gen_cache_entries(p, classname);
         }
         if(m->type == NProp) print("\t\tp += snprint(p, sizeof cachebuf - (p-cachebuf), \"d:%%ld:%%ld\\n\", %ldL, (long)o9_offsetof(%s_Internal, %s));\n", o9_hash(m->name), classname, m->name);
-        if(m->type == NMethod) print("\t\tp += snprint(p, sizeof cachebuf - (p-cachebuf), \"c:%%ld:%%p\\n\", %ldL, o9_impl_%s_%s);\n", o9_hash(m->name), c->name, m->name);
+        if(m->type == NMethod) print("\t\tp += snprint(p, sizeof cachebuf - (p-cachebuf), \"c:%%ld:%%p\\n\", %ldL, o9_ctrl_%s_%s);\n", o9_hash(m->name), c->name, m->name);
     }
 }
 
@@ -1369,6 +1378,26 @@ gen_class_server(Node *c)
             in_method_body = 0;
             if(has_return) print("done:\n");
             print("\tr->ok = 1;\n\tsendp(msg->replyc, r);\n}\n\n");
+			/* Ctrl dispatch thunk (void(*)(void*) for asm cache) */
+			{
+				int np = 0, pi;
+				Node *pn;
+				for(pn = m->right; pn; pn = pn->next) np++;
+				print("static void o9_ctrl_%s_%s(void *__a){\n", c->name, m->name);
+				print("\t%s_Internal *self = (%s_Internal*)((vlong*)__a)[0];\n", c->name, c->name);
+				if(np > 0){
+					for(pn = m->right, pi = 0; pn; pn = pn->next, pi++)
+						print("\t%s __%s = ((vlong*)__a)[%d];\n", map_type(pn->typename), pn->name, pi+1);
+					print("\tvlong __args[%d];\n", np);
+					for(pn = m->right, pi = 0; pn; pn = pn->next, pi++)
+						print("\t__args[%d] = __%s;\n", pi, pn->name);
+					print("\tO9Msg __m = {0x%lux, __args, %d, chancreate(sizeof(void*), 0)};\n", o9_hash(m->name), np);
+				} else
+					print("\tO9Msg __m = {0x%lux, nil, 0, chancreate(sizeof(void*), 0)};\n", o9_hash(m->name));
+				print("\to9_impl_%s_%s(self, &__m);\n", c->name, m->name);
+				print("\t{ O9Reply *__r = recvp(__m.replyc); free(__r); }\n");
+				print("\tchanfree(__m.replyc);\n}\n\n");
+			}
         }
         if(m->type == NDestructor){
             has_destruct = 1;
