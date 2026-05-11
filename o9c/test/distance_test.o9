@@ -1,0 +1,18 @@
+/* Test: near/far distance on new */
+class DistTest {
+    int64 val;
+    method DistTest(int64 n) { val = n; }
+}
+
+func main() {
+    DistTest a = new DistTest(1);
+    DistTest b = new near DistTest(2);
+    DistTest c = new far DistTest(3);
+    print("same: ");
+    print(a.val);
+    print(" near: ");
+    print(b.val);
+    print(" far: ");
+    print(c.val);
+    print("\n");
+}
