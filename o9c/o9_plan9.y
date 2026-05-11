@@ -1476,7 +1476,7 @@ gen_class_server(Node *c)
     print("static void fsread_%s(Req *r) {\n", c->name);
     print("\tchar buf[1024];\n\tchar *name = r->fid->file->name;\n\t%s_Internal *inst = r->fid->file->aux;\n\n", c->name);
     print("\tif(strcmp(name, \"status\") == 0) { readstr(r, \"running\"); respond(r, nil); return; }\n");
-    print("\tif(strcmp(name, \"__distance__\") == 0 && inst) { snprint(buf, sizeof buf, \"%d\\n\", inst->distance); readstr(r, buf); respond(r, nil); return; }\n");
+    print("\tif(strcmp(name, \"__distance__\") == 0 && inst) { snprint(buf, sizeof buf, \"%%d\\n\", inst->distance); readstr(r, buf); respond(r, nil); return; }\n");
     print("\tif(strcmp(name, \"cache\") == 0) {\n");
     print("\t\tchar cachebuf[4096];\n\t\tchar *p = cachebuf;\n");
     /* Call gen_cache_entries for this class */
