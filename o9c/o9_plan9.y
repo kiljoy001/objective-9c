@@ -534,13 +534,13 @@ expr:
         n->right = $4;
         $$ = n;
     }
-    | TNEAR TNEW typename '(' call_args ')' {
+    | TNEW TNEAR typename '(' call_args ')' {
         Node *n = mk(NClass, $3->name, "near", nil, nil);
         n->left = $3;
         n->right = $5;
         $$ = n;
     }
-    | TFAR TNEW typename '(' call_args ')' {
+    | TNEW TFAR typename '(' call_args ')' {
         Node *n = mk(NClass, $3->name, "far", nil, nil);
         n->left = $3;
         n->right = $5;
