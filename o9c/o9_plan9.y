@@ -200,7 +200,7 @@ get_sym_type(Node *c, char *name)
 
 %token <node> TIDENT TTYPE
 %token <name> TINTLIT TSTRINGLIT TCHARLIT
-%token TCLASS TFUNC TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT
+%token TCLASS TFUNC TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR
 %token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TTRUE TFALSE TARROW
 %token TEQ TADD TSUB TCHANSEND TCHANRECV TCHANTRY TEQEQ TNEQ TLE TGE
 %token TAND TOR TLSHIFT TRSHIFT TFORSEMI
@@ -529,9 +529,21 @@ expr:
     | TTRUE { $$ = mk(NBoolLit, "1", nil, nil, nil); }
     | TFALSE { $$ = mk(NBoolLit, "0", nil, nil, nil); }
     | TNEW typename '(' call_args ')' {
-        Node *n = mk(NClass, $2->name, nil, nil, nil);
+        Node *n = mk(NClass, $2->name, "same", nil, nil);
         n->left = $2;
         n->right = $4;
+        $$ = n;
+    }
+    | TNEAR TNEW typename '(' call_args ')' {
+        Node *n = mk(NClass, $3->name, "near", nil, nil);
+        n->left = $3;
+        n->right = $5;
+        $$ = n;
+    }
+    | TFAR TNEW typename '(' call_args ')' {
+        Node *n = mk(NClass, $3->name, "far", nil, nil);
+        n->left = $3;
+        n->right = $5;
         $$ = n;
     }
     | '(' expr ')' { $$ = $2; }
@@ -754,6 +766,8 @@ yylex(void)
             if(strcmp(buf, "class") == 0) return TCLASS;
             if(strcmp(buf, "func") == 0) return TFUNC;
             if(strcmp(buf, "new") == 0) return TNEW;
+            if(strcmp(buf, "near") == 0) return TNEAR;
+            if(strcmp(buf, "far") == 0) return TFAR;
             if(strcmp(buf, "method") == 0) return TMETHOD;
             if(strcmp(buf, "state") == 0) return TSTATE;
             if(strcmp(buf, "prop") == 0) return TPROP;
@@ -1112,6 +1126,12 @@ gen_stmt(Node *c, Node *s)
                 print("\tmemset(&%s, 0, sizeof(%s_Client));\n", s->name, cn);
                 print("\t%s.shm_base = __%s;\n", s->name, s->name);
                 print("\t%s.dispatch_chan = __%s->dispatch_chan;\n", s->name, s->name);
+                {
+                    char *dist = s->left->typename;
+                    int dval = (dist && strcmp(dist, "near") == 0) ? 0 : (dist && strcmp(dist, "far") == 0) ? 1 : -1;
+                    print("\t__%s->distance = %d;\n", s->name, dval);
+                    print("\t%s.distance = %d;\n", s->name, dval);
+                }
                 if(find_class(cn)){
                     Node *cnode = find_class(cn);
                     Node *m;
@@ -1255,7 +1275,7 @@ gen_class_header(Node *c)
     print("/* Generated Client Header for class %s */\n", c->name);
     print("#ifndef _O9_GEN_%s_H_\n#define _O9_GEN_%s_H_\n\n", c->name, c->name);
     print("typedef struct %s_AsmTable {\n\tvoid *data_cache[64];\n\tvoid (*ctrl_cache[64])(void*);\n} %s_AsmTable;\n\n", c->name, c->name);
-    print("typedef struct %s_Client {\n\tint fd;\n\tvoid *shm_base;\n\to9_AsmTable *table;\n\tlong ref;\t/* ARC Counter */\n\tvoid *dispatch_chan;\n", c->name);
+    print("typedef struct %s_Client {\n\tint fd;\n\tvoid *shm_base;\n\to9_AsmTable *table;\n\tlong ref;\t/* ARC Counter */\n\tvoid *dispatch_chan;\n\tint distance;\t/* -1=same, 0=near/IL, 1=far/TCP */\n", c->name);
     for(m = c->left; m; m = m->next){
         if(m->type == NInherit) print("\t%s_Client;\n", m->name);
     }
@@ -1337,7 +1357,7 @@ gen_class_server(Node *c)
 
     /* 1. State Structure (internal authoritative state) */
     print("typedef struct %s_Internal %s_Internal;\n", c->name, c->name);
-    print("struct %s_Internal {\n\tArcLedger ledger;\n\tlong ref;\t/* ARC reference count */\n", c->name);
+    print("struct %s_Internal {\n\tArcLedger ledger;\n\tlong ref;\t/* ARC reference count */\n\tint distance;\t/* -1=same, 0=near/IL, 1=far/TCP */\n", c->name);
     for(m = c->left; m; m = m->next){
         if(m->type == NInherit) print("\t%s_Internal;\n", m->name);
         if(m->type == NProp || m->type == NState || m->type == NAtomic) 
@@ -1418,15 +1438,20 @@ gen_class_server(Node *c)
     print("}\n\n");
 
     /* 2b. ARC attach/destroyfid callbacks */
-    print("static void o9_attach_%s(Req *r) {\n", c->name);
-    print("\t%s_Internal *self = r->srv->aux;\n", c->name);
-    print("\tainc(&self->ref);\n");
-    print("\trespond(r, nil);\n");
-    print("}\n\n");
-    print("static void o9_destroyfid_%s(Fid *f) {\n", c->name);
-    print("\tUSED(f);\n");
-    print("\t%s_Internal *self = f->pool->srv->aux;\n", c->name);
-    print("\tif(adec(&self->ref) == 0){\n");
+    {
+        ulong _aid = o9_hash(c->name);
+        print("static void o9_attach_%s(Req *r) {\n", c->name);
+        print("\t%s_Internal *self = r->srv->aux;\n", c->name);
+        print("\tself->ledger.entries[0x%lux & 63].count++;\n", _aid);
+        print("\tainc(&self->ref);\n");
+        print("\trespond(r, nil);\n");
+        print("}\n\n");
+        print("static void o9_destroyfid_%s(Fid *f) {\n", c->name);
+        print("\tUSED(f);\n");
+        print("\t%s_Internal *self = f->pool->srv->aux;\n", c->name);
+        print("\tself->ledger.entries[0x%lux & 63].count--;\n", _aid);
+        print("\tif(adec(&self->ref) == 0){\n");
+    }
     print("\t\tO9Msg *m = mallocz(sizeof(O9Msg), 1);\n");
     print("\t\tm->sel = 0x%lux;\n", o9_hash("destroy"));
     print("\t\tm->replyc = nil;\n");
@@ -1451,6 +1476,7 @@ gen_class_server(Node *c)
     print("static void fsread_%s(Req *r) {\n", c->name);
     print("\tchar buf[1024];\n\tchar *name = r->fid->file->name;\n\t%s_Internal *inst = r->fid->file->aux;\n\n", c->name);
     print("\tif(strcmp(name, \"status\") == 0) { readstr(r, \"running\"); respond(r, nil); return; }\n");
+    print("\tif(strcmp(name, \"__distance__\") == 0 && inst) { snprint(buf, sizeof buf, \"%d\\n\", inst->distance); readstr(r, buf); respond(r, nil); return; }\n");
     print("\tif(strcmp(name, \"cache\") == 0) {\n");
     print("\t\tchar cachebuf[4096];\n\t\tchar *p = cachebuf;\n");
     /* Call gen_cache_entries for this class */
@@ -1550,6 +1576,7 @@ gen_class_server(Node *c)
     print("\tif(dir == nil) return -1;\n");
     print("\tdir->aux = inst;\n");
     print("\tcreatefile(dir, \"status\", nil, 0444, nil);\n");
+    print("\t{ File *__df = createfile(dir, \"__distance__\", nil, 0444, nil); if(__df) __df->aux = inst; }\n");
     for(m = c->left; m; m = m->next){
         if(m->type == NProp || m->type == NAtomic)
             print("\t{ File *__f = createfile(dir, \"%s\", nil, 0666, nil); if(__f) __f->aux = inst; }\n", m->name);
