@@ -1310,9 +1310,16 @@ gen_prop_handlers(Node *c)
             if(p) gen_prop_handlers(p);
         }
         if(m->type == NProp){
+            char *t = map_type(m->typename);
             print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
-            print("\t\tsnprint(buf, sizeof buf, \"%%lld\\n\", (vlong)s->%s);\n", m->name);
-            print("\t\treadstr(r, buf);\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
+            if(strcmp(type_fmt(t), "%s") == 0){
+                /* String property */
+                print("\t\treadstr(r, s->%s ? s->%s : \"\");\n", m->name, m->name);
+            } else {
+                print("\t\tsnprint(buf, sizeof buf, \"%s\\n\", (vlong)s->%s);\n", type_fmt(t), m->name);
+                print("\t\treadstr(r, buf);\n");
+            }
+            print("\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
         }
     }
 }
@@ -1328,8 +1335,15 @@ gen_write_handlers(Node *c)
             if(p) gen_write_handlers(p);
         }
         if(m->type == NProp){
+            char *t = map_type(m->typename);
             print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
-            print("\t\ts->%s = strtoll(r->ifcall.data, nil, 0);\n", m->name);
+            if(strcmp(type_fmt(t), "%s") == 0){
+                /* String property */
+                print("\t\tfree(s->%s);\n", m->name);
+                print("\t\ts->%s = strdup(r->ifcall.data);\n", m->name);
+            } else {
+                print("\t\ts->%s = (%s)strtoll(r->ifcall.data, nil, 0);\n", m->name, type_cast(t));
+            }
             print("\t\tr->ofcall.count = r->ifcall.count;\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
         }
     }
