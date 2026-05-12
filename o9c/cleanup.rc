@@ -7,5 +7,6 @@ rm -f \
 	'|-' '|TCHANRECV|TCHANSEND|TCHANTRY' \
 	p *.6 *.o y.tab.c y.tab.h out.c \
 	o9c/t.c o9c/test_chan.o9 o9c/test_part.o9 \
-	o9c/build_array_test.rc o9c/build_local_array_test.rc
+	o9c/build_array_test.rc o9c/build_local_array_test.rc \
+	test_main o9_test libo9.a
 echo DONE
