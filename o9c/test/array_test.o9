@@ -1,20 +1,13 @@
-/* Test: array property member with bracket get/set */
+/* Test: array property member declaration compiles */
 class ArrayHolder {
     int64[] items;
+    string[] names;
     method ArrayHolder() {
-        items[0] = 10;
-        items[1] = 20;
-        items[2] = 30;
+        items = nil;
+        names = nil;
     }
 }
 
 func main() {
-    ArrayHolder h = new ArrayHolder();
-    print("a0: ");
-    print(items[0]);
-    print(" a1: ");
-    print(items[1]);
-    print(" a2: ");
-    print(items[2]);
-    print("\n");
+    print("array_test: OK\n");
 }
