@@ -40,7 +40,6 @@ o9c/test/pipeline_src.o9
 o9c/test/run_pipeline.rc
 o9c/test/test_pipeline.rc
 o9c/test/gap-analysis.md
-o9_dispatch.s
 LANGUAGE_GUIDE.md
 O9_SPEC.md
 DESTRUCTOR_CHANGES.md
