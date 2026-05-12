@@ -1,7 +1,0 @@
-class Dog {
-    string name;
-    
-    ~Dog() {
-        name = name;
-    }
-}
