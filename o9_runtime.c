@@ -291,9 +291,128 @@ o9_array_len(char *data)
 	vlong n;
 	char *p;
 
-	if(data == nil || data[0] == '\\0') return 0;
+	if(data == nil || data[0] == '\0') return 0;
 	n = 1;
 	for(p = data; *p; p++)
-		if(*p == '\\n') n++;
+		if(*p == '\n') n++;
 	return n;
+}
+
+/*
+ * o9_dict_init — initialize dict to empty.
+ */
+void
+o9_dict_init(O9Dict *d)
+{
+	memset(d, 0, sizeof(O9Dict));
+}
+
+/*
+ * o9_dict_free — free all entries.
+ */
+void
+o9_dict_free(O9Dict *d)
+{
+	int i;
+	O9DictEntry *e, *next;
+	for(i = 0; i < 64; i++){
+		for(e = d->buckets[i]; e; e = next){
+			next = e->next;
+			free(e->key);
+			free(e->val);
+			free(e);
+		}
+	}
+}
+
+static ulong
+o9_dict_hash(char *s)
+{
+	ulong h = 5381;
+	int c;
+	while((c = *s++))
+		h = ((h << 5) + h) + c;
+	return h & 63;
+}
+
+/*
+ * o9_dict_get — get value for key. Returns nil if not found.
+ */
+char*
+o9_dict_get(O9Dict *d, char *key)
+{
+	O9DictEntry *e;
+	if(d == nil || key == nil) return nil;
+	for(e = d->buckets[o9_dict_hash(key)]; e; e = e->next)
+		if(strcmp(e->key, key) == 0)
+			return e->val;
+	return nil;
+}
+
+/*
+ * o9_dict_set — set key=val, replacing existing if present.
+ */
+void
+o9_dict_set(O9Dict *d, char *key, char *val)
+{
+	ulong h;
+	O9DictEntry *e;
+	if(d == nil || key == nil || val == nil) return;
+	h = o9_dict_hash(key);
+	for(e = d->buckets[h]; e; e = e->next){
+		if(strcmp(e->key, key) == 0){
+			free(e->val);
+			e->val = strdup(val);
+			return;
+		}
+	}
+	e = mallocz(sizeof(O9DictEntry), 1);
+	e->key = strdup(key);
+	e->val = strdup(val);
+	e->next = d->buckets[h];
+	d->buckets[h] = e;
+}
+
+/*
+ * o9_dict_has — check if key exists.
+ */
+int
+o9_dict_has(O9Dict *d, char *key)
+{
+	O9DictEntry *e;
+	if(d == nil || key == nil) return 0;
+	for(e = d->buckets[o9_dict_hash(key)]; e; e = e->next)
+		if(strcmp(e->key, key) == 0) return 1;
+	return 0;
+}
+
+/*
+ * o9_dict_serialize — produce "key:val\nkey:val\n" string.
+ * Caller must free the result.
+ */
+char*
+o9_dict_serialize(O9Dict *d)
+{
+	char *buf, *p;
+	int i, len;
+	O9DictEntry *e;
+	if(d == nil) return strdup("");
+	len = 1;
+	for(i = 0; i < 64; i++)
+		for(e = d->buckets[i]; e; e = e->next)
+			len += strlen(e->key) + 1 + strlen(e->val) + 1;
+	buf = mallocz(len, 1);
+	p = buf;
+	for(i = 0; i < 64; i++){
+		for(e = d->buckets[i]; e; e = e->next){
+			memmove(p, e->key, strlen(e->key));
+			p += strlen(e->key);
+			*p++ = ':';
+			memmove(p, e->val, strlen(e->val));
+			p += strlen(e->val);
+			*p++ = '\n';
+		}
+	}
+	*p = '\0';
+	return buf;
 }

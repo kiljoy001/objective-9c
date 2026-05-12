@@ -113,6 +113,7 @@ char*
 map_type(char *t)
 {
     if(t == nil) return "void";
+    if(strncmp(t, "Dict:", 5) == 0) return "O9Dict";
     if(strcmp(t, "int64") == 0) return "vlong";
     if(strcmp(t, "uint64") == 0) return "uvlong";
     if(strcmp(t, "int32") == 0) return "long";
@@ -124,7 +125,7 @@ map_type(char *t)
     if(strcmp(t, "bool") == 0) return "int";
     if(strcmp(t, "string") == 0) return "char*";
     if(strcmp(t, "chan") == 0) return "Channel*";
-    return t; /* Fallback to raw Plan 9 type */
+    return t;
 }
 
 char*
@@ -193,6 +194,36 @@ get_sym_type(Node *c, char *name)
     }
     return "vlong";
 }
+
+int
+is_dict_prop(char *name)
+{
+    int i;
+    if(name == nil) return 0;
+    for(i = 0; i < num_locals; i++)
+        if(strcmp(local_vars[i], name) == 0) return 0;
+    /* In class context, check member types */
+    /* This is a quick inline check — we store the full typename as Dict:K:V */
+    /* For now, the simpler check is just looking at the string prefix */
+    return 0;
+}
+
+/* Check if a member of the current class has a Dict-type */
+int
+is_prop_type(Node *c, char *name, char *prefix)
+{
+    Node *m;
+    if(c == nil || name == nil) return 0;
+    for(m = c->left; m; m = m->next){
+        if((m->type == NProp || m->type == NState || m->type == NAtomic)
+            && m->name && strcmp(m->name, name) == 0){
+            if(prefix && m->typename && strncmp(m->typename, prefix, strlen(prefix)) == 0)
+                return 1;
+            return 0;
+        }
+    }
+    return 0;
+}
 %}
 
 %union {
@@ -202,7 +233,7 @@ get_sym_type(Node *c, char *name)
 
 %token <node> TIDENT TTYPE
 %token <name> TINTLIT TSTRINGLIT TCHARLIT
-%token TCLASS TFUNC TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR
+%token TCLASS TFUNC TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT
 %token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TTRUE TFALSE TARROW
 %token TEQ TADD TSUB TCHANSEND TCHANRECV TCHANTRY TEQEQ TNEQ TLE TGE
 %token TAND TOR TLSHIFT TRSHIFT TFORSEMI
@@ -392,6 +423,13 @@ var_decl:
     | TCHAN TIDENT ';'
     {
         $$ = mk(NStream, $2->name, "chan", nil, nil);
+    }
+    | TDICT '<' typename ',' typename '>' TIDENT ';'
+    {
+        /* Dict<K,V> name — store as "Dict:keytype:valtype" in typename for codegen */
+        char buf[128];
+        snprint(buf, sizeof buf, "Dict:%s:%s", $3->name, $5->name);
+        $$ = mk(NProp, $7->name, buf, nil, nil);
     }
     ;
 
@@ -773,6 +811,7 @@ yylex(void)
             if(strcmp(buf, "new") == 0) return TNEW;
             if(strcmp(buf, "near") == 0) return TNEAR;
             if(strcmp(buf, "far") == 0) return TFAR;
+            if(strcmp(buf, "Dict") == 0) return TDICT;
             if(strcmp(buf, "method") == 0) return TMETHOD;
             if(strcmp(buf, "state") == 0) return TSTATE;
             if(strcmp(buf, "prop") == 0) return TPROP;
@@ -830,6 +869,7 @@ int num_locals = 0;
 int in_class_context = 1;		/* 0 when generating top-level main() */
 int in_method_body = 0;		/* 1 when generating inside a method impl */
 int has_return = 0;			/* 1 when a return statement was emitted */
+Node *cur_class;			/* current class being codegen'd, for type lookups */
 
 /* Variable-to-class symbol table */
 typedef struct VarClass VarClass;
@@ -1094,11 +1134,21 @@ gen_expr(Node *e)
         }
         break;
     case NArrayGet:
-        print("o9_array_get(");
-        gen_expr(e->left);
-        print(", ");
-        gen_expr(e->right);
-        print(")");
+        if(e->right && e->right->type == NStringLit){
+            /* Dict access: dict["key"] => o9_dict_get(&dict, "key") */
+            print("o9_dict_get(&");
+            gen_expr(e->left);
+            print(", ");
+            gen_expr(e->right);
+            print(")");
+        } else {
+            /* Array access: arr[idx] => o9_array_get(arr, idx) */
+            print("o9_array_get(");
+            gen_expr(e->left);
+            print(", ");
+            gen_expr(e->right);
+            print(")");
+        }
         break;
     }
 }
@@ -1201,14 +1251,25 @@ gen_stmt(Node *c, Node *s)
     }
     case NAssign:
         if(s->left != nil && s->left->type == NArrayGet){
-            /* Array set: a[idx] = expr -> o9_array_set(a, idx, expr) */
-            print("\to9_array_set(");
-            gen_expr(s->left->left);
-            print(", ");
-            gen_expr(s->left->right);
-            print(", ");
-            gen_expr(s->right);
-            print(");\n");
+            if(s->left->right && s->left->right->type == NStringLit){
+                /* Dict set: dict["key"] = val -> o9_dict_set(&dict, "key", val) */
+                print("\to9_dict_set(&");
+                gen_expr(s->left->left);
+                print(", ");
+                gen_expr(s->left->right);
+                print(", ");
+                gen_expr(s->right);
+                print(");\n");
+            } else {
+                /* Array set: a[idx] = expr -> o9_array_set(a, idx, expr) */
+                print("\to9_array_set(");
+                gen_expr(s->left->left);
+                print(", ");
+                gen_expr(s->left->right);
+                print(", ");
+                gen_expr(s->right);
+                print(");\n");
+            }
             break;
         }
         if(s->name != nil && s->left != nil && s->left->type == NIdent && s->left->name != nil){

@@ -89,4 +89,22 @@ extern vlong  o9_array_get(char *data, vlong idx);
 extern void   o9_array_set(char **data, vlong idx, vlong val);
 extern vlong  o9_array_len(char *data);
 
+/* Dict operations — chained hash table, serialized as "key:value\n" */
+typedef struct O9DictEntry {
+	char *key;
+	char *val;
+	struct O9DictEntry *next;
+} O9DictEntry;
+
+typedef struct {
+	O9DictEntry *buckets[64];
+} O9Dict;
+
+extern char*  o9_dict_get(O9Dict *d, char *key);
+extern void   o9_dict_set(O9Dict *d, char *key, char *val);
+extern int    o9_dict_has(O9Dict *d, char *key);
+extern char*  o9_dict_serialize(O9Dict *d);
+extern void   o9_dict_init(O9Dict *d);
+extern void   o9_dict_free(O9Dict *d);
+
 #endif
