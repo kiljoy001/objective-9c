@@ -943,13 +943,12 @@ gen_expr(Node *e)
         print("%s", e->name);
         break;
     case NMsgSend:
-        /* c.method(args...) -> try o9_dispatch_call, fallback to obj9_msgSend */
-        /* Pack: args[0]=shm_base (Internal*), then real args at [1..N] */
+        /* c.method(args...) -> obj9_msgSend via CSP or 9P */
         {
+            /* Pack args: global o9_call_args buffer */
             int nargs = 0;
             Node *a;
             for(a = e->right; a; a = a->next) nargs++;
-            /* Load args array: args[0]=shm_base, args[1..N]=real args */
             print("(o9_call_args[0]=");
             if(e->left && e->left->type == NIdent && e->left->name){
                 char *__cnx = get_var_class(e->left->name);
@@ -968,11 +967,8 @@ gen_expr(Node *e)
                     i++;
                 }
             }
-            /* Try ctrl dispatch, fallback to CSP */
-            print(", (vlong)o9_dispatch_call(&");
-            gen_expr(e->left);
-            print(", 0x%lux, o9_call_args) || ", o9_hash(e->name));
-            print("(vlong)obj9_msgSend(&");
+            /* CSP dispatch via obj9_msgSend */
+            print(", (vlong)obj9_msgSend(&");
             gen_expr(e->left);
             print(", \"%s\", 0x%lux, o9_call_args))", e->name, o9_hash(e->name));
         }
