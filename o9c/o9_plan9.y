@@ -974,7 +974,7 @@ gen_expr(Node *e)
             print(", 0x%lux, o9_call_args) || ", o9_hash(e->name));
             print("(vlong)obj9_msgSend(&");
             gen_expr(e->left);
-            print(", 0x%lux, o9_call_args))", o9_hash(e->name));
+            print(", \"%s\", 0x%lux, o9_call_args))", e->name, o9_hash(e->name));
         }
         break;
     case NPropRead:
@@ -1156,43 +1156,70 @@ gen_stmt(Node *c, Node *s)
             } else if(is_new && cname){
                 /* Counter c = new Counter(...) -> spawn in-process server + client */
                 char *cn = cname;
+                char *dist = s->left->typename;
+                int dval = (dist && strcmp(dist, "near") == 0) ? 0 : (dist && strcmp(dist, "far") == 0) ? 1 : -1;
                 /* Count constructor args from TNEW node's call_args (s->left->right) */
                 int nctor = 0;
                 {
                     Node *ca;
                     for(ca = s->left->right; ca; ca = ca->next) nctor++;
                 }
-                print("\t%s_Internal *__%s = emalloc9p(sizeof(%s_Internal));\n", cn, s->name, cn);
-                print("\tmemset(__%s, 0, sizeof(%s_Internal));\n", s->name, cn);
-                print("\t__%s->dispatch_chan = chancreate(sizeof(void*), 10);\n", s->name);
-                print("\t%s_Client %s;\n", cn, s->name);
-                print("\tmemset(&%s, 0, sizeof(%s_Client));\n", s->name, cn);
-                print("\t%s.shm_base = __%s;\n", s->name, s->name);
-                print("\t%s.dispatch_chan = __%s->dispatch_chan;\n", s->name, s->name);
-                {
-                    char *dist = s->left->typename;
-                    int dval = (dist && strcmp(dist, "near") == 0) ? 0 : (dist && strcmp(dist, "far") == 0) ? 1 : -1;
-                    print("\t__%s->distance = %d;\n", s->name, dval);
-                    print("\t%s.distance = %d;\n", s->name, dval);
-                }
-                if(find_class(cn)){
-                    Node *cnode = find_class(cn);
-                    Node *m;
-                    for(m = cnode->left; m; m = m->next){
-                        if(m->type == NProp || m->type == NState || m->type == NAtomic){
-                            if(m->typename && strncmp(m->typename, "Dict:", 5) == 0)
-                                print("\to9_dict_init(&__%s->%s);\n", s->name, m->name);
-                            else
-                                print("\t__%s->%s = 0;\n", s->name, m->name);
+                if(dval >= 0){
+                    /* Remote: connect via IL/TCP, no local server */
+                    print("\t%s_Client %s;\n", cn, s->name);
+                    print("\tmemset(&%s, 0, sizeof(%s_Client));\n", s->name, cn);
+                    /* First constructor arg is the address */
+                    print("\t{\n");
+                    /* Get address from the first call arg */
+                    Node *first_arg = s->left->right;
+                    if(first_arg){
+                        print("\t\tchar __addr[128];\n");
+                        print("\t\tsnprint(__addr, sizeof __addr, ");
+                        gen_expr(first_arg);
+                        print(");\n");
+                        print("\t\to9_connect(&%s, __addr, \"%s\");\n", s->name, cn);
+                    }
+                    print("\t\t%s.distance = %d;\n", s->name, dval);
+                    /* Send constructor args (skip address, send rest) */
+                    int rest = nctor - 1;
+                    if(rest > 0){
+                        Node *ca;
+                        int ai = 0;
+                        print("\t\tvlong __a[%d];\n", rest);
+                        for(ca = first_arg->next; ca; ca = ca->next){
+                            print("\t\t__a[%d] = ", ai);
+                            gen_expr(ca);
+                            print(";\n");
+                            ai++;
+                        }
+                        print("\t\tobj9_msgSend(&%s, \"%s\", 0x%lux, __a);\n", s->name, cn, o9_hash(cname));
+                    }
+                    print("\t}\n");
+                } else {
+                    /* Local: spawn in-process server */
+                    print("\t%s_Internal *__%s = emalloc9p(sizeof(%s_Internal));\n", cn, s->name, cn);
+                    print("\tmemset(__%s, 0, sizeof(%s_Internal));\n", s->name, cn);
+                    print("\t__%s->dispatch_chan = chancreate(sizeof(void*), 10);\n", s->name);
+                    print("\t%s_Client %s;\n", cn, s->name);
+                    print("\tmemset(&%s, 0, sizeof(%s_Client));\n", s->name, cn);
+                    print("\t%s.shm_base = __%s;\n", s->name, s->name);
+                    print("\t%s.dispatch_chan = __%s->dispatch_chan;\n", s->name, s->name);
+                    print("\t__%s->distance = -1;\n", s->name);
+                    print("\t%s.distance = -1;\n", s->name);
+                    if(find_class(cn)){
+                        Node *cnode = find_class(cn);
+                        Node *m;
+                        for(m = cnode->left; m; m = m->next){
+                            if(m->type == NProp || m->type == NState || m->type == NAtomic){
+                                if(m->typename && strncmp(m->typename, "Dict:", 5) == 0)
+                                    print("\t\to9_dict_init(&__%s->%s);\n", s->name, m->name);
+                                else
+                                    print("\t__%s->%s = 0;\n", s->name, m->name);
+                            }
                         }
                     }
-                }
-                print("\tproccreate(%s_loop, __%s, 8192);\n", cn, s->name);
-                /* Register in /srv/<class>/<name>/ instance tree */
-                print("\t%s_create_instance(__%s, \"%s\");\n", cn, s->name, s->name);
-                /* Send constructor args if any — stack-allocated, no global race */
-                if(nctor > 0){
-                    Node *ca;
+                    print("\tproccreate(%s_loop, __%s, 8192);\n", cn, s->name);
+                    print("\t%s_create_instance(__%s, \"%s\");\n", cn, s->name, s->name);
                     int ai = 0;
                     print("\t{ vlong __a[%d];\n", nctor);
                     for(ca = s->left->right; ca; ca = ca->next){

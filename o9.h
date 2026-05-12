@@ -65,13 +65,14 @@ typedef struct o9_Object {
 
 /* Runtime Functions */
 extern int   o9_init_client(void *client, char *srvname, int size);
+extern int   o9_connect(void *client, char *addr, char *srvname);
 extern void* o9_dispatch_data(void *client, ulong hash);
 extern void* o9_dispatch_call(void *client, ulong hash, void *args);
 extern void  o9_cache_fill(void *client, ulong hash, int is_ctrl);
 extern void  o9_ledger_update(void *client, ulong id, int delta);
 extern long  o9_ledger_value(void *client, ulong id);
 extern void  o9_clunk(int fd);
-extern void* obj9_msgSend(void *receiver, ulong selector, void *args);
+extern void* obj9_msgSend(void *receiver, char *method, ulong selector, void *args);
 
 /* 9P-native Hashing (djb2) */
 static ulong

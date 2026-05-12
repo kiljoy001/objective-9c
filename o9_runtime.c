@@ -4,6 +4,11 @@
 #include <thread.h>
 #include "o9.h"
 
+/* 9P encoding helpers — little-endian */
+#define PUT2(p, v) do{ (p)[0]=(v)&0xff; (p)[1]=((v)>>8)&0xff; }while(0)
+#define PUT4(p, v) do{ (p)[0]=(v)&0xff; (p)[1]=((v)>>8)&0xff; (p)[2]=((v)>>16)&0xff; (p)[3]=((v)>>24)&0xff; }while(0)
+#define NOFID 0xFFFFFFFFu
+
 /*
  * o9_runtime.c -- 9front native runtime for o9 objects.
  * Supports Tiered Performance Model:
@@ -136,7 +141,7 @@ o9_cache_fill(void *client, ulong hash, int is_ctrl)
 }
 
 void*
-obj9_msgSend(void *receiver, ulong selector, void *args)
+obj9_msgSend(void *receiver, char *method, ulong selector, void *args)
 {
     o9_Object *obj = receiver;
     O9Msg *m;
@@ -157,7 +162,119 @@ obj9_msgSend(void *receiver, ulong selector, void *args)
         return ret;
     }
 
+    /* Fall through to remote 9P dispatch if connected */
+    if(obj->fd >= 0 && method != nil && obj->distance >= 0){
+        /* Inline 9P dispatch using method name */
+        uchar buf[64];
+        char wbuf[64];
+        int n;
+
+        /* Twalk to method */
+        buf[0] = 0; buf[1] = 0; buf[2] = 0; buf[3] = 0;
+        buf[4] = 110;
+        buf[5] = 0; buf[6] = 0;
+        PUT4(buf+7, obj->fd);
+        PUT4(buf+11, obj->fd);
+        n = strlen(method);
+        PUT2(buf+15, 1);
+        buf[17] = n; buf[18] = 0;
+        memmove(buf+19, method, n);
+        PUT4(buf, 19+n);
+        write(obj->fd, buf, 19+n);
+        n = read(obj->fd, buf, sizeof(buf));
+        if(n < 4 || buf[4] != 111) goto skip;
+
+        /* Topen OWRITE */
+        PUT4(buf, 0);
+        buf[4] = 112;
+        buf[5] = 0; buf[6] = 0;
+        PUT4(buf+7, obj->fd);
+        buf[11] = 1;
+        PUT4(buf, 12);
+        write(obj->fd, buf, 12);
+        n = read(obj->fd, buf, sizeof(buf));
+        if(n < 4 || buf[4] != 113) goto skip;
+
+        /* Twrite with args */
+        {
+            char astr[64];
+            int m = snprint(astr, sizeof(astr), "%lld", args ? *(vlong*)args : 0);
+            PUT4(buf, 0);
+            buf[4] = 118;
+            buf[5] = 0; buf[6] = 0;
+            PUT4(buf+7, obj->fd);
+            PUT4(buf+11, 0);
+            PUT4(buf+15, m);
+            memmove(buf+19, astr, m);
+            PUT4(buf, 19+m);
+            write(obj->fd, buf, 19+m);
+            n = read(obj->fd, buf, sizeof(buf));
+            goto skip;
+        }
+    }
+
+skip:
     return nil;
+}
+
+/*
+ * obj9_msgSend_name — remote 9P dispatch over fd.
+ * Walks to the method file, writes args, reads result.
+ * Used when distance >= 0 (no dispatch_chan).
+ */
+void*
+obj9_msgSend_name(void *receiver, char *method, ulong selector, void *args)
+{
+	o9_Object *obj = receiver;
+	uchar buf[64];
+	int n;
+
+	if(obj == nil || obj->fd < 0) return nil;
+	USED(selector);
+
+	/* Twalk to method file — walk root (fid 0) to method name */
+	buf[0] = 0; buf[1] = 0; buf[2] = 0; buf[3] = 0;
+	buf[4] = 110; /* Twalk */
+	buf[5] = 0; buf[6] = 0; /* tag */
+	PUT4(buf+7, obj->fd); /* fid */
+	PUT4(buf+11, obj->fd); /* newfid */
+	PUT2(buf+15, 1); /* nwname */
+	n = strlen(method);
+	buf[17] = n; buf[18] = 0;
+	memmove(buf+19, method, n);
+	PUT4(buf, 19+n);
+	write(obj->fd, buf, 19+n);
+	n = read(obj->fd, buf, sizeof(buf));
+	if(n < 4 || buf[4] != 111) return nil; /* Rwalk */
+
+	/* Topen */
+	PUT4(buf, 0);
+	buf[4] = 112; /* Topen */
+	buf[5] = 0; buf[6] = 0;
+	PUT4(buf+7, obj->fd);
+	buf[11] = 1; /* OWRITE */
+	PUT4(buf, 12);
+	write(obj->fd, buf, 12);
+	n = read(obj->fd, buf, sizeof(buf));
+	if(n < 4 || buf[4] != 113) return nil;
+
+	/* Twrite — send args as vlong text */
+	{
+		char wbuf[64];
+		int m = snprint(wbuf, sizeof(wbuf), "%lld", args ? *(vlong*)args : 0);
+		PUT4(buf, 0);
+		buf[4] = 118; /* Twrite */
+		buf[5] = 0; buf[6] = 0;
+		PUT4(buf+7, obj->fd);
+		PUT4(buf+11, 0); /* offset */
+		PUT4(buf+15, m);
+		memmove(buf+19, wbuf, m);
+		PUT4(buf, 19+m);
+		write(obj->fd, buf, 19+m);
+		n = read(obj->fd, buf, sizeof(buf));
+	}
+
+	return nil;
 }
 
 void
@@ -186,6 +303,67 @@ void
 o9_clunk(int fd)
 {
 	close(fd);
+}
+
+int
+o9_connect(void *client, char *addr, char *srvname)
+{
+	o9_Object *obj = client;
+	char buf[256];
+	uchar rbuf[256];
+	int fd, n, msize;
+
+	/* Dial the address (il!host!service or tcp!host!port) */
+	fd = dial(addr, nil, nil, nil);
+	if(fd < 0) return -1;
+
+	strncpy(buf, addr, sizeof(buf)-1);
+	obj->fd = fd;
+	if(srvname)
+		strncpy(obj->srvname, srvname, sizeof(obj->srvname)-1);
+
+	/* Tversion */
+	msize = 4096;
+	buf[0] = 0; buf[1] = 0; buf[2] = 0; buf[3] = 0; /* len (fill later) */
+	buf[4] = 100; /* Tversion */
+	buf[5] = 0; buf[6] = 0; /* tag = 0 */
+	PUT4(buf+7, msize);
+	n = strlen("9P2000");
+	buf[11] = n; buf[12] = 0; /* string len */
+	memmove(buf+13, "9P2000", n);
+	PUT4(buf, 13+n);
+	write(fd, buf, 13+n);
+
+	/* Rversion */
+	n = read(fd, rbuf, sizeof(rbuf));
+	if(n < 7) goto fail;
+
+	/* Tattach */
+	PUT4(buf, 0); /* len */
+	buf[4] = 104; /* Tattach */
+	buf[5] = 0; buf[6] = 0; /* tag */
+	PUT4(buf+7, NOFID); /* afid */
+	PUT2(buf+11, 1); /* uname len */
+	buf[13] = 'S'; /* uname placeholder */
+	PUT2(buf+14, 1); /* aname len */
+	buf[16] = '/';
+	PUT4(buf, 17);
+	write(fd, buf, 17);
+
+	/* Rattach */
+	n = read(fd, rbuf, sizeof(rbuf));
+	if(n < 7) goto fail;
+
+	obj->shm_base = nil;
+	obj->table = nil;
+	obj->dispatch_chan = nil;
+	obj->distance = 0; /* remote */
+	return 0;
+
+fail:
+	close(fd);
+	obj->fd = -1;
+	return -1;
 }
 
 /*
