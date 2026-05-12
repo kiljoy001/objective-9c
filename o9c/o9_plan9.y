@@ -943,36 +943,29 @@ gen_expr(Node *e)
         print("%s", e->name);
         break;
     case NMsgSend:
-        /* c.method(args...) -> try o9_dispatch_call, fallback to obj9_msgSend */
+        /* c.method(args...) -> obj9_msgSend via CSP or 9P */
         {
             int nargs = 0;
             Node *a;
             for(a = e->right; a; a = a->next) nargs++;
-            print("(o9_call_args[0]=");
-            if(e->left && e->left->type == NIdent && e->left->name){
-                char *__cnx = get_var_class(e->left->name);
-                if(__cnx) print("(vlong)((%s_Client*)&", __cnx);
-                gen_expr(e->left);
-                if(__cnx) print(")->shm_base");
-            } else {
-                print("(vlong)&");
-                gen_expr(e->left);
-            }
-            {
-                int i = 1;
+            if(nargs > 0){
+                int i = 0;
                 for(a = e->right; a; a = a->next){
-                    print(", o9_call_args[%d]=", i);
+                    char buf[64];
+                    snprint(buf, sizeof buf, "o9_call_args[%d]=", i);
+                    if(i == 0) print("(%s", buf);
+                    else print(", %s", buf);
                     gen_expr(a);
                     i++;
                 }
+                print(", (vlong)obj9_msgSend(&");
+                gen_expr(e->left);
+                print(", \"%s\", 0x%lux, o9_call_args))", e->name, o9_hash(e->name));
+            } else {
+                print("(vlong)obj9_msgSend(&");
+                gen_expr(e->left);
+                print(", \"%s\", 0x%lux, nil)", e->name, o9_hash(e->name));
             }
-            /* Try ctrl dispatch, fallback to CSP */
-            print(", (vlong)o9_dispatch_call(&");
-            gen_expr(e->left);
-            print(", 0x%lux, o9_call_args) || ", o9_hash(e->name));
-            print("(vlong)obj9_msgSend(&");
-            gen_expr(e->left);
-            print(", \"%s\", 0x%lux, o9_call_args))", e->name, o9_hash(e->name));
         }
         break;
     case NPropRead:
