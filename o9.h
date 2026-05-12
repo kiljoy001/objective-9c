@@ -60,6 +60,7 @@ typedef struct o9_Object {
     o9_AsmTable *table;
     long ref;           /* ARC — shared reference count */
     void *dispatch_chan;	/* Channel* */
+    int  distance;		/* -1=same, 0=near/IL, 1=far/TCP */
     char srvname[64];		/* server name for /srv/ cache walk */
 } o9_Object;
 
