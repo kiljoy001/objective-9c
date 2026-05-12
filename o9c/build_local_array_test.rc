@@ -1,0 +1,13 @@
+#!/bin/rc
+# build_local_array_test.rc — full pipeline for local_array_test.o9
+rm -f /tmp/lat.* /tmp/lat_test
+cd /tmp/o9
+6c -FVw o9_runtime.c
+6a o9_dispatch.s
+ar r libo9.a o9_runtime.6 o9_dispatch.6
+cd o9c
+./o9c < test/local_array_test.o9 2> /tmp/lat.c
+6c -FVw -o /tmp/lat.6 /tmp/lat.c
+6l -o /tmp/lat_test /tmp/lat.6 /tmp/o9/libo9.a
+/tmp/lat_test
+echo exit_status $status
