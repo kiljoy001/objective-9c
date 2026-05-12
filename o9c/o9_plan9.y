@@ -112,8 +112,11 @@ Node *ast_root;
 char*
 map_type(char *t)
 {
+    int len;
     if(t == nil) return "void";
     if(strncmp(t, "Dict:", 5) == 0) return "O9Dict";
+    len = strlen(t);
+    if(len > 2 && strcmp(t + len - 2, "[]") == 0) return "char*";
     if(strcmp(t, "int64") == 0) return "vlong";
     if(strcmp(t, "uint64") == 0) return "uvlong";
     if(strcmp(t, "int32") == 0) return "long";
@@ -400,6 +403,12 @@ var_decl:
         char buf[128];
         snprint(buf, sizeof buf, "Dict:%s:%s", $3->name, $5->name);
         $$ = mk(NProp, $7->name, buf, nil, nil);
+    }
+    | typename '[' ']' TIDENT ';'
+    {
+        char buf[64];
+        snprint(buf, sizeof buf, "%s[]", $1->name);
+        $$ = mk(NProp, $4->name, buf, nil, nil);
     }
     ;
 
@@ -1234,8 +1243,8 @@ gen_stmt(Node *c, Node *s)
                 gen_expr(s->right);
                 print(");\n");
             } else {
-                /* Array set: a[idx] = expr -> o9_array_set(a, idx, expr) */
-                print("\to9_array_set(");
+                /* Array set: a[idx] = expr -> o9_array_set(&a, idx, expr) */
+                print("\to9_array_set(&");
                 gen_expr(s->left->left);
                 print(", ");
                 gen_expr(s->left->right);
