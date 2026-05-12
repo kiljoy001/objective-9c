@@ -1,0 +1,10 @@
+/* Test: local array var in func main */
+func main() {
+    string items;
+    items = nil;
+    items[0] = 10;
+    items[1] = 20;
+    print("a0: ");
+    print(items[0]);
+    print("\\n");
+}
