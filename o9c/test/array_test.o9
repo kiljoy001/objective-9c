@@ -1,0 +1,20 @@
+/* Test: array property member + get/set */
+class ArrayHolder {
+    int64[] items;
+    method ArrayHolder() {
+        o9_array_set(&items, 0, 10);
+        o9_array_set(&items, 1, 20);
+        o9_array_set(&items, 2, 30);
+    }
+}
+
+func main() {
+    ArrayHolder h = new ArrayHolder();
+    print("a0: ");
+    print(o9_array_get(h.items, 0));
+    print(" a1: ");
+    print(o9_array_get(h.items, 1));
+    print(" a2: ");
+    print(o9_array_get(h.items, 2));
+    print("\n");
+}
