@@ -187,3 +187,113 @@ o9_clunk(int fd)
 {
 	close(fd);
 }
+
+/*
+ * o9_array_get — read vlong at line index idx from line-based data.
+ * Lines are separated by '\\n'. Returns 0 if idx out of range.
+ */
+vlong
+o9_array_get(char *data, vlong idx)
+{
+	vlong i;
+	char *p, *end;
+	long v;
+
+	if(data == nil) return 0;
+	p = data;
+	for(i = 0; i < idx; i++){
+		p = strchr(p, '\\n');
+		if(p == nil) return 0;
+		p++;
+	}
+	v = strtol(p, &end, 0);
+	return (vlong)v;
+}
+
+/*
+ * o9_array_set — set vlong at line index idx.
+ * Always rebuilds the buffer (correct, O(n)).
+ */
+void
+o9_array_set(char **data, vlong idx, vlong val)
+{
+	char buf[32];
+	char *dp, *new, *p, *line;
+	vlong i, curlen, newsize;
+
+	if(data == nil) return;
+	dp = *data;
+
+	/* Count lines */
+	if(dp == nil || dp[0] == '\0')
+		curlen = 0;
+	else {
+		curlen = 1;
+		for(p = dp; *p; p++)
+			if(*p == '\n') curlen++;
+	}
+
+	snprint(buf, sizeof buf, "%lld\n", val);
+
+	if(idx < curlen){
+		/* Replace — rebuild line by line */
+		newsize = 0;
+		p = dp;
+		for(i = 0; i < curlen; i++){
+			line = p;
+			p = strchr(p, '\n');
+			if(p) *p = '\0';
+			newsize += (i == idx) ? strlen(buf) : strlen(line) + 1;
+			if(p) p++;
+		}
+		new = mallocz(newsize + 1, 1);
+		p = dp;
+		for(i = 0; i < curlen; i++){
+			line = p;
+			p = strchr(p, '\n');
+			if(p) *p++ = '\n';
+			else p = line + strlen(line);
+			if(i == idx)
+				strcat(new, buf);
+			else {
+				strcat(new, line);
+				strcat(new, "\n");
+			}
+		}
+		free(dp);
+		*data = new;
+	} else {
+		/* Extend: pad with empty lines, then append */
+		int need = (int)(idx - curlen + 1);
+		newsize = (dp ? strlen(dp) : 0) + need * 2 + 32;
+		new = mallocz(newsize, 1);
+		if(dp)
+			strcpy(new, dp);
+		else
+			new[0] = '\0';
+		p = new + strlen(new);
+		for(i = curlen; i < idx; i++){
+			strcpy(p, "\n");
+			p++;
+		}
+		strcpy(p, buf);
+		if(dp) free(dp);
+		*data = new;
+	}
+}
+
+/*
+ * o9_array_len — count lines in data.
+ */
+vlong
+o9_array_len(char *data)
+{
+	vlong n;
+	char *p;
+
+	if(data == nil || data[0] == '\\0') return 0;
+	n = 1;
+	for(p = data; *p; p++)
+		if(*p == '\\n') n++;
+	return n;
+}

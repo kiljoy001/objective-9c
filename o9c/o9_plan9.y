@@ -58,7 +58,9 @@ enum {
     NMsgSend,
     NPropRead,
     NFuncCall,
-    NFor
+    NFor,
+    NArrayGet,
+    NArraySet
 };
 
 struct Node {
@@ -219,8 +221,8 @@ get_sym_type(Node *c, char *name)
 %left TADD TSUB
 %left '*' '/' '%'
 %right '!' '~' UMINUS
-%left '.'
-
+%left '.' '['
+ 
 %type <node> program top_levels top_level class_decl member_list member var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename param_list param call_args call_arg func_top_level for_init for_cond for_step else_clause
 
 %start program
@@ -521,6 +523,9 @@ expr:
     }
     | expr '.' TIDENT '(' call_args ')' {
         $$ = mk(NMsgSend, $3->name, nil, $1, $5);
+    }
+    | expr '[' expr ']' {
+        $$ = mk(NArrayGet, nil, nil, $1, $3);
     }
     | TIDENT { $$ = $1; }
     | TINTLIT { $$ = mk(NIntLit, $1, nil, nil, nil); }
@@ -1088,6 +1093,13 @@ gen_expr(Node *e)
             print(")");
         }
         break;
+    case NArrayGet:
+        print("o9_array_get(");
+        gen_expr(e->left);
+        print(", ");
+        gen_expr(e->right);
+        print(")");
+        break;
     }
 }
 
@@ -1188,6 +1200,17 @@ gen_stmt(Node *c, Node *s)
         break;
     }
     case NAssign:
+        if(s->left != nil && s->left->type == NArrayGet){
+            /* Array set: a[idx] = expr -> o9_array_set(a, idx, expr) */
+            print("\to9_array_set(");
+            gen_expr(s->left->left);
+            print(", ");
+            gen_expr(s->left->right);
+            print(", ");
+            gen_expr(s->right);
+            print(");\n");
+            break;
+        }
         if(s->name != nil && s->left != nil && s->left->type == NIdent && s->left->name != nil){
             /* Property write: obj.prop = expr */
             char *cname = get_var_class(s->left->name);

@@ -84,4 +84,9 @@ o9_hash(char *s)
     return hash & 0xFFFFFFFFul;
 }
 
+/* Array operations — line-based dynamic arrays (one vlong per line) */
+extern vlong  o9_array_get(char *data, vlong idx);
+extern void   o9_array_set(char **data, vlong idx, vlong val);
+extern vlong  o9_array_len(char *data);
+
 #endif
