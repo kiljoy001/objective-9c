@@ -6,10 +6,14 @@ git/pull >[2]/dev/null
 6a o9_dispatch.s >[2]/dev/null
 ar r libo9.a o9_runtime.6 o9_dispatch.6 >[2]/dev/null
 cd o9c
+rm -f y.tab.* o9c
+yacc -d o9_plan9.y >[2]/dev/null
+6c -o y.tab.6 y.tab.c >[2]/dev/null
+6l -o o9c y.tab.6 >[2]/dev/null
 ./o9c < test/e2e_test.o9 2> /tmp/o9/out.c
 cd /tmp/o9
-6c -FVw -o out.6 out.c
-6l -o o9_test out.6 libo9.a
+6c -FVw -o out.6 out.c >[2]/dev/null
+6l -o o9_test out.6 libo9.a >[2]/dev/null
 rm /srv/Counter >[2]/dev/null
 ./o9_test
 echo exit_status $status
