@@ -1,17 +1,11 @@
 #!/bin/rc
-# cleanup.rc — remove scratch files, build artifacts, old tests
+# cleanup.rc — remove scratch files, build artifacts
 # Run on 9front: cd /tmp/o9 ; rc o9c/cleanup.rc
 cd /tmp/o9
-git/pull >[2]/dev/null
-echo '=== Removing from disk ==='
+echo '=== Removing disk artifacts ==='
 rm -f \
 	'|-' '|TCHANRECV|TCHANSEND|TCHANTRY' \
 	p *.6 *.o y.tab.c y.tab.h out.c \
 	o9c/t.c o9c/test_chan.o9 o9c/test_part.o9 \
 	o9c/build_array_test.rc o9c/build_local_array_test.rc
-echo '=== Listing root ==='
-ls
-echo '=== Listing o9c/ ==='
-ls o9c
-echo '=== Listing o9c/test/ ==='
-ls o9c/test
+echo DONE
