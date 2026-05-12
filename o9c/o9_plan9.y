@@ -194,36 +194,6 @@ get_sym_type(Node *c, char *name)
     }
     return "vlong";
 }
-
-int
-is_dict_prop(char *name)
-{
-    int i;
-    if(name == nil) return 0;
-    for(i = 0; i < num_locals; i++)
-        if(strcmp(local_vars[i], name) == 0) return 0;
-    /* In class context, check member types */
-    /* This is a quick inline check — we store the full typename as Dict:K:V */
-    /* For now, the simpler check is just looking at the string prefix */
-    return 0;
-}
-
-/* Check if a member of the current class has a Dict-type */
-int
-is_prop_type(Node *c, char *name, char *prefix)
-{
-    Node *m;
-    if(c == nil || name == nil) return 0;
-    for(m = c->left; m; m = m->next){
-        if((m->type == NProp || m->type == NState || m->type == NAtomic)
-            && m->name && strcmp(m->name, name) == 0){
-            if(prefix && m->typename && strncmp(m->typename, prefix, strlen(prefix)) == 0)
-                return 1;
-            return 0;
-        }
-    }
-    return 0;
-}
 %}
 
 %union {
