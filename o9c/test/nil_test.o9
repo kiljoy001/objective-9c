@@ -1,0 +1,6 @@
+/* Test: nil keyword */
+func main() {
+    string s;
+    s = nil;
+    print("nil_test: OK\\n");
+}
