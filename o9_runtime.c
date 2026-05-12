@@ -202,7 +202,7 @@ o9_array_get(char *data, vlong idx)
 	if(data == nil) return 0;
 	p = data;
 	for(i = 0; i < idx; i++){
-		p = strchr(p, '\\n');
+		p = strchr(p, '\n');
 		if(p == nil) return 0;
 		p++;
 	}
