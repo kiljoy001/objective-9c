@@ -1166,12 +1166,12 @@ gen_stmt(Node *c, Node *s)
                 }
                 if(dval >= 0){
                     /* Remote: connect via IL/TCP, no local server */
+                    Node *first_arg = s->left->right;
+                    int rest = nctor - 1;
                     print("\t%s_Client %s;\n", cn, s->name);
                     print("\tmemset(&%s, 0, sizeof(%s_Client));\n", s->name, cn);
                     /* First constructor arg is the address */
                     print("\t{\n");
-                    /* Get address from the first call arg */
-                    Node *first_arg = s->left->right;
                     if(first_arg){
                         print("\t\tchar __addr[128];\n");
                         print("\t\tsnprint(__addr, sizeof __addr, ");
@@ -1181,10 +1181,9 @@ gen_stmt(Node *c, Node *s)
                     }
                     print("\t\t%s.distance = %d;\n", s->name, dval);
                     /* Send constructor args (skip address, send rest) */
-                    int rest = nctor - 1;
                     if(rest > 0){
                         Node *ca;
-                        int ai = 0;
+                        int ai;
                         print("\t\tvlong __a[%d];\n", rest);
                         for(ca = first_arg->next; ca; ca = ca->next){
                             print("\t\t__a[%d] = ", ai);
@@ -1197,6 +1196,8 @@ gen_stmt(Node *c, Node *s)
                     print("\t}\n");
                 } else {
                     /* Local: spawn in-process server */
+                    Node *m, *ca;
+                    int ai;
                     print("\t%s_Internal *__%s = emalloc9p(sizeof(%s_Internal));\n", cn, s->name, cn);
                     print("\tmemset(__%s, 0, sizeof(%s_Internal));\n", s->name, cn);
                     print("\t__%s->dispatch_chan = chancreate(sizeof(void*), 10);\n", s->name);
@@ -1220,7 +1221,6 @@ gen_stmt(Node *c, Node *s)
                     }
                     print("\tproccreate(%s_loop, __%s, 8192);\n", cn, s->name);
                     print("\t%s_create_instance(__%s, \"%s\");\n", cn, s->name, s->name);
-                    int ai = 0;
                     print("\t{ vlong __a[%d];\n", nctor);
                     for(ca = s->left->right; ca; ca = ca->next){
                         print("\t__a[%d] = ", ai);
@@ -1228,7 +1228,7 @@ gen_stmt(Node *c, Node *s)
                         print(";\n");
                         ai++;
                     }
-                    print("\tobj9_msgSend(&%s, 0x%lux, __a); }\n", s->name, o9_hash(cname));
+                    print("\tobj9_msgSend(&%s, \"%s\", 0x%lux, __a); }\n", s->name, cn, o9_hash(cname));
                 }
             } else {
                 /* Class-typed variable with client init (no new) */
