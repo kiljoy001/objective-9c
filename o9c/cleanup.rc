@@ -1,0 +1,44 @@
+#!/bin/rc
+# cleanup.rc — remove scratch files, build artifacts, old tests
+echo '=== Cleaning up root ==='
+cd /tmp/o9
+rm -f \
+	'|-' '|TCHANRECV|TCHANSEND|TCHANTRY' \
+	p *.6 *.o y.tab.c y.tab.h \
+	arc_ledger_bench.c compare_bench.c counter_srv.c \
+	test_asm.c test_asm_client.c test_e2e.c o9_bench.c \
+	o9pkg.c o9pkg.go test_main test_main.c test_main.o \
+	test_mixed.c test_mixed.o o9_runtime.o o9_runtime.6 \
+	o9_dispatch.6 o9_dispatch.s arc_pipeline.o pipeline_out.o \
+	go.mod go.sum LANGUAGE_GUIDE.md O9_SPEC.md out.6 \
+	DESTRUCTOR_CHANGES.md
+rm -rf grid_src
+
+echo '=== Cleaning up o9c/ ==='
+cd o9c
+rm -f \
+	o9c o9c_plan9 o9_test \
+	y.tab.c y.tab.h y.tab.o y.tab.6 \
+	o9_plan9.tab.c o9_plan9.tab.h \
+	o9_dispatch.6 o9_runtime.6 \
+	out.c out.6 \
+	apply_arc.py arc_replacement.txt patch_dispatch.py \
+	o9.l o9_plan9.l o9c_test.go counter_srv.c \
+	test_local.c test_logic.c run_pipeline.rc
+
+echo '=== Cleaning up o9c/test/ ==='
+cd test
+rm -f \
+	e2e_test.c full_test.c integration.c gen_pipeline.c \
+	o9_asm_test.c out.c \
+	pbt_ledger pbt_ledger.c pbt_ledger.o \
+	pipeline_generated.c pipeline_out.c \
+	run_pipeline.rc test_pipeline.rc \
+	gap-analysis.md \
+	pipeline_src.o9
+
+echo '=== Cleaning up libo9.a ==='
+cd /tmp/o9
+rm -f libo9.a lat_test o9_test array_test lat.c dout.c lat.6 lat.6 at.6 at.c lat.c
+
+echo 'DONE'
