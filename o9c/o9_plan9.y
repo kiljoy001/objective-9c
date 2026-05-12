@@ -206,7 +206,7 @@ get_sym_type(Node *c, char *name)
 
 %token <node> TIDENT TTYPE
 %token <name> TINTLIT TSTRINGLIT TCHARLIT
-%token TCLASS TFUNC TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT
+%token TCLASS TFUNC TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TNIL
 %token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TTRUE TFALSE TARROW
 %token TEQ TADD TSUB TCHANSEND TCHANRECV TCHANTRY TEQEQ TNEQ TLE TGE
 %token TAND TOR TLSHIFT TRSHIFT TFORSEMI
@@ -550,6 +550,7 @@ expr:
     | TCHARLIT { $$ = mk(NCharLit, $1, nil, nil, nil); }
     | TTRUE { $$ = mk(NBoolLit, "1", nil, nil, nil); }
     | TFALSE { $$ = mk(NBoolLit, "0", nil, nil, nil); }
+    | TNIL { $$ = mk(NBoolLit, "nil", nil, nil, nil); }
     | TNEW typename '(' call_args ')' {
         Node *n = mk(NClass, $2->name, "same", nil, nil);
         n->left = $2;
@@ -816,6 +817,7 @@ yylex(void)
             if(strcmp(buf, "for") == 0){ for_paren_depth = 0; return TFOR; }
             if(strcmp(buf, "true") == 0) return TTRUE;
             if(strcmp(buf, "false") == 0) return TFALSE;
+            if(strcmp(buf, "nil") == 0) return TNIL;
             if(strcmp(buf, "print") == 0) return TPRINT;
             if(strcmp(buf, "bool") == 0) return TTYPE;
             if(strcmp(buf, "uint64") == 0) return TTYPE;
