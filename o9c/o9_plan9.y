@@ -1202,9 +1202,12 @@ gen_stmt(Node *c, Node *s)
                     print("\tmemset(__%s, 0, sizeof(%s_Internal));\n", s->name, cn);
                     print("\t__%s->dispatch_chan = chancreate(sizeof(void*), 10);\n", s->name);
                     print("\t%s_Client %s;\n", cn, s->name);
+                    print("\to9_AsmTable %s_tbl;\n", s->name);
                     print("\tmemset(&%s, 0, sizeof(%s_Client));\n", s->name, cn);
+                    print("\tmemset(&%s_tbl, 0, sizeof(o9_AsmTable));\n", s->name);
                     print("\t%s.shm_base = __%s;\n", s->name, s->name);
                     print("\t%s.dispatch_chan = __%s->dispatch_chan;\n", s->name, s->name);
+                    print("\t%s.table = &%s_tbl;\n", s->name, s->name);
                     print("\t__%s->distance = -1;\n", s->name);
                     print("\t%s.distance = -1;\n", s->name);
                     if(find_class(cn)){
