@@ -387,6 +387,26 @@ o9_dict_has(O9Dict *d, char *key)
 }
 
 /*
+ * o9_dict_deserialize — parse "key:val\nkey:val\n" into dict.
+ * Merges with existing dict (replaces keys, keeps non-conflicting).
+ */
+void
+o9_dict_deserialize(O9Dict *d, char *buf)
+{
+	char *l, *next, *p;
+	if(d == nil || buf == nil) return;
+	for(l = buf; *l; l = next){
+		next = strchr(l, '\n');
+		if(next) *next++ = '\0';
+		else next = l + strlen(l);
+		p = strchr(l, ':');
+		if(p == nil) continue;
+		*p++ = '\0';
+		o9_dict_set(d, l, p);
+	}
+}
+
+/*
  * o9_dict_serialize — produce "key:val\nkey:val\n" string.
  * Caller must free the result.
  */

@@ -104,6 +104,7 @@ extern char*  o9_dict_get(O9Dict *d, char *key);
 extern void   o9_dict_set(O9Dict *d, char *key, char *val);
 extern int    o9_dict_has(O9Dict *d, char *key);
 extern char*  o9_dict_serialize(O9Dict *d);
+extern void   o9_dict_deserialize(O9Dict *d, char *buf);
 extern void   o9_dict_init(O9Dict *d);
 extern void   o9_dict_free(O9Dict *d);
 

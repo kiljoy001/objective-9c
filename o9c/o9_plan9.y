@@ -1199,7 +1199,10 @@ gen_stmt(Node *c, Node *s)
                     Node *m;
                     for(m = cnode->left; m; m = m->next){
                         if(m->type == NProp || m->type == NState || m->type == NAtomic){
-                            print("\t__%s->%s = 0;\n", s->name, m->name);
+                            if(m->typename && strncmp(m->typename, "Dict:", 5) == 0)
+                                print("\to9_dict_init(&__%s->%s);\n", s->name, m->name);
+                            else
+                                print("\t__%s->%s = 0;\n", s->name, m->name);
                         }
                     }
                 }
@@ -1395,13 +1398,19 @@ gen_prop_handlers(Node *c)
         }
         if(m->type == NProp){
             char *t = map_type(m->typename);
-            print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
-            if(strcmp(type_fmt(t), "%s") == 0){
-                /* String property */
-                print("\t\treadstr(r, s->%s ? s->%s : \"\");\n", m->name, m->name);
+            if(strcmp(t, "O9Dict") == 0){
+                /* Dict property: serialize to buf */
+                print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
+                print("\t\tchar *__s = o9_dict_serialize(&s->%s); snprint(buf, sizeof buf, \"%%s\", __s); readstr(r, buf); free(__s);\n", m->name);
             } else {
-                print("\t\tsnprint(buf, sizeof buf, \"%s\\n\", (vlong)s->%s);\n", type_fmt(t), m->name);
-                print("\t\treadstr(r, buf);\n");
+                print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
+                if(strcmp(type_fmt(t), "%s") == 0){
+                    /* String property */
+                    print("\t\treadstr(r, s->%s ? s->%s : \"\");\n", m->name, m->name);
+                } else {
+                    print("\t\tsnprint(buf, sizeof buf, \"%s\\n\", (vlong)s->%s);\n", type_fmt(t), m->name);
+                    print("\t\treadstr(r, buf);\n");
+                }
             }
             print("\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
         }
@@ -1420,13 +1429,19 @@ gen_write_handlers(Node *c)
         }
         if(m->type == NProp){
             char *t = map_type(m->typename);
-            print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
-            if(strcmp(type_fmt(t), "%s") == 0){
-                /* String property */
-                print("\t\tfree(s->%s);\n", m->name);
-                print("\t\ts->%s = strdup(r->ifcall.data);\n", m->name);
+            if(strcmp(t, "O9Dict") == 0){
+                /* Dict property: deserialize from write data */
+                print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
+                print("\t\to9_dict_deserialize(&s->%s, r->ifcall.data);\n", m->name);
             } else {
-                print("\t\ts->%s = (%s)strtoll(r->ifcall.data, nil, 0);\n", m->name, type_cast(t));
+                print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
+                if(strcmp(type_fmt(t), "%s") == 0){
+                    /* String property */
+                    print("\t\tfree(s->%s);\n", m->name);
+                    print("\t\ts->%s = strdup(r->ifcall.data);\n", m->name);
+                } else {
+                    print("\t\ts->%s = (%s)strtoll(r->ifcall.data, nil, 0);\n", m->name, type_cast(t));
+                }
             }
             print("\t\tr->ofcall.count = r->ifcall.count;\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
         }
@@ -1606,7 +1621,11 @@ gen_class_server(Node *c)
             char *t = map_type(m->typename);
             char *fmt = type_fmt(t);
             char *cast = type_cast(t);
-            if(strcmp(fmt, "%s") == 0) {
+            if(strcmp(t, "O9Dict") == 0){
+                /* Dict property: serialize */
+                print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
+                print("\t\tchar *__s = o9_dict_serialize(&inst->%s); snprint(buf, sizeof buf, \"%%s\", __s); readstr(r, buf); free(__s); respond(r, nil); return;\n\t}\n", m->name);
+            } else if(strcmp(fmt, "%s") == 0) {
                 print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
                 print("\t\tsnprint(buf, sizeof buf, \"%%s\\n\", inst->%s ? inst->%s : \"\");\n", m->name, m->name);
                 print("\t\treadstr(r, buf); respond(r, nil); return;\n\t}\n");
@@ -1654,7 +1673,12 @@ gen_class_server(Node *c)
     for(m = c->left; m; m = m->next){
         if(m->type == NProp || m->type == NAtomic){
             char *t = map_type(m->typename);
-            if(strcmp(type_fmt(t), "%s") == 0) {
+            if(strcmp(t, "O9Dict") == 0) {
+                /* Dict property: deserialize */
+                print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
+                print("\t\to9_dict_deserialize(&inst->%s, r->ifcall.data);\n", m->name);
+                print("\t\tr->ofcall.count = r->ifcall.count;\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
+            } else if(strcmp(type_fmt(t), "%s") == 0) {
                 print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
                 print("\t\tfree(inst->%s);\n", m->name);
                 print("\t\tinst->%s = strdup(r->ifcall.data);\n", m->name);
