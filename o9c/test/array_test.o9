@@ -2,12 +2,9 @@
 class ArrayHolder {
     int64[] items;
     string[] names;
-    method ArrayHolder() {
-        items = nil;
-        names = nil;
-    }
 }
 
 func main() {
+    ArrayHolder h = new ArrayHolder();
     print("array_test: OK\n");
 }
