@@ -6,27 +6,10 @@ git/pull >[2]/dev/null
 echo '=== Removing from disk ==='
 rm -f \
 	'|-' '|TCHANRECV|TCHANSEND|TCHANTRY' \
-	p *.6 *.o y.tab.c y.tab.h \
-	arc_ledger_bench.c compare_bench.c counter_srv.c \
-	test_asm.c test_asm_client.c test_e2e.c o9_bench.c \
-	o9pkg.c o9pkg.go test_main.c test_main.o test_mixed.c test_mixed.o \
-	o9_runtime.o o9_dispatch.s go.mod go.sum out.6 \
-	DESTRUCTOR_CHANGES.md LANGUAGE_GUIDE.md O9_SPEC.md
-rm -rf grid_src
-rm -f o9c/o9c o9c/o9c_plan9 o9c/o9_test o9c/y.tab.*
-rm -f o9c/o9_dispatch.6 o9c/o9_runtime.6
-rm -f o9c/counter_srv.c o9c/o9.l o9c/o9_plan9.l
-rm -f o9c/apply_arc.py o9c/arc_replacement.txt o9c/patch_dispatch.py
-rm -f o9c/run_pipeline.rc o9c/test_local.c o9c/test_logic.c
-rm -f o9c/out.c o9c/out.6 o9c/o9c_test.go
-rm -f o9c/test/e2e_test.c o9c/test/full_test.c o9c/test/integration.c
-rm -f o9c/test/gen_pipeline.c o9c/test/o9_asm_test.c
-rm -f o9c/test/pbt_ledger o9c/test/pbt_ledger.c o9c/test/pbt_ledger.o
-rm -f o9c/test/pipeline_generated.c o9c/test/pipeline_src.o9
-rm -f o9c/test/run_pipeline.rc o9c/test/test_pipeline.rc
-rm -f o9c/test/gap-analysis.md o9c/test/out.c
-rm -f libo9.a lat_test o9_test array_test lat.c dout.c at.c
-echo '=== Listing remaining files ==='
+	p *.6 *.o y.tab.c y.tab.h out.c \
+	o9c/t.c o9c/test_chan.o9 o9c/test_part.o9 \
+	o9c/build_array_test.rc o9c/build_local_array_test.rc
+echo '=== Listing root ==='
 ls
 echo '=== Listing o9c/ ==='
 ls o9c
