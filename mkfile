@@ -40,6 +40,7 @@ default:V:
 # === install ===
 install:V: o9c libo9.a
 	cp o9c/o9c /$objtype/bin/o9c
+	cp o9c/o9c /bin/o9c
 	cp o9_dispatch.s /sys/src/cmd/o9_dispatch.s
 	cp o9_runtime.c /sys/src/cmd/o9_runtime.c
 	cp o9.h /sys/include/o9.h
