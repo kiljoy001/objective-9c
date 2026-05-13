@@ -195,7 +195,7 @@ obj9_msgSend(void *receiver, char *method, ulong selector, void *args)
         n = read(obj->fd, buf, sizeof(buf));
         if(n < 4 || buf[4] != 113) goto skip;
 
-        /* Twrite — triggers CSP dispatch on the server side */
+        /* Twrite with args */
         {
             char astr[64];
             int m = snprint(astr, sizeof(astr), "%lld", args ? *(vlong*)args : 0);
@@ -209,7 +209,6 @@ obj9_msgSend(void *receiver, char *method, ulong selector, void *args)
             PUT4(buf, 19+m);
             write(obj->fd, buf, 19+m);
             n = read(obj->fd, buf, sizeof(buf));
-            /* response is Rwrite — method side-effect is done */
         }
 
         /* Tread — read back return value for non-void methods */
@@ -218,18 +217,19 @@ obj9_msgSend(void *receiver, char *method, ulong selector, void *args)
             PUT4(buf, 0);
             buf[4] = 116; /* Tread */
             buf[5] = 0; buf[6] = 0;
-            PUT4(buf+7, obj->fd); /* use the same fid — method file has reply stored */
-            PUT4(buf+11, 0); /* offset */
-            PUT4(buf+15, sizeof(rbuf)-1); /* count */
+            PUT4(buf+7, obj->fd);
+            PUT4(buf+11, 0);
+            PUT4(buf+15, sizeof(rbuf)-1);
             PUT4(buf, 19);
             write(obj->fd, buf, 19);
             n = read(obj->fd, buf, sizeof(buf));
-            if(n >= 4 && buf[4] == 117){ /* Rread */
+            if(n >= 4 && buf[4] == 117){
                 u32int cnt = buf[7] | (buf[8]<<8) | (buf[9]<<16) | (buf[10]<<24);
                 if(cnt > 0 && n >= 11+(int)cnt){
                     static vlong retval;
                     buf[11+cnt] = '\0';
                     retval = strtoll((char*)(buf+11), nil, 0);
+                    close(obj->fd);
                     return &retval;
                 }
             }
@@ -241,8 +241,8 @@ skip:
     return nil;
 }
 
-static long
-o9_atomic_inc(long *p)
+/*
+ * obj9_msgSend_name — remote 9P dispatch over fd.
  * Walks to the method file, writes args, reads result.
  * Used when distance >= 0 (no dispatch_chan).
  */
