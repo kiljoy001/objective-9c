@@ -1762,7 +1762,7 @@ codegen(Node *root)
     Node *n;
     
     print("/* Generated o9 Source */\n");
-    print("#include <u.h>\n#include <libc.h>\n#include <thread.h>\n#include <fcall.h>\n#include <9p.h>\n#include \"o9.h\"\n\n");
+    print("#include <u.h>\n#include <libc.h>\n#include <thread.h>\n#include <fcall.h>\n#include <9p.h>\n#include <o9.h>\n\n");
     print("#ifndef _O9_COMMON_\n#define _O9_COMMON_\n");
     print("#define o9_offsetof(s, m) (long)(&(((s*)0)->m))\n");
     print("vlong o9_call_args[64];\n");

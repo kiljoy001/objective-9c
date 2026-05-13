@@ -1,0 +1,15 @@
+# sys/src/cmd/o9/mkfile — build libo9.a from runtime sources
+# Run after: mk install in o9c/  (which installs headers + asm)
+</$objtype/mkfile
+
+TARG=libo9.a
+OFILES=\
+	o9_dispatch.$O\
+	o9_runtime.$O\
+
+</sys/src/cmd/mkone
+</sys/src/cmd/mkfile
+
+install:V: $TARG
+	cp $TARG /$objtype/lib/$TARG
+	@ echo 'libo9.a installed to /'$objtype'/lib/libo9.a'

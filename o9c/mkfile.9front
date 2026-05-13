@@ -1,3 +1,6 @@
+# o9c/mkfile — build just the o9c compiler
+# For full toolchain (including libo9.a), use mk in parent dir.
+
 </$objtype/mkfile
 
 TARG=o9c
@@ -9,7 +12,7 @@ HFILES=node.h
 y.tab.h y.tab.c: o9_plan9.y
 	yacc -d o9_plan9.y
 
-$TARG:	$OFILES
+$TARG:V:	$OFILES
 	$LD -o $target $prereq
 
 %.$O:	%.c
@@ -17,6 +20,7 @@ $TARG:	$OFILES
 
 install:V: $TARG
 	cp $TARG /$objtype/bin/$TARG
+	@ echo 'o9c installed to /'$objtype'/bin/o9c'
 
 clean:V:
 	rm -f *.[$O] y.tab.[ch] lex.yy.c $TARG
