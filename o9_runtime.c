@@ -329,6 +329,10 @@ o9_clunk(int fd)
 	close(fd);
 }
 
+/*
+ * o9_connect — dial and 9P handshake
+ * addr can be "il!host!service", "tcp!host!port", or "/srv/name" (Unix)
+ */
 int
 o9_connect(void *client, char *addr, char *srvname)
 {
@@ -337,8 +341,14 @@ o9_connect(void *client, char *addr, char *srvname)
 	uchar rbuf[256];
 	int fd, n, msize;
 
-	/* Dial the address (il!host!service or tcp!host!port) */
-	fd = dial(addr, nil, nil, nil);
+	if(addr == nil) return -1;
+
+	/* Local /srv/ path uses open(), otherwise dial() */
+	if(addr[0] == '/'){
+		fd = open(addr, ORDWR);
+	} else {
+		fd = dial(addr, nil, nil, nil);
+	}
 	if(fd < 0) return -1;
 
 	strncpy(buf, addr, sizeof(buf)-1);
