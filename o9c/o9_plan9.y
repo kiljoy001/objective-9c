@@ -1770,6 +1770,7 @@ codegen(Node *root)
     }
     Node *main_func = nil;
     Node *last = nil;
+    int has_remote_new = 0;  /* set if func main() uses new near/far */
     for(n = root; n; n = n->next){
         if(n->type == NClass) {
             gen_class_server(n);
@@ -1777,11 +1778,20 @@ codegen(Node *root)
         }
         if(n->type == NMethod && strcmp(n->name, "main") == 0){
             main_func = n;
+            /* Check if any statement in main uses new near/far */
+            Node *st;
+            for(st = main_func->left; st; st = st->next){
+                if(st->type == NLocalVar && st->left && st->left->type == NClass
+                   && st->left->typename
+                   && (strcmp(st->left->typename, "near") == 0
+                       || strcmp(st->left->typename, "far") == 0))
+                    has_remote_new = 1;
+            }
         }
     }
     print("void\nthreadmain(int argc, char **argv)\n{\n");
     print("\tUSED(argc); USED(argv);\n");
-    if(last){
+    if(last && !has_remote_new){
         print("\to9_main_%s(argc, argv);\n", last->name);
     }
     if(main_func){
