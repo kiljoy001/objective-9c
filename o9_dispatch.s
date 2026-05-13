@@ -1,11 +1,21 @@
 /*
- * Full o9_dispatch with both data and ctrl paths.
- * Tested step by step on 9front.
+ * Plan 9 6a asm dispatch with nil-table protection.
+ * Calling convention (Pike manual):
+ *   BP = first arg (client)
+ *   8(SP) = reserved (copy of BP)
+ *   16(SP) = second arg (hash)
+ *   24(SP) = third arg (args — calls only)
+ *
+ * ulong is 32-bit even on amd64. Use MOVL then MOVLQZX.
  */
+ 
+/* int o9_dispatch_data(void *client, ulong hash) */
 TEXT	o9_dispatch_data(SB), $0
 	MOVQ	BP, BX
-	MOVQ	16(BX), SI
-	MOVL	16(SP), AX
+	MOVQ	16(BX), SI		/* SI = client->table */
+	TESTQ	SI, SI
+	JZ	fail_data		/* nil table -> fail (CSP fallback handles it) */
+	MOVL	16(SP), AX		/* AX = hash */
 	MOVL	AX, CX
 	ANDL	$63, CX
 	SHLQ	$4, CX
@@ -22,6 +32,8 @@ miss_data:
 	CALL	o9_cache_fill(SB)
 	MOVQ	16(BX), SI
 	MOVL	8(SP), AX
+	TESTQ	SI, SI
+	JZ	fail_data
 	MOVLQZX	AX, DI
 	MOVL	AX, CX
 	ANDL	$63, CX
@@ -35,10 +47,13 @@ fail_data:
 	XORL	AX, AX
 	RET
 
+/* int o9_dispatch_call(void *client, ulong hash, void *args) */
 TEXT	o9_dispatch_call(SB), $0
-	MOVQ	BP, BX
+	MOVQ	BP, BX			/* BX = client */
+	MOVQ	16(BX), SI		/* SI = client->table */
+	TESTQ	SI, SI
+	JZ	fail_call		/* nil table -> fail */
 	MOVQ	24(SP), DI		/* DI = args */
-	MOVQ	16(BX), SI		/* SI = table */
 	MOVL	16(SP), AX		/* AX = hash */
 	MOVL	AX, CX
 	ANDL	$63, CX
@@ -62,6 +77,8 @@ miss_call:
 	CALL	o9_cache_fill(SB)
 	MOVQ	16(BX), SI
 	MOVL	8(SP), AX
+	TESTQ	SI, SI
+	JZ	fail_call
 	MOVLQZX	AX, DX
 	MOVL	AX, CX
 	ANDL	$63, CX
