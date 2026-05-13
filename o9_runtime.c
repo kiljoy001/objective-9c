@@ -164,25 +164,37 @@ obj9_msgSend(void *receiver, char *method, ulong selector, void *args)
 
     /* Fall through to remote 9P dispatch if connected */
     if(obj->fd >= 0 && method != nil && obj->distance >= 0){
-        /* Inline 9P dispatch using method name */
         uchar buf[64];
-        char wbuf[64];
         int n;
+        char mpath[128], *ep, *parts[4];
+        int nparts = 0, pi;
 
-        /* Twalk to method */
-        buf[0] = 0; buf[1] = 0; buf[2] = 0; buf[3] = 0;
-        buf[4] = 110;
-        buf[5] = 0; buf[6] = 0;
-        PUT4(buf+7, obj->fd);
-        PUT4(buf+11, obj->fd);
-        n = strlen(method);
-        PUT2(buf+15, 1);
-        buf[17] = n; buf[18] = 0;
-        memmove(buf+19, method, n);
-        PUT4(buf, 19+n);
-        write(obj->fd, buf, 19+n);
-        n = read(obj->fd, buf, sizeof(buf));
-        if(n < 4 || buf[4] != 111) goto skip;
+        /* Parse method path: "inst/method" -> walk "inst" then "method" */
+        strncpy(mpath, method, sizeof(mpath)-1);
+        ep = mpath;
+        for(pi = 0; pi < 4 && ep && *ep; pi++){
+            parts[pi] = ep;
+            ep = strchr(ep, '/');
+            if(ep) *ep++ = '\0';
+            nparts = pi + 1;
+        }
+
+        /* Twalk — walk each path element */
+        for(pi = 0; pi < nparts; pi++){
+            PUT4(buf, 0);
+            buf[4] = 110; /* Twalk */
+            buf[5] = 0; buf[6] = 0;
+            PUT4(buf+7, obj->fd);
+            PUT4(buf+11, obj->fd); /* newfid = same fid */
+            PUT2(buf+15, 1); /* nwname = 1 */
+            n = strlen(parts[pi]);
+            buf[17] = n; buf[18] = 0;
+            memmove(buf+19, parts[pi], n);
+            PUT4(buf, 19+n);
+            write(obj->fd, buf, 19+n);
+            if(read(obj->fd, buf, sizeof(buf)) < 4 || buf[4] != 111)
+                goto skip;
+        }
 
         /* Topen OWRITE */
         PUT4(buf, 0);

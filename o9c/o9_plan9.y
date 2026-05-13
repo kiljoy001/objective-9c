@@ -973,9 +973,16 @@ gen_expr(Node *e)
             print(", (vlong)o9_dispatch_call(&");
             gen_expr(e->left);
             print(", 0x%lux, o9_call_args) || ", o9_hash(e->name));
-            print("(vlong)obj9_msgSend(&");
-            gen_expr(e->left);
-            print(", \"%s\", 0x%lux, o9_call_args+1))", e->name, o9_hash(e->name));
+            if(e->left && e->left->type == NIdent){
+                /* Remote 9P path walks to "varname/methodname" in the instance tree */
+                print("(vlong)obj9_msgSend(&");
+                gen_expr(e->left);
+                print(", \"%s/%s\", 0x%lux, o9_call_args+1))", e->left->name, e->name, o9_hash(e->name));
+            } else {
+                print("(vlong)obj9_msgSend(&");
+                gen_expr(e->left);
+                print(", \"%s\", 0x%lux, o9_call_args+1))", e->name, o9_hash(e->name));
+            }
         }
         break;
     case NPropRead:
