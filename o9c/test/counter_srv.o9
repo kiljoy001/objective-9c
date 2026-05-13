@@ -1,7 +1,12 @@
-/* Counter class for remote server — no main, just the class */
+/* Counter server — standalone 9P fileserver */
 class Counter {
     int64 val;
     method Counter(int64 n) { val = n; }
     method void inc(int64 n) { val = val + n; }
     method int64 get() { return val; }
+}
+
+func main() {
+    Counter c = new Counter(0);
+    while(true) { }
 }
