@@ -1,4 +1,4 @@
-/* Counter server — standalone 9P fileserver */
+/* Counter server — standalone 9P fileserver, runs forever */
 class Counter {
     int64 val;
     method Counter(int64 n) { val = n; }
