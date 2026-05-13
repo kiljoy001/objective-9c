@@ -1,4 +1,4 @@
-/* Counter client — call remote counter via /srv/Counter socket */
+/* Counter client — call remote counter via IL loopback */
 class Counter {
     int64 val;
     method Counter(int64 n) { val = n; }
@@ -7,7 +7,7 @@ class Counter {
 }
 
 func main() {
-    Counter c = new near Counter("/srv/Counter", 42);
+    Counter c = new near Counter("il!localhost!Counter", 42);
     c.inc(5);
     print(c.get());
     print("\n");

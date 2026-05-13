@@ -355,12 +355,7 @@ o9_connect(void *client, char *addr, char *srvname)
 
 	if(addr == nil) return -1;
 
-	/* Local /srv/ path uses open(), otherwise dial() */
-	if(addr[0] == '/'){
-		fd = open(addr, ORDWR);
-	} else {
-		fd = dial(addr, nil, nil, nil);
-	}
+	fd = dial(addr, nil, nil, nil);
 	if(fd < 0) return -1;
 
 	strncpy(buf, addr, sizeof(buf)-1);
