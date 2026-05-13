@@ -1,0 +1,18 @@
+#!/bin/rc
+# build_client.rc — build and run client that calls remote counter via local /srv/Counter
+cd /tmp/o9
+git/pull >[2]/dev/null
+6a o9_dispatch.s >[2]/dev/null
+6c -FVw o9_runtime.c >[2]/dev/null
+6c -FVw o9_dispatch.c >[2]/dev/null
+ar r libo9.a o9_runtime.6 o9_dispatch.6 >[2]/dev/null
+cd o9c
+rm -f y.tab.* o9c
+yacc -d o9_plan9.y >[2]/dev/null
+6c -o y.tab.6 y.tab.c >[2]/dev/null
+6l -o o9c y.tab.6 >[2]/dev/null
+./o9c < test/counter_client.o9 2> /tmp/o9/cli.c
+cd /tmp/o9
+6c -FVw -o cli.6 cli.c >[2]/dev/null
+6l -o counter_cli cli.6 libo9.a >[2]/dev/null
+echo 'CLIENTBUILT'

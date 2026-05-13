@@ -1,0 +1,7 @@
+/* Counter client — call remote counter via IL */
+func main() {
+    Counter c = new near Counter("il!localhost!Counter", 42);
+    c.inc(5);
+    print(c.get());
+    print("\n");
+}
