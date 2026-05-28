@@ -21,13 +21,13 @@
 static long
 o9_atomic_inc(long *p)
 {
-	return ainc(p);
+	return __sync_add_and_fetch(p, 1);
 }
 
 static long
 o9_atomic_dec(long *p)
 {
-	return adec(p);
+	return __sync_sub_and_fetch(p, 1);
 }
 
 void o9_cache_fill(void *client, ulong hash, int is_ctrl);
@@ -98,7 +98,7 @@ o9_init_client(void *client, char *srvname, int size)
 
 	/* Map shared memory segment — server creates as o9/<classname> */
 	snprint(tag, sizeof tag, "o9/%s", srvname);
-	obj->shm_base = segattach(0, nil, tag, 0);
+	obj->shm_base = nil; /* segattach not available on Linux */
 	if(obj->shm_base == (void*)-1)
 		obj->shm_base = nil;	/* fall back to CSP-only dispatch */
 

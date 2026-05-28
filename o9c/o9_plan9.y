@@ -60,7 +60,9 @@ enum {
     NFuncCall,
     NFor,
     NArrayGet,
-    NArraySet
+    NArraySet,
+    NInterface,
+    NImport
 };
 
 struct Node {
@@ -206,7 +208,7 @@ get_sym_type(Node *c, char *name)
 
 %token <node> TIDENT TTYPE
 %token <name> TINTLIT TSTRINGLIT TCHARLIT
-%token TCLASS TFUNC TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TNIL
+%token TCLASS TINTERFACE TIMPORT TFUNC TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TNIL
 %token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TTRUE TFALSE TARROW
 %token TEQ TADD TSUB TCHANSEND TCHANRECV TCHANTRY TEQEQ TNEQ TLE TGE
 %token TAND TOR TLSHIFT TRSHIFT TFORSEMI
@@ -227,7 +229,7 @@ get_sym_type(Node *c, char *name)
 %right '!' '~' UMINUS
 %left '.' '['
  
-%type <node> program top_levels top_level class_decl member_list member var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename param_list param call_args call_arg func_top_level for_init for_cond for_step else_clause
+%type <node> program top_levels top_level class_decl interface_decl import_decl member_list member var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename param_list param call_args call_arg func_top_level for_init for_cond for_step else_clause
 
 %start program
 
@@ -255,7 +257,16 @@ top_levels:
 
 top_level:
     class_decl
+    | interface_decl
+    | import_decl
     | func_top_level
+    ;
+
+import_decl:
+    TIMPORT TSTRINGLIT ';'
+    {
+        $$ = mk(NImport, $2, nil, nil, nil);
+    }
     ;
 
 func_top_level:
@@ -269,6 +280,14 @@ class_decl:
     TCLASS TIDENT '{' member_list '}'
     {
         $$ = mk(NClass, $2->name, nil, $4, nil);
+        add_class($2->name, $$);
+    }
+    ;
+
+interface_decl:
+    TINTERFACE TIDENT '{' member_list '}'
+    {
+        $$ = mk(NInterface, $2->name, nil, $4, nil);
         add_class($2->name, $$);
     }
     ;
@@ -364,6 +383,10 @@ method_decl:
         Node *body = mk(NReturn, nil, nil, $8, nil);
         $$ = mk(NMethod, $3->name, $2->name, body, $5);
     }
+    | TMETHOD typename TIDENT '(' param_list ')' ';'
+    {
+        $$ = mk(NMethod, $3->name, $2->name, nil, $5);
+    }
     | TMETHOD TIDENT '(' param_list ')' '{' stmt_list '}'
     {
         $$ = mk(NMethod, $2->name, "void", $7, $4);
@@ -372,6 +395,10 @@ method_decl:
     {
         Node *body = mk(NReturn, nil, nil, $7, nil);
         $$ = mk(NMethod, $2->name, "void", body, $4);
+    }
+    | TMETHOD TIDENT '(' param_list ')' ';'
+    {
+        $$ = mk(NMethod, $2->name, "void", nil, $4);
     }
     ;
 
@@ -614,7 +641,10 @@ yyerror(char *s)
 static char *input_buf;
 static int input_pos;
 static int input_len;
-static int in_prescan;		/* 1 during prescan phase, 0 during parse */
+static int in_prescan;              /* 1 during prescan phase, 0 during parse */
+char *loaded_files[64];
+int num_loaded_files = 0;
+
 static int for_paren_depth = -1;	/* >=0 when inside for(...) — ';' returns TFORSEMI */
 static int pushback[8];		/* multi-char pushback buffer */
 static int npush = 0;
@@ -787,6 +817,8 @@ yylex(void)
             yylval.node = mk(NIdent, buf, nil, nil, nil);
             
             if(strcmp(buf, "class") == 0) return TCLASS;
+            if(strcmp(buf, "interface") == 0) return TINTERFACE;
+            if(strcmp(buf, "import") == 0) return TIMPORT;
             if(strcmp(buf, "func") == 0) return TFUNC;
             if(strcmp(buf, "new") == 0) return TNEW;
             if(strcmp(buf, "near") == 0) return TNEAR;
@@ -1068,9 +1100,23 @@ gen_expr(Node *e)
         print("~"); gen_expr(e->left);
         break;
     case NNeg:
-        print("-"); gen_expr(e->left);
+        print("-"); gen_expr(s->left);
+        break;
+    case NPropRead:
+        if(s->left && s->left->type == NIdent && s->left->name != nil){
+            char *cname = get_var_class(s->left->name);
+            if(cname != nil && find_class(cname)){
+                print("(*(%s*)o9_dispatch_data((o9_Object*)&", map_type(get_sym_type(find_class(cname), s->name)));
+                gen_expr(s->left);
+                print(", 0x%lux))", o9_hash(s->name));
+                break;
+            }
+        }
+        /* Fallback if type resolution fails */
+        gen_expr(s->left); print(".%s", s->name);
         break;
     case NFuncCall:
+
         /* Built-in functions like print(...) */
         if(strcmp(e->name, "print") == 0){
             /* Emit fprint(1, "fmt", args...) */
@@ -1378,7 +1424,8 @@ void
 gen_class_header(Node *c)
 {
     Node *m;
-    print("/* Generated Client Header for class %s */\n", c->name);
+    if(c == nil) return;
+    print("/* Generated Client Header for %s %s */\n", c->type == NInterface ? "interface" : "class", c->name);
     print("#ifndef _O9_GEN_%s_H_\n#define _O9_GEN_%s_H_\n\n", c->name, c->name);
     print("typedef struct %s_AsmTable {\n\tvoid *data_cache[64];\n\tvoid (*ctrl_cache[64])(void*);\n} %s_AsmTable;\n\n", c->name, c->name);
     print("typedef struct %s_Client {\n\tint fd;\n\tvoid *shm_base;\n\to9_AsmTable *table;\n\tlong ref;\t/* ARC Counter */\n\tvoid *dispatch_chan;\n\tint distance;\t/* -1=same, 0=near/IL, 1=far/TCP */\n", c->name);
@@ -1481,6 +1528,51 @@ gen_prop_create(Node *c)
     }
 }
 
+
+static ulong emitted_hashes[1024];
+static int num_emitted = 0;
+
+void gen_dispatch_cases(Node *c, char *childname) {
+    Node *m;
+    if(c == nil) return;
+    for(m = c->left; m; m = m->next){
+        if(m->type == NMethod) {
+            ulong h = o9_hash(m->name);
+            int i, found = 0;
+            for(i=0; i<num_emitted; i++) { if(emitted_hashes[i] == h) { found = 1; break; } }
+            if(!found) {
+                print("\t\tcase 0x%lux: o9_impl_%s_%s((%s_Internal*)self, m); break;\n", h, c->name, m->name, c->name);
+                emitted_hashes[num_emitted++] = h;
+            }
+        }
+    }
+    for(m = c->left; m; m = m->next){
+        if(m->type == NInherit) {
+            Node *p = find_class(m->name);
+            if(p) gen_dispatch_cases(p, childname);
+        }
+    }
+}
+
+void gen_cleanup_props(Node *c, char *childname) {
+    Node *m;
+    if(c == nil) return;
+    for(m = c->left; m; m = m->next){
+        if(m->type == NInherit) {
+            Node *p = find_class(m->name);
+            if(p) gen_cleanup_props(p, childname);
+        }
+        if(m->type == NProp || m->type == NState) {
+            char *t = map_type(m->typename);
+            if(strcmp(t, "char*") == 0) {
+                print("\tfree(((%s_Internal*)self)->%s);\n", childname, m->name);
+            } else if(strcmp(t, "O9Dict") == 0) {
+                print("\to9_dict_free(&((%s_Internal*)self)->%s);\n", childname, m->name);
+            }
+        }
+    }
+}
+
 void
 gen_class_server(Node *c)
 {
@@ -1565,6 +1657,7 @@ gen_class_server(Node *c)
     if (has_destruct) {
         print("\to9_destruct_%s(self);\n", c->name);
     }
+    gen_cleanup_props(c, c->name);
     print("\tchanfree(self->dispatch_chan);\n");
     print("\tfree(self);\n");
     print("}\n\n");
@@ -1596,10 +1689,8 @@ gen_class_server(Node *c)
     print("\t%s_Internal *self = v;\n\tO9Msg *m;\n", c->name);
     print("\tfor(;;){\n\t\tm = recvp(self->dispatch_chan);\n\t\tif(m == nil) continue;\n");
     print("\t\tswitch(m->sel){\n");
-    for(m = c->left; m; m = m->next){
-        if(m->type == NMethod)
-            print("\t\tcase 0x%lux: o9_impl_%s_%s(self, m); break;\n", o9_hash(m->name), c->name, m->name);
-    }
+    num_emitted = 0;
+    gen_dispatch_cases(c, c->name);
     print("\t\tcase 0x%lux: o9_cleanup_%s(self); threadexits(nil); break;\n", o9_hash("destroy"), c->name);
     print("\t\tdefault: { O9Reply *r = mallocz(sizeof(O9Reply), 1); r->err = \"bad selector\"; sendp(m->replyc, r); } break;\n");
     print("\t\t}\n\t}\n}\n\n");
@@ -1760,6 +1851,7 @@ void
 codegen(Node *root)
 {
     Node *n;
+    ClassDef *cd;
     
     print("/* Generated o9 Source */\n");
     print("#include <u.h>\n#include <libc.h>\n#include <thread.h>\n#include <fcall.h>\n#include <9p.h>\n#include <o9.h>\n\n");
@@ -1770,10 +1862,9 @@ codegen(Node *root)
     print("typedef struct ArcLedger {\n\tArcEntry entries[64];\n} ArcLedger;\n");
     print("#endif\n\n");
 
-    for(n = root; n; n = n->next){
-        if(n->type == NClass) {
-            gen_class_header(n);
-        }
+    /* 1. Emit headers for ALL known classes/interfaces (local and imported) */
+    for(cd = classes; cd; cd = cd->next){
+        gen_class_header(cd->node);
     }
     Node *main_func = nil;
     Node *last = nil;
@@ -1821,87 +1912,112 @@ codegen(Node *root)
 /* Two-pass parser: prescan registers all type names, then yyparse() resolves them */
 
 static void
-prescan(void)
+scan_buffer(char *buf, long len)
 {
-    int c;
-    int i;
-    char buf[64];
-    input_pos = 0;
-    in_prescan = 1;
-    
-    while(input_pos < input_len){
-        c = (unsigned char)input_buf[input_pos++];
+    long pos = 0;
+    int c, i;
+    char name[64];
+
+    while(pos < len){
+        c = (unsigned char)buf[pos++];
         if(isspace(c) || c == '{' || c == '}' || c == ';' || c == '(' || c == ')')
             continue;
-        /* Skip string literals */
+        /* Skip literals and comments */
         if(c == '"'){
-            while(input_pos < input_len && input_buf[input_pos] != '"')
-                input_pos++;
-            if(input_pos < input_len) input_pos++;
+            while(pos < len && buf[pos] != '"') pos++;
+            if(pos < len) pos++;
             continue;
         }
-        /* Skip char literals */
         if(c == '\''){
-            if(input_pos < input_len && input_buf[input_pos] == '\\')
-                input_pos++;
-            if(input_pos < input_len) input_pos++;
-            if(input_pos < input_len) input_pos++;
+            if(pos < len && buf[pos] == '\\') pos++;
+            if(pos < len) pos++;
+            if(pos < len) pos++;
             continue;
         }
-        /* Skip line comments */
-        if(c == '/' && input_pos < input_len && input_buf[input_pos] == '/'){
-            while(input_pos < input_len && input_buf[input_pos] != '\n')
-                input_pos++;
-            continue;
-        }
-        /* Skip block comments */
-        if(c == '/' && input_pos < input_len && input_buf[input_pos] == '*'){
-            input_pos++; /* skip * */
-            while(input_pos + 1 < input_len && !(input_buf[input_pos] == '*' && input_buf[input_pos+1] == '/')){
-                if(input_buf[input_pos] == '*' && input_pos + 1 < input_len && input_buf[input_pos+1] == '/')
-                    break;
-                input_pos++;
+        if(c == '/' && pos < len){
+            if(buf[pos] == '/'){
+                while(pos < len && buf[pos] != '\n') pos++;
+                continue;
             }
-            if(input_pos + 1 < input_len) input_pos += 2; /* skip */ 
-            continue;
+            if(buf[pos] == '*'){
+                pos++;
+                while(pos + 1 < len && !(buf[pos] == '*' && buf[pos+1] == '/'))
+                    pos++;
+                if(pos + 1 < len) pos += 2;
+                continue;
+            }
         }
-        /* Skip numbers */
-        if(isdigit(c)){
-            if(c == '0' && input_pos < input_len && (input_buf[input_pos] == 'x' || input_buf[input_pos] == 'X'))
-                input_pos++; /* skip x */
-            while(input_pos < input_len && isxdigit((unsigned char)input_buf[input_pos]))
-                input_pos++;
-            continue;
-        }
-        /* Identifiers and keywords */
         if(isalpha(c) || c == '_'){
-            i = 0;
-            buf[i++] = c;
-            while(i < 63 && input_pos < input_len && (isalnum((unsigned char)input_buf[input_pos]) || input_buf[input_pos] == '_'))
-                buf[i++] = input_buf[input_pos++];
-            buf[i] = '\0';
+            i = 0; name[i++] = c;
+            while(i < 63 && pos < len && (isalnum((unsigned char)buf[pos]) || buf[pos] == '_'))
+                name[i++] = buf[pos++];
+            name[i] = '\0';
             
-            if(strcmp(buf, "class") == 0){
-                /* Read next token (should be class name) */
-                while(input_pos < input_len && isspace((unsigned char)input_buf[input_pos]))
-                    input_pos++;
+            if(strcmp(name, "class") == 0 || strcmp(name, "interface") == 0){
+                int is_iface = (name[0] == 'i');
+                while(pos < len && isspace((unsigned char)buf[pos])) pos++;
                 i = 0;
-                while(i < 63 && input_pos < input_len && (isalnum((unsigned char)input_buf[input_pos]) || input_buf[input_pos] == '_'))
-                    buf[i++] = input_buf[input_pos++];
-                buf[i] = '\0';
+                while(i < 63 && pos < len && (isalnum((unsigned char)buf[pos]) || buf[pos] == '_'))
+                    name[i++] = buf[pos++];
+                name[i] = '\0';
                 if(i > 0){
-                    /* Register as a known class */
-                    Node *n = mk(NClass, buf, nil, nil, nil);
-                    add_class(buf, n);
+                    Node *n = mk(is_iface ? NInterface : NClass, name, nil, nil, nil);
+                    add_class(name, n);
+                }
+            } else if(strcmp(name, "import") == 0){
+                while(pos < len && buf[pos] != '"') pos++;
+                if(pos < len){
+                    pos++; /* skip " */
+                    i = 0;
+                    while(i < 63 && pos < len && buf[pos] != '"')
+                        name[i++] = buf[pos++];
+                    name[i] = '\0';
+                    if(pos < len) pos++; /* skip " */
+                    scan_file(name);
                 }
             }
-            continue;
         }
     }
-    /* Reset for parse phase */
-    input_pos = 0;
+}
+
+static void
+scan_file(char *path)
+{
+    int fd;
+    long n, total = 0, cap = 8192;
+    char *buf;
+    int i;
+
+    /* Avoid circular imports */
+    for(i=0; i<num_loaded_files; i++)
+        if(strcmp(loaded_files[i], path) == 0) return;
+    if(num_loaded_files >= 64) return;
+    loaded_files[num_loaded_files++] = strdup(path);
+
+    fd = open(path, OREAD);
+    if(fd < 0) return;
+
+    buf = malloc(cap);
+    while((n = read(fd, buf + total, cap - total)) > 0){
+        total += n;
+        if(total + 1024 >= cap){
+            cap *= 2;
+            buf = realloc(buf, cap);
+        }
+    }
+    close(fd);
+
+    scan_buffer(buf, total);
+}
+
+static void
+prescan(void)
+{
+    in_prescan = 1;
+    num_loaded_files = 0;
+    scan_buffer(input_buf, input_len);
     in_prescan = 0;
-    npush = 0;
+    input_pos = 0;
 }
 
 /* Type checker: walks the AST and validates all member references */
