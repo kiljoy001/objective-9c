@@ -91,10 +91,25 @@ extern vlong  o9_array_get(char *data, vlong idx);
 extern void   o9_array_set(char **data, vlong idx, vlong val);
 extern vlong  o9_array_len(char *data);
 
+/* Slice — lightweight Tier 1 dynamic array */
+typedef struct O9Slice O9Slice;
+struct O9Slice {
+    void *data;
+    vlong len;
+    vlong cap;
+    int elemsize;
+};
+
+extern void   o9_slice_init(O9Slice *s, int elemsize);
+extern void   o9_slice_append(O9Slice *s, void *val);
+extern void*  o9_slice_get(O9Slice *s, vlong idx);
+extern void   o9_slice_set(O9Slice *s, vlong idx, void *val);
+extern void   o9_slice_free(O9Slice *s);
+
 /* Dict operations — chained hash table, serialized as "key:value\n" */
 typedef struct O9DictEntry {
 	char *key;
-	char *val;
+	void *val;		/* generic carrier */
 	struct O9DictEntry *next;
 } O9DictEntry;
 
@@ -102,8 +117,8 @@ typedef struct {
 	O9DictEntry *buckets[64];
 } O9Dict;
 
-extern char*  o9_dict_get(O9Dict *d, char *key);
-extern void   o9_dict_set(O9Dict *d, char *key, char *val);
+extern void*  o9_dict_get(O9Dict *d, char *key);
+extern void   o9_dict_set(O9Dict *d, char *key, void *val);
 extern int    o9_dict_has(O9Dict *d, char *key);
 extern char*  o9_dict_serialize(O9Dict *d);
 extern void   o9_dict_deserialize(O9Dict *d, char *buf);

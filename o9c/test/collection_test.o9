@@ -1,0 +1,34 @@
+struct Point {
+    int64 x;
+    int64 y;
+}
+
+func main() {
+    List<int64> numbers;
+    numbers.Add(10);
+    numbers.Add(20);
+    numbers.Add(30);
+    
+    print("Numbers length: %lld\n", numbers.Length());
+    print("Number at 0: %lld\n", numbers[0]);
+    print("Number at 1: %lld\n", numbers[1]);
+    
+    numbers[1] = 99;
+    print("Number at 1 (updated): %lld\n", numbers[1]);
+    
+    List<Point> points;
+    Point p;
+    p.x = 100;
+    p.y = 200;
+    points.Add(p);
+    
+    print("Point x: %lld, y: %lld\n", points[0].x, points[0].y);
+    
+    dict<string, int64> ages;
+    ages["scott"] = 30;
+    ages["gemini"] = 1;
+    
+    if(ages.Has("scott")) {
+        print("Scott's age: %lld\n", ages["scott"]);
+    }
+}

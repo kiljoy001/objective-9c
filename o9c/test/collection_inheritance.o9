@@ -1,0 +1,20 @@
+class Shape {
+    prop string name;
+}
+
+class Circle {
+    Shape;
+    prop int64 r;
+}
+
+func main() {
+    List<Shape> shapes;
+    Circle c;
+    c = new Circle();
+    c.name = "MyCircle";
+    c.r = 10;
+    
+    shapes.Add(c);
+    
+    print("Shape name: %s\n", shapes[0].name);
+}

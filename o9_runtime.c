@@ -529,6 +529,59 @@ o9_array_len(char *data)
 }
 
 /*
+ * o9_slice_init — initialize slice with element size.
+ */
+void
+o9_slice_init(O9Slice *s, int elemsize)
+{
+	memset(s, 0, sizeof(O9Slice));
+	s->elemsize = elemsize;
+}
+
+/*
+ * o9_slice_append — append value to slice, expanding cap if needed.
+ */
+void
+o9_slice_append(O9Slice *s, void *val)
+{
+	if(s->len >= s->cap){
+		s->cap = s->cap ? s->cap * 2 : 8;
+		s->data = realloc(s->data, s->cap * s->elemsize);
+	}
+	memmove((char*)s->data + (s->len * s->elemsize), val, s->elemsize);
+	s->len++;
+}
+
+/*
+ * o9_slice_get — get pointer to element at idx.
+ */
+void*
+o9_slice_get(O9Slice *s, vlong idx)
+{
+	if(idx < 0 || idx >= s->len) return nil;
+	return (char*)s->data + (idx * s->elemsize);
+}
+
+/*
+ * o9_slice_set — copy value to element at idx.
+ */
+void
+o9_slice_set(O9Slice *s, vlong idx, void *val)
+{
+	if(idx < 0 || idx >= s->len) return;
+	memmove((char*)s->data + (idx * s->elemsize), val, s->elemsize);
+}
+
+/*
+ * o9_slice_free — free slice data.
+ */
+void
+o9_slice_free(O9Slice *s)
+{
+	if(s) free(s->data);
+}
+
+/*
  * o9_dict_init — initialize dict to empty.
  */
 void
@@ -549,7 +602,7 @@ o9_dict_free(O9Dict *d)
 		for(e = d->buckets[i]; e; e = next){
 			next = e->next;
 			free(e->key);
-			free(e->val);
+			/* Note: generic val is NOT freed, caller must manage if it's a pointer */
 			free(e);
 		}
 	}
@@ -568,7 +621,7 @@ o9_dict_hash(char *s)
 /*
  * o9_dict_get — get value for key. Returns nil if not found.
  */
-char*
+void*
 o9_dict_get(O9Dict *d, char *key)
 {
 	O9DictEntry *e;
@@ -583,22 +636,21 @@ o9_dict_get(O9Dict *d, char *key)
  * o9_dict_set — set key=val, replacing existing if present.
  */
 void
-o9_dict_set(O9Dict *d, char *key, char *val)
+o9_dict_set(O9Dict *d, char *key, void *val)
 {
 	ulong h;
 	O9DictEntry *e;
-	if(d == nil || key == nil || val == nil) return;
+	if(d == nil || key == nil) return;
 	h = o9_dict_hash(key);
 	for(e = d->buckets[h]; e; e = e->next){
 		if(strcmp(e->key, key) == 0){
-			free(e->val);
-			e->val = strdup(val);
+			e->val = val;
 			return;
 		}
 	}
 	e = mallocz(sizeof(O9DictEntry), 1);
 	e->key = strdup(key);
-	e->val = strdup(val);
+	e->val = val;
 	e->next = d->buckets[h];
 	d->buckets[h] = e;
 }

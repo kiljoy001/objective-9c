@@ -1,0 +1,2 @@
+struct Point { int64 x; }
+func main() { print("OK\n"); }

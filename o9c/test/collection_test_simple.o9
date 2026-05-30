@@ -1,0 +1,5 @@
+func main() {
+    List<int64> numbers;
+    numbers.Add(10);
+    print("OK\n");
+}

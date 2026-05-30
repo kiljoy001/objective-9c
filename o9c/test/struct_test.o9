@@ -1,0 +1,19 @@
+struct Point {
+    prop int64 x;
+    prop int64 y;
+}
+
+class Window {
+    prop Point p;
+}
+
+func main() {
+    Point pt;
+    pt.x = 10;
+    pt.y = 20;
+    
+    Window w = new Window();
+    w.p = pt;
+    
+    print("struct_test: OK, Point is %lld, %lld\n", w.p.x, w.p.y);
+}

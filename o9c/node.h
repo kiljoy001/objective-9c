@@ -13,7 +13,6 @@ enum {
     NCap,
     NInherit,
     NMethod,
-    NMsgSend,
     NDestructor,
     NIdent,
     NType,
@@ -50,9 +49,17 @@ enum {
     NIf,
     NIfElse,
     NElse,
+    NElseIf,
     NWhile,
     NLocalVar,
-    NMsgSend
+    NMsgSend,
+    NPropRead,
+    NFuncCall,
+    NFor,
+    NArrayGet,
+    NArraySet,
+    NInterface,
+    NImport
 };
 
 struct Node {

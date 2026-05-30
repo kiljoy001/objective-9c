@@ -1,0 +1,33 @@
+class Animal {
+    prop string name;
+    method void speak() { print("...\n"); }
+}
+
+class Dog {
+    Animal;
+    method void speak() { print("Woof!\n"); }
+}
+
+class Cat {
+    Animal;
+    method void speak() { print("Meow!\n"); }
+}
+
+func main() {
+    Animal a;
+    Dog d;
+    Cat c;
+    
+    d = new Dog();
+    d.name = "Rex";
+    
+    a = d; // Valid: Dog is an Animal
+    a.speak(); // Valid
+    
+    c = new Cat();
+    a = c; // Valid: Cat is an Animal
+    
+    d = c; // Error: Cat is not a Dog
+    
+    print("Inheritance test done\n");
+}

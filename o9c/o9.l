@@ -14,6 +14,7 @@ extern Node* mk(int type, char *name, char *typename, Node *l, Node *r);
 "//".*              ;
 
 "class"             { return TCLASS; }
+"struct"            { return TSTRUCT; }
 "interface"         { return TINTERFACE; }
 "import"            { return TIMPORT; }
 "func"              { return TFUNC; }

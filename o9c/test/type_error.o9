@@ -1,0 +1,21 @@
+class Counter {
+    prop int64 val;
+    method int64 get() => val;
+    method void inc(int64 n) { val = val + n; }
+}
+
+func main() {
+    Counter c;
+    c = new Counter();
+    
+    c.inc("hello"); 
+    
+    c.inc(1, 2);
+    
+    int64 x;
+    x = "not a number";
+    
+    c.nonexistent = 0;
+    
+    print("This should not compile\n");
+}
