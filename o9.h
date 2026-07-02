@@ -14,7 +14,7 @@ struct O9Msg {
 
 struct O9Reply {
     int ok;
-    void *ret;
+    uintptr ret;
     char *err;
 };
 
@@ -52,7 +52,7 @@ typedef struct o9_AsmTable {
  *   +24: long ref
  *   +32: void *dispatch_chan  (Channel*)
  * Do NOT reorder the first 5 fields.
- * srvname is appended at the end and is NOT asm-accessible.
+ * srvname/cachepath are appended at the end and are NOT asm-accessible.
  */
 typedef struct o9_Object {
     int fd;
@@ -62,10 +62,17 @@ typedef struct o9_Object {
     void *dispatch_chan;	/* Channel* */
     int  distance;		/* -1=same, 0=near/IL, 1=far/TCP */
     char srvname[64];		/* server name for /srv/ cache walk */
+    char cachepath[128];	/* mounted object cache path */
 } o9_Object;
 
 /* Runtime Functions */
+extern int   o9_ns_app_root(char *buf, int nbuf, char *app);
+extern int   o9_ns_service_name(char *buf, int nbuf, char *app, char *type, char *inst);
+extern int   o9_ns_object_path(char *buf, int nbuf, char *root, char *inst);
+extern int   o9_ns_ensure_dir(char *path);
+extern int   o9_ns_ensure_app(char *root);
 extern int   o9_init_client(void *client, char *srvname, int size);
+extern int   o9_init_client_path(void *client, char *path, char *srvname, int size);
 extern int   o9_connect(void *client, char *addr, char *srvname);
 extern void* o9_dispatch_data(void *client, ulong hash);
 extern void* o9_dispatch_call(void *client, ulong hash, void *args);
@@ -74,17 +81,7 @@ extern void  o9_ledger_update(void *client, ulong id, int delta);
 extern long  o9_ledger_value(void *client, ulong id);
 extern void  o9_clunk(int fd);
 extern void* obj9_msgSend(void *receiver, char *method, ulong selector, void *args);
-
-/* 9P-native Hashing (djb2) */
-static ulong
-o9_hash(char *s)
-{
-    ulong hash = 5381;
-    int c;
-    while ((c = *s++))
-        hash = ((hash << 5) + hash) + c;
-    return hash & 0xFFFFFFFFul;
-}
+extern ulong o9_hash(char *s);
 
 /* Array operations — line-based dynamic arrays (one vlong per line) */
 extern vlong  o9_array_get(char *data, vlong idx);
@@ -124,5 +121,16 @@ extern char*  o9_dict_serialize(O9Dict *d);
 extern void   o9_dict_deserialize(O9Dict *d, char *buf);
 extern void   o9_dict_init(O9Dict *d);
 extern void   o9_dict_free(O9Dict *d);
+
+/* Class state ledger backed by libtab. */
+typedef struct O9State O9State;
+
+extern O9State* o9_state_create(char *classname, char *instname, char **cols, int ncols);
+extern O9State* o9_state_create_path(char *root, char *classname, char *instname, char **cols, int ncols);
+extern void     o9_state_close(O9State *s);
+extern void     o9_state_set(O9State *s, char *col, char *value);
+extern void     o9_state_set_int(O9State *s, char *col, vlong value);
+extern char*    o9_state_get(O9State *s, char *col);
+extern vlong    o9_state_get_int(O9State *s, char *col);
 
 #endif

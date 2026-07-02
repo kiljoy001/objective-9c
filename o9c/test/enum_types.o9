@@ -1,0 +1,23 @@
+module App {
+	enum Color { Red, Green, Blue }
+
+	class Shape {
+		prop Color color;
+		method void set(Color c) { color = c; }
+		method Color get() { return color; }
+	}
+
+	func main() {
+		Color local = Red;
+		Shape s = new Shape();
+		s.color = Green;
+		s.set(local);
+	}
+}
+
+func main() {
+	App.Color selected = App.Red;
+	App.Shape s = new App.Shape();
+	s.color = App.Color.Blue;
+	s.set(selected);
+}

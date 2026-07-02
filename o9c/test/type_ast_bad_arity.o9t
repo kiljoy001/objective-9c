@@ -1,0 +1,5 @@
+class Box<T> {
+	T value;
+}
+
+Box<int64,string>;

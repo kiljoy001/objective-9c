@@ -62,14 +62,15 @@ func main() {
 ## Building
 
 ```
-cd o9c
-yacc -d o9_plan9.y
-6c -o y.tab.6 y.tab.c
-6l -o o9c y.tab.6
-./o9c < source.o9 2> output.c
-6c -FVw output.c
-6l -o binary output.6 o9_runtime.6 o9_dispatch.6
+mk
+o9c/o9c < source.o9 > output.c
+6c -FVw -I. output.c
+6l -o binary output.6 libo9.a /$objtype/lib/libndb.a
 ```
+
+`libo9.a` includes the o9 runtime plus the plain-table libtab objects from
+`../9lx/libtab`; generated binaries link `libndb.a` for libtab's ndb tuple
+storage.
 
 ## Architecture
 

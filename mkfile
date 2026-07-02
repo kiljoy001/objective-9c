@@ -6,36 +6,97 @@
 
 </$objtype/mkfile
 
+default:V: o9c libo9.a
+
 # === o9c compiler ===
 CFILES=\
 	o9c/y.tab.$O\
+	o9c/o9_type.$O\
 
-y.tab.h y.tab.c: o9c/o9_plan9.y
-	cd o9c; yacc -d o9_plan9.y
+o9c/y.tab.h o9c/y.tab.c: o9c/o9.y o9c/o9_type.h
+	cd o9c; yacc -d o9.y
 
 o9c/y.tab.$O:	o9c/y.tab.c
-	cd o9c; $CC y.tab.c
+	cd o9c; $CC -o y.tab.$O y.tab.c
 
 o9c:V:	$CFILES
-	cd o9c; $LD -o o9c y.tab.$O
+	cd o9c; $LD -o o9c y.tab.$O o9_type.$O
+
+# === sidecar type AST prototype ===
+TYPECFILES=\
+	o9c/type.tab.$O\
+	o9c/o9_type.$O\
+
+o9c/type.tab.h o9c/type.tab.c: o9c/o9_type_ast.y
+	cd o9c; yacc -d o9_type_ast.y; mv y.tab.c type.tab.c; mv y.tab.h type.tab.h
+
+o9c/type.tab.$O:	o9c/type.tab.c o9c/o9_type.h
+	cd o9c; $CC -o type.tab.$O type.tab.c
+
+o9c/o9_type.$O:	o9c/o9_type.c o9c/o9_type.h
+	cd o9c; $CC -o o9_type.$O o9_type.c
+
+o9type:V:	$TYPECFILES
+	cd o9c; $LD -o o9type type.tab.$O o9_type.$O
+
+type-test:V:	o9type
+	rc ./o9c/test/type_ast.rc
+
+ast-test:V:	o9c
+	rc ./o9c/test/production_ast.rc
 
 # === runtime library ===
 RUNTIME_OBJ=\
 	o9_dispatch.$O\
 	o9_runtime.$O\
 
+LIBTABDIR=../9lx/libtab
+LIBTAB_OBJ=\
+	libtab_tab_error.$O\
+	libtab_tab_create.$O\
+	libtab_tab_row.$O\
+	libtab_tab_rowmap.$O\
+	libtab_tab_iter.$O\
+	libtab_tab_codec.$O\
+	libtab_tab_open.$O\
+	libtab_tab_serialize.$O\
+	libtab_tab_persist.$O\
+
 o9_dispatch.$O:	o9_dispatch.s
-	$a o9_dispatch.s
+	$AS o9_dispatch.s
 
 o9_runtime.$O:	o9_runtime.c o9.h
-	$CC o9_runtime.c
+	$CC -I$LIBTABDIR o9_runtime.c
 
-libo9.a:V:	$RUNTIME_OBJ
-	ar r libo9.a o9_dispatch.$O o9_runtime.$O
+libtab_tab_error.$O:	$LIBTABDIR/tab_error.c $LIBTABDIR/libtab.h $LIBTABDIR/tab_internal.h
+	$CC -I$LIBTABDIR -o $target $LIBTABDIR/tab_error.c
 
-# === default target ===
-default:V:
-	o9c libo9.a
+libtab_tab_create.$O:	$LIBTABDIR/tab_create.c $LIBTABDIR/libtab.h $LIBTABDIR/tab_internal.h
+	$CC -I$LIBTABDIR -o $target $LIBTABDIR/tab_create.c
+
+libtab_tab_row.$O:	$LIBTABDIR/tab_row.c $LIBTABDIR/libtab.h $LIBTABDIR/tab_internal.h
+	$CC -I$LIBTABDIR -o $target $LIBTABDIR/tab_row.c
+
+libtab_tab_rowmap.$O:	$LIBTABDIR/tab_rowmap.c $LIBTABDIR/libtab.h $LIBTABDIR/tab_internal.h
+	$CC -I$LIBTABDIR -o $target $LIBTABDIR/tab_rowmap.c
+
+libtab_tab_iter.$O:	$LIBTABDIR/tab_iter.c $LIBTABDIR/libtab.h $LIBTABDIR/tab_internal.h
+	$CC -I$LIBTABDIR -o $target $LIBTABDIR/tab_iter.c
+
+libtab_tab_codec.$O:	$LIBTABDIR/tab_codec.c $LIBTABDIR/libtab.h $LIBTABDIR/tab_internal.h
+	$CC -I$LIBTABDIR -o $target $LIBTABDIR/tab_codec.c
+
+libtab_tab_open.$O:	$LIBTABDIR/tab_open.c $LIBTABDIR/libtab.h $LIBTABDIR/tab_internal.h
+	$CC -I$LIBTABDIR -o $target $LIBTABDIR/tab_open.c
+
+libtab_tab_serialize.$O:	$LIBTABDIR/tab_serialize.c $LIBTABDIR/libtab.h $LIBTABDIR/tab_internal.h
+	$CC -I$LIBTABDIR -o $target $LIBTABDIR/tab_serialize.c
+
+libtab_tab_persist.$O:	$LIBTABDIR/tab_persist.c $LIBTABDIR/libtab.h $LIBTABDIR/tab_internal.h
+	$CC -I$LIBTABDIR -o $target $LIBTABDIR/tab_persist.c
+
+libo9.a:	$RUNTIME_OBJ $LIBTAB_OBJ
+	ar r libo9.a $RUNTIME_OBJ $LIBTAB_OBJ
 
 # === install ===
 install:V: o9c libo9.a
@@ -57,4 +118,4 @@ install:V: o9c libo9.a
 	@ echo '  6l out.6 -lo9'
 
 clean:V:
-	rm -f o9c/y.tab.* o9c/o9c *.[$O] libo9.a
+	rm -f o9c/y.tab.* o9c/type.tab.* o9c/o9c o9c/o9type *.[$O] libo9.a

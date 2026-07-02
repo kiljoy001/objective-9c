@@ -2,11 +2,11 @@
 # build_array_test.rc — full pipeline for array_test.o9
 rm -f /tmp/at.* /tmp/array_test /srv/ArrayHolder
 cd /tmp/o9/o9c
-./o9c < test/array_test.o9 2> /tmp/at.c
-if(~ $status 0) echo transpile_ok
+./o9c < test/array_test.o9 > /tmp/at.c
+if(~ $status '') echo transpile_ok
 6c -FVw -o /tmp/at.6 /tmp/at.c
-if(~ $status 0) echo compile_ok
-6l -o /tmp/array_test /tmp/at.6 /tmp/o9/libo9.a
-if(~ $status 0) echo link_ok
+if(~ $status '') echo compile_ok
+6l -o /tmp/array_test /tmp/at.6 /tmp/o9/libo9.a /$objtype/lib/libndb.a
+if(~ $status '') echo link_ok
 /tmp/array_test
 echo exit_status $status

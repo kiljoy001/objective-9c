@@ -2,18 +2,9 @@
 # build_srv.rc — build and start counter server, wait forever
 cd /tmp/o9
 git/pull >[2]/dev/null
-6a o9_dispatch.s >[2]/dev/null
-6c -FVw o9_runtime.c >[2]/dev/null
-6c -FVw o9_dispatch.c >[2]/dev/null
-ar r libo9.a o9_runtime.6 o9_dispatch.6 >[2]/dev/null
-cd o9c
-rm -f y.tab.* o9c
-yacc -d o9_plan9.y >[2]/dev/null
-6c -o y.tab.6 y.tab.c >[2]/dev/null
-6l -o o9c y.tab.6 >[2]/dev/null
-./o9c < test/counter_srv.o9 2> /tmp/o9/srv.c
-cd /tmp/o9
-6c -FVw -o srv.6 srv.c >[2]/dev/null
-6l -o counter_srv srv.6 libo9.a >[2]/dev/null
+mk >[2]/dev/null
+o9c/o9c < o9c/test/counter_srv.o9 > srv.c
+6c -FVw -I. -o srv.6 srv.c >[2]/dev/null
+6l -o counter_srv srv.6 libo9.a /$objtype/lib/libndb.a >[2]/dev/null
 rm /srv/Counter >[2]/dev/null
 echo 'SERVERBUILT'

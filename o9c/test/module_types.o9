@@ -1,0 +1,26 @@
+module App {
+	struct Point {
+		prop int64 x;
+		prop int64 y;
+	}
+
+	class Counter {
+		prop int64 val;
+		method void set(int64 n) { val = n; }
+		method int64 get() { return val; }
+	}
+
+	func main() {
+		Point p;
+		p.x = 10;
+		p.y = 20;
+		Counter c = new Counter();
+		c.set(p.x + p.y);
+	}
+}
+
+func main() {
+	App.Counter c = new App.Counter();
+	c.val = 5;
+	c.set(7);
+}

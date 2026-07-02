@@ -1,0 +1,61 @@
+#!/bin/rc
+
+tool=./o9c/o9type
+out=/tmp/o9type.out.$pid
+err=/tmp/o9type.err.$pid
+
+fn fail {
+	echo $* >[1=2]
+	if(test -e $err)
+		cat $err >[1=2]
+	if(test -e $out)
+		cat $out >[1=2]
+	rm -f $out $err
+	exit fail
+}
+
+fn require {
+	grep $"1 $out > /dev/null
+	if(! ~ $status '')
+		fail missing output: $1
+}
+
+if(! test -e $tool)
+	fail missing $tool
+
+$tool < o9c/test/type_ast_valid.o9t > $out >[2] $err
+if(! ~ $status '')
+	fail valid type AST fixture failed
+
+require 'module App'
+require 'decl enum App.Color'
+require 'decl class App.Box'
+require 'prop value: Param'
+require 'field next: Param'
+require 'field color: Name.App.Color'
+require 'decl struct App.Pair'
+require 'module Other'
+require 'decl class Other.Box'
+require 'object App.primary: Apply.App.Box'
+require 'link ref App.primary -> App.mirror'
+require 'link replica App.mirror -> App.primary'
+require 'type Apply.App.Box'
+require 'type Apply.Other.Box'
+require 'var selected: Name'
+require 'init App.Color.Red'
+require 'plan9=vlong'
+require 'abi=string'
+require 'App__Box__int64_Client'
+require 'abi=generic-struct'
+require 'abi=enum'
+require 'type Ptr'
+require 'type Array'
+
+for(f in o9c/test/type_ast_bad_*.o9t){
+	$tool < $f > $out >[2] $err
+	if(~ $status '')
+		fail expected failure for $f
+}
+
+rm -f $out $err
+echo type_ast_tests: OK

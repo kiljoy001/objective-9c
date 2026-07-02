@@ -6,21 +6,46 @@
 TARG=o9c
 OFILES=\
 	y.tab.$O\
+	o9_type.$O\
 
-HFILES=node.h
+HFILES=node.h o9_type.h
 
-y.tab.h y.tab.c: o9_plan9.y
-	yacc -d o9_plan9.y
+y.tab.h y.tab.c: o9.y o9_type.h
+	yacc -d o9.y
 
 $TARG:V:	$OFILES
 	$LD -o $target $prereq
 
-%.$O:	%.c
-	$CC $stem.c
+y.tab.$O:	y.tab.c
+	$CC -o y.tab.$O y.tab.c
+
+TYPEOFILES=\
+	type.tab.$O\
+	o9_type.$O\
+
+type.tab.h type.tab.c: o9_type_ast.y
+	yacc -d o9_type_ast.y
+	mv y.tab.c type.tab.c
+	mv y.tab.h type.tab.h
+
+type.tab.$O:	type.tab.c o9_type.h
+	$CC -o type.tab.$O type.tab.c
+
+o9_type.$O:	o9_type.c o9_type.h
+	$CC -o o9_type.$O o9_type.c
+
+o9type:V:	$TYPEOFILES
+	$LD -o $target $prereq
+
+type-test:V:	o9type
+	cd ..; rc ./o9c/test/type_ast.rc
+
+ast-test:V:	$TARG
+	cd ..; rc ./o9c/test/production_ast.rc
 
 install:V: $TARG
 	cp $TARG /$objtype/bin/$TARG
 	@ echo 'o9c installed to /'$objtype'/bin/o9c'
 
 clean:V:
-	rm -f *.[$O] y.tab.[ch] lex.yy.c $TARG
+	rm -f *.[$O] y.tab.[ch] type.tab.[ch] lex.yy.c $TARG o9type

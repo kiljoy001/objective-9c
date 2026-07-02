@@ -1,0 +1,44 @@
+#!/bin/rc
+
+tool=./o9c/o9c
+ast=/tmp/o9_ast.out.$pid
+
+if(! test -e $tool){
+	echo missing $tool >[1=2]
+	exit missing
+}
+
+fn compile {
+	src=$1
+	out=/tmp/^$2^.c
+	$tool < $src > $out || exit 'compile '^$src
+	9c -I. $out || exit '9c '^$out
+}
+
+fn require {
+	grep $"1 $ast > /dev/null
+	if(! ~ $status ''){
+		echo missing AST output: $1 >[1=2]
+		cat $ast >[1=2]
+		rm -f $ast
+		exit fail
+	}
+}
+
+compile o9c/test/ast_complete.o9 ast_complete
+compile o9c/test/enum_types.o9 enum_types
+compile o9c/test/module_types.o9 module_types
+
+$tool -ast < o9c/test/ast_complete.o9 > $ast || exit ast-dump
+require 'NModule name=App qname=App cname=App'
+require 'NClass name=App__Box qname=App.Box cname=App__Box params=T'
+require 'NProp name=value typename=T qname=value cname=value type=T'
+require 'NAssign type=int64'
+require 'NIdent name=delta qname=delta cname=delta type=int64'
+require 'NObject name=App__boxed typename=App__Box__int64 qname=App.boxed cname=App__boxed type=App.Box<int64>'
+require 'NLink name=App__primary typename=ref qname=App.primary cname=App__primary'
+require 'NMsgSend name=inc qname=inc cname=inc type=void'
+require 'NIdent name=counter qname=counter cname=counter type=App.Counter'
+rm -f $ast
+
+echo production_ast_tests: OK

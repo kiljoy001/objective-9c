@@ -11,6 +11,8 @@ o9c.bak
 y.tab.c
 y.tab.h
 y.tab.o
+libo9.a
+o9c/o9type
 go.mod
 go.sum
 grid_src/

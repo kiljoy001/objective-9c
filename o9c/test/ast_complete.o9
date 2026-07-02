@@ -1,0 +1,38 @@
+module App {
+    enum Color {
+        Red,
+        Green,
+        Blue,
+    }
+
+    class Box<T> {
+        prop T value;
+    }
+
+    interface Sink<T> {
+        method void put(T value);
+    }
+
+    struct Pair<K,V> {
+        prop K key;
+        prop V value;
+    }
+
+    class Counter {
+        prop int64 value;
+        method void inc(int64 delta) {
+            value = value + delta;
+        }
+    }
+
+    object Counter primary;
+    object Box<int64> boxed;
+    link ref primary -> boxed;
+
+    func main() {
+        App.Color c = App.Green;
+        Counter counter = new Counter();
+        counter.inc(1);
+        c = App.Blue;
+    }
+}

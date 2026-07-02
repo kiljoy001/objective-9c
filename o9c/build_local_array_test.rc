@@ -2,17 +2,9 @@
 # build_local_array_test.rc — generate .c in /tmp/o9/ where o9.h lives
 cd /tmp/o9
 git/pull >[2]/dev/null
-cd o9c
-rm -f y.tab.* o9c
-yacc -d o9_plan9.y
-6c -o y.tab.6 y.tab.c
-6l -o o9c y.tab.6
-./o9c < test/local_array_test.o9 2> /tmp/o9/lat.c
-cd /tmp/o9
-6c -FVw o9_runtime.c
-6a o9_dispatch.s
-ar r libo9.a o9_runtime.6 o9_dispatch.6
-6c -FVw -o lat.6 lat.c
-6l -o lat_test lat.6 libo9.a
+mk
+o9c/o9c < o9c/test/local_array_test.o9 > lat.c
+6c -FVw -I. -o lat.6 lat.c
+6l -o lat_test lat.6 libo9.a /$objtype/lib/libndb.a
 ./lat_test
 echo exit_status $status

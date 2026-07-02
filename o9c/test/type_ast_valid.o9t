@@ -1,0 +1,44 @@
+module App {
+	enum Color { Red, Green, Blue }
+
+	class Box<T> {
+		prop T value;
+		T next;
+		Color color;
+	}
+
+	struct Pair<K,V> {
+		K key;
+		V value;
+	}
+
+	interface Sink<T> {
+		T current;
+	}
+
+	object Box<int64> primary;
+	object Box<int64> mirror;
+	link ref primary -> mirror;
+	link replica mirror -> primary;
+
+	Box<int64>;
+	Pair<string,Color>;
+	Color selected = Red;
+}
+
+module Other {
+	class Box<T> {
+		T item;
+	}
+
+	Box<int64>;
+}
+
+App.Box<int64>;
+App.Pair<string,App.Color>;
+App.Color outside = App.Red;
+Other.Box<int64>;
+App.Box<int64>*;
+App.Pair<string,App.Color>[];
+int64;
+string;

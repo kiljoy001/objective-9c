@@ -1,0 +1,5 @@
+class Counter {
+}
+
+object Counter a;
+link ref a -> b;

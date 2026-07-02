@@ -1,6 +1,8 @@
 #ifndef _O9_NODE_H_
 #define _O9_NODE_H_
 
+#include "o9_type.h"
+
 typedef struct Node Node;
 
 enum {
@@ -59,13 +61,24 @@ enum {
     NArrayGet,
     NArraySet,
     NInterface,
-    NImport
+    NStruct,
+    NEnum,
+    NEnumVal,
+    NImport,
+    NObject,
+    NLink,
+    NModule,
+    NTypeParam
 };
 
 struct Node {
     int type;
     char *name;
     char *typename;
+    char *qname;
+    char *cname;
+    Type *typeinfo;
+    Node *params;
     Node *left;
     Node *right;
     Node *next;

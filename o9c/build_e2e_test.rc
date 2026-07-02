@@ -1,12 +1,12 @@
 #!/bin/rc
 # build_e2e_test.rc — after o9c is installed system-wide via mk install
-# Usage: cd /tmp/o9 ; o9c < o9c/test/e2e_test.o9 > out.c ; 6c out.c ; 6l out.6 -lo9 ; ./o9_test
+# Usage: cd /tmp/o9 ; o9c < o9c/test/e2e_test.o9 > out.c ; 6c -I. out.c ; 6l out.6 -lo9 /$objtype/lib/libndb.a ; ./o9_test
 
 cd /tmp/o9
 git/pull >[2]/dev/null
 o9c < o9c/test/e2e_test.o9 > out.c
 6c -FVw out.c
-6l -o o9_test out.6 -lo9
+6l -o o9_test out.6 -lo9 /$objtype/lib/libndb.a
 rm /srv/Counter >[2]/dev/null
 ./o9_test
 echo exit_status $status

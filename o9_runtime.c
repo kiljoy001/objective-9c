@@ -3,6 +3,7 @@
 #include <bio.h>
 #include <thread.h>
 #include "o9.h"
+#include "libtab.h"
 
 /* 9P encoding helpers — little-endian */
 #define PUT2(p, v) do{ (p)[0]=(v)&0xff; (p)[1]=((v)>>8)&0xff; }while(0)
@@ -39,6 +40,306 @@ o9_atomic_dec(long *p)
 }
 void o9_cache_fill(void *client, ulong hash, int is_ctrl);
 
+ulong
+o9_hash(char *s)
+{
+	ulong hash;
+	int c;
+
+	hash = 5381;
+	while((c = *s++) != 0)
+		hash = ((hash << 5) + hash) + c;
+	return hash & 0xFFFFFFFFul;
+}
+
+int
+o9_ns_app_root(char *buf, int nbuf, char *app)
+{
+	if(buf == nil || nbuf <= 0 || app == nil || app[0] == '\0')
+		return -1;
+	snprint(buf, nbuf, "/mnt/o9/%s", app);
+	return 0;
+}
+
+int
+o9_ns_service_name(char *buf, int nbuf, char *app, char *type, char *inst)
+{
+	if(buf == nil || nbuf <= 0 || app == nil || type == nil || inst == nil)
+		return -1;
+	if(app[0] == '\0' || type[0] == '\0' || inst[0] == '\0')
+		return -1;
+	snprint(buf, nbuf, "o9.%s.%s.%s", app, type, inst);
+	return 0;
+}
+
+int
+o9_ns_object_path(char *buf, int nbuf, char *root, char *inst)
+{
+	if(buf == nil || nbuf <= 0 || root == nil || inst == nil)
+		return -1;
+	if(root[0] == '\0' || inst[0] == '\0')
+		return -1;
+	snprint(buf, nbuf, "%s/obj/%s", root, inst);
+	return 0;
+}
+
+int
+o9_ns_ensure_dir(char *path)
+{
+	int fd;
+
+	if(path == nil || path[0] == '\0')
+		return -1;
+	fd = open(path, OREAD);
+	if(fd >= 0){
+		close(fd);
+		return 0;
+	}
+	fd = create(path, OREAD, DMDIR|0755);
+	if(fd < 0)
+		return -1;
+	close(fd);
+	return 0;
+}
+
+int
+o9_ns_ensure_app(char *root)
+{
+	char path[256];
+
+	if(root == nil || root[0] == '\0')
+		return -1;
+	if(o9_ns_ensure_dir("/mnt/o9") < 0)
+		return -1;
+	if(o9_ns_ensure_dir(root) < 0)
+		return -1;
+	snprint(path, sizeof path, "%s/obj", root);
+	if(o9_ns_ensure_dir(path) < 0)
+		return -1;
+	snprint(path, sizeof path, "%s/lib", root);
+	if(o9_ns_ensure_dir(path) < 0)
+		return -1;
+	snprint(path, sizeof path, "%s/types", root);
+	if(o9_ns_ensure_dir(path) < 0)
+		return -1;
+	snprint(path, sizeof path, "%s/state", root);
+	if(o9_ns_ensure_dir(path) < 0)
+		return -1;
+	return 0;
+}
+
+struct O9State {
+	Tab *tab;
+	TabRow *row;
+	char *path;
+};
+
+static int
+o9_state_col_seen(char **cols, int ncols, char *name)
+{
+	int i;
+
+	if(name == nil)
+		return 1;
+	for(i = 0; i < ncols; i++)
+		if(cols[i] != nil && strcmp(cols[i], name) == 0)
+			return 1;
+	return 0;
+}
+
+static int
+o9_state_tab_has_col(Tab *tab, char *name)
+{
+	int i, n;
+	const char *col;
+
+	if(tab == nil || name == nil)
+		return 0;
+	n = tab_ncolumns(tab);
+	for(i = 0; i < n; i++){
+		col = tab_colname(tab, i);
+		if(col != nil && strcmp(col, name) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static int
+o9_state_schema_matches(Tab *tab, char **cols, int ncols)
+{
+	int i;
+
+	if(tab == nil)
+		return 0;
+	if(!o9_state_tab_has_col(tab, "id"))
+		return 0;
+	for(i = 0; i < ncols; i++)
+		if(cols[i] != nil && !o9_state_col_seen(cols, i, cols[i]) &&
+		   !o9_state_tab_has_col(tab, cols[i]))
+			return 0;
+	return 1;
+}
+
+static TabRow*
+o9_state_find_row(Tab *tab, char *instname)
+{
+	TabIter *it;
+	TabRow *row;
+
+	if(tab == nil || instname == nil)
+		return nil;
+	it = tab_search(tab, "id", instname);
+	if(it == nil)
+		return nil;
+	row = tab_iter_next(it);
+	tab_iter_close(it);
+	return row;
+}
+
+static O9State*
+o9_state_create_common(char *root, char *classname, char *instname, char **cols, int ncols)
+{
+	O9State *s;
+	TabColSpec *spec;
+	char path[256], dir[256];
+	int i, outcols;
+
+	if(classname == nil || classname[0] == '\0')
+		classname = "object";
+	if(instname == nil || instname[0] == '\0')
+		instname = classname;
+
+	outcols = 1;
+	for(i = 0; i < ncols; i++)
+		if(cols[i] != nil && !o9_state_col_seen(cols, i, cols[i]))
+			outcols++;
+
+	spec = mallocz(outcols * sizeof *spec, 1);
+	if(spec == nil)
+		return nil;
+	spec[0].name = "id";
+	outcols = 1;
+	for(i = 0; i < ncols; i++){
+		if(cols[i] == nil || o9_state_col_seen(cols, i, cols[i]))
+			continue;
+		spec[outcols++].name = cols[i];
+	}
+
+	s = mallocz(sizeof *s, 1);
+	if(s == nil){
+		free(spec);
+		return nil;
+	}
+	if(root != nil && root[0] != '\0'){
+		o9_ns_ensure_app(root);
+		snprint(dir, sizeof dir, "%s/state", root);
+		o9_ns_ensure_dir(dir);
+		snprint(path, sizeof path, "%s/%s.%s.tab", dir, classname, instname);
+	}else{
+		snprint(path, sizeof path, "/tmp/o9state.%ld.%s.%s.tab",
+			(long)getpid(), classname, instname);
+	}
+	s->path = strdup(path);
+	if(s->path == nil){
+		free(spec);
+		free(s);
+		return nil;
+	}
+	if(root != nil && root[0] != '\0'){
+		s->tab = tab_open(s->path);
+		if(s->tab != nil && !o9_state_schema_matches(s->tab, cols, ncols)){
+			tab_close(s->tab);
+			s->tab = nil;
+			remove(s->path);
+		}
+	}
+	if(s->tab == nil)
+		s->tab = tab_create(s->path, classname, spec, outcols);
+	free(spec);
+	if(s->tab == nil){
+		free(s->path);
+		free(s);
+		return nil;
+	}
+	s->row = o9_state_find_row(s->tab, instname);
+	if(s->row == nil)
+		s->row = tab_add_row(s->tab, "id", instname);
+	if(s->row == nil){
+		tab_close(s->tab);
+		free(s->path);
+		free(s);
+		return nil;
+	}
+	tab_commit(s->tab);
+	return s;
+}
+
+O9State*
+o9_state_create(char *classname, char *instname, char **cols, int ncols)
+{
+	return o9_state_create_common(nil, classname, instname, cols, ncols);
+}
+
+O9State*
+o9_state_create_path(char *root, char *classname, char *instname, char **cols, int ncols)
+{
+	return o9_state_create_common(root, classname, instname, cols, ncols);
+}
+
+void
+o9_state_close(O9State *s)
+{
+	if(s == nil)
+		return;
+	tab_close(s->tab);
+	free(s->path);
+	free(s);
+}
+
+void
+o9_state_set(O9State *s, char *col, char *value)
+{
+	if(s == nil || s->tab == nil || s->row == nil || col == nil)
+		return;
+	if(value == nil)
+		value = "";
+	if(tab_set(s->tab, s->row, col, value) == 0)
+		tab_commit(s->tab);
+}
+
+void
+o9_state_set_int(O9State *s, char *col, vlong value)
+{
+	char buf[64];
+
+	snprint(buf, sizeof buf, "%lld", value);
+	o9_state_set(s, col, buf);
+}
+
+char*
+o9_state_get(O9State *s, char *col)
+{
+	const char *v;
+
+	if(s == nil || s->row == nil || col == nil)
+		return nil;
+	v = tab_get(s->row, col);
+	if(v == nil)
+		return nil;
+	return (char *)v;
+}
+
+vlong
+o9_state_get_int(O9State *s, char *col)
+{
+	char *v;
+
+	v = o9_state_get(s, col);
+	if(v == nil)
+		return 0;
+	return strtoll(v, nil, 0);
+}
+
 static void
 o9_fill_from_buf(o9_AsmTable *table, Biobuf *bp)
 {
@@ -72,23 +373,27 @@ o9_fill_from_buf(o9_AsmTable *table, Biobuf *bp)
 	}
 }
 
-int
-o9_init_client(void *client, char *srvname, int size)
+static int
+o9_init_client_cache(void *client, char *cachepath, char *srvname, int size)
 {
 	o9_Object *obj = client;
 	o9_AsmTable *table;
 	Biobuf *bp;
-	char path[256];
 	char tag[64];
 	int fd;
 
 	USED(size);
 
+	if(client == nil || cachepath == nil || srvname == nil)
+		return -1;
+
 	strncpy(obj->srvname, srvname, sizeof(obj->srvname)-1);
+	obj->srvname[sizeof(obj->srvname)-1] = '\0';
+	strncpy(obj->cachepath, cachepath, sizeof(obj->cachepath)-1);
+	obj->cachepath[sizeof(obj->cachepath)-1] = '\0';
 	table = obj->table;
 
-	snprint(path, sizeof path, "/srv/%s/cache", srvname);
-	fd = open(path, OREAD);
+	fd = open(cachepath, OREAD);
 	if(fd < 0) return -1;
 	obj->fd = fd;
 
@@ -125,6 +430,28 @@ o9_init_client(void *client, char *srvname, int size)
 	return 0;
 }
 
+int
+o9_init_client(void *client, char *srvname, int size)
+{
+	char path[256];
+
+	if(srvname == nil)
+		return -1;
+	snprint(path, sizeof path, "/srv/%s/cache", srvname);
+	return o9_init_client_cache(client, path, srvname, size);
+}
+
+int
+o9_init_client_path(void *client, char *path, char *srvname, int size)
+{
+	char cachepath[256];
+
+	if(path == nil || srvname == nil)
+		return -1;
+	snprint(cachepath, sizeof cachepath, "%s/cache", path);
+	return o9_init_client_cache(client, cachepath, srvname, size);
+}
+
 void
 o9_cache_fill(void *client, ulong hash, int is_ctrl)
 {
@@ -138,7 +465,11 @@ o9_cache_fill(void *client, ulong hash, int is_ctrl)
 
 	if(obj == nil || obj->srvname[0] == '\0') return;
 
-	snprint(path, sizeof path, "/srv/%s/cache", obj->srvname);
+	if(obj->cachepath[0] != '\0')
+		strncpy(path, obj->cachepath, sizeof(path)-1);
+	else
+		snprint(path, sizeof path, "/srv/%s/cache", obj->srvname);
+	path[sizeof(path)-1] = '\0';
 	fd = open(path, OREAD);
 	if(fd < 0) return;
 
@@ -166,7 +497,7 @@ obj9_msgSend(void *receiver, char *method, ulong selector, void *args)
         m->replyc = chancreate(sizeof(void*), 0);
         sendp(obj->dispatch_chan, m);
         r = recvp(m->replyc);
-        ret = r->ret;
+        ret = (void*)r->ret;
         chanfree(m->replyc);
         free(r);
         free(m);
