@@ -1,0 +1,14 @@
+class Box<T> {
+    T value;
+    method Box(T v) { value = v; }
+    method T get() { return value; }
+    method void set(T v) { value = v; }
+}
+
+func main() {
+    Box<int64> a = new Box<int64>(41);
+    a.set(63);
+    print("boxed ", a.get(), "\n");
+    Box<string> s = new Box<string>("hi");
+    print(s.get(), "\n");
+}

@@ -15,7 +15,7 @@ fn runcase {
 	out=/tmp/o9_$name.$pid.out
 
 	# stale service posts from earlier runs make threadpostmountsrv sysfatal
-	rm -f /srv/E2Counter /srv/Res
+	rm -f /srv/E2Counter /srv/Res /srv/Box__int64 /srv/Box__string
 
 	if($tool < $src > $cfile &&
 	   6c -FVw -I. -o $ofile $cfile &&
@@ -56,6 +56,7 @@ if(! test -e libo9.a){
 runcase e2e_run
 runcase e2e_text
 runcase e2e_delete
+runcase e2e_generic
 
 if(! ~ $fail 0)
 	exit fail

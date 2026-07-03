@@ -2683,7 +2683,10 @@ gen_assign_new(char *varname, char *lhs_type, Node *n)
             print("\t\tvlong __args_%s[%d];\n", varname, rest);
             for(ca = first_arg->next; ca; ca = ca->next){
                 print("\t\t__args_%s[%d] = ", varname, ai);
-                gen_expr(ca);
+                if(type_storage_pointerish(ca->typeinfo)){
+                    print("(vlong)(uintptr)("); gen_expr(ca); print(")");
+                } else
+                    gen_expr(ca);
                 print(";\n");
                 ai++;
             }
@@ -2718,7 +2721,10 @@ gen_assign_new(char *varname, char *lhs_type, Node *n)
         print("\t{ vlong __args_%s_%d[%d];\n", varname, id, nctor);
         for(ca = n->right; ca; ca = ca->next){
             print("\t__args_%s_%d[%d] = ", varname, id, ai);
-            gen_expr(ca);
+            if(type_storage_pointerish(ca->typeinfo)){
+                print("(vlong)(uintptr)("); gen_expr(ca); print(")");
+            } else
+                gen_expr(ca);
             print(";\n");
             ai++;
         }
@@ -2763,7 +2769,10 @@ gen_local_new(Node *s, char *cn, int distance)
         print("\t{ vlong __args_%s[%d];\n", s->name, nctor);
         for(ca = s->left->right; ca; ca = ca->next){
             print("\t__args_%s[%d] = ", s->name, ai);
-            gen_expr(ca);
+            if(type_storage_pointerish(ca->typeinfo)){
+                print("(vlong)(uintptr)("); gen_expr(ca); print(")");
+            } else
+                gen_expr(ca);
             print(";\n");
             ai++;
         }
@@ -4220,7 +4229,7 @@ gen_classes(Node *root)
             sub = gen_classes(n->left);
             if(sub != nil)
                 last = sub;
-        } else if(n->type == NClass && (n->flags & NFAbstract) == 0){
+        } else if(n->type == NClass && (n->flags & NFAbstract) == 0 && n->params == nil){
             gen_class_server(n);
             last = n;
         }
@@ -4262,11 +4271,140 @@ main_has_remote_new(Node *main_func)
     return 0;
 }
 
+/* Monomorphization: every concrete instantiation of a user generic
+ * (Box<int64>) becomes a real class/struct — a substituted deep copy of
+ * the template, registered and generated like hand-written code.  The
+ * templates themselves still emit nothing. */
+
+static Node *mono_list;	/* instantiated decls, in discovery order */
+
+static void mono_scan_node(Node *n);
+static Type* type_subst(Type *t, TypeBind *bindings);
+static TypeBind* type_bindings_for(Node *decl, Type *receiver);
+
+static char*
+name_tail(char *s)
+{
+    char *p, *last;
+
+    if(s == nil)
+        return nil;
+    last = s;
+    p = strstr(s, "__");
+    while(p != nil){
+        last = p + 2;
+        p = strstr(last, "__");
+    }
+    return last;
+}
+
+static Node*
+copy_node_subst(Node *n, TypeBind *b)
+{
+    Node *c;
+
+    if(n == nil)
+        return nil;
+    c = malloc(sizeof(Node));
+    if(c == nil)
+        sysfatal("malloc: copy_node_subst");
+    memmove(c, n, sizeof(Node));
+    if(n->typeinfo != nil){
+        c->typeinfo = type_subst(n->typeinfo, b);
+        c->typename = legacy_type_name(c->typeinfo);
+    }
+    c->params = copy_node_subst(n->params, b);
+    c->left = copy_node_subst(n->left, b);
+    c->right = copy_node_subst(n->right, b);
+    c->next = copy_node_subst(n->next, b);
+    return c;
+}
+
+static void
+mono_instantiate(Node *tmpl, Type *app)
+{
+    Node *inst, *m;
+    TypeBind *b;
+    char *cn, *tail;
+
+    cn = type_cname(app);
+    if(cn == nil || find_class(cn) != nil)
+        return;
+    b = type_bindings_for(tmpl, app);
+    inst = malloc(sizeof(Node));
+    if(inst == nil)
+        sysfatal("malloc: mono_instantiate");
+    memmove(inst, tmpl, sizeof(Node));
+    inst->name = cn;
+    inst->cname = cn;
+    inst->qname = type_render(app);
+    inst->params = nil;
+    inst->next = nil;
+    inst->typeinfo = nil;
+    inst->left = copy_node_subst(tmpl->left, b);
+    /* the constructor keeps the source class name; retarget it so the
+     * dispatch selector matches new <cname> */
+    tail = name_tail(tmpl->cname != nil ? tmpl->cname : tmpl->name);
+    for(m = inst->left; m; m = m->next){
+        if(m->type == NMethod && m->name != nil && tail != nil && strcmp(m->name, tail) == 0){
+            m->name = cn;
+            m->qname = cn;
+            m->cname = cn;
+        }
+    }
+    add_class(cn, inst);
+    if(mono_list == nil)
+        mono_list = inst;
+    else {
+        for(m = mono_list; m->next; m = m->next)
+            ;
+        m->next = inst;
+    }
+    /* instantiations can require further instantiations */
+    mono_scan_node(inst->left);
+}
+
+static void
+mono_scan_type(Type *t)
+{
+    TypeList *a;
+    Node *d;
+
+    if(t == nil)
+        return;
+    if(t->kind == TyApply && t->name != nil &&
+       strcmp(t->name, "List") != 0 && strcmp(t->name, "Dict") != 0){
+        d = type_decl_node(t);
+        if(d != nil && d->params != nil)
+            mono_instantiate(d, t);
+    }
+    for(a = t->args; a; a = a->next)
+        mono_scan_type(a->type);
+    mono_scan_type(t->base);
+}
+
+static void
+mono_scan_node(Node *n)
+{
+    for(; n; n = n->next){
+        /* templates are scanned only when instantiated */
+        if((n->type == NClass || n->type == NStruct || n->type == NInterface) &&
+           n->params != nil)
+            continue;
+        mono_scan_type(n->typeinfo);
+        mono_scan_node(n->params);
+        mono_scan_node(n->left);
+        mono_scan_node(n->right);
+    }
+}
+
 void
 codegen(Node *root)
 {
     Node *n;
     ClassDef *cd;
+
+    mono_scan_node(root);
 
     print("/* Generated o9 Source */\n");
     print("#include <u.h>\n#include <libc.h>\n#include <thread.h>\n#include <fcall.h>\n#include <9p.h>\n#include <o9.h>\n\n");
@@ -4287,6 +4425,12 @@ codegen(Node *root)
 
     gen_enums(root);
     gen_structs(root);
+    for(n = mono_list; n; n = n->next)
+        if(n->type == NStruct)
+            gen_struct_def(n);
+    for(n = mono_list; n; n = n->next)
+        if(n->type == NClass && (n->flags & NFAbstract) == 0)
+            gen_class_server(n);
     last = gen_classes(root);
 
     print("int mainstacksize = 65536;\n\n");
