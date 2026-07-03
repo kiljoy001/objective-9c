@@ -1212,7 +1212,11 @@ obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int narg
         m->replyc = chancreate(sizeof(void*), 0);
         sendp(obj->dispatch_chan, m);
         r = recvp(m->replyc);
-        ret = (void*)r->ret;
+        if(r->err != nil){
+            werrstr("%s", r->err);
+            ret = nil;
+        } else
+            ret = (void*)r->ret;
         chanfree(m->replyc);
         free(r);
         free(m);
@@ -1224,8 +1228,16 @@ obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int narg
      * pointer (callers cast it back to vlong); no static buffer to clobber. */
     if(obj->fd >= 0 && method != nil && obj->distance >= 0){
         o9_remote_method_cmd(obj, method, args, nargs, cmd, sizeof cmd);
-        if(o9_remote_ctl_data(obj, cmd, data, sizeof data) == 0)
+        if(o9_remote_ctl_data(obj, cmd, data, sizeof data) == 0){
+            if(strncmp(data, "error: ", 7) == 0){
+                char *nl = strchr(data, '\n');
+                if(nl != nil)
+                    *nl = '\0';
+                werrstr("%s", data + 7);
+                return nil;
+            }
             return (void*)(uintptr)strtoll(data, nil, 0);
+        }
     }
 
     return nil;

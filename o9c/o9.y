@@ -2667,7 +2667,7 @@ gen_assign_new(char *varname, char *lhs_type, Node *n)
     print("\t%s.dispatch_chan = __o9n%d->dispatch_chan;\n", varname, id);
     print("\t%s.table = &%s_tbl;\n", varname, varname);
     print("\t%s.distance = %d;\n", varname, dval >= 0 ? dval : -1);
-    print("\tproccreate(%s_loop, __o9n%d, 8192);\n", cn, id);
+    print("\tproccreate(%s_loop, __o9n%d, 65536);\n", cn, id);
     print("\t%s_create_instance(__o9n%d, \"%s\");\n", cn, id, varname);
     if(nctor > 0){
         ai = 0;
@@ -2713,7 +2713,7 @@ gen_local_new(Node *s, char *cn, int distance)
         snprint(ptr, sizeof ptr, "__%s", s->name);
         gen_init_internal_state(cnode, ptr);
     }
-    print("\tproccreate(%s_loop, __%s, 8192);\n", cn, s->name);
+    print("\tproccreate(%s_loop, __%s, 65536);\n", cn, s->name);
     print("\t%s_create_instance(__%s, \"%s\");\n", cn, s->name, s->name);
     if(nctor > 0){
         print("\t{ vlong __args_%s[%d];\n", s->name, nctor);
@@ -3739,7 +3739,10 @@ gen_class_server(Node *c)
 				} else
 					print("\tO9Msg __m = {0x%lux, nil, 0, chancreate(sizeof(void*), 1)};\n", o9_hash(m->name));
 				print("\to9_impl_%s_%s(self, &__m);\n", c->name, m->name);
-				print("\t{ O9Reply *__r = recvp(__m.replyc); ((vlong*)__a)[0] = (vlong)(uintptr)__r->ret; free(__r); }\n");
+				print("\t{ O9Reply *__r = recvp(__m.replyc);\n");
+				print("\tif(__r->err != nil){ werrstr(\"%%s\", __r->err); ((vlong*)__a)[0] = 0; }\n");
+				print("\telse ((vlong*)__a)[0] = (vlong)(uintptr)__r->ret;\n");
+				print("\tfree(__r); }\n");
 				print("\tchanfree(__m.replyc);\n}\n\n");
 
 				/* Same-class call wrapper for bare (implicit-self) calls */
@@ -3767,8 +3770,11 @@ gen_class_server(Node *c)
 					print("\t__m.replyc = chancreate(sizeof(void*), 1);\n");
 					print("\to9_impl_%s_%s(self, &__m);\n", c->name, m->name);
 					print("\t__r = recvp(__m.replyc);\n");
-					if(!isvoid)
-						print("\t__v = (%s)__r->ret;\n", rst);
+					if(!isvoid){
+						print("\tif(__r->err != nil){ werrstr(\"%%s\", __r->err); __v = 0; }\n");
+						print("\telse __v = (%s)__r->ret;\n", rst);
+					} else
+						print("\tif(__r->err != nil) werrstr(\"%%s\", __r->err);\n");
 					print("\tfree(__r);\n\tchanfree(__m.replyc);\n");
 					if(!isvoid)
 						print("\treturn __v;\n");
@@ -3898,6 +3904,9 @@ gen_class_server(Node *c)
             print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
             print("\t\tO9Reply *__o9rep = r->fid->aux;\n");
             print("\t\tif(__o9rep == nil){ respond(r, \"no pending reply\"); return; }\n");
+            print("\t\tif(__o9rep->err != nil)\n");
+            print("\t\t\tsnprint(buf, sizeof buf, \"error: %%s\\n\", __o9rep->err);\n");
+            print("\t\telse\n");
             if(strcmp(fmt, "%s") == 0){
                 print("\t\tsnprint(buf, sizeof buf, \"%%s\\n\", (char*) __o9rep->ret);\n");
             } else {
@@ -3960,7 +3969,7 @@ gen_class_server(Node *c)
         gen_init_internal_state(c, ptr);
     }
     print("\t\t\t\t%s_record_instance(f[1], target);\n", c->name);
-    print("\t\t\t\tproccreate(%s_loop, target, 8192);\n", c->name);
+    print("\t\t\t\tproccreate(%s_loop, target, 65536);\n", c->name);
     print("\t\t\t}\n");
     print("\t\t\tif(inst) snprint(inst->data, sizeof inst->data, \"ok new %%s\\n\", f[1]);\n");
     print("\t\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t\t}\n");
@@ -3986,6 +3995,8 @@ gen_class_server(Node *c)
                 o9_hash(m->name), np > 0 ? "__wargs" : "nil", np);
             print("\t\t\t\tsendp(target->dispatch_chan, &__wm);\n");
             print("\t\t\t\tO9Reply *__o9rep = recvp(__wm.replyc);\n");
+            print("\t\t\t\tif(inst && __o9rep->err != nil) snprint(inst->data, sizeof inst->data, \"error: %%s\\n\", __o9rep->err);\n");
+            print("\t\t\t\telse\n");
             if(type_is_void(m->typeinfo)){
                 print("\t\t\t\tif(inst) snprint(inst->data, sizeof inst->data, \"ok\\n\");\n");
             } else {
@@ -4105,7 +4116,7 @@ gen_class_server(Node *c)
     print("\t{ File *__f = createfile(%s_tree->root, \"status\", nil, 0444, nil); if(__f) __f->aux = s; }\n", c->name);
     print("\t{ File *__f = createfile(%s_tree->root, \"methods\", nil, 0444, nil); if(__f) __f->aux = s; }\n", c->name);
     print("\t%s_create_instance(s, \"%s\");\n", c->name, c->name);
-    print("\tproccreate(%s_loop, s, 8192);\n", c->name);
+    print("\tproccreate(%s_loop, s, 65536);\n", c->name);
     print("\tif(o9_ns_ensure_dir(o9_mount_%s) == 0)\n", c->name);
     print("\t\tthreadpostmountsrv(&o9srv_%s, \"%s\", o9_mount_%s, MREPL);\n", c->name, c->name, c->name);
     print("\telse\n\t\tthreadpostmountsrv(&o9srv_%s, \"%s\", nil, MREPL);\n}\n", c->name, c->name);
@@ -4227,6 +4238,7 @@ codegen(Node *root)
     gen_structs(root);
     last = gen_classes(root);
 
+    print("int mainstacksize = 65536;\n\n");
     print("void\nthreadmain(int argc, char **argv)\n{\n");
     print("\tvlong __o9fr[8][12];\n");
     print("\tUSED(argc); USED(argv); USED(__o9fr);\n");
