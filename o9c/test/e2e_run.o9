@@ -1,0 +1,19 @@
+// Execute-and-assert test: constructors, dispatch, return values,
+// nested calls (per-call frames), and bare self-calls, verified by
+// running the binary and comparing stdout against e2e_run.expected.
+class E2Counter {
+    int64 val;
+    method E2Counter(int64 n) { val = n; }
+    method int64 get() { return val; }
+    method void add(int64 n) { val = val + n; }
+    method int64 twice() { return get() * 2; }
+}
+
+func main() {
+    E2Counter a = new E2Counter(20);
+    E2Counter b = new E2Counter(1);
+    a.add(b.get());
+    a.add(a.twice());
+    print("a ", a.get(), "\n");
+    print("done\n");
+}

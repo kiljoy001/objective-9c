@@ -45,6 +45,9 @@ type-test:V:	o9type
 ast-test:V:	o9c
 	rc ./o9c/test/production_ast.rc
 
+run-test:V:	o9c libo9.a
+	rc ./o9c/test/run_e2e.rc
+
 # === runtime library ===
 RUNTIME_OBJ=\
 	o9_dispatch.$O\

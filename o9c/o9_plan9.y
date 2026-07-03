@@ -72,12 +72,14 @@ enum {
     NObject,
     NLink,
     NModule,
-    NTypeParam
+    NTypeParam,
+    NSelfCall
 };
 
 enum {
     NFAbstract = 1<<0,
-    NFMethodDecl = 1<<1
+    NFMethodDecl = 1<<1,
+    NFSelfCalled = 1<<2
 };
 
 struct Node {
@@ -122,6 +124,7 @@ static int semantic_errors;
 static int in_prescan;              /* 1 during prescan phase, 0 during parse */
 static int cur_line = 1;            /* current source line for diagnostics */
 static int sem_line;                /* line of the node being semantically checked */
+static Node *gen_class;             /* class whose method body is being generated */
 static char last_caps_ident[128];   /* capitalized ident not in type registry */
 static int last_caps_line;
 
@@ -297,6 +300,31 @@ int is_subclass(char *sub, char *parent) {
     return r;
 }
 
+/* Class whose own members define a bodied method `name`, following the
+ * inheritance chain from c.  The o9_self_ wrapper lives on that class. */
+static Node*
+method_owner(Node *c, char *name)
+{
+    Node *m, *p, *r;
+    static int depth;
+
+    if(c == nil || name == nil || depth > 64)
+        return nil;
+    for(m = c->left; m; m = m->next)
+        if(m->type == NMethod && m->name != nil && strcmp(m->name, name) == 0 && method_has_body(m))
+            return c;
+    depth++;
+    r = nil;
+    for(m = c->left; m && r == nil; m = m->next){
+        if(m->type == NInherit){
+            p = find_class(m->name);
+            r = method_owner(p, name);
+        }
+    }
+    depth--;
+    return r;
+}
+
 int is_type_compatible(char *target, char *actual) {
     if(target == nil || actual == nil) return 0;
     if(strcmp(target, actual) == 0) return 1;
@@ -328,6 +356,7 @@ char* get_expr_type(Node *e) {
     case NIdent: { char *t = get_type_sym(e->name); if(t) return t; return "vlong"; }
     case NPropRead: if(e->left){ char *lt = get_expr_type(e->left); Node *c = find_class(lt); if(c) return get_sym_type(c, e->name); } return "vlong";
     case NMsgSend: if(e->left){ char *lt = get_expr_type(e->left); Node *c = find_class(lt); if(c) return get_method_type(c, e->name); } return "vlong";
+    case NSelfCall: if(gen_class != nil) return get_method_type(gen_class, e->name); return "vlong";
     case NArrayGet: { char *lt = get_expr_type(e->left); if(strncmp(lt, "List:", 5) == 0) return lt + 5; if(strncmp(lt, "Dict:", 5) == 0) return strrchr(lt, ':') + 1; return "vlong"; }
     case NAdd: case NSub: case NMul: case NDiv: case NMod: return "int64";
     default: return "vlong";
@@ -1776,6 +1805,10 @@ expr:
     | expr '[' expr ']' {
         $$ = mk(NArrayGet, nil, nil, $1, $3);
     }
+    | TIDENT '(' call_args ')' {
+        /* Bare call: sibling method on the enclosing class (implicit self) */
+        $$ = mk(NSelfCall, $1->name, nil, nil, $3);
+    }
     | TIDENT { $$ = enum_expr_or_ident($1); }
     | TQIDENT { $$ = enum_expr_or_ident($1); }
     | TENUMIDENT { $$ = enum_expr_or_ident($1); }
@@ -2181,6 +2214,7 @@ char *local_vars[128];
 int num_locals = 0;
 int in_class_context = 1;		/* 0 when generating top-level main() */
 int in_method_body = 0;		/* 1 when generating inside a method impl */
+static int msg_depth;		/* lexical nesting depth of NMsgSend packing */
 int has_return = 0;			/* 1 when a return statement was emitted */
 Node *cur_class;			/* current class being codegen'd, for type lookups */
 int new_tmp_id = 0;
@@ -2278,6 +2312,26 @@ gen_expr(Node *e)
     case NEnumVal:
         print("%s", e->name);
         break;
+    case NSelfCall:
+        {
+            /* Same-class call: direct wrapper invocation on self, no
+             * dispatch machinery.  The owner may be an inherited class;
+             * parent state is embedded first so the cast is valid (same
+             * assumption as inheritance dispatch cases). */
+            Node *owner = gen_class != nil ? method_owner(gen_class, e->name) : nil;
+            Node *a;
+            if(owner == nil){
+                print("0 /* unresolved self call: %s */", e->name);
+                break;
+            }
+            print("o9_self_%s_%s((%s_Internal*)self", owner->name, e->name, owner->name);
+            for(a = e->right; a; a = a->next){
+                print(", ");
+                gen_expr(a);
+            }
+            print(")");
+        }
+        break;
     case NMsgSend:
         {
             Type *lt = e->left != nil ? e->left->typeinfo : nil;
@@ -2310,11 +2364,15 @@ gen_expr(Node *e)
         }
         /* c.method(args...) -> try o9_dispatch_call (asm), fallback to obj9_msgSend (CSP/9P) */
         {
-            int nargs = 0;
+            int nargs = 0, d;
             Node *a;
             for(a = e->right; a; a = a->next) nargs++;
-            /* Pack: args[0]=shm_base (for ctrl thunk), args[1..N]=real args */
-            print("(o9_call_args[0]=");
+            /* Each lexical nesting level packs into its own frame so nested
+             * calls like a.set(b.get()) cannot clobber each other's args. */
+            d = msg_depth++;
+            if(d > 7) d = 7;
+            /* Pack: frame[0]=shm_base (for ctrl thunk), frame[1..N]=real args */
+            print("(__o9fr[%d][0]=", d);
             if(e->left && e->left->type == NIdent && e->left->name){
                 char *__cnx = get_var_class(e->left->name);
                 if(__cnx) print("(vlong)((%s_Client*)&", __cnx);
@@ -2328,7 +2386,7 @@ gen_expr(Node *e)
                 int i = 1;
                 for(a = e->right; a; a = a->next){
                     char buf[64];
-                    snprint(buf, sizeof buf, ", o9_call_args[%d]=", i);
+                    snprint(buf, sizeof buf, ", __o9fr[%d][%d]=", d, i);
                     print(buf);
                     if(type_storage_pointerish(a->typeinfo)){
                         print("(vlong)(uintptr)(");
@@ -2343,20 +2401,21 @@ gen_expr(Node *e)
                 }
             }
             /* Try asm dispatch first (thunk stores the return value in
-             * o9_call_args[0]), fallback to CSP/9P with args+1 (skip shm_base) */
+             * frame[0]), fallback to CSP/9P with frame+1 (skip shm_base) */
             print(", o9_dispatch_call(&");
             gen_expr(e->left);
-            print(", 0x%lux, o9_call_args) != nil ? o9_call_args[0] : ", o9_hash(e->name));
+            print(", 0x%lux, __o9fr[%d]) != nil ? __o9fr[%d][0] : ", o9_hash(e->name), d, d);
             if(e->left && e->left->type == NIdent){
                 /* Remote 9P path walks to "varname/methodname" in the instance tree */
                 print("(vlong)obj9_msgSendN(&");
                 gen_expr(e->left);
-                print(", \"%s/%s\", 0x%lux, o9_call_args+1, %d))", e->left->name, e->name, o9_hash(e->name), nargs);
+                print(", \"%s/%s\", 0x%lux, __o9fr[%d]+1, %d))", e->left->name, e->name, o9_hash(e->name), d, nargs);
             } else {
                 print("(vlong)obj9_msgSendN(&");
                 gen_expr(e->left);
-                print(", \"%s\", 0x%lux, o9_call_args+1, %d))", e->name, o9_hash(e->name), nargs);
+                print(", \"%s\", 0x%lux, __o9fr[%d]+1, %d))", e->name, o9_hash(e->name), d, nargs);
             }
+            msg_depth--;
         }
         break;
     case NPropRead:
@@ -2462,33 +2521,49 @@ gen_expr(Node *e)
             Node *a = e->left;
             if(a == nil){
                 print("\"\"");
-            } else if(a->type == NStringLit && a->next == nil){
-                /* Single string literal — use as format directly */
+            } else if(a->type == NStringLit && a->next == nil && strchr(a->name, '%') == nil){
+                /* Single verb-free literal — use as format directly */
                 gen_expr(a);
-            } else {
-                /* First arg is our format string or the value itself */
-                int first = 1;
-                Node *first_arg = a;
-                if(first_arg->type == NStringLit){
-                    /* Format string provided */
-                    gen_expr(first_arg);
-                    first = 0;
-                    for(a = first_arg->next; a; a = a->next){
-                        if(!first) print(", ");
-                        gen_expr(a);
-                        first = 0;
-                    }
-                } else if(first_arg->next == nil){
-                    /* Single non-string arg — use %lld as format */
-                    print("\"%%lld\"");
+            } else if(a->type == NStringLit && a->next != nil && strchr(a->name, '%') != nil){
+                /* Explicit format string with value args: pass through */
+                gen_expr(a);
+                for(a = a->next; a; a = a->next){
                     print(", ");
-                    gen_expr(first_arg);
-                } else {
-                    /* Multiple args, first not a string — print bare */
-                    for(a = first_arg; a; a = a->next){
-                        if(!first) print(", ");
-                        gen_expr(a);
-                        first = 0;
+                    gen_expr(a);
+                }
+            } else {
+                /* Auto-format: splice literals into the format, print
+                 * string-typed values as %s and everything else as %lld */
+                Node *a2;
+                char *p;
+                print("\"");
+                for(a2 = a; a2; a2 = a2->next){
+                    if(a2->type == NStringLit && a2->name != nil){
+                        /* literal content is decoded; re-escape for C */
+                        for(p = a2->name; *p; p++){
+                            if(*p == '%') print("%%%%");
+                            else if(*p == '\n') print("\\n");
+                            else if(*p == '\t') print("\\t");
+                            else if(*p == '\\') print("\\\\");
+                            else if(*p == '"') print("\\\"");
+                            else print("%c", *p);
+                        }
+                    } else if(strcmp(type_storage_for_codegen(a2->typeinfo), "char*") == 0)
+                        print("%%s");
+                    else
+                        print("%%lld");
+                }
+                print("\"");
+                for(a2 = a; a2; a2 = a2->next){
+                    if(a2->type == NStringLit)
+                        continue;
+                    print(", ");
+                    if(strcmp(type_storage_for_codegen(a2->typeinfo), "char*") == 0){
+                        gen_expr(a2);
+                    } else {
+                        print("(vlong)(");
+                        gen_expr(a2);
+                        print(")");
                     }
                 }
             }
@@ -3583,6 +3658,22 @@ gen_class_server(Node *c)
     print("\tChannel *dispatch_chan;\n");
     print("};\n\n");
 
+    /* Same-class call wrapper prototypes: bodies may bare-call methods
+     * declared later in the class, so declare self-called wrappers up
+     * front; definitions follow each method impl. */
+    for(m = c->left; m; m = m->next){
+        if(m->type == NMethod && method_has_body(m) && (m->flags & NFSelfCalled)){
+            Node *pn;
+            char *rst = type_storage_for_codegen(m->typeinfo);
+            print("static %s o9_self_%s_%s(%s_Internal *self",
+                type_is_void(m->typeinfo) ? "void" : rst, c->name, m->name, c->name);
+            for(pn = m->right; pn; pn = pn->next)
+                print(", %s", type_storage_for_codegen(pn->typeinfo));
+            print(");\n");
+        }
+    }
+    print("\n");
+
     int has_destruct = 0;
     /* 2. Method Implementations (as internal functions) */
     for(m = c->left; m; m = m->next){
@@ -3598,6 +3689,7 @@ gen_class_server(Node *c)
             }
             print("static void o9_impl_%s_%s(%s_Internal *self, O9Msg *msg) {\n", c->name, m->name, c->name);
             print("\tO9Reply *r = mallocz(sizeof(O9Reply), 1);\n");
+            print("\tvlong __o9fr[8][12];\n\tUSED(__o9fr);\n");
             /* Unpack params from msg->args (packed as vlong array for now) */
             {
                 Node *p;
@@ -3612,9 +3704,11 @@ gen_class_server(Node *c)
                 }
             }
             in_method_body = 1;
+            gen_class = c;
             has_return = 0;
             for(s = m->left; s; s = s->next) gen_stmt(c, s);
             in_method_body = 0;
+            gen_class = nil;
             if(has_return) print("done:\n");
             print("\tr->ok = 1;\n\tsendp(msg->replyc, r);\n}\n\n");
 			/* Ctrl dispatch thunk (void(*)(void*) for asm cache) */
@@ -3639,12 +3733,47 @@ gen_class_server(Node *c)
 							else
 								print("\t__args[%d] = (vlong)__arg%d;\n", pi, pi);
 						}
-					print("\tO9Msg __m = {0x%lux, __args, %d, chancreate(sizeof(void*), 0)};\n", o9_hash(m->name), np);
+					/* buffered replyc: impl sends the reply from this same
+					 * proc before we recvp — rendezvous would deadlock */
+					print("\tO9Msg __m = {0x%lux, __args, %d, chancreate(sizeof(void*), 1)};\n", o9_hash(m->name), np);
 				} else
-					print("\tO9Msg __m = {0x%lux, nil, 0, chancreate(sizeof(void*), 0)};\n", o9_hash(m->name));
+					print("\tO9Msg __m = {0x%lux, nil, 0, chancreate(sizeof(void*), 1)};\n", o9_hash(m->name));
 				print("\to9_impl_%s_%s(self, &__m);\n", c->name, m->name);
 				print("\t{ O9Reply *__r = recvp(__m.replyc); ((vlong*)__a)[0] = (vlong)(uintptr)__r->ret; free(__r); }\n");
 				print("\tchanfree(__m.replyc);\n}\n\n");
+
+				/* Same-class call wrapper for bare (implicit-self) calls */
+				if(m->flags & NFSelfCalled){
+					char *rst = type_storage_for_codegen(m->typeinfo);
+					int isvoid = type_is_void(m->typeinfo);
+					print("static %s o9_self_%s_%s(%s_Internal *self",
+						isvoid ? "void" : rst, c->name, m->name, c->name);
+					for(pn = m->right, pi = 0; pn; pn = pn->next, pi++)
+						print(", %s __a%d", type_storage_for_codegen(pn->typeinfo), pi);
+					print(") {\n");
+					if(np > 0)
+						print("\tvlong __args[%d];\n", np);
+					print("\tO9Msg __m;\n\tO9Reply *__r;\n");
+					if(!isvoid)
+						print("\t%s __v;\n", rst);
+					for(pn = m->right, pi = 0; pn; pn = pn->next, pi++){
+						if(type_storage_pointerish(pn->typeinfo))
+							print("\t__args[%d] = (vlong)(uintptr)__a%d;\n", pi, pi);
+						else
+							print("\t__args[%d] = (vlong)__a%d;\n", pi, pi);
+					}
+					print("\t__m.sel = 0x%lux;\n\t__m.args = %s;\n\t__m.nargs = %d;\n",
+						o9_hash(m->name), np > 0 ? "__args" : "nil", np);
+					print("\t__m.replyc = chancreate(sizeof(void*), 1);\n");
+					print("\to9_impl_%s_%s(self, &__m);\n", c->name, m->name);
+					print("\t__r = recvp(__m.replyc);\n");
+					if(!isvoid)
+						print("\t__v = (%s)__r->ret;\n", rst);
+					print("\tfree(__r);\n\tchanfree(__m.replyc);\n");
+					if(!isvoid)
+						print("\treturn __v;\n");
+					print("}\n\n");
+				}
 			}
         }
         if(m->type == NDestructor){
@@ -3652,6 +3781,7 @@ gen_class_server(Node *c)
             num_locals = 0;
             mark_locals(m->left);
             print("static void o9_destruct_%s(%s_Internal *self) {\n", c->name, c->name);
+            print("\tvlong __o9fr[8][12];\n\tUSED(__o9fr);\n");
             for(s = m->left; s; s = s->next) gen_stmt(c, s);
             print("}\n\n");
         }
@@ -4080,7 +4210,6 @@ codegen(Node *root)
     print("#include <u.h>\n#include <libc.h>\n#include <thread.h>\n#include <fcall.h>\n#include <9p.h>\n#include <o9.h>\n\n");
     print("#ifndef _O9_COMMON_\n#define _O9_COMMON_\n");
     print("#define o9_offsetof(s, m) (long)(&(((s*)0)->m))\n");
-    print("vlong o9_call_args[64];\n");
     print("typedef struct ArcEntry {\n\tulong id;\n\tlong count;\n} ArcEntry;\n\n");
     print("typedef struct ArcLedger {\n\tArcEntry entries[64];\n} ArcLedger;\n");
     print("#endif\n\n");
@@ -4099,7 +4228,8 @@ codegen(Node *root)
     last = gen_classes(root);
 
     print("void\nthreadmain(int argc, char **argv)\n{\n");
-    print("\tUSED(argc); USED(argv);\n");
+    print("\tvlong __o9fr[8][12];\n");
+    print("\tUSED(argc); USED(argv); USED(__o9fr);\n");
     gen_object_metadata(root);
     if(last && !has_remote_new){
         print("\to9_main_%s(argc, argv);\n", last->name);
@@ -4862,6 +4992,17 @@ annotate_expr_type(Node *e, Node *scope_class)
         if(typed_member_lookup(lt, e->name, 0, &tm))
             return set_expr_type(e, tm.type);
         return set_expr_type(e, nil);
+    case NSelfCall:
+        for(a = e->right; a; a = a->next)
+            annotate_expr_type(a, scope_class);
+        if(scope_class != nil){
+            lt = scope_class->typeinfo;
+            if(lt == nil)
+                lt = type_from_name(scope_class->qname != nil ? scope_class->qname : scope_class->name);
+            if(typed_member_lookup(lt, e->name, 1, &tm))
+                return set_expr_type(e, tm.type);
+        }
+        return set_expr_type(e, nil);
     case NMsgSend:
         lt = annotate_expr_type(e->left, scope_class);
         for(a = e->right; a; a = a->next)
@@ -5312,6 +5453,51 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
             }
         }
         break;
+    case NSelfCall:
+        annotate_expr_type(e, scope_class);
+        if(scope_class == nil){
+            fprint(2, "o9c: error: line %d: call to '%s' outside a class method\n", sem_line, e->name);
+            (*errs)++;
+            break;
+        }
+        {
+            Type *st = scope_class->typeinfo;
+            TypedMember tm;
+            if(st == nil)
+                st = type_from_name(scope_class->qname != nil ? scope_class->qname : scope_class->name);
+            if(typed_member_lookup(st, e->name, 0, &tm)){
+                fprint(2, "o9c: error: line %d: '%s' is a property, not a method\n", sem_line, e->name);
+                (*errs)++;
+            } else if(!typed_member_lookup(st, e->name, 1, &tm)){
+                fprint(2, "o9c: error: line %d: '%s' has no method '%s'\n", sem_line,
+                    scope_class->qname != nil ? scope_class->qname : scope_class->name, e->name);
+                (*errs)++;
+            } else if(tm.node != nil){
+                tm.node->flags |= NFSelfCalled;	/* emit the o9_self_ wrapper */
+                {
+                Node *p, *a;
+                Type *expected;
+                int pi;
+                if(node_list_len(tm.node->right) != node_list_len(e->right)){
+                    fprint(2, "o9c: error: line %d: method '%s' needs %d argument(s)\n", sem_line,
+                        e->name, node_list_len(tm.node->right));
+                    (*errs)++;
+                } else {
+                    for(p = tm.node->right, a = e->right, pi = 0; p && a; p = p->next, a = a->next, pi++){
+                        expected = type_subst(p->typeinfo, tm.bindings);
+                        if(!type_assignable_semantic(expected, a->typeinfo)){
+                            fprint(2, "o9c: error: line %d: argument %d to '%s' has type %s, expected %s\n", sem_line,
+                                pi + 1, e->name,
+                                a->typeinfo != nil ? type_render(a->typeinfo) : "<unknown>",
+                                expected != nil ? type_render(expected) : "<unknown>");
+                            (*errs)++;
+                        }
+                    }
+                }
+                }
+            }
+        }
+        break;
     case NMsgSend:
         annotate_expr_type(e, scope_class);
         /* Check: method call, must be a method, not a property */
@@ -5600,6 +5786,7 @@ node_kind(int type)
     case NWhile: return "NWhile";
     case NLocalVar: return "NLocalVar";
     case NMsgSend: return "NMsgSend";
+    case NSelfCall: return "NSelfCall";
     case NPropRead: return "NPropRead";
     case NFuncCall: return "NFuncCall";
     case NFor: return "NFor";

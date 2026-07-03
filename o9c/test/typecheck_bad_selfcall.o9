@@ -1,0 +1,4 @@
+class Counter {
+    int64 val;
+    method int64 get() { return missing(); }
+}

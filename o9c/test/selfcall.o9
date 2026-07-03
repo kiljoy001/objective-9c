@@ -1,0 +1,18 @@
+// Bare (implicit-self) method calls, including through inheritance.
+class Base {
+    int64 v;
+    method Base(int64 n) { v = n; }
+    method int64 get() { return v; }
+}
+
+class Doubler {
+    Base;
+    method int64 twice() { return get() * 2; }
+    method int64 quad() { return twice() + twice(); }
+}
+
+func main() {
+    Doubler d = new Doubler();
+    int64 q = d.quad();
+    print("q ", q);
+}

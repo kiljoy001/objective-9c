@@ -74,15 +74,23 @@ compile o9c/test/generic_interface_codegen.o9 generic_interface_codegen
 compile o9c/test/main_class.o9 main_class
 compile o9c/test/inheritance.o9 inheritance
 compile o9c/test/pascal_names.o9 pascal_names
+compile o9c/test/selfcall.o9 selfcall
 
-# constructor dispatch + method return value readback via o9_call_args[0];
+# bare (implicit-self) calls: wrapper defs only for called methods,
+# inherited targets resolve to the defining class
+$tool < o9c/test/selfcall.o9 > $meta >[2] $err || exit selfcall-meta
+require_file 'o9_self_Base_get..Base_Internal..self.' $meta
+require_file 'o9_self_Doubler_twice' $meta
+rm -f $meta
+
+# constructor dispatch + method return value readback via per-call frames;
 # new instances register live object-store rows via create_instance
 $tool < o9c/test/main_class.o9 > $meta >[2] $err || exit ctor-meta
 require_file 'obj9_msgSendN' $meta
 require_file 'Counter_create_instance.__c, "c".' $meta
 rm -f $meta
 $tool < o9c/test/e2e_test.o9 > $meta >[2] $err || exit retval-meta
-require_file 'o9_call_args.0. :' $meta
+require_file '__o9fr.0..0. :' $meta
 rm -f $meta
 
 # PascalCase members and line-stamped AST nodes
@@ -134,7 +142,7 @@ rm -f $meta
 
 $tool < o9c/test/multi_arg_method.o9 > $meta >[2] $err || exit multi-arg-meta
 require_file 'obj9_msgSendN' $meta
-require_file 'o9_call_args.1, 2' $meta
+require_file '__o9fr.0..1, 2' $meta
 require_file '__wargs' $meta
 require_file 'nf > 4' $meta
 rm -f $meta
@@ -195,6 +203,7 @@ require_error o9c/test/typecheck_bad_class_inherit_enum.o9 'class ''Bad'' cannot
 require_error o9c/test/typecheck_bad_multiple_class_inherit.o9 'class ''C'' cannot inherit more than one class'
 require_error o9c/test/typecheck_bad_inherit_cycle.o9 'inheritance cycle involving ''A'''
 require_error o9c/test/typecheck_bad_abstract_new.o9 'cannot instantiate abstract class ''Base'''
+require_error o9c/test/typecheck_bad_selfcall.o9 '''Counter'' has no method ''missing'''
 require_error o9c/test/typecheck_bad_interface_new.o9 'cannot instantiate interface ''Sink'''
 
 rm -f $ast $err $meta

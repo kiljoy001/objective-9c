@@ -1,0 +1,39 @@
+#!/bin/rc
+# Execute-and-assert: transpile, compile, link, RUN, compare stdout.
+# 9front only (needs 6c/6l and a running namespace).
+
+tool=./o9c/o9c
+src=o9c/test/e2e_run.o9
+expected=o9c/test/e2e_run.expected
+cfile=/tmp/o9_e2e.$pid.c
+ofile=/tmp/o9_e2e.$pid.6
+bin=/tmp/o9_e2e.$pid
+out=/tmp/o9_e2e.$pid.out
+
+fn fail {
+	echo e2e_run: $* >[1=2]
+	rm -f $cfile $ofile $bin $out
+	exit fail
+}
+
+if(! test -e $tool) fail missing $tool
+if(! test -e libo9.a) fail missing libo9.a
+
+# stale service posts from earlier runs make threadpostmountsrv sysfatal
+rm -f /srv/E2Counter
+
+$tool < $src > $cfile || fail transpile
+6c -FVw -I. -o $ofile $cfile || fail 6c
+6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a || fail 6l
+$bin > $out >[2=1] || fail run status $status
+if(! cmp -s $out $expected){
+	echo e2e_run: output mismatch >[1=2]
+	echo '--- expected ---' >[1=2]
+	cat $expected >[1=2]
+	echo '--- actual ---' >[1=2]
+	cat $out >[1=2]
+	rm -f $cfile $ofile $bin $out
+	exit fail
+}
+rm -f $cfile $ofile $bin $out
+echo e2e_run: OK
