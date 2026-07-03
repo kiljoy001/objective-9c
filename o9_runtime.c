@@ -434,6 +434,111 @@ o9_object_addr(O9ObjectStore *s, char *oid, vlong gen)
 	return (void*)o9_object_parse_addr(v);
 }
 
+/* Text/Fs/IO builtins — lowered from len/cmp/cat/readfile/writefile/readline.
+ * Strings returned here are malloc'd and, for now, live until process exit
+ * (no lifecycle yet). */
+
+vlong
+o9_str_len(char *s)
+{
+	if(s == nil)
+		return 0;
+	return strlen(s);
+}
+
+vlong
+o9_str_cmp(char *a, char *b)
+{
+	if(a == nil) a = "";
+	if(b == nil) b = "";
+	return strcmp(a, b);
+}
+
+char*
+o9_str_cat(char *a, char *b)
+{
+	if(a == nil) a = "";
+	if(b == nil) b = "";
+	return smprint("%s%s", a, b);
+}
+
+char*
+o9_readfile(char *path)
+{
+	int fd;
+	long n, total, cap;
+	char *buf, *nb;
+
+	if(path == nil)
+		return nil;
+	fd = open(path, OREAD);
+	if(fd < 0)
+		return nil;
+	cap = 8192;
+	total = 0;
+	buf = malloc(cap);
+	if(buf == nil){
+		close(fd);
+		return nil;
+	}
+	while((n = read(fd, buf + total, cap - total - 1)) > 0){
+		total += n;
+		if(total + 1 >= cap){
+			cap *= 2;
+			nb = realloc(buf, cap);
+			if(nb == nil)
+				break;
+			buf = nb;
+		}
+	}
+	close(fd);
+	buf[total] = '\0';
+	return buf;
+}
+
+vlong
+o9_writefile(char *path, char *s)
+{
+	int fd;
+	long n;
+
+	if(path == nil || s == nil)
+		return -1;
+	fd = create(path, OWRITE, 0644);
+	if(fd < 0)
+		return -1;
+	n = strlen(s);
+	if(write(fd, s, n) != n){
+		close(fd);
+		return -1;
+	}
+	close(fd);
+	return 0;
+}
+
+char*
+o9_readline(void)
+{
+	char buf[4096];
+	int i, n;
+	char c;
+
+	i = 0;
+	while(i < sizeof buf - 1){
+		n = read(0, &c, 1);
+		if(n <= 0){
+			if(i == 0)
+				return nil;
+			break;
+		}
+		if(c == '\n')
+			break;
+		buf[i++] = c;
+	}
+	buf[i] = '\0';
+	return strdup(buf);
+}
+
 /* Method table backed by libtab — the dispatch source of truth.
  *
  * One store per process: every generated class server registers its methods

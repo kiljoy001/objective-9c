@@ -1,0 +1,4 @@
+func main() {
+    int64 x;
+    delete x;
+}

@@ -75,6 +75,15 @@ compile o9c/test/main_class.o9 main_class
 compile o9c/test/inheritance.o9 inheritance
 compile o9c/test/pascal_names.o9 pascal_names
 compile o9c/test/selfcall.o9 selfcall
+compile o9c/test/e2e_text.o9 e2e_text
+compile o9c/test/e2e_delete.o9 e2e_delete
+
+# builtins lower to runtime helpers
+$tool < o9c/test/e2e_text.o9 > $meta >[2] $err || exit builtin-meta
+require_file 'o9_str_cat' $meta
+require_file 'o9_readfile' $meta
+require_file 'o9_writefile' $meta
+rm -f $meta
 
 # bare (implicit-self) calls: wrapper defs only for called methods,
 # inherited targets resolve to the defining class
@@ -204,6 +213,8 @@ require_error o9c/test/typecheck_bad_multiple_class_inherit.o9 'class ''C'' cann
 require_error o9c/test/typecheck_bad_inherit_cycle.o9 'inheritance cycle involving ''A'''
 require_error o9c/test/typecheck_bad_abstract_new.o9 'cannot instantiate abstract class ''Base'''
 require_error o9c/test/typecheck_bad_selfcall.o9 '''Counter'' has no method ''missing'''
+require_error o9c/test/typecheck_bad_delete.o9 'delete needs a class instance'
+require_error o9c/test/typecheck_bad_builtin_arity.o9 'builtin ''len'' needs 1 argument'
 require_error o9c/test/typecheck_bad_interface_new.o9 'cannot instantiate interface ''Sink'''
 
 rm -f $ast $err $meta

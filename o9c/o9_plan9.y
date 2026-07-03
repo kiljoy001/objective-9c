@@ -73,7 +73,8 @@ enum {
     NLink,
     NModule,
     NTypeParam,
-    NSelfCall
+    NSelfCall,
+    NDelete
 };
 
 enum {
@@ -298,6 +299,37 @@ int is_subclass(char *sub, char *parent) {
     for(m = c->left; m && !r; m = m->next) if(m->type == NInherit) { if(strcmp(m->name, parent) == 0 || is_subclass(m->name, parent)) r = 1; }
     depth--;
     return r;
+}
+
+/* Builtin functions lowered to runtime helpers.  Class methods of the
+ * same name shadow these inside method bodies. */
+typedef struct Builtin Builtin;
+struct Builtin {
+    char *name;
+    char *runtime;
+    int argc;
+    char *ret;
+    char *args[2];
+};
+static Builtin builtins[] = {
+    {"len",       "o9_str_len",   1, "int64",  {"string", nil}},
+    {"cmp",       "o9_str_cmp",   2, "int64",  {"string", "string"}},
+    {"cat",       "o9_str_cat",   2, "string", {"string", "string"}},
+    {"readfile",  "o9_readfile",  1, "string", {"string", nil}},
+    {"writefile", "o9_writefile", 2, "int64",  {"string", "string"}},
+    {"readline",  "o9_readline",  0, "string", {nil, nil}},
+};
+
+static Builtin*
+find_builtin(char *name)
+{
+    int i;
+    if(name == nil)
+        return nil;
+    for(i = 0; i < nelem(builtins); i++)
+        if(strcmp(builtins[i].name, name) == 0)
+            return &builtins[i];
+    return nil;
 }
 
 /* Class whose own members define a bodied method `name`, following the
@@ -1214,7 +1246,7 @@ typeinfo_from_legacy(char *t)
 
 %token <node> TIDENT TTYPE TQIDENT TTYPEIDENT TENUMIDENT
 %token <name> TINTLIT TSTRINGLIT TCHARLIT
-%token TCLASS TINTERFACE TSTRUCT TENUM TMODULE TIMPORT TFUNC TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TLIST TNIL TABSTRACT
+%token TCLASS TINTERFACE TSTRUCT TENUM TMODULE TIMPORT TFUNC TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TLIST TNIL TABSTRACT TDELETE
 %token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TOBJECT TLINK TREF TREPLICA TTRUE TFALSE TARROW
 %token TEQ TADD TSUB TCHANSEND TCHANRECV TCHANTRY TEQEQ TNEQ TLE TGE
 %token TAND TOR TLSHIFT TRSHIFT TFORSEMI
@@ -1729,6 +1761,7 @@ stmt:
     | typename member_name TEQ expr ';' { $$ = mk_typed(NLocalVar, $2->name, $1, $4, nil); if(is_class_type($1->name)) add_var_class($2->name, $1->name); }
     | expr ';' { $$ = $1; }
     | TRETURN expr ';' { $$ = mk(NReturn, nil, nil, $2, nil); }
+    | TDELETE TIDENT ';' { $$ = mk(NDelete, $2->name, nil, $2, nil); }
     | TPRINT '(' call_args ')' ';' {
         $$ = mk(NFuncCall, "print", nil, $3, nil);
     }
@@ -2135,6 +2168,7 @@ yylex(void)
             if(strcmp(buf, "func") == 0) return TFUNC;
             if(strcmp(buf, "new") == 0) return TNEW;
             if(strcmp(buf, "near") == 0) return TNEAR;
+            if(strcmp(buf, "delete") == 0) return TDELETE;
             if(strcmp(buf, "far") == 0) return TFAR;
             if(strcmp(buf, "Dict") == 0) return TDICT;
             if(strcmp(buf, "method") == 0) return TMETHOD;
@@ -2321,6 +2355,16 @@ gen_expr(Node *e)
             Node *owner = gen_class != nil ? method_owner(gen_class, e->name) : nil;
             Node *a;
             if(owner == nil){
+                Builtin *bi = find_builtin(e->name);
+                if(bi != nil){
+                    print("%s(", bi->runtime);
+                    for(a = e->right; a; a = a->next){
+                        if(a != e->right) print(", ");
+                        gen_expr(a);
+                    }
+                    print(")");
+                    break;
+                }
                 print("0 /* unresolved self call: %s */", e->name);
                 break;
             }
@@ -2836,6 +2880,13 @@ gen_stmt(Node *c, Node *s)
             }
         }
         print("\t"); gen_expr(s); print(";\n");
+        break;
+    case NDelete:
+        /* Run the destructor synchronously (actor replies after
+         * teardown, then exits), then neutralize the client handle. */
+        print("\tobj9_msgSendN(&%s, nil, 0x%lux, nil, 0);\n", s->name, o9_hash("destroy"));
+        print("\tmemset(&%s, 0, sizeof %s);\n", s->name, s->name);
+        print("\t%s.fd = -1;\n", s->name);
         break;
     case NChanSend: {
         char *t = "vlong";
@@ -3832,7 +3883,7 @@ gen_class_server(Node *c)
     print("\t\tswitch(m->sel){\n");
     num_emitted = 0;
     gen_dispatch_cases(c, c->name);
-    print("\t\tcase 0x%lux: o9_cleanup_%s(self); threadexits(nil); break;\n", o9_hash("destroy"), c->name);
+    print("\t\tcase 0x%lux: o9_cleanup_%s(self); { O9Reply *__dr = mallocz(sizeof(O9Reply), 1); __dr->ok = 1; sendp(m->replyc, __dr); } threadexits(nil); break;\n", o9_hash("destroy"), c->name);
     print("\t\tdefault: { O9Reply *r = mallocz(sizeof(O9Reply), 1); r->err = \"bad selector\"; sendp(m->replyc, r); } break;\n");
     print("\t\t}\n\t}\n}\n\n");
 
@@ -5014,6 +5065,11 @@ annotate_expr_type(Node *e, Node *scope_class)
             if(typed_member_lookup(lt, e->name, 1, &tm))
                 return set_expr_type(e, tm.type);
         }
+        {
+            Builtin *b = find_builtin(e->name);
+            if(b != nil)
+                return set_expr_type(e, type_name(b->ret));
+        }
         return set_expr_type(e, nil);
     case NMsgSend:
         lt = annotate_expr_type(e->left, scope_class);
@@ -5262,10 +5318,10 @@ check_local_member_conflicts(Node *cnode, int *errs)
     if(cnode == nil)
         return;
     for(a = cnode->left; a; a = a->next){
-        if(a->name == nil || a->type == NInherit)
+        if(a->name == nil || a->type == NInherit || a->type == NDestructor)
             continue;
         for(b = a->next; b; b = b->next){
-            if(b->name != nil && b->type != NInherit && strcmp(a->name, b->name) == 0){
+            if(b->name != nil && b->type != NInherit && b->type != NDestructor && strcmp(a->name, b->name) == 0){
                 if(b->line > 0)
                     sem_line = b->line;
                 fprint(2, "o9c: error: line %d: duplicate member '%s' in '%s'\n", sem_line,
@@ -5467,20 +5523,47 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
         break;
     case NSelfCall:
         annotate_expr_type(e, scope_class);
-        if(scope_class == nil){
-            fprint(2, "o9c: error: line %d: call to '%s' outside a class method\n", sem_line, e->name);
-            (*errs)++;
-            break;
-        }
         {
-            Type *st = scope_class->typeinfo;
+            Type *st = nil;
             TypedMember tm;
-            if(st == nil)
-                st = type_from_name(scope_class->qname != nil ? scope_class->qname : scope_class->name);
-            if(typed_member_lookup(st, e->name, 0, &tm)){
+            Builtin *bi;
+            int ismethod = 0;
+
+            if(scope_class != nil){
+                st = scope_class->typeinfo;
+                if(st == nil)
+                    st = type_from_name(scope_class->qname != nil ? scope_class->qname : scope_class->name);
+                ismethod = typed_member_lookup(st, e->name, 1, &tm);
+            }
+            if(!ismethod && (bi = find_builtin(e->name)) != nil){
+                Node *a;
+                int pi;
+                if(node_list_len(e->right) != bi->argc){
+                    fprint(2, "o9c: error: line %d: builtin '%s' needs %d argument(s)\n", sem_line,
+                        e->name, bi->argc);
+                    (*errs)++;
+                } else {
+                    for(a = e->right, pi = 0; a != nil && pi < bi->argc; a = a->next, pi++){
+                        if(!type_assignable_semantic(type_name(bi->args[pi]), a->typeinfo)){
+                            fprint(2, "o9c: error: line %d: argument %d to '%s' has type %s, expected %s\n", sem_line,
+                                pi + 1, e->name,
+                                a->typeinfo != nil ? type_render(a->typeinfo) : "<unknown>",
+                                bi->args[pi]);
+                            (*errs)++;
+                        }
+                    }
+                }
+                break;
+            }
+            if(scope_class == nil){
+                fprint(2, "o9c: error: line %d: unknown function '%s'\n", sem_line, e->name);
+                (*errs)++;
+                break;
+            }
+            if(!ismethod && typed_member_lookup(st, e->name, 0, &tm)){
                 fprint(2, "o9c: error: line %d: '%s' is a property, not a method\n", sem_line, e->name);
                 (*errs)++;
-            } else if(!typed_member_lookup(st, e->name, 1, &tm)){
+            } else if(!ismethod){
                 fprint(2, "o9c: error: line %d: '%s' has no method '%s'\n", sem_line,
                     scope_class->qname != nil ? scope_class->qname : scope_class->name, e->name);
                 (*errs)++;
@@ -5591,6 +5674,12 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
         if(e->left != nil && e->right != nil &&
            !type_assignable_semantic(e->left->typeinfo, e->right->typeinfo))
             type_mismatch_error("assign", e->left->typeinfo, e->right->typeinfo, errs);
+        break;
+    case NDelete:
+        if(e->left == nil || e->left->name == nil || get_var_class(e->left->name) == nil){
+            fprint(2, "o9c: error: line %d: delete needs a class instance\n", sem_line);
+            (*errs)++;
+        }
         break;
     case NReturn:
         annotate_expr_type(e, scope_class);
@@ -5799,6 +5888,7 @@ node_kind(int type)
     case NLocalVar: return "NLocalVar";
     case NMsgSend: return "NMsgSend";
     case NSelfCall: return "NSelfCall";
+    case NDelete: return "NDelete";
     case NPropRead: return "NPropRead";
     case NFuncCall: return "NFuncCall";
     case NFor: return "NFor";

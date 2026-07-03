@@ -1,0 +1,14 @@
+// delete runs the destructor synchronously, then the actor exits.
+class Res {
+    int64 v;
+    method Res(int64 n) { v = n; }
+    ~Res() {
+        print("destructor ran\n");
+    }
+}
+
+func main() {
+    Res r = new Res(5);
+    delete r;
+    print("after delete\n");
+}

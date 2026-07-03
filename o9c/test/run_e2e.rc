@@ -3,37 +3,60 @@
 # 9front only (needs 6c/6l and a running namespace).
 
 tool=./o9c/o9c
-src=o9c/test/e2e_run.o9
-expected=o9c/test/e2e_run.expected
-cfile=/tmp/o9_e2e.$pid.c
-ofile=/tmp/o9_e2e.$pid.6
-bin=/tmp/o9_e2e.$pid
-out=/tmp/o9_e2e.$pid.out
+fail=0
 
-fn fail {
-	echo e2e_run: $* >[1=2]
+fn runcase {
+	name=$1
+	src=o9c/test/$name.o9
+	expected=o9c/test/$name.expected
+	cfile=/tmp/o9_$name.$pid.c
+	ofile=/tmp/o9_$name.$pid.6
+	bin=/tmp/o9_$name.$pid
+	out=/tmp/o9_$name.$pid.out
+
+	# stale service posts from earlier runs make threadpostmountsrv sysfatal
+	rm -f /srv/E2Counter /srv/Res
+
+	if($tool < $src > $cfile &&
+	   6c -FVw -I. -o $ofile $cfile &&
+	   6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a){
+		$bin > $out >[2=1]
+		if(! ~ $status ''){
+			echo $name': run failed:' $status >[1=2]
+			fail=1
+		}
+		if not if(! cmp -s $out $expected){
+			echo $name': output mismatch' >[1=2]
+			echo '--- expected ---' >[1=2]
+			cat $expected >[1=2]
+			echo '--- actual ---' >[1=2]
+			cat $out >[1=2]
+			fail=1
+		}
+		if not
+			echo $name: OK
+	}
+	if not{
+		echo $name': build failed' >[1=2]
+		fail=1
+	}
 	rm -f $cfile $ofile $bin $out
-	exit fail
+	broke | rc
 }
 
-if(! test -e $tool) fail missing $tool
-if(! test -e libo9.a) fail missing libo9.a
-
-# stale service posts from earlier runs make threadpostmountsrv sysfatal
-rm -f /srv/E2Counter
-
-$tool < $src > $cfile || fail transpile
-6c -FVw -I. -o $ofile $cfile || fail 6c
-6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a || fail 6l
-$bin > $out >[2=1] || fail run status $status
-if(! cmp -s $out $expected){
-	echo e2e_run: output mismatch >[1=2]
-	echo '--- expected ---' >[1=2]
-	cat $expected >[1=2]
-	echo '--- actual ---' >[1=2]
-	cat $out >[1=2]
-	rm -f $cfile $ofile $bin $out
-	exit fail
+if(! test -e $tool){
+	echo missing $tool >[1=2]
+	exit missing
 }
-rm -f $cfile $ofile $bin $out
+if(! test -e libo9.a){
+	echo missing libo9.a >[1=2]
+	exit missing
+}
+
+runcase e2e_run
+runcase e2e_text
+runcase e2e_delete
+
+if(! ~ $fail 0)
+	exit fail
 echo e2e_run: OK

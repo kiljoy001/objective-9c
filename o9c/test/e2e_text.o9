@@ -1,0 +1,10 @@
+// Text/Fs builtins: cat/len/cmp + writefile/readfile roundtrip.
+func main() {
+    string h = "hello";
+    string w = cat(h, " world");
+    int64 n = len(w);
+    writefile("/tmp/o9_e2e_text", w);
+    string back = readfile("/tmp/o9_e2e_text");
+    print("len ", n, " eq ", cmp(w, back), "\n");
+    print(back, "\n");
+}

@@ -147,6 +147,14 @@ extern char*          o9_object_get(O9ObjectStore *s, char *oid, char *col);
 extern void*          o9_object_addr(O9ObjectStore *s, char *oid, vlong gen);
 extern vlong          o9_object_generation(O9ObjectStore *s, char *oid);
 
+/* Text/Fs/IO builtins (len/cmp/cat/readfile/writefile/readline) */
+extern vlong  o9_str_len(char *s);
+extern vlong  o9_str_cmp(char *a, char *b);
+extern char*  o9_str_cat(char *a, char *b);
+extern char*  o9_readfile(char *path);
+extern vlong  o9_writefile(char *path, char *s);
+extern char*  o9_readline(void);
+
 /* Method table backed by libtab — dispatch source of truth.
  *
  * One store per process; class servers register their methods (including
