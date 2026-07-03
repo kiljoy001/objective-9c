@@ -1,0 +1,35 @@
+class Box<T> {
+    prop T value;
+
+    method T get() {
+        return value;
+    }
+
+    method void set(T next) {
+        value = next;
+    }
+}
+
+interface Sink<T> {
+    method void put(T value);
+}
+
+class StringSink {
+    Sink<string>;
+
+    method void put(string value) {
+        print(value);
+    }
+}
+
+func main() {
+    Box<int64> numbers;
+    Box<string> names;
+    int64 n;
+    string s;
+
+    numbers.set(7);
+    names.set("sam");
+    n = numbers.get();
+    s = names.get();
+}

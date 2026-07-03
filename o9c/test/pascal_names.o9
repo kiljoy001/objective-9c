@@ -1,0 +1,27 @@
+// C#-style PascalCase names: methods, props, locals, params, bare self-access,
+// dotted property reads through PascalCase locals, and a field sharing a
+// declared type's name (declarable + dot-accessible).
+class Helper {
+    int64 val;
+    method Helper(int64 n) { val = n; }
+}
+
+class Counter {
+    prop string Name;
+    int64 Value;
+    int64 Helper;
+
+    method Counter(int64 n) { Value = n; }
+    method int64 GetValue() { return Value; }
+    method void SetName(string s) { Name = s; }
+    method int64 Bump(int64 Delta) { Value = Value + Delta; return Value; }
+}
+
+func main() {
+    Counter c = new Counter(41);
+    int64 Total = c.GetValue();
+    c.SetName("main");
+    Helper H = new Helper(7);
+    int64 hv = H.val;
+    print("total ", Total, " hv ", hv);
+}

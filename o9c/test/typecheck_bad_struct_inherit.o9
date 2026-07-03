@@ -1,0 +1,7 @@
+struct Point {
+	prop int64 x;
+}
+
+class Bad {
+	Point;
+}

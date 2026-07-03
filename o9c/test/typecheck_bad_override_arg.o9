@@ -1,0 +1,10 @@
+class Base {
+	method void put(int64 value) {
+	}
+}
+
+class Worker {
+	Base;
+	method void put(string value) {
+	}
+}

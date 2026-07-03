@@ -1,0 +1,6 @@
+class Base {
+}
+
+interface Bad {
+	Base;
+}

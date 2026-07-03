@@ -2,6 +2,8 @@
 
 tool=./o9c/o9c
 ast=/tmp/o9_ast.out.$pid
+err=/tmp/o9_ast.err.$pid
+meta=/tmp/o9_meta.c.$pid
 
 if(! test -e $tool){
 	echo missing $tool >[1=2]
@@ -20,7 +22,44 @@ fn require {
 	if(! ~ $status ''){
 		echo missing AST output: $1 >[1=2]
 		cat $ast >[1=2]
-		rm -f $ast
+		rm -f $ast $err $meta
+		exit fail
+	}
+}
+
+fn require_file {
+	pattern=$1
+	file=$2
+	grep $"pattern $file > /dev/null
+	if(! ~ $status ''){
+		echo missing generated output: $pattern >[1=2]
+		cat $file >[1=2]
+		rm -f $ast $err $meta
+		exit fail
+	}
+}
+
+fn reject_file {
+	pattern=$1
+	file=$2
+	grep $"pattern $file > /dev/null
+	if(~ $status ''){
+		echo unexpected generated output: $pattern >[1=2]
+		cat $file >[1=2]
+		rm -f $ast $err $meta
+		exit fail
+	}
+}
+
+fn require_error {
+	src=$1
+	pattern=$2
+	$tool < $src > $ast >[2] $err
+	grep $"pattern $err > /dev/null
+	if(! ~ $status ''){
+		echo missing expected error for $src: $pattern >[1=2]
+		cat $err >[1=2]
+		rm -f $ast $err $meta
 		exit fail
 	}
 }
@@ -28,6 +67,32 @@ fn require {
 compile o9c/test/ast_complete.o9 ast_complete
 compile o9c/test/enum_types.o9 enum_types
 compile o9c/test/module_types.o9 module_types
+compile o9c/test/multi_arg_method.o9 multi_arg_method
+compile o9c/test/inherit_contracts.o9 inherit_contracts
+compile o9c/test/generic_contracts.o9 generic_contracts
+compile o9c/test/generic_interface_codegen.o9 generic_interface_codegen
+compile o9c/test/main_class.o9 main_class
+compile o9c/test/inheritance.o9 inheritance
+compile o9c/test/pascal_names.o9 pascal_names
+
+# constructor dispatch + method return value readback via o9_call_args[0];
+# new instances register live object-store rows via create_instance
+$tool < o9c/test/main_class.o9 > $meta >[2] $err || exit ctor-meta
+require_file 'obj9_msgSendN' $meta
+require_file 'Counter_create_instance.__c, "c".' $meta
+rm -f $meta
+$tool < o9c/test/e2e_test.o9 > $meta >[2] $err || exit retval-meta
+require_file 'o9_call_args.0. :' $meta
+rm -f $meta
+
+# PascalCase members and line-stamped AST nodes
+$tool < o9c/test/pascal_names.o9 > $meta >[2] $err || exit pascal-meta
+require_file 'o9_impl_Counter_GetValue' $meta
+require_file 'o9_impl_Counter_SetName' $meta
+rm -f $meta
+$tool -ast < o9c/test/pascal_names.o9 > $ast || exit pascal-ast
+require 'NMethod name=GetValue.*line='
+rm -f $ast
 
 $tool -ast < o9c/test/ast_complete.o9 > $ast || exit ast-dump
 require 'NModule name=App qname=App cname=App'
@@ -41,4 +106,96 @@ require 'NMsgSend name=inc qname=inc cname=inc type=void'
 require 'NIdent name=counter qname=counter cname=counter type=App.Counter'
 rm -f $ast
 
+$tool < o9c/test/module_types.o9 > $meta >[2] $err || exit type-meta
+require_file 'char statusbuf' $meta
+require_file 'typename App__Counter' $meta
+require_file 'App__Counter_find_instance' $meta
+require_file 'App__Counter_record_instance' $meta
+require_file 'O9ObjectStore \*o9_objects_App__Counter' $meta
+require_file 'o9_object_store_create_path' $meta
+require_file 'o9_object_register_local' $meta
+require_file 'o9_method_store_init' $meta
+require_file 'o9_method_register' $meta
+require_file 'o9_method_serialize' $meta
+require_file 'method needs instance' $meta
+require_file 'field name=val typename=int64 type=int64 storage=vlong' $meta
+require_file 'method name=set typename=void type=void storage=void argc=1' $meta
+require_file 'param method=set name=n typename=int64 type=int64 storage=vlong' $meta
+require_file 'seg:App__Counter' $meta
+require_file '"ctl", nil, 0666' $meta
+require_file '"data", nil, 0666' $meta
+require_file '"status", nil, 0444' $meta
+require_file '"methods", nil, 0444' $meta
+reject_file '"type", nil, 0444' $meta
+reject_file '"typename", nil, 0444' $meta
+reject_file '"cache", nil, 0444' $meta
+reject_file '"__distance__", nil, 0444' $meta
+rm -f $meta
+
+$tool < o9c/test/multi_arg_method.o9 > $meta >[2] $err || exit multi-arg-meta
+require_file 'obj9_msgSendN' $meta
+require_file 'o9_call_args.1, 2' $meta
+require_file '__wargs' $meta
+require_file 'nf > 4' $meta
+rm -f $meta
+
+$tool -ast < o9c/test/inherit_contracts.o9 > $ast || exit inherit-ast
+require 'NClass name=App__Base abstract qname=App.Base cname=App__Base'
+require 'NMethod name=id typename=int64 abstract qname=id cname=id type=int64'
+require 'NInterface name=App__Sink qname=App.Sink cname=App__Sink'
+require 'NInherit name=App__Base typename=App__Base qname=App__Base cname=App__Base type=App.Base'
+require 'NInherit name=App__Sink typename=App__Sink qname=App__Sink cname=App__Sink type=App.Sink'
+rm -f $ast
+
+$tool -ast < o9c/test/generic_contracts.o9 > $ast || exit generic-ast
+require 'NInherit name=Sink__string typename=Sink__string'
+require 'typedump=Apply'
+require 'NMsgSend name=set qname=set cname=set type=void'
+require 'NMsgSend name=get qname=get cname=get type=int64'
+rm -f $ast
+
+require_error o9c/test/typecheck_bad_method_arity.o9 'method ''set'' needs 1 argument'
+require_error o9c/test/typecheck_bad_method_arg.o9 'argument 1 to ''set'' has type string, expected int64'
+require_error o9c/test/typecheck_bad_generic_method_arg.o9 'argument 1 to ''set'' has type int64, expected string'
+require_error o9c/test/typecheck_bad_generic_interface_impl.o9 'method ''put'' in ''Bad'' does not match inherited signature'
+require_error o9c/test/typecheck_bad_enum_assign.o9 'cannot initialize Size to Color'
+require_error o9c/test/typecheck_bad_assign.o9 'line 3: cannot assign string to int64'
+require_error o9c/test/typecheck_bad_return.o9 'cannot return string to int64'
+require_error o9c/test/typecheck_bad_operator_add.o9 'needs numeric operands'
+require_error o9c/test/typecheck_bad_operator_logic.o9 'needs bool operands'
+require_error o9c/test/typecheck_bad_operator_compare.o9 'needs compatible operands'
+require_error o9c/test/typecheck_bad_nil_scalar.o9 'cannot initialize nil to int64'
+require_error o9c/test/typecheck_bad_duplicate_enum.o9 'duplicate enum value ''Red'''
+require_error o9c/test/typecheck_bad_duplicate_object.o9 'duplicate object ''primary'''
+require_error o9c/test/typecheck_bad_duplicate_member.o9 'duplicate member ''value'' in ''Counter'''
+require_error o9c/test/typecheck_bad_generic_arity.o9 'generic type ''Box<int64,string>'' needs 1 argument'
+require_error o9c/test/typecheck_bad_generic_unknown.o9 'line 2: syntax error near ''Box'''
+require_error o9c/test/typecheck_bad_type_not_generic.o9 'type ''Counter<int64>'' is not generic'
+require_error o9c/test/typecheck_bad_list_type_arity.o9 'List needs 1 type argument'
+require_error o9c/test/typecheck_bad_list_add_type.o9 'cannot pass string to int64'
+require_error o9c/test/typecheck_bad_list_length_arg.o9 'List.Length needs 0 arguments'
+require_error o9c/test/typecheck_bad_dict_type_arity.o9 'Dict needs 2 type arguments'
+require_error o9c/test/typecheck_bad_dict_has_key.o9 'cannot pass int64 to string'
+require_error o9c/test/typecheck_bad_dict_has_arity.o9 'Dict.Has needs 1 argument'
+require_error o9c/test/typecheck_bad_method_as_property.o9 '''inc'' is a method, not a property'
+require_error o9c/test/typecheck_bad_property_as_method.o9 '''value'' is a property, not a method'
+require_error o9c/test/typecheck_bad_missing_member.o9 '''Counter'' has no member ''missing'''
+require_error o9c/test/typecheck_bad_scalar_member.o9 'unknown type for ''x'''
+require_error o9c/test/typecheck_bad_object_scalar.o9 'object ''count'' must have class or interface type'
+require_error o9c/test/typecheck_bad_link_missing.o9 'link target ''missing'' is not a declared object'
+require_error o9c/test/typecheck_bad_interface_prop.o9 'interface ''Sink'' may only declare methods or inherit interfaces'
+require_error o9c/test/typecheck_bad_interface_body.o9 'interface method ''put'' cannot have a body'
+require_error o9c/test/typecheck_bad_interface_inherit_class.o9 'interface ''Bad'' can only inherit interfaces'
+require_error o9c/test/typecheck_bad_interface_missing.o9 'class ''Worker'' must implement method ''put'''
+require_error o9c/test/typecheck_bad_abstract_missing.o9 'class ''Worker'' must implement method ''id'''
+require_error o9c/test/typecheck_bad_override_arg.o9 'method ''put'' in ''Worker'' does not match inherited signature'
+require_error o9c/test/typecheck_bad_struct_inherit.o9 'class ''Bad'' cannot inherit non-class/interface ''Point'''
+require_error o9c/test/typecheck_bad_struct_inherits.o9 'struct ''Bad'' cannot inherit ''Base'''
+require_error o9c/test/typecheck_bad_class_inherit_enum.o9 'class ''Bad'' cannot inherit non-class/interface ''Color'''
+require_error o9c/test/typecheck_bad_multiple_class_inherit.o9 'class ''C'' cannot inherit more than one class'
+require_error o9c/test/typecheck_bad_inherit_cycle.o9 'inheritance cycle involving ''A'''
+require_error o9c/test/typecheck_bad_abstract_new.o9 'cannot instantiate abstract class ''Base'''
+require_error o9c/test/typecheck_bad_interface_new.o9 'cannot instantiate interface ''Sink'''
+
+rm -f $ast $err $meta
 echo production_ast_tests: OK

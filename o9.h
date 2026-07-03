@@ -69,6 +69,7 @@ typedef struct o9_Object {
 extern int   o9_ns_app_root(char *buf, int nbuf, char *app);
 extern int   o9_ns_service_name(char *buf, int nbuf, char *app, char *type, char *inst);
 extern int   o9_ns_object_path(char *buf, int nbuf, char *root, char *inst);
+extern int   o9_ns_class_path(char *buf, int nbuf, char *root, char *type);
 extern int   o9_ns_ensure_dir(char *path);
 extern int   o9_ns_ensure_app(char *root);
 extern int   o9_init_client(void *client, char *srvname, int size);
@@ -81,6 +82,7 @@ extern void  o9_ledger_update(void *client, ulong id, int delta);
 extern long  o9_ledger_value(void *client, ulong id);
 extern void  o9_clunk(int fd);
 extern void* obj9_msgSend(void *receiver, char *method, ulong selector, void *args);
+extern void* obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int nargs);
 extern ulong o9_hash(char *s);
 
 /* Array operations — line-based dynamic arrays (one vlong per line) */
@@ -121,6 +123,46 @@ extern char*  o9_dict_serialize(O9Dict *d);
 extern void   o9_dict_deserialize(O9Dict *d, char *buf);
 extern void   o9_dict_init(O9Dict *d);
 extern void   o9_dict_free(O9Dict *d);
+
+/* Object ledger backed by libtab.
+ *
+ * The ledger stores stable object identity and location metadata.  The
+ * address column is an in-process cache hint, not portable authority; pair it
+ * with the generation column before trusting a local pointer.
+ */
+typedef struct O9ObjectStore O9ObjectStore;
+
+extern O9ObjectStore* o9_object_store_create(char *path);
+extern O9ObjectStore* o9_object_store_create_path(char *root, char *app);
+extern void           o9_object_store_close(O9ObjectStore *s);
+extern int            o9_object_record(O9ObjectStore *s, char *oid, char *typename,
+                           char *class, char *state, char *value, void *addr,
+                           vlong gen, char *ns, char *path, char *dial,
+                           char *locality, char *owner, char *flags);
+extern int            o9_object_register_local(O9ObjectStore *s, char *oid,
+                           char *typename, char *class, void *addr,
+                           char *ns, char *path);
+extern int            o9_object_set_value(O9ObjectStore *s, char *oid, char *value);
+extern char*          o9_object_get(O9ObjectStore *s, char *oid, char *col);
+extern void*          o9_object_addr(O9ObjectStore *s, char *oid, vlong gen);
+extern vlong          o9_object_generation(O9ObjectStore *s, char *oid);
+
+/* Method table backed by libtab — dispatch source of truth.
+ *
+ * One store per process; class servers register their methods (including
+ * flattened inherited ones) at startup.  Persisted columns are stable
+ * identity (class, method, selector, arity, signature); the thunk address
+ * is process-local and only trusted while gen == getpid().
+ */
+typedef struct O9MethodStore O9MethodStore;
+
+extern O9MethodStore* o9_method_store(void);
+extern int            o9_method_store_init(char *root, char *app);
+extern void           o9_method_store_close(void);
+extern int            o9_method_register(char *class, char *method, ulong sel,
+                           int argc, char *ret, char *sig, void *thunk);
+extern void*          o9_method_thunk(char *class, ulong sel);
+extern int            o9_method_serialize(char *class, char *buf, int nbuf);
 
 /* Class state ledger backed by libtab. */
 typedef struct O9State O9State;

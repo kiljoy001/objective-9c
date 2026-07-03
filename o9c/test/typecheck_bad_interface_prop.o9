@@ -1,0 +1,3 @@
+interface Sink {
+	prop int64 value;
+}

@@ -1,0 +1,7 @@
+interface Sink {
+	method void put(int64 value);
+}
+
+func main() {
+	Sink s = new Sink();
+}

@@ -1,0 +1,5 @@
+class Counter {
+}
+
+object Counter primary;
+object Counter primary;

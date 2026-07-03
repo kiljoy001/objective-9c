@@ -1,0 +1,7 @@
+interface Sink {
+	method void put(int64 value);
+}
+
+class Worker {
+	Sink;
+}

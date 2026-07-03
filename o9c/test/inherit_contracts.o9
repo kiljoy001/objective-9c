@@ -1,0 +1,30 @@
+module App {
+	interface Sink {
+		method void put(int64 value);
+	}
+
+	abstract class Base {
+		abstract method int64 id();
+		method void touch() {
+		}
+	}
+
+	class Worker {
+		Base;
+		Sink;
+		prop int64 total;
+
+		method int64 id() {
+			return total;
+		}
+
+		method void put(int64 value) {
+			total = value;
+		}
+	}
+
+	func main() {
+		Worker w = new Worker();
+		w.put(7);
+	}
+}

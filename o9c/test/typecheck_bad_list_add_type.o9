@@ -1,0 +1,4 @@
+func main() {
+	List<int64> xs;
+	xs.Add("bad");
+}

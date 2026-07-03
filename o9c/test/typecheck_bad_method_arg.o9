@@ -1,0 +1,9 @@
+class Counter {
+    method void set(int64 n) {
+    }
+}
+
+func main() {
+    Counter c = new Counter();
+    c.set("bad");
+}

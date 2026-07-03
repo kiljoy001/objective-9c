@@ -1,0 +1,9 @@
+class Counter {
+    method void inc() {
+    }
+}
+
+func main() {
+    Counter c = new Counter();
+    c.inc;
+}

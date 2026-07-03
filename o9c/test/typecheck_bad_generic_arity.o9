@@ -1,0 +1,7 @@
+class Box<T> {
+	prop T value;
+}
+
+func main() {
+	Box<int64,string> b;
+}

@@ -1,0 +1,5 @@
+class Counter {
+}
+
+object Counter primary;
+link ref primary -> missing;

@@ -1,0 +1,6 @@
+enum Color { Red }
+enum Size { Small }
+
+func main() {
+    Color c = Small;
+}

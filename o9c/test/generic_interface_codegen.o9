@@ -1,0 +1,14 @@
+interface Sink<T> {
+    method void put(T value);
+}
+
+class IntSink {
+    Sink<int64>;
+
+    method void put(int64 value) {
+        print(value);
+    }
+}
+
+func main() {
+}

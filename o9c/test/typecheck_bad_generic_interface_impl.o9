@@ -1,0 +1,10 @@
+interface Sink<T> {
+    method void put(T value);
+}
+
+class Bad {
+    Sink<string>;
+
+    method void put(int64 value) {
+    }
+}

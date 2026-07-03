@@ -1,0 +1,7 @@
+abstract class Base {
+	abstract method int64 id();
+}
+
+func main() {
+	Base b = new Base();
+}

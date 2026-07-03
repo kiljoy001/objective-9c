@@ -15,10 +15,8 @@ An Objective-9C application should compose its objects under one Plan 9 namespac
 	obj/
 		counter/
 			ctl
+			data
 			status
-			cache
-			val
-			inc
 	lib/
 		text/
 		fs/
@@ -56,20 +54,21 @@ The runtime should grow an explicit namespace root concept:
 
 - Default root: `/mnt/o9/<app>`.
 - Service publication: `/srv/o9.<app>.<type>.<instance>`.
-- Mounted object path: `<root>/obj/<instance>`.
+- Mounted class path: `<root>/class/<type>`.
 - Type metadata path: `<root>/types/<type-symbol>`.
 - Standard library path: `<root>/lib/<service>`.
+- Generated class services use the three-file endpoint shape: `ctl` for commands, `data` for payload/reply text, and `status` for stable compiler identity, member schema, cache metadata, namespace paths, health, and live instance names.
 
 Client initialization should eventually support both forms:
 
 - service name: `o9.App.Counter.counter`
-- mounted path: `/mnt/o9/App/obj/counter`
+- mounted path: `/mnt/o9/App/class/App__Counter`
 
 The runtime now has the first helper surface for this:
 
 - `o9_ns_app_root` builds `/mnt/o9/<app>`.
 - `o9_ns_service_name` builds `o9.<app>.<type>.<instance>`.
-- `o9_ns_object_path` builds `<root>/obj/<instance>`.
+- `o9_ns_class_path` builds `<root>/class/<type>` for generated class servers.
 - `o9_ns_ensure_dir` creates a namespace directory if it is missing.
 - `o9_ns_ensure_app` creates `<root>`, `<root>/obj`, `<root>/lib`, and `<root>/types`.
 - `o9_init_client_path` initializes a client from a mounted object path and records its cache path for later refresh.
@@ -162,6 +161,11 @@ Production AST coverage now includes the first generic/object layer:
 - Structured `Type*` metadata is attached beside legacy C-lowering strings.
 - Expression nodes are annotated with `Type*` metadata during semantic checking where the type can be resolved: literals, locals, parameters, class fields, property reads, message sends, `new`, collection indexing, assignments, returns, and common operators.
 - Method parameters and locals are resolved through scoped type symbols during semantic checking, so generic parameters from one declaration do not leak into another method body.
+- Production codegen now uses declaration-aware `Type*` lowering for local storage, list/dict operations, struct/internal fields, state persistence, method parameter unpacking, method return formatting, and property read/write casts.
+- Production semantic checking now validates local initialization, assignment, return values, collection method arity/types, and class method arity/argument types through `Type*` compatibility.
+- Production AST/type checking now supports `abstract class`, abstract method declarations, interface method declarations, inheritance target validation, override signature checks, and concrete implementation checks for inherited abstract/interface methods.
+- Generated 9P class services now expose `ctl`, `data`, and `status`; `status` contains the C-safe type identity, `Type*`-derived class/member/method/parameter metadata, cache hints, namespace paths, and the live instance list.
+- Remote client fallback now writes counted `method <instance> <name> argN=value ...` commands to `ctl` and reads method results from `data`.
 - `List<T>` and `Dict<K,V>` parse as normal type applications while lowering to the existing runtime collection carriers.
 - Generic arity is checked for user-defined generic types.
 - Generic templates are intentionally skipped by C codegen until instantiation/monomorphization is implemented.

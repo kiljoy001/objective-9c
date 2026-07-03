@@ -1,0 +1,4 @@
+class Counter {
+	prop int64 value;
+	prop int64 value;
+}

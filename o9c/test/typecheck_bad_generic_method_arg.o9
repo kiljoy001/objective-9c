@@ -1,0 +1,9 @@
+class Box<T> {
+    method void set(T value) {
+    }
+}
+
+func main() {
+    Box<string> names;
+    names.set(1);
+}
