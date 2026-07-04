@@ -161,11 +161,10 @@ generic instantiation.
 - [x] Type* metadata, line diagnostics, registry lexing, monomorphization
 - [x] Method/object stores; methods file; error propagation; delete;
       Text/Fs/IO builtins; execute-and-assert harness
-- [ ] **Phase 1**: idempotent unique `/srv` posts (`o9.<app>.<class>`),
-      shared per-process init, post-only servers
-- [ ] **Phase 2**: registry actor + generated namespace assembly
-      (mounts, object binds, namespace file under `state/`)
-- [ ] **Phase 3**: `link ref` as binds with union fallbacks; oid handle
-      form in method args
-- [ ] Later: replica sync, module-based stdlib services under `lib/`,
+- [x] **Phase 1**: idempotent unique `/srv` posts — verified across the
+      grid (demo/TWO_MACHINE_DEMO.md)
+- [x] **Phase 2**: registry actor + namespace assembly recipe
+- [x] **Phase 3**: `link ref`/`replica` as binds with union fallbacks
+- [ ] Next: oid handle form in method args; registry watch channels;
+      replica sync; module-based stdlib services under `lib/`;
       IL placement for `new near`
