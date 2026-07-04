@@ -125,7 +125,14 @@ format). The compiler's `object` and `link` declarations compile to it:
 ```
 
 `link ref` is a bind — kernel-implemented redirection; union binds give
-failover; re-resolution is re-binding after a repost. Replica semantics
+failover; re-resolution is re-binding after a repost.
+
+**The /srv seam (verified on the grid):** a server's self-mount is
+visible only inside its own process namespace. The idempotent `/srv`
+post is therefore the canonical publication point — machine-global,
+importable (`rimport host /srv`), mountable anywhere. Assembled
+`/mnt/o9/App` trees are built by *consumers* executing the recipe in
+their own namespaces, never by the server for others. Replica semantics
 (actual state sync) remain future work. There is no box daemon: the box
 is a text file the kernel interprets, inside the process it is the
 registry actor — provably the same table, two projections.
