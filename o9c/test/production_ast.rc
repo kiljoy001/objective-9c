@@ -134,6 +134,8 @@ require_file 'o9_object_register_local' $meta
 require_file 'o9_method_store_init' $meta
 require_file 'o9_method_register' $meta
 require_file 'o9_method_serialize' $meta
+require_file 'o9_registry_register' $meta
+require_file 'o9_ns_recipe' $meta
 require_file 'method needs instance' $meta
 require_file 'field name=val typename=int64 type=int64 storage=vlong' $meta
 require_file 'method name=set typename=void type=void storage=void argc=1' $meta

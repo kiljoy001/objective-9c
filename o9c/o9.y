@@ -2894,6 +2894,7 @@ gen_stmt(Node *c, Node *s)
         /* Run the destructor synchronously (actor replies after
          * teardown, then exits), then neutralize the client handle. */
         print("\tobj9_msgSendN(&%s, nil, 0x%lux, nil, 0);\n", s->name, o9_hash("destroy"));
+        print("\to9_registry_unregister(\"%s\");\n", s->name);
         print("\tmemset(&%s, 0, sizeof %s);\n", s->name, s->name);
         print("\t%s.fd = -1;\n", s->name);
         break;
@@ -3916,6 +3917,12 @@ gen_class_server(Node *c)
     print("\tstrncpy(%s_instances[%s_ninstances].name, name, sizeof %s_instances[%s_ninstances].name-1);\n", c->name, c->name, c->name, c->name);
     print("\t%s_instances[%s_ninstances].inst = inst;\n", c->name, c->name);
     print("\t%s_ninstances++;\n", c->name);
+    print("\to9_registry_register(name, \"%s\", inst->dispatch_chan, inst);\n", c->name);
+    print("\tif(o9_ns_bind_obj(o9_mount_%s, o9_app_root_%s, name) >= 0){\n", c->name, c->name);
+    print("\t\tchar __ln[300];\n");
+    print("\t\tsnprint(__ln, sizeof __ln, \"bind %%s/%%s %%s/obj/%%s\", o9_mount_%s, name, o9_app_root_%s, name);\n", c->name, c->name);
+    print("\t\to9_ns_recipe(o9_app_root_%s, o9_app_root_%s[0] ? o9_app_root_%s + strlen(\"/mnt/o9/\") : \"app\", __ln);\n", c->name, c->name, c->name);
+    print("\t}\n");
     print("\tif(o9_objects_%s != nil){\n", c->name);
     print("\t\tchar __path[256];\n");
     print("\t\tsnprint(__path, sizeof __path, \"%%s/%%s\", o9_mount_%s, name);\n", c->name);
@@ -4181,6 +4188,7 @@ gen_class_server(Node *c)
      * o9.<app>.<class>.<inst> names via o9_ns_service_name; stale posts
      * removed so re-runs never sysfatal */
     print("\t{ char __sp[160]; snprint(__sp, sizeof __sp, \"/srv/%%s\", o9_srv_%s); remove(__sp); }\n", c->name);
+    print("\t{ char __ln[300]; snprint(__ln, sizeof __ln, \"mount /srv/%%s %%s\", o9_srv_%s, o9_mount_%s); o9_ns_recipe(o9_app_root_%s, __o9app, __ln); }\n", c->name, c->name, c->name);
     print("\tif(o9_ns_ensure_dir(o9_mount_%s) == 0)\n", c->name);
     print("\t\tthreadpostmountsrv(&o9srv_%s, o9_srv_%s, o9_mount_%s, MREPL);\n", c->name, c->name, c->name);
     print("\telse\n\t\tthreadpostmountsrv(&o9srv_%s, o9_srv_%s, nil, MREPL);\n}\n", c->name, c->name);
@@ -4441,6 +4449,7 @@ codegen(Node *root)
     print("void\nthreadmain(int argc, char **argv)\n{\n");
     print("\tvlong __o9fr[8][12];\n");
     print("\tUSED(argc); USED(argv); USED(__o9fr);\n");
+    print("\to9_registry_start();\n");
     gen_object_metadata(root);
     if(last && !has_remote_new){
         print("\to9_main_%s(argc, argv);\n", last->name);

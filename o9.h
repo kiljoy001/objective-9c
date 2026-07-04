@@ -147,6 +147,27 @@ extern char*          o9_object_get(O9ObjectStore *s, char *oid, char *col);
 extern void*          o9_object_addr(O9ObjectStore *s, char *oid, vlong gen);
 extern vlong          o9_object_generation(O9ObjectStore *s, char *oid);
 
+/* Registry actor — live handle table, single-writer via CSP.
+ * oid is the universal identity; chan/addr are the in-process fast form,
+ * valid only while gen matches. */
+typedef struct O9Handle O9Handle;
+struct O9Handle {
+    char oid[64];
+    char class[64];
+    void *chan;      /* Channel* dispatch */
+    void *addr;      /* Internal* */
+    vlong gen;
+};
+
+extern int  o9_registry_start(void);
+extern int  o9_registry_register(char *oid, char *class, void *chan, void *addr);
+extern int  o9_registry_lookup(char *oid, O9Handle *out);
+extern int  o9_registry_unregister(char *oid);
+
+/* Namespace assembly: recipe mirroring + object binds */
+extern void o9_ns_recipe(char *root, char *app, char *line);
+extern int  o9_ns_bind_obj(char *mount, char *root, char *inst);
+
 /* Text/Fs/IO builtins (len/cmp/cat/readfile/writefile/readline) */
 extern vlong  o9_str_len(char *s);
 extern vlong  o9_str_cmp(char *a, char *b);

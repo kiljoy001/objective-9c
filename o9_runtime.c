@@ -434,6 +434,183 @@ o9_object_addr(O9ObjectStore *s, char *oid, vlong gen)
 	return (void*)o9_object_parse_addr(v);
 }
 
+/* Registry actor — the intra-program bus hub (ARCHITECTURE.md).
+ * One proc per app process owns the live handle table: single-writer by
+ * construction, no locks.  Handles are CSP values; the object store is
+ * the persisted view, the 9P obj/ tree the external one. */
+
+enum { O9RegRegister, O9RegLookup, O9RegUnregister };
+
+typedef struct O9RegReq O9RegReq;
+struct O9RegReq {
+	int op;
+	O9Handle h;
+	Channel *replyc;	/* carries O9Handle* into caller storage, or nil */
+};
+
+static Channel *o9_regchan;
+static O9Handle o9_reg_tab[256];
+static int o9_reg_n;
+
+static void
+o9_registry_proc(void *v)
+{
+	O9RegReq *r;
+	O9Handle *found;
+	int i;
+
+	USED(v);
+	for(;;){
+		r = recvp(o9_regchan);
+		if(r == nil)
+			continue;
+		found = nil;
+		for(i = 0; i < o9_reg_n; i++)
+			if(strcmp(o9_reg_tab[i].oid, r->h.oid) == 0){
+				found = &o9_reg_tab[i];
+				break;
+			}
+		switch(r->op){
+		case O9RegRegister:
+			if(found == nil && o9_reg_n < nelem(o9_reg_tab))
+				found = &o9_reg_tab[o9_reg_n++];
+			if(found != nil){
+				*found = r->h;
+				found->gen++;
+			}
+			break;
+		case O9RegLookup:
+			break;
+		case O9RegUnregister:
+			if(found != nil){
+				*found = o9_reg_tab[--o9_reg_n];
+				found = nil;
+			}
+			break;
+		}
+		sendp(r->replyc, found);
+	}
+}
+
+int
+o9_registry_start(void)
+{
+	if(o9_regchan != nil)
+		return 0;
+	o9_regchan = chancreate(sizeof(void*), 16);
+	if(o9_regchan == nil)
+		return -1;
+	proccreate(o9_registry_proc, nil, 32768);
+	return 0;
+}
+
+static O9Handle*
+o9_registry_rpc(int op, O9Handle *h)
+{
+	O9RegReq r;
+	O9Handle *res;
+
+	if(o9_regchan == nil)
+		return nil;
+	memset(&r, 0, sizeof r);
+	r.op = op;
+	if(h != nil)
+		r.h = *h;
+	r.replyc = chancreate(sizeof(void*), 1);
+	sendp(o9_regchan, &r);
+	res = recvp(r.replyc);
+	chanfree(r.replyc);
+	return res;
+}
+
+int
+o9_registry_register(char *oid, char *class, void *chan, void *addr)
+{
+	O9Handle h;
+
+	if(oid == nil || oid[0] == '\0')
+		return -1;
+	memset(&h, 0, sizeof h);
+	strncpy(h.oid, oid, sizeof h.oid - 1);
+	if(class != nil)
+		strncpy(h.class, class, sizeof h.class - 1);
+	h.chan = chan;
+	h.addr = addr;
+	return o9_registry_rpc(O9RegRegister, &h) != nil ? 0 : -1;
+}
+
+int
+o9_registry_lookup(char *oid, O9Handle *out)
+{
+	O9Handle q, *res;
+
+	if(oid == nil || out == nil)
+		return -1;
+	memset(&q, 0, sizeof q);
+	strncpy(q.oid, oid, sizeof q.oid - 1);
+	res = o9_registry_rpc(O9RegLookup, &q);
+	if(res == nil)
+		return -1;
+	*out = *res;
+	return 0;
+}
+
+int
+o9_registry_unregister(char *oid)
+{
+	O9Handle q;
+
+	if(oid == nil)
+		return -1;
+	memset(&q, 0, sizeof q);
+	strncpy(q.oid, oid, sizeof q.oid - 1);
+	o9_registry_rpc(O9RegUnregister, &q);
+	return 0;
+}
+
+/* Namespace recipe: assembly as data.  Every mount/bind the process
+ * performs is mirrored as a line in <root>/state/<app>.namespace so any
+ * tool can inspect or replay the composition. */
+void
+o9_ns_recipe(char *root, char *app, char *line)
+{
+	char path[256];
+	int fd;
+
+	if(root == nil || root[0] == '\0' || line == nil)
+		return;
+	if(app == nil || app[0] == '\0')
+		app = "app";
+	snprint(path, sizeof path, "%s/state", root);
+	o9_ns_ensure_dir(path);
+	snprint(path, sizeof path, "%s/state/%s.namespace", root, app);
+	fd = open(path, OWRITE);
+	if(fd < 0)
+		fd = create(path, OWRITE, 0644);
+	else
+		seek(fd, 0, 2);
+	if(fd < 0)
+		return;
+	fprint(fd, "%s\n", line);
+	close(fd);
+}
+
+/* Bind a served instance subtree into <root>/obj/<inst>; failures are
+ * non-fatal (the recipe still records the intent). */
+int
+o9_ns_bind_obj(char *mount, char *root, char *inst)
+{
+	char src[256], dst[256];
+
+	if(mount == nil || root == nil || inst == nil)
+		return -1;
+	snprint(src, sizeof src, "%s/%s", mount, inst);
+	snprint(dst, sizeof dst, "%s/obj/%s", root, inst);
+	if(o9_ns_ensure_dir(dst) < 0)
+		return -1;
+	return bind(src, dst, MREPL);
+}
+
 /* Text/Fs/IO builtins — lowered from len/cmp/cat/readfile/writefile/readline.
  * Strings returned here are malloc'd and, for now, live until process exit
  * (no lifecycle yet). */
