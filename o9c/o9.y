@@ -4177,9 +4177,13 @@ gen_class_server(Node *c)
     print("\t{ File *__f = createfile(%s_tree->root, \"methods\", nil, 0444, nil); if(__f) __f->aux = s; }\n", c->name);
     print("\t%s_create_instance(s, \"%s\");\n", c->name, c->name);
     print("\tproccreate(%s_loop, s, 65536);\n", c->name);
+    /* Phase 1 (ARCHITECTURE.md): unique idempotent service posts —
+     * o9.<app>.<class>.<inst> names via o9_ns_service_name; stale posts
+     * removed so re-runs never sysfatal */
+    print("\t{ char __sp[160]; snprint(__sp, sizeof __sp, \"/srv/%%s\", o9_srv_%s); remove(__sp); }\n", c->name);
     print("\tif(o9_ns_ensure_dir(o9_mount_%s) == 0)\n", c->name);
-    print("\t\tthreadpostmountsrv(&o9srv_%s, \"%s\", o9_mount_%s, MREPL);\n", c->name, c->name, c->name);
-    print("\telse\n\t\tthreadpostmountsrv(&o9srv_%s, \"%s\", nil, MREPL);\n}\n", c->name, c->name);
+    print("\t\tthreadpostmountsrv(&o9srv_%s, o9_srv_%s, o9_mount_%s, MREPL);\n", c->name, c->name, c->name);
+    print("\telse\n\t\tthreadpostmountsrv(&o9srv_%s, o9_srv_%s, nil, MREPL);\n}\n", c->name, c->name);
 }
 
 ulong
