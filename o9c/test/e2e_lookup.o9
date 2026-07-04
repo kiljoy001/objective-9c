@@ -1,0 +1,10 @@
+class Counter {
+    int64 val;
+    method Counter(int64 n) { val = n; }
+    method int64 get() { return val; }
+}
+func main() {
+    Counter c = new Counter(77);
+    Counter h = lookup("c");
+    print("via handle ", h.get(), "\n");
+}

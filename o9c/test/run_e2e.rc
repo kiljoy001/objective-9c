@@ -57,6 +57,7 @@ runcase e2e_run
 runcase e2e_text
 runcase e2e_delete
 runcase e2e_generic
+runcase e2e_lookup
 
 if(! ~ $fail 0)
 	exit fail

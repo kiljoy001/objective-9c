@@ -568,6 +568,28 @@ o9_registry_unregister(char *oid)
 	return 0;
 }
 
+/* lookup(oid) builtin: resolve a handle through the rings — registry
+ * first (in-process fast form), /srv client init as fallback. */
+int
+o9_lookup_client(void *client, char *oid, int size)
+{
+	o9_Object *obj = client;
+	O9Handle h;
+
+	if(client == nil || oid == nil || size < sizeof(o9_Object))
+		return -1;
+	if(o9_registry_lookup(oid, &h) == 0){
+		memset(client, 0, size);
+		obj->dispatch_chan = h.chan;
+		obj->shm_base = h.addr;
+		obj->distance = -1;
+		obj->fd = -1;
+		strncpy(obj->srvname, oid, sizeof obj->srvname - 1);
+		return 0;
+	}
+	return o9_init_client(client, oid, size);
+}
+
 /* Namespace recipe: assembly as data.  Every mount/bind the process
  * performs is mirrored as a line in <root>/state/<app>.namespace so any
  * tool can inspect or replay the composition. */

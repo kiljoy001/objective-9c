@@ -163,6 +163,7 @@ extern int  o9_registry_start(void);
 extern int  o9_registry_register(char *oid, char *class, void *chan, void *addr);
 extern int  o9_registry_lookup(char *oid, O9Handle *out);
 extern int  o9_registry_unregister(char *oid);
+extern int  o9_lookup_client(void *client, char *oid, int size);
 
 /* Namespace assembly: recipe mirroring + object binds */
 extern void o9_ns_recipe(char *root, char *app, char *line);

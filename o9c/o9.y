@@ -318,6 +318,7 @@ static Builtin builtins[] = {
     {"readfile",  "o9_readfile",  1, "string", {"string", nil}},
     {"writefile", "o9_writefile", 2, "int64",  {"string", "string"}},
     {"readline",  "o9_readline",  0, "string", {nil, nil}},
+    {"lookup",    "o9_lookup_client", 1, "void", {"string", nil}},
 };
 
 static Builtin*
@@ -2804,6 +2805,17 @@ gen_stmt(Node *c, Node *s)
         } else {
             char *cname = find_class(s->typename) ? s->typename : nil;
             int is_new = (s->left && s->left->type == NClass && s->left->name);
+            if(cname != nil && s->left != nil && s->left->type == NSelfCall &&
+               s->left->name != nil && strcmp(s->left->name, "lookup") == 0){
+                /* Counter c = lookup("oid") — resolve through the rings:
+                 * registry (in-process fast form) first, /srv fallback */
+                print("\t%s_Client %s;\n", cname, s->name);
+                print("\to9_lookup_client(&%s, ", s->name);
+                gen_expr(s->left->right);
+                print(", sizeof %s);\n", s->name);
+                add_var_class(s->name, cname);
+                break;
+            }
             if(in_class_context || cname == nil){
                 /* Plain local variable */
                 print("\t%s %s", type_storage_for_codegen(s->typeinfo), s->name);
@@ -5935,7 +5947,14 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
                 }
             }
         }
-        if(e->left != nil && !type_assignable_semantic(e->typeinfo, e->left->typeinfo))
+        if(e->left != nil && e->left->type == NSelfCall && e->left->name != nil &&
+           strcmp(e->left->name, "lookup") == 0){
+            /* Counter c = lookup("oid") — result takes the declared type */
+            if(type_decl_node(e->typeinfo) == nil){
+                fprint(2, "o9c: error: line %d: lookup needs a class-typed target\n", sem_line);
+                (*errs)++;
+            }
+        } else if(e->left != nil && !type_assignable_semantic(e->typeinfo, e->left->typeinfo))
             type_mismatch_error("initialize", e->typeinfo, e->left->typeinfo, errs);
         /* Check legacy-only typename is a known type if no structured type was attached. */
         if(e->typeinfo == nil && e->typename && !is_primitive(e->typename) && find_class(e->typename) == nil){
