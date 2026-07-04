@@ -3342,6 +3342,17 @@ gen_object_metadata_items(Node *root)
                 n->typename != nil ? n->typename : "");
         }
         if(n->type == NLink && n->left != nil && n->right != nil){
+            char *sc = n->left->cname != nil ? n->left->cname : n->left->name;
+            char *tc = n->right->cname != nil ? n->right->cname : n->right->name;
+            char *mf = (n->typename != nil && strcmp(n->typename, "replica") == 0) ? "MBEFORE" : "MREPL";
+            print("\t\t{ char __ls[300], __ld[300], __ll[640];\n");
+            print("\t\tsnprint(__ls, sizeof __ls, \"%%s/obj/%s\", __o9root);\n", tc);
+            print("\t\tsnprint(__ld, sizeof __ld, \"%%s/obj/%s\", __o9root);\n", sc);
+            print("\t\to9_ns_ensure_dir(__ld);\n");
+            print("\t\tbind(__ls, __ld, %s);\n", mf);
+            print("\t\tsnprint(__ll, sizeof __ll, \"bind %s%%s %%s\", __ls, __ld);\n",
+                strcmp(mf, "MBEFORE") == 0 ? "-b " : "");
+            print("\t\to9_ns_recipe(__o9root, __o9app, __ll);\n\t\t}\n");
             target = n->right->qname != nil ? n->right->qname : n->right->name;
             print("\t\t{ O9State *__s = o9_state_create_path(__o9root, \"o9link\", \"%s__%s__%s\", __o9_link_cols, 3);\n",
                 n->left->cname != nil ? n->left->cname : n->left->name,
