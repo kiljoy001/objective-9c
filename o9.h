@@ -169,6 +169,15 @@ extern int  o9_lookup_client(void *client, char *oid, int size);
 extern void o9_ns_recipe(char *root, char *app, char *line);
 extern int  o9_ns_bind_obj(char *mount, char *root, char *inst);
 
+/* Crypto stdlib — attestation only (Ed25519 sign/verify, BLAKE2b hash).
+ * No encrypt/seal: confidentiality is the transport's/volume's job.
+ * All key/sig/digest boundary values are lowercase hex (stay cat-able). */
+extern int  o9_randbytes(uchar *buf, int n);
+extern int  o9_crypto_keypair(char *pub, char *sec);
+extern int  o9_crypto_sign(char *sechex, uchar *msg, long nmsg, char *sig);
+extern int  o9_crypto_verify(char *pubhex, uchar *msg, long nmsg, char *sighex);
+extern int  o9_crypto_hash(uchar *msg, long nmsg, char *out);
+
 /* Text/Fs/IO builtins (len/cmp/cat/readfile/writefile/readline) */
 extern vlong  o9_str_len(char *s);
 extern vlong  o9_str_cmp(char *a, char *b);

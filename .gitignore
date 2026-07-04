@@ -56,3 +56,4 @@ o9pkg.c
 o9pkg.go
 test_main.c
 test_mixed.c
+o9c/test/crypto_test

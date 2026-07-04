@@ -48,10 +48,17 @@ ast-test:V:	o9c
 run-test:V:	o9c libo9.a
 	rc ./o9c/test/run_e2e.rc
 
+crypto-test:V:	libo9.a
+	$CC -I. o9c/test/crypto_test.c
+	$LD -o o9c/test/crypto_test crypto_test.$O libo9.a
+	o9c/test/crypto_test
+
 # === runtime library ===
 RUNTIME_OBJ=\
 	o9_dispatch.$O\
 	o9_runtime.$O\
+	o9_crypto.$O\
+	monocypher.$O\
 
 LIBTABDIR=../9lx/libtab
 LIBTAB_OBJ=\
@@ -70,6 +77,12 @@ o9_dispatch.$O:	o9_dispatch.s
 
 o9_runtime.$O:	o9_runtime.c o9.h
 	$CC -I$LIBTABDIR o9_runtime.c
+
+o9_crypto.$O:	o9_crypto.c o9.h monocypher.h
+	$CC o9_crypto.c
+
+monocypher.$O:	monocypher.c monocypher.h
+	$CC -DMONO_PLAN9 monocypher.c
 
 libtab_tab_error.$O:	$LIBTABDIR/tab_error.c $LIBTABDIR/libtab.h $LIBTABDIR/tab_internal.h
 	$CC -I$LIBTABDIR -o $target $LIBTABDIR/tab_error.c
