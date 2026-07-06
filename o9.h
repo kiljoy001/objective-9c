@@ -164,19 +164,34 @@ extern int  o9_registry_register(char *oid, char *class, void *chan, void *addr)
 extern int  o9_registry_lookup(char *oid, O9Handle *out);
 extern int  o9_registry_unregister(char *oid);
 extern int  o9_lookup_client(void *client, char *oid, int size);
+extern char* o9_send(void *client, char *line);
 
 /* Namespace assembly: recipe mirroring + object binds */
 extern void o9_ns_recipe(char *root, char *app, char *line);
 extern int  o9_ns_bind_obj(char *mount, char *root, char *inst);
 
-/* Crypto stdlib — attestation only (Ed25519 sign/verify, BLAKE2b hash).
- * No encrypt/seal: confidentiality is the transport's/volume's job.
- * All key/sig/digest boundary values are lowercase hex (stay cat-able). */
+/* Crypto stdlib — full practical monocypher surface: attestation
+ * (Ed25519 sign/verify, BLAKE2b hash/mac) plus confidentiality
+ * (XChaCha20-Poly1305 encrypt/decrypt, X25519 exchange).  Every
+ * boundary value is lowercase hex — an encrypted value is still one
+ * cat-able string, only its content is sealed. */
 extern int  o9_randbytes(uchar *buf, int n);
 extern int  o9_crypto_keypair(char *pub, char *sec);
 extern int  o9_crypto_sign(char *sechex, uchar *msg, long nmsg, char *sig);
 extern int  o9_crypto_verify(char *pubhex, uchar *msg, long nmsg, char *sighex);
 extern int  o9_crypto_hash(uchar *msg, long nmsg, char *out);
+/* Language builtins over the above: strings in, malloc'd hex out */
+extern char*  o9_keygen(void);
+extern char*  o9_pubkey(char *sec);
+extern char*  o9_sign(char *sec, char *msg);
+extern vlong  o9_verify(char *pub, char *msg, char *sig);
+extern char*  o9_digest(char *msg);
+extern char*  o9_mac(char *key, char *msg);
+extern char*  o9_passkey(char *pass, char *salt);
+extern char*  o9_encrypt(char *key, char *msg);
+extern char*  o9_decrypt(char *key, char *blob);
+extern char*  o9_xpubkey(char *sec);
+extern char*  o9_exchange(char *sec, char *pub);
 
 /* Text/Fs/IO builtins (len/cmp/cat/readfile/writefile/readline) */
 extern vlong  o9_str_len(char *s);

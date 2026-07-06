@@ -1,0 +1,16 @@
+// send(handle, line): code as text.  The same ctl line the shell
+// writes fired from inside the language — homoiconicity, the Plan 9
+// way: invocation is a line, not a list.
+class Counter {
+    int64 val;
+    method Counter(int64 n) { val = n; }
+    method void add(int64 n) { val = val + n; }
+    method int64 get() { return val; }
+    method string tag() { return "counter"; }
+}
+func main() {
+    Counter c = new Counter(40);
+    send(c, "method c add arg0=2");
+    print(send(c, "method c get"), "\n");
+    print(send(c, "method c tag"), "\n");
+}

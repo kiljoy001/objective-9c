@@ -175,6 +175,7 @@ find_class(char *name)
 }
 
 Node* mk(int type, char *name, char *typename, Node *l, Node *r);
+static Node* mk_secret_field(Node *tn, char *name);
 Node* append_node(Node *list, Node *node);
 char* map_type(char *t);
 char* get_sym_type(Node *c, char *name);
@@ -309,7 +310,7 @@ struct Builtin {
     char *runtime;
     int argc;
     char *ret;
-    char *args[2];
+    char *args[3];
 };
 static Builtin builtins[] = {
     {"len",       "o9_str_len",   1, "int64",  {"string", nil}},
@@ -319,6 +320,21 @@ static Builtin builtins[] = {
     {"writefile", "o9_writefile", 2, "int64",  {"string", "string"}},
     {"readline",  "o9_readline",  0, "string", {nil, nil}},
     {"lookup",    "o9_lookup_client", 1, "void", {"string", nil}},
+    /* code as data: fire a shell-identical ctl line at any handle.
+     * "object" marks a class-typed slot, passed by address. */
+    {"send",      "o9_send",      2, "string", {"object", "string"}},
+    /* crypto (monocypher): every key/sig/digest/blob is lowercase hex */
+    {"keygen",    "o9_keygen",    0, "string", {nil, nil}},
+    {"pubkey",    "o9_pubkey",    1, "string", {"string", nil}},
+    {"sign",      "o9_sign",      2, "string", {"string", "string"}},
+    {"verify",    "o9_verify",    3, "int64",  {"string", "string", "string"}},
+    {"hash",      "o9_digest",    1, "string", {"string", nil}},
+    {"mac",       "o9_mac",       2, "string", {"string", "string"}},
+    {"passkey",   "o9_passkey",   2, "string", {"string", "string"}},
+    {"encrypt",   "o9_encrypt",   2, "string", {"string", "string"}},
+    {"decrypt",   "o9_decrypt",   2, "string", {"string", "string"}},
+    {"xpubkey",   "o9_xpubkey",   1, "string", {"string", nil}},
+    {"exchange",  "o9_exchange",  2, "string", {"string", "string"}},
 };
 
 static Builtin*
@@ -1618,7 +1634,7 @@ stream_decl:
 secret_decl:
     TSECRET typename member_name ';'
     {
-        $$ = mk_typed(NSecret, $3->name, $2, nil, nil);
+        $$ = mk_secret_field($2, $3->name);
     }
     ;
 
@@ -1930,6 +1946,53 @@ mk(int type, char *name, char *typename, Node *l, Node *r)
     n->left = l;
     n->right = r;
     return n;
+}
+
+/* secret string N; — sealed storage plus key-armed accessors:
+ *
+ *   string N__blob;
+ *   method void seal_N(string key, string v) { N__blob = encrypt(key, v); }
+ *   method string open_N(string key) { return decrypt(key, N__blob); }
+ *
+ * The declared field never exists as plaintext storage and no plain
+ * accessor is generated, so every visible form of the object — shm,
+ * /srv data, persisted rows, send replies — carries the AEAD blob.
+ * Key custody stays with the caller (passkey/exchange/keygen).
+ * Non-string secrets stay NSecret; typecheck refuses them. */
+static Node*
+mk_secret_field(Node *tn, char *name)
+{
+    char blob[192], seal[200], open[200];
+    Node *fld, *sealm, *openm, *params, *args, *body;
+
+    if(tn == nil || tn->name == nil || strcmp(tn->name, "string") != 0)
+        return mk_typed(NSecret, name, tn, nil, nil);
+
+    snprint(blob, sizeof blob, "%s__blob", name);
+    snprint(seal, sizeof seal, "seal_%s", name);
+    snprint(open, sizeof open, "open_%s", name);
+
+    fld = mk(NProp, blob, "string", nil, nil);
+
+    params = mk(NProp, "key", "string", nil, nil);
+    params->next = mk(NProp, "v", "string", nil, nil);
+    args = mk(NIdent, "key", nil, nil, nil);
+    args->next = mk(NIdent, "v", nil, nil, nil);
+    body = mk(NAssign, nil, nil,
+        mk(NIdent, blob, nil, nil, nil),
+        mk(NSelfCall, "encrypt", nil, nil, args));
+    sealm = mk(NMethod, seal, "void", body, params);
+
+    params = mk(NProp, "key", "string", nil, nil);
+    args = mk(NIdent, "key", nil, nil, nil);
+    args->next = mk(NIdent, blob, nil, nil, nil);
+    body = mk(NReturn, nil, nil,
+        mk(NSelfCall, "decrypt", nil, nil, args), nil);
+    openm = mk(NMethod, open, "string", body, params);
+
+    fld->next = sealm;
+    sealm->next = openm;
+    return fld;
 }
 
 void
@@ -2358,10 +2421,25 @@ gen_expr(Node *e)
             if(owner == nil){
                 Builtin *bi = find_builtin(e->name);
                 if(bi != nil){
+                    int pi = 0;
                     print("%s(", bi->runtime);
-                    for(a = e->right; a; a = a->next){
+                    for(a = e->right; a; a = a->next, pi++){
                         if(a != e->right) print(", ");
-                        gen_expr(a);
+                        if(pi < bi->argc && bi->args[pi] != nil &&
+                           strcmp(bi->args[pi], "object") == 0){
+                            /* class-typed slot: pass the client by address */
+                            print("&");
+                            gen_expr(a);
+                        } else if(pi < bi->argc && bi->args[pi] != nil &&
+                           strcmp(bi->args[pi], "string") == 0 && a->type == NMsgSend){
+                            /* dispatch expressions are vlong at the C level
+                             * (frame slot); the method's o9 type is string,
+                             * so re-pointer it for the builtin's prototype */
+                            print("(char*)(uintptr)(");
+                            gen_expr(a);
+                            print(")");
+                        } else
+                            gen_expr(a);
                     }
                     print(")");
                     break;
@@ -5627,10 +5705,16 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
     case NProp:
     case NState:
     case NAtomic:
-    case NSecret:
     case NCap:
     case NInherit:
         validate_type(e->typeinfo, errs);
+        break;
+    case NSecret:
+        /* string secrets were desugared at parse into blob + seal/open;
+         * anything still NSecret is a non-string secret, refused in v1 */
+        fprint(2, "o9c: error: line %d: secret field '%s' must be string\n",
+            sem_line, e->name != nil ? e->name : "?");
+        (*errs)++;
         break;
     case NMethod:
         validate_type(e->typeinfo, errs);
@@ -5724,6 +5808,15 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
                     (*errs)++;
                 } else {
                     for(a = e->right, pi = 0; a != nil && pi < bi->argc; a = a->next, pi++){
+                        if(strcmp(bi->args[pi], "object") == 0){
+                            /* class-typed slot (send's handle) */
+                            if(type_decl_node(a->typeinfo) == nil){
+                                fprint(2, "o9c: error: line %d: argument %d to '%s' must be an object handle\n", sem_line,
+                                    pi + 1, e->name);
+                                (*errs)++;
+                            }
+                            continue;
+                        }
                         if(!type_assignable_semantic(type_name(bi->args[pi]), a->typeinfo)){
                             fprint(2, "o9c: error: line %d: argument %d to '%s' has type %s, expected %s\n", sem_line,
                                 pi + 1, e->name,

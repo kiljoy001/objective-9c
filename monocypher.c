@@ -715,10 +715,10 @@ namespace MONOCYPHER_CPP_NAMESPACE {
     crypto_blake2b_keyed(hash, hash_size, 0, 0, msg, msg_size);
   }
 
-/* o9 uses only Ed25519 + BLAKE2b. Argon2's 16-arg MONO_ROUND macro exceeds */
-/* 6c's cpp and o9 never calls crypto_argon2; the argon2 path lives in libtab */
-/* on Linux where a modern compiler builds the full file. */
-#ifndef MONO_PLAN9
+/* Argon2 compiles under 6c too: upstream's 16-arg MONO_ROUND macro (which */
+/* exceeded 6c's cpp) is rewritten below as the functions g_mix/round16 — */
+/* same operations in the same order, so results are bit-identical.  o9's */
+/* passkey() builtin uses this for password -> key derivation. */
   //////////////
   /// Argon2 ///
   //////////////
@@ -782,29 +782,37 @@ namespace MONOCYPHER_CPP_NAMESPACE {
   }
 
 #define LSB(x) ((u64)(u32)x)
-#define G(a, b, c, d)                                                          \
-  a += b + ((LSB(a) * LSB(b)) << 1);                                           \
-  d ^= a;                                                                      \
-  d = rotr64(d, 32);                                                           \
-  c += d + ((LSB(c) * LSB(d)) << 1);                                           \
-  b ^= c;                                                                      \
-  b = rotr64(b, 24);                                                           \
-  a += b + ((LSB(a) * LSB(b)) << 1);                                           \
-  d ^= a;                                                                      \
-  d = rotr64(d, 16);                                                           \
-  c += d + ((LSB(c) * LSB(d)) << 1);                                           \
-  b ^= c;                                                                      \
-  b = rotr64(b, 63)
-#define MONO_ROUND(v0, v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, \
-                   v14, v15)                                                   \
-  G(v0, v4, v8, v12);                                                          \
-  G(v1, v5, v9, v13);                                                          \
-  G(v2, v6, v10, v14);                                                         \
-  G(v3, v7, v11, v15);                                                         \
-  G(v0, v5, v10, v15);                                                         \
-  G(v1, v6, v11, v12);                                                         \
-  G(v2, v7, v8, v13);                                                          \
-  G(v3, v4, v9, v14)
+
+  // Upstream's G macro as a function (same statements, pointer args).
+  static void g_mix(u64 *a, u64 *b, u64 *c, u64 *d) {
+    *a += *b + ((LSB(*a) * LSB(*b)) << 1);
+    *d ^= *a;
+    *d = rotr64(*d, 32);
+    *c += *d + ((LSB(*c) * LSB(*d)) << 1);
+    *b ^= *c;
+    *b = rotr64(*b, 24);
+    *a += *b + ((LSB(*a) * LSB(*b)) << 1);
+    *d ^= *a;
+    *d = rotr64(*d, 16);
+    *c += *d + ((LSB(*c) * LSB(*d)) << 1);
+    *b ^= *c;
+    *b = rotr64(*b, 63);
+  }
+
+  // Upstream's 16-arg MONO_ROUND macro as a function.
+  static void round16(u64 *v0, u64 *v1, u64 *v2, u64 *v3,
+                      u64 *v4, u64 *v5, u64 *v6, u64 *v7,
+                      u64 *v8, u64 *v9, u64 *v10, u64 *v11,
+                      u64 *v12, u64 *v13, u64 *v14, u64 *v15) {
+    g_mix(v0, v4, v8,  v12);
+    g_mix(v1, v5, v9,  v13);
+    g_mix(v2, v6, v10, v14);
+    g_mix(v3, v7, v11, v15);
+    g_mix(v0, v5, v10, v15);
+    g_mix(v1, v6, v11, v12);
+    g_mix(v2, v7, v8,  v13);
+    g_mix(v3, v4, v9,  v14);
+  }
 
   // Core of the compression function G.  Computes Z from R in place.
   static void g_rounds(blk * b) {
@@ -815,10 +823,10 @@ namespace MONOCYPHER_CPP_NAMESPACE {
      * @ loop variant 128 - i;
      */
     for (int i = 0; i < 128; i += 16) {
-      MONO_ROUND(b->a[i], b->a[i + 1], b->a[i + 2], b->a[i + 3], b->a[i + 4],
-                 b->a[i + 5], b->a[i + 6], b->a[i + 7], b->a[i + 8],
-                 b->a[i + 9], b->a[i + 10], b->a[i + 11], b->a[i + 12],
-                 b->a[i + 13], b->a[i + 14], b->a[i + 15]);
+      round16(&b->a[i], &b->a[i + 1], &b->a[i + 2], &b->a[i + 3], &b->a[i + 4],
+              &b->a[i + 5], &b->a[i + 6], &b->a[i + 7], &b->a[i + 8],
+              &b->a[i + 9], &b->a[i + 10], &b->a[i + 11], &b->a[i + 12],
+              &b->a[i + 13], &b->a[i + 14], &b->a[i + 15]);
     }
     // row rounds (b = Z)
     /* DISABLED ACSL BLOCK:
@@ -827,10 +835,10 @@ namespace MONOCYPHER_CPP_NAMESPACE {
      * @ loop variant 16 - i;
      */
     for (int i = 0; i < 16; i += 2) {
-      MONO_ROUND(b->a[i], b->a[i + 1], b->a[i + 16], b->a[i + 17], b->a[i + 32],
-                 b->a[i + 33], b->a[i + 48], b->a[i + 49], b->a[i + 64],
-                 b->a[i + 65], b->a[i + 80], b->a[i + 81], b->a[i + 96],
-                 b->a[i + 97], b->a[i + 112], b->a[i + 113]);
+      round16(&b->a[i], &b->a[i + 1], &b->a[i + 16], &b->a[i + 17], &b->a[i + 32],
+              &b->a[i + 33], &b->a[i + 48], &b->a[i + 49], &b->a[i + 64],
+              &b->a[i + 65], &b->a[i + 80], &b->a[i + 81], &b->a[i + 96],
+              &b->a[i + 97], &b->a[i + 112], &b->a[i + 113]);
     }
   }
 
@@ -1041,7 +1049,6 @@ namespace MONOCYPHER_CPP_NAMESPACE {
     extended_hash(hash, hash_size, final_block, 1024);
     WIPE_BUFFER(final_block);
   }
-#endif	/* MONO_PLAN9: end Argon2 exclusion (field math below is needed) */
 
   ////////////////////////////////////
   /// Arithmetic modulo 2^255 - 19 ///

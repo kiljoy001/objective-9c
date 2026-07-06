@@ -1553,6 +1553,76 @@ obj9_msgSend(void *receiver, char *method, ulong selector, void *args)
 	return obj9_msgSendN(receiver, method, selector, args, args != nil ? 1 : 0);
 }
 
+/* First method-table row matching a method name; the ret column tells
+ * send() whether a dispatch result is text or a number. */
+static char*
+o9_method_ret_type(char *method)
+{
+	O9MethodStore *s = o9_method_store();
+	TabIter *it;
+	TabRow *row;
+	const char *v;
+
+	if(s == nil || s->tab == nil || method == nil)
+		return nil;
+	it = tab_search(s->tab, "method", method);
+	if(it == nil)
+		return nil;
+	row = tab_iter_next(it);
+	tab_iter_close(it);
+	if(row == nil)
+		return nil;
+	v = tab_get(row, "ret");
+	return (char*)v;
+}
+
+/* send(handle, line) builtin: code as text.  The line is the same one
+ * the shell writes — "method <inst> <name> arg0=5 ..." — fired at a
+ * handle from inside the language, reply back as a string.  Far
+ * handles get the raw line written to ctl and the data file read back
+ * verbatim; in-process handles parse it into the same selector+frame
+ * the compiled call sites use. */
+char*
+o9_send(void *client, char *line)
+{
+	o9_Object *obj = client;
+	char buf[1024], data[8192];
+	char *f[16], *v, *ret;
+	vlong args[8], rv;
+	int nf, i, nargs;
+
+	if(client == nil || line == nil)
+		return nil;
+	if(obj->dispatch_chan == nil && obj->fd >= 0){
+		/* far: text in, text out, exactly the shell's path */
+		strncpy(buf, line, sizeof buf - 1);
+		buf[sizeof buf - 1] = '\0';
+		if(o9_remote_ctl_data(obj, buf, data, sizeof data) < 0)
+			return nil;
+		return strdup(data);
+	}
+	strncpy(buf, line, sizeof buf - 1);
+	buf[sizeof buf - 1] = '\0';
+	nf = tokenize(buf, f, nelem(f));
+	if(nf < 3 || strcmp(f[0], "method") != 0)
+		return smprint("error: send wants 'method <inst> <name> [argN=v ...]'");
+	nargs = 0;
+	for(i = 3; i < nf && nargs < nelem(args); i++){
+		v = strchr(f[i], '=');
+		args[nargs] = strtoll(v != nil ? v+1 : f[i], nil, 0);
+		nargs++;
+	}
+	rv = (vlong)(uintptr)obj9_msgSendN(obj, f[2], o9_hash(f[2]),
+		nargs > 0 ? args : nil, nargs);
+	ret = o9_method_ret_type(f[2]);
+	if(ret != nil && (strcmp(ret, "string") == 0 || strcmp(ret, "char*") == 0)){
+		if(rv == 0)
+			return strdup("");
+		return strdup((char*)(uintptr)rv);
+	}
+	return smprint("%lld", rv);
+}
+
 /*
  * obj9_msgSend_name — remote 9P dispatch over fd.
  * Compatibility wrapper around the counted ctl/data dispatch path.

@@ -58,6 +58,9 @@ runcase e2e_text
 runcase e2e_delete
 runcase e2e_generic
 runcase e2e_lookup
+runcase e2e_crypto
+runcase e2e_send
+runcase e2e_secret
 
 if(! ~ $fail 0)
 	exit fail

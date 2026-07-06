@@ -1,0 +1,11 @@
+keylen 64 64 siglen 128
+good 1
+tampered 0
+bddd813c634239723171ef3fee98579b94964e3bb1cb3e427262c8c068d52319
+bad705ff155af631f38dc6cafdda827a31595c802f3ff585c10691c58944d89b
+roundtrip 0
+tamper 0
+exchange 0
+81aee1a7dc10473b68f7593ac3ab9bee7e12e08290f886fa23faf4c6d66de95b
+open 0
+wrongpass 0

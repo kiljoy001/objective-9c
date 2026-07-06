@@ -1,0 +1,49 @@
+// Crypto builtins (monocypher): attestation + confidentiality.
+// Fresh keys each run, but every printed value is deterministic:
+// fixed digests, cmp() results, and lengths.
+
+// Secret safety: an object holds only the sealed blob; the plaintext
+// exists nowhere but inside a method call armed with the right key.
+class Vault {
+    string blob;
+    method Vault(string b) { blob = b; }
+    method string open(string key) { return decrypt(key, blob); }
+}
+
+func main() {
+    // attestation: sign/verify + hash
+    string sec = keygen();
+    string pub = pubkey(sec);
+    string sig = sign(sec, "attest this");
+    print("keylen ", len(sec), " ", len(pub), " siglen ", len(sig), "\n");
+    print("good ", verify(pub, "attest this", sig), "\n");
+    print("tampered ", verify(pub, "attest that", sig), "\n");
+    print(hash("abc"), "\n");
+
+    // mac: keyed BLAKE2b-256, fixed vector for the zero key
+    print(mac("0000000000000000000000000000000000000000000000000000000000000000", "abc"), "\n");
+
+    // encrypt/decrypt: AEAD roundtrip; corrupting the blob makes
+    // decrypt return nil (len 0), never garbage plaintext
+    string k = keygen();
+    string blob = encrypt(k, "the vault opens");
+    print("roundtrip ", cmp(decrypt(k, blob), "the vault opens"), "\n");
+    print("tamper ", len(decrypt(k, cat("00", blob))), "\n");
+
+    // exchange: both sides derive the same shared key
+    string a = keygen();
+    string b = keygen();
+    print("exchange ", cmp(exchange(a, xpubkey(b)), exchange(b, xpubkey(a))), "\n");
+
+    // passkey: Argon2id password -> key.  Expected value computed with
+    // the reference implementation (argon2-cffi: t=3, m=64MiB, p=1,
+    // argon2id) — proves interop, not just determinism.
+    string pk = passkey("hunter2", "e2e.vault.salt");
+    print(pk, "\n");
+
+    // secret safety: sealed text lives in an object; only the
+    // passphrase-derived key opens it, the wrong one gets nil
+    Vault v = new Vault(encrypt(pk, "the crown jewels"));
+    print("open ", cmp(v.open(pk), "the crown jewels"), "\n");
+    print("wrongpass ", len(v.open(passkey("hunter3", "e2e.vault.salt"))), "\n");
+}

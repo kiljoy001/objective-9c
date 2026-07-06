@@ -217,6 +217,7 @@ require_error o9c/test/typecheck_bad_abstract_new.o9 'cannot instantiate abstrac
 require_error o9c/test/typecheck_bad_selfcall.o9 '''Counter'' has no method ''missing'''
 require_error o9c/test/typecheck_bad_delete.o9 'delete needs a class instance'
 require_error o9c/test/typecheck_bad_builtin_arity.o9 'builtin ''len'' needs 1 argument'
+require_error o9c/test/typecheck_bad_secret_type.o9 'secret field ''pin'' must be string'
 require_error o9c/test/typecheck_bad_interface_new.o9 'cannot instantiate interface ''Sink'''
 
 rm -f $ast $err $meta
