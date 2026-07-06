@@ -143,6 +143,7 @@ extern int            o9_object_register_local(O9ObjectStore *s, char *oid,
                            char *typename, char *class, void *addr,
                            char *ns, char *path);
 extern int            o9_object_set_value(O9ObjectStore *s, char *oid, char *value);
+extern int            o9_object_set_state(O9ObjectStore *s, char *oid, char *state);
 extern char*          o9_object_get(O9ObjectStore *s, char *oid, char *col);
 extern void*          o9_object_addr(O9ObjectStore *s, char *oid, vlong gen);
 extern vlong          o9_object_generation(O9ObjectStore *s, char *oid);

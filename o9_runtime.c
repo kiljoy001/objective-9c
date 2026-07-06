@@ -393,6 +393,23 @@ o9_object_set_value(O9ObjectStore *s, char *oid, char *value)
 	return tab_commit(s->tab);
 }
 
+/* Reap tombstone: libtab is append-only, so a reaped object marks its
+ * node row state=reaped rather than deleting it (auditable history).
+ * Graph views filter state=live; the object's tree dir is removed
+ * separately by the facade. */
+int
+o9_object_set_state(O9ObjectStore *s, char *oid, char *state)
+{
+	TabRow *row;
+
+	row = o9_object_find_row(s, oid);
+	if(row == nil)
+		return -1;
+	if(o9_object_set_col(s, row, "state", state) < 0)
+		return -1;
+	return tab_commit(s->tab);
+}
+
 char*
 o9_object_get(O9ObjectStore *s, char *oid, char *col)
 {

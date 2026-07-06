@@ -62,6 +62,7 @@ runcase e2e_crypto
 runcase e2e_send
 runcase e2e_secret
 runcase e2e_private
+runcase e2e_twoclass
 
 if(! ~ $fail 0)
 	exit fail

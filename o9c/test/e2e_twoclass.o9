@@ -1,0 +1,21 @@
+// Two distinct classes served as peers from ONE app fileserver.
+// The old last-class-only boot could not do this; the per-app facade
+// registers every class into the single /srv/o9.<app> tree.
+class Adder {
+    int64 sum;
+    method Adder(int64 n) { sum = n; }
+    method void add(int64 n) { sum = sum + n; }
+    method int64 get() { return sum; }
+}
+class Doubler {
+    int64 v;
+    method Doubler(int64 n) { v = n; }
+    method int64 twice() { return v * 2; }
+}
+func main() {
+    Adder a = new Adder(40);
+    Doubler d = new Doubler(21);
+    a.add(2);
+    print("adder ", a.get(), "\n");
+    print("doubler ", d.twice(), "\n");
+}
