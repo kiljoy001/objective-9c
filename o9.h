@@ -201,6 +201,7 @@ extern char*  o9_str_cat(char *a, char *b);
 extern char*  o9_readfile(char *path);
 extern vlong  o9_writefile(char *path, char *s);
 extern char*  o9_readline(void);
+extern void   o9_serve(void);	/* block forever, yielding, so the app keeps serving */
 
 /* Method table backed by libtab — dispatch source of truth.
  *

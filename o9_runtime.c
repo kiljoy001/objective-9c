@@ -755,6 +755,27 @@ o9_readline(void)
 	return strdup(buf);
 }
 
+/* Block the calling thread forever, yielding the CPU, so a posted 9P
+ * server keeps serving.  Unlike `while(true){}` (which spins and starves
+ * the server proc under the cooperative thread scheduler), this receives
+ * on a channel that never fires — zero CPU, fully yielded. */
+void
+o9_serve(void)
+{
+	Channel *idle;
+	void *v;
+
+	idle = chancreate(sizeof(void*), 0);
+	if(idle == nil){
+		/* fall back to a yielding sleep loop if alloc fails */
+		for(;;)
+			sleep(1000);
+	}
+	for(;;)
+		v = recvp(idle);	/* never returns; keeps the server alive */
+	USED(v);
+}
+
 /* Method table backed by libtab — the dispatch source of truth.
  *
  * One store per process: every generated class server registers its methods

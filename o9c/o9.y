@@ -321,6 +321,7 @@ static Builtin builtins[] = {
     {"readfile",  "o9_readfile",  1, "string", {"string", nil}},
     {"writefile", "o9_writefile", 2, "int64",  {"string", "string"}},
     {"readline",  "o9_readline",  0, "string", {nil, nil}},
+    {"serve",     "o9_serve",     0, "void",   {nil, nil}},
     {"lookup",    "o9_lookup_client", 1, "void", {"string", nil}},
     /* code as data: fire a shell-identical ctl line at any handle.
      * "object" marks a class-typed slot, passed by address. */
@@ -4165,6 +4166,12 @@ gen_class_server(Node *c)
     print("\t\tnf = tokenize(cmd, f, nelem(f));\n");
     print("\t\tif(inst != nil) inst->error[0] = '\\0';\n");
     print("\t\tif(nf <= 0){ respond(r, nil); return; }\n");
+    /* Flat facade: f[1] may be Class.inst or bare inst — strip class prefix
+     * so find_instance works with either addressing form. */
+    print("\t\tif(nf > 1){\n");
+    print("\t\t\tchar *__dot = strchr(f[1], '.');\n");
+    print("\t\t\tif(__dot != nil && strncmp(f[1], \"%s\", %d) == 0) f[1] = __dot+1;\n", c->name, (int)strlen(c->name));
+    print("\t\t}\n");
     print("\t\tif(strcmp(f[0], \"new\") == 0){\n");
     print("\t\t\tif(nf < 2){ if(inst) snprint(inst->error, sizeof inst->error, \"new needs instance name\"); respond(r, \"bad new\"); return; }\n");
     print("\t\t\ttarget = %s_find_instance(f[1]);\n", c->name);
@@ -4182,7 +4189,7 @@ gen_class_server(Node *c)
     print("\t\t\t\t%s_record_instance(f[1], target);\n", c->name);
     print("\t\t\t\tproccreate(%s_loop, target, 65536);\n", c->name);
     print("\t\t\t}\n");
-    print("\t\t\tif(inst) snprint(inst->data, sizeof inst->data, \"ok new %%s\\n\", f[1]);\n");
+    print("\t\t\tsnprint(o9app_lastdata, sizeof o9app_lastdata, \"ok new %%s\\n\", f[1]);\n");
     print("\t\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t\t}\n");
     print("\t\tif(strcmp(f[0], \"method\") == 0){\n");
     print("\t\t\tif(nf < 3){ if(inst) snprint(inst->error, sizeof inst->error, \"method needs instance and name\"); respond(r, \"bad method\"); return; }\n");
@@ -4206,17 +4213,20 @@ gen_class_server(Node *c)
                 o9_hash(m->name), np > 0 ? "__wargs" : "nil", np);
             print("\t\t\t\tsendp(target->dispatch_chan, &__wm);\n");
             print("\t\t\t\tO9Reply *__o9rep = recvp(__wm.replyc);\n");
-            print("\t\t\t\tif(inst && __o9rep->err != nil) snprint(inst->data, sizeof inst->data, \"error: %%s\\n\", __o9rep->err);\n");
+            /* Flat facade: the ctl reply goes to the app-level data buffer
+             * (o9app_lastdata), which the root `data` file returns — so an
+             * external 9P caller reads its result there. */
+            print("\t\t\t\tif(__o9rep->err != nil) snprint(o9app_lastdata, sizeof o9app_lastdata, \"error: %%s\\n\", __o9rep->err);\n");
             print("\t\t\t\telse\n");
             if(type_is_void(m->typeinfo)){
-                print("\t\t\t\tif(inst) snprint(inst->data, sizeof inst->data, \"ok\\n\");\n");
+                print("\t\t\t\tsnprint(o9app_lastdata, sizeof o9app_lastdata, \"ok\\n\");\n");
             } else {
                 char *fmt = type_fmt_for_codegen(m->typeinfo);
                 char *cast = type_cast_for_codegen(m->typeinfo);
                 if(strcmp(fmt, "%s") == 0)
-                    print("\t\t\t\tif(inst) snprint(inst->data, sizeof inst->data, \"%%s\\n\", (char*)__o9rep->ret);\n");
+                    print("\t\t\t\tsnprint(o9app_lastdata, sizeof o9app_lastdata, \"%%s\\n\", (char*)__o9rep->ret);\n");
                 else
-                    print("\t\t\t\tif(inst) snprint(inst->data, sizeof inst->data, \"%s\\n\", (%s)__o9rep->ret);\n", fmt, cast);
+                    print("\t\t\t\tsnprint(o9app_lastdata, sizeof o9app_lastdata, \"%s\\n\", (%s)__o9rep->ret);\n", fmt, cast);
             }
             print("\t\t\t\tfree(__o9rep); chanfree(__wm.replyc); }\n");
             print("\t\t\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t\t\t}\n");
@@ -4309,14 +4319,9 @@ gen_class_server(Node *c)
     print("\to9_objects_%s = o9_object_store_create_path(o9app_root, o9app_name);\n", c->name);
     print("\to9_method_store_init(o9app_root, o9app_name);\n");
     gen_method_registrations(c, c);
-    print("\t%s_Internal *s = emalloc9p(sizeof(%s_Internal));\n", c->name, c->name);
-    print("\tmemset(s, 0, sizeof(%s_Internal));\n", c->name);
-    print("\ts->dispatch_chan = chancreate(sizeof(void*), 10);\n");
-    print("\ts->state = o9_state_create_path(o9app_root, \"%s\", \"%s\", o9_state_cols_%s, %d);\n",
-        c->name, c->name, c->name, count_state_cols(c));
-    gen_init_internal_state(c, "s");
-    print("\t%s_create_instance(s, \"%s\");\t/* boot instance, registry only */\n", c->name, c->name);
-    print("\tproccreate(%s_loop, s, 65536);\n", c->name);
+    /* No boot instance created here — instances come from main()'s `new`
+     * statements, which call the constructor and register with the variable
+     * name.  The class loop proc is started per-instance by gen_local_new. */
     print("}\n");
 }
 
@@ -4590,6 +4595,7 @@ codegen(Node *root)
     print("extern char o9app_srvname[128];\n");
     print("extern char o9app_mount[256];\n");
     print("extern char o9app_name[64];\n");
+    print("extern char o9app_exports[256];\t/* real on-disk exports dir path */\n");
     print("static void o9app_register_handler(char *name, void (*rd)(Req*,void*), void (*wr)(Req*,void*), void *(*find)(char*)){\n");
     print("\tif(o9app_nclasses >= nelem(o9app_classes)) return;\n");
     print("\to9app_classes[o9app_nclasses].name = name;\n");
@@ -4626,8 +4632,12 @@ codegen(Node *root)
     print("char o9app_root[128];\n");
     print("char o9app_srvname[128];\n");
     print("char o9app_mount[256];\n");
-    print("char o9app_name[64];\n\n");
+    print("char o9app_name[64];\n");
+    print("char o9app_exports[256];\n\n");
 
+    /* exports/: real on-disk directory under <root>/exports.  Objects
+     * publish Tabulae as plain .tab files there (writefile/tab_commit).
+     * The path is in o9app_exports for use by an export() builtin. */
     /* Flat root handlers.  The four files share these; ctl routes by the
      * line's Class.inst to a class handler, the rest aggregate. */
     print("static char o9app_lastdata[4096];\n");
@@ -4693,6 +4703,11 @@ codegen(Node *root)
     print("\to9_ns_service_name(o9app_srvname, sizeof o9app_srvname, __o9app, __o9app, \"app\");\n");
     print("\to9_ns_class_path(o9app_mount, sizeof o9app_mount, o9app_root, __o9app);\n");
     print("\to9_ns_ensure_app(o9app_root);\n");
+    /* Real on-disk exports dir: objects publish mountable .tab files here
+     * via plain writefile/tab_commit (NOT served-tree createfile).  Reached
+     * over 9P as real files on the app namespace.  See TABULA.md. */
+    print("\tsnprint(o9app_exports, sizeof o9app_exports, \"%%s/exports\", o9app_root);\n");
+    print("\to9_ns_ensure_dir(o9app_exports);\n");
     print("\to9app_tree = alloctree(nil, nil, DMDIR|0555, nil);\n");
     print("\to9app_srv.tree = o9app_tree;\n");
     print("\to9app_srv.read = o9app_root_read;\n\to9app_srv.write = o9app_root_write;\n");
@@ -4702,6 +4717,12 @@ codegen(Node *root)
     print("\tcreatefile(o9app_tree->root, \"data\", \"o9\", 0444, nil);\n");
     print("\tcreatefile(o9app_tree->root, \"status\", \"o9\", 0444, nil);\n");
     print("\tcreatefile(o9app_tree->root, \"methods\", \"o9\", 0444, nil);\n");
+    /* exports/ — real on-disk dir at <root>/exports.  Objects publish
+     * Tabulae here as real .tab files (plain writefile, no tree mutation).
+     * Reachable over 9P via the app's namespace root; separate from the
+     * control tree (ctl/data/status/methods).  See TABULA.md. */
+    print("\tsnprint(o9app_exports, sizeof o9app_exports, \"%%s/exports\", o9app_root);\n");
+    print("\to9_ns_ensure_dir(o9app_exports);\n");
     print("}\n");
     print("static void o9_app_post(void){\n");
     print("\t{ char __sp[160]; snprint(__sp, sizeof __sp, \"/srv/%%s\", o9app_srvname); remove(__sp); }\n");
