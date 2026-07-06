@@ -1,0 +1,110 @@
+#!/bin/rc
+# External-access probe: build the server, mount its /srv post from
+# outside, drive ctl/data over 9P, assert results.
+rfork e
+
+tool=./o9c/o9c
+fail=0
+app=Counter
+srv=/srv/o9.^$app^.^$app^.app
+result=/tmp/ext_result
+
+rm -f $result
+
+fn cleanup {
+	if(! ~ $spid '')
+		kill $spid >[2]/dev/null
+	unmount /n/ext >[2]/dev/null
+	rm -f $srv >[2]/dev/null
+}
+
+fn fail_msg {
+	echo $* >[2]/dev/null
+	echo $* >>$result
+	fail=1
+}
+
+fn ok_msg {
+	echo $* >>$result
+}
+
+# build
+if(! $tool < o9c/test/ext_server.o9 > /tmp/ext.c){
+	fail_msg 'ext: transpile failed'
+	exit fail
+}
+if(! 6c -FVw -I. -o /tmp/ext.6 /tmp/ext.c){
+	fail_msg 'ext: compile failed'
+	exit fail
+}
+if(! 6l -o /tmp/ext /tmp/ext.6 libo9.a /$objtype/lib/libndb.a){
+	fail_msg 'ext: link failed'
+	exit fail
+}
+
+rm -f $srv
+/tmp/ext &
+spid=$apid
+
+# wait for the /srv post (up to 5s)
+n=0
+while(! test -e $srv){
+	if(~ $n 50){
+		fail_msg 'ext: server never posted '$srv
+		cleanup
+		exit fail
+	}
+	sleep 0.1
+	n=`{hoc -e $n+1}
+}
+ok_msg 'server posted '$srv
+
+# mount and probe
+mount $srv /n/ext
+if(! test -e /n/ext/ctl){
+	fail_msg 'ext: no ctl after mount'
+	cleanup
+	exit fail
+}
+
+# status should list the class
+s=`{cat /n/ext/status}
+if(! ~ $s *Counter*){
+	fail_msg 'ext: status missing Counter: '$s
+	fail=1
+}
+
+# methods should list public methods
+m=`{cat /n/ext/methods}
+if(! ~ $m *get*){
+	fail_msg 'ext: methods missing get: '$m
+	fail=1
+}
+
+# initial get: instance 'c' (variable name from ext_server.o9: Counter c = new Counter(40))
+echo 'method Counter.c get' > /n/ext/ctl
+v1=`{cat /n/ext/data}
+if(! ~ $v1 40 *40*){
+	fail_msg 'ext: expected 40, got: '$v1
+	fail=1
+}
+
+# add 2 then get: 42
+echo 'method Counter.c add arg0=2' > /n/ext/ctl
+echo 'method Counter.c get' > /n/ext/ctl
+v2=`{cat /n/ext/data}
+if(! ~ $v2 42 *42*){
+	fail_msg 'ext: expected 42, got: '$v2
+	fail=1
+}
+
+cleanup
+
+if(~ $fail 0){
+	ok_msg 'ext_access: OK'
+	echo 'ext_access: OK'
+}
+if not{
+	echo 'ext_access: FAIL'
+	exit fail
+}

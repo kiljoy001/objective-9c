@@ -143,6 +143,7 @@ extern int            o9_object_register_local(O9ObjectStore *s, char *oid,
                            char *typename, char *class, void *addr,
                            char *ns, char *path);
 extern int            o9_object_set_value(O9ObjectStore *s, char *oid, char *value);
+extern int            o9_object_set_state(O9ObjectStore *s, char *oid, char *state);
 extern char*          o9_object_get(O9ObjectStore *s, char *oid, char *col);
 extern void*          o9_object_addr(O9ObjectStore *s, char *oid, vlong gen);
 extern vlong          o9_object_generation(O9ObjectStore *s, char *oid);
@@ -200,6 +201,7 @@ extern char*  o9_str_cat(char *a, char *b);
 extern char*  o9_readfile(char *path);
 extern vlong  o9_writefile(char *path, char *s);
 extern char*  o9_readline(void);
+extern void   o9_serve(void);	/* block forever, yielding, so the app keeps serving */
 
 /* Method table backed by libtab — dispatch source of truth.
  *

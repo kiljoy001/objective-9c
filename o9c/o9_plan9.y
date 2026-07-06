@@ -177,6 +177,7 @@ find_class(char *name)
 
 Node* mk(int type, char *name, char *typename, Node *l, Node *r);
 static Node* mk_secret_field(Node *tn, char *name);
+static void o9_note_registered(char *name);
 Node* append_node(Node *list, Node *node);
 char* map_type(char *t);
 char* get_sym_type(Node *c, char *name);
@@ -320,6 +321,7 @@ static Builtin builtins[] = {
     {"readfile",  "o9_readfile",  1, "string", {"string", nil}},
     {"writefile", "o9_writefile", 2, "int64",  {"string", "string"}},
     {"readline",  "o9_readline",  0, "string", {nil, nil}},
+    {"serve",     "o9_serve",     0, "void",   {nil, nil}},
     {"lookup",    "o9_lookup_client", 1, "void", {"string", nil}},
     /* code as data: fire a shell-identical ctl line at any handle.
      * "object" marks a class-typed slot, passed by address. */
@@ -3834,7 +3836,7 @@ gen_class_server(Node *c)
 
     /* 1. State Structure (internal authoritative state) */
     print("typedef struct %s_Internal %s_Internal;\n", c->name, c->name);
-    print("struct %s_Internal {\n\tArcLedger ledger;\n\tlong ref;\t/* ARC reference count */\n\tint distance;\t/* -1=same, 0=near/IL, 1=far/TCP */\n\tO9State *state;\n\tchar data[4096];\n\tchar error[256];\n", c->name);
+    print("struct %s_Internal {\n\tArcLedger ledger;\n\tlong ref;\t/* ARC reference count */\n\tint distance;\t/* -1=same, 0=near/IL, 1=far/TCP */\n\tO9State *state;\n\tchar data[4096];\n\tchar error[256];\n\tchar oid[64];\t/* instance name, for reap */\n\tvoid *objdir;\t/* File* of /<Class>/<oid>/, removed on reap */\n", c->name);
     gen_internal_fields(c);
     print("\tChannel *dispatch_chan;\n");
     print("};\n\n");
@@ -3974,10 +3976,12 @@ gen_class_server(Node *c)
         }
     }
 
+    print("static void %s_forget_instance(%s_Internal *inst);\n", c->name, c->name);
     print("static void o9_cleanup_%s(%s_Internal *self) {\n", c->name, c->name);
     if (has_destruct) {
         print("\to9_destruct_%s(self);\n", c->name);
     }
+    print("\t%s_forget_instance(self);\t/* reap: tree dir + registry + list + tombstone */\n", c->name);
     gen_cleanup_props(c, c->name);
     print("\to9_state_close(self->state);\n");
     print("\tchanfree(self->dispatch_chan);\n");
@@ -4017,9 +4021,11 @@ gen_class_server(Node *c)
     print("\t\tdefault: { O9Reply *r = mallocz(sizeof(O9Reply), 1); r->err = \"bad selector\"; sendp(m->replyc, r); } break;\n");
     print("\t\t}\n\t}\n}\n\n");
 
-    print("static char o9_app_root_%s[128];\n", c->name);
-    print("static char o9_mount_%s[256];\n", c->name);
-    print("static char o9_srv_%s[128];\n", c->name);
+    /* Per-app facade: root/mount/srv are shared app globals now.  Alias
+     * the old per-class names so existing references resolve unchanged. */
+    print("#define o9_app_root_%s o9app_root\n", c->name);
+    print("#define o9_mount_%s o9app_mount\n", c->name);
+    print("#define o9_srv_%s o9app_srvname\n", c->name);
     print("static O9ObjectStore *o9_objects_%s;\n", c->name);
     print("typedef struct %s_InstanceEntry %s_InstanceEntry;\n", c->name, c->name);
     print("struct %s_InstanceEntry { char name[64]; %s_Internal *inst; };\n", c->name, c->name);
@@ -4030,6 +4036,10 @@ gen_class_server(Node *c)
     print("\tfor(i = 0; i < %s_ninstances; i++)\n", c->name);
     print("\t\tif(strcmp(%s_instances[i].name, name) == 0) return %s_instances[i].inst;\n", c->name, c->name);
     print("\treturn nil;\n}\n\n");
+    /* Forward-declare the facade handlers: record_instance binds them into
+     * each object dir's O9FileAux, but their bodies come further below. */
+    print("static void fsread_%s(Req *r, void *instv);\n", c->name);
+    print("static void fswrite_%s(Req *r, void *instv);\n", c->name);
     print("static int %s_record_instance(char *name, %s_Internal *inst) {\n", c->name, c->name);
     print("\t%s_Internal *old;\n\tif(name == nil || name[0] == '\\0' || inst == nil) return -1;\n", c->name);
     print("\told = %s_find_instance(name);\n\tif(old != nil) return 0;\n", c->name);
@@ -4038,6 +4048,8 @@ gen_class_server(Node *c)
     print("\t%s_instances[%s_ninstances].inst = inst;\n", c->name, c->name);
     print("\t%s_ninstances++;\n", c->name);
     print("\to9_registry_register(name, \"%s\", inst->dispatch_chan, inst);\n", c->name);
+    /* Flat facade: no per-object dir; just record the oid for reap/status. */
+    print("\tstrncpy(inst->oid, name, sizeof inst->oid - 1);\n");
     print("\tif(o9_ns_bind_obj(o9_mount_%s, o9_app_root_%s, name) >= 0){\n", c->name, c->name);
     print("\t\tchar __ln[300];\n");
     print("\t\tsnprint(__ln, sizeof __ln, \"bind %%s/%%s %%s/obj/%%s\", o9_mount_%s, name, o9_app_root_%s, name);\n", c->name, c->name);
@@ -4054,13 +4066,27 @@ gen_class_server(Node *c)
     print("\t}\n");
     print("\treturn 0;\n}\n\n");
 
+    /* Reap hygiene: no per-object dir to remove (flat tree); unregister,
+     * de-list, tombstone the node row. */
+    print("static void %s_forget_instance(%s_Internal *inst) {\n", c->name, c->name);
+    print("\tint i;\n");
+    print("\tif(inst == nil) return;\n");
+    print("\tif(inst->oid[0] != '\\0'){\n");
+    print("\t\to9_registry_unregister(inst->oid);\n");
+    print("\t\tif(o9_objects_%s != nil) o9_object_set_state(o9_objects_%s, inst->oid, \"reaped\");\n", c->name, c->name);
+    print("\t\tfor(i = 0; i < %s_ninstances; i++)\n", c->name);
+    print("\t\t\tif(%s_instances[i].inst == inst){\n", c->name);
+    print("\t\t\t\t%s_instances[i] = %s_instances[--%s_ninstances];\n", c->name, c->name, c->name);
+    print("\t\t\t\tbreak;\n\t\t\t}\n");
+    print("\t}\n");
+    print("}\n\n");
+
     /* 4. 9P Fileserver Facade — clone pattern */
-    print("static void fsread_%s(Req *r) {\n", c->name);
+    print("static void fsread_%s(Req *r, void *instv) {\n", c->name);
     print("\tchar buf[1024];\n");
     print("\tUSED(buf);\n");
     print("#ifdef __GNUC__\n\tchar *name = r->fid->file->dir.name;\n#else\n\tchar *name = r->fid->file->name;\n#endif\n");
-    print("\t%s_Internal *inst = r->fid->file->aux;\n\n", c->name);
-    print("\tif(inst == nil) inst = r->srv->aux;\n");
+    print("\t%s_Internal *inst = instv;\n\n", c->name);
     print("\tif(strcmp(name, \"status\") == 0) {\n");
     print("\t\tchar statusbuf[8192];\n\t\tchar *p = statusbuf;\n\t\tint i;\n");
     print("\t\tp += snprint(p, sizeof statusbuf - (p-statusbuf), \"state running\\n\");\n");
@@ -4130,10 +4156,9 @@ gen_class_server(Node *c)
     }
     print("\trespond(r, \"not found\");\n}\n\n");
 
-    print("static void fswrite_%s(Req *r) {\n", c->name);
+    print("static void fswrite_%s(Req *r, void *instv) {\n", c->name);
     print("#ifdef __GNUC__\n\tchar *name = r->fid->file->dir.name;\n#else\n\tchar *name = r->fid->file->name;\n#endif\n");
-    print("\t%s_Internal *inst = r->fid->file->aux;\n", c->name);
-    print("\tif(inst == nil) inst = r->srv->aux;\n");
+    print("\t%s_Internal *inst = instv;\n", c->name);
     print("\tif(strcmp(name, \"ctl\") == 0) {\n");
     print("\t\tchar cmd[1024], *f[16], *v;\n\t\tint nf;\n\t\t%s_Internal *target;\n", c->name);
     print("\t\tUSED(v);\n");
@@ -4141,6 +4166,12 @@ gen_class_server(Node *c)
     print("\t\tnf = tokenize(cmd, f, nelem(f));\n");
     print("\t\tif(inst != nil) inst->error[0] = '\\0';\n");
     print("\t\tif(nf <= 0){ respond(r, nil); return; }\n");
+    /* Flat facade: f[1] may be Class.inst or bare inst — strip class prefix
+     * so find_instance works with either addressing form. */
+    print("\t\tif(nf > 1){\n");
+    print("\t\t\tchar *__dot = strchr(f[1], '.');\n");
+    print("\t\t\tif(__dot != nil && strncmp(f[1], \"%s\", %d) == 0) f[1] = __dot+1;\n", c->name, (int)strlen(c->name));
+    print("\t\t}\n");
     print("\t\tif(strcmp(f[0], \"new\") == 0){\n");
     print("\t\t\tif(nf < 2){ if(inst) snprint(inst->error, sizeof inst->error, \"new needs instance name\"); respond(r, \"bad new\"); return; }\n");
     print("\t\t\ttarget = %s_find_instance(f[1]);\n", c->name);
@@ -4158,7 +4189,7 @@ gen_class_server(Node *c)
     print("\t\t\t\t%s_record_instance(f[1], target);\n", c->name);
     print("\t\t\t\tproccreate(%s_loop, target, 65536);\n", c->name);
     print("\t\t\t}\n");
-    print("\t\t\tif(inst) snprint(inst->data, sizeof inst->data, \"ok new %%s\\n\", f[1]);\n");
+    print("\t\t\tsnprint(o9app_lastdata, sizeof o9app_lastdata, \"ok new %%s\\n\", f[1]);\n");
     print("\t\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t\t}\n");
     print("\t\tif(strcmp(f[0], \"method\") == 0){\n");
     print("\t\t\tif(nf < 3){ if(inst) snprint(inst->error, sizeof inst->error, \"method needs instance and name\"); respond(r, \"bad method\"); return; }\n");
@@ -4182,17 +4213,20 @@ gen_class_server(Node *c)
                 o9_hash(m->name), np > 0 ? "__wargs" : "nil", np);
             print("\t\t\t\tsendp(target->dispatch_chan, &__wm);\n");
             print("\t\t\t\tO9Reply *__o9rep = recvp(__wm.replyc);\n");
-            print("\t\t\t\tif(inst && __o9rep->err != nil) snprint(inst->data, sizeof inst->data, \"error: %%s\\n\", __o9rep->err);\n");
+            /* Flat facade: the ctl reply goes to the app-level data buffer
+             * (o9app_lastdata), which the root `data` file returns — so an
+             * external 9P caller reads its result there. */
+            print("\t\t\t\tif(__o9rep->err != nil) snprint(o9app_lastdata, sizeof o9app_lastdata, \"error: %%s\\n\", __o9rep->err);\n");
             print("\t\t\t\telse\n");
             if(type_is_void(m->typeinfo)){
-                print("\t\t\t\tif(inst) snprint(inst->data, sizeof inst->data, \"ok\\n\");\n");
+                print("\t\t\t\tsnprint(o9app_lastdata, sizeof o9app_lastdata, \"ok\\n\");\n");
             } else {
                 char *fmt = type_fmt_for_codegen(m->typeinfo);
                 char *cast = type_cast_for_codegen(m->typeinfo);
                 if(strcmp(fmt, "%s") == 0)
-                    print("\t\t\t\tif(inst) snprint(inst->data, sizeof inst->data, \"%%s\\n\", (char*)__o9rep->ret);\n");
+                    print("\t\t\t\tsnprint(o9app_lastdata, sizeof o9app_lastdata, \"%%s\\n\", (char*)__o9rep->ret);\n");
                 else
-                    print("\t\t\t\tif(inst) snprint(inst->data, sizeof inst->data, \"%s\\n\", (%s)__o9rep->ret);\n", fmt, cast);
+                    print("\t\t\t\tsnprint(o9app_lastdata, sizeof o9app_lastdata, \"%s\\n\", (%s)__o9rep->ret);\n", fmt, cast);
             }
             print("\t\t\t\tfree(__o9rep); chanfree(__wm.replyc); }\n");
             print("\t\t\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t\t\t}\n");
@@ -4273,45 +4307,22 @@ gen_class_server(Node *c)
         }
     }
     print("\trespond(r, \"read only or not found\");\n}\n\n");
-    print("Srv o9srv_%s;\n", c->name);
-    print("static Tree *%s_tree;\n", c->name);
     print("int %s_create_instance(%s_Internal *inst, char *name) {\n", c->name, c->name);
     print("\treturn %s_record_instance(name, inst);\n}\n", c->name);
-    print("void o9_main_%s(int argc, char **argv) {\n", c->name);
-    print("\tchar *__o9app = \"%s\";\n", c->name);
-    print("\tif(argc > 1 && argv[1] != nil && argv[1][0] != '\\0') __o9app = argv[1];\n");
-    print("\to9_ns_app_root(o9_app_root_%s, sizeof o9_app_root_%s, __o9app);\n", c->name, c->name);
-    print("\to9_ns_service_name(o9_srv_%s, sizeof o9_srv_%s, __o9app, \"%s\", \"%s\");\n", c->name, c->name, c->name, c->name);
-    print("\to9_ns_class_path(o9_mount_%s, sizeof o9_mount_%s, o9_app_root_%s, \"%s\");\n", c->name, c->name, c->name, c->name);
-    print("\to9_ns_ensure_app(o9_app_root_%s);\n", c->name);
-    print("\to9_objects_%s = o9_object_store_create_path(o9_app_root_%s, __o9app);\n", c->name, c->name);
-    print("\to9_method_store_init(o9_app_root_%s, __o9app);\n", c->name);
+    /* Per-app facade: register this class INTO the shared app server.
+     * No Srv/tree/post of its own — those are o9_app_start's job.  The
+     * flat tree already exists; the class just registers its handlers and
+     * creates its boot instance (recorded in the registry, no dir). */
+    o9_note_registered(c->name);	/* boot calls o9_register_class_<C> */
+    print("void o9_register_class_%s(void) {\n", c->name);
+    print("\to9app_register_handler(\"%s\", fsread_%s, fswrite_%s, (void*(*)(char*))%s_find_instance);\n", c->name, c->name, c->name, c->name);
+    print("\to9_objects_%s = o9_object_store_create_path(o9app_root, o9app_name);\n", c->name);
+    print("\to9_method_store_init(o9app_root, o9app_name);\n");
     gen_method_registrations(c, c);
-    print("\t%s_Internal *s = emalloc9p(sizeof(%s_Internal));\n", c->name, c->name);
-    print("\tmemset(s, 0, sizeof(%s_Internal));\n", c->name);
-    print("\ts->dispatch_chan = chancreate(sizeof(void*), 10);\n");
-    print("\ts->state = o9_state_create_path(o9_app_root_%s, \"%s\", \"%s\", o9_state_cols_%s, %d);\n",
-        c->name, c->name, c->name, c->name, count_state_cols(c));
-    gen_init_internal_state(c, "s");
-    print("\to9srv_%s.read = fsread_%s;\n\to9srv_%s.write = fswrite_%s;\n", c->name, c->name, c->name, c->name);
-    print("\to9srv_%s.aux = s;\n", c->name);
-    print("\to9srv_%s.attach = o9_attach_%s;\n", c->name, c->name);
-    print("\to9srv_%s.destroyfid = o9_destroyfid_%s;\n", c->name, c->name);
-    print("\t%s_tree = alloctree(nil, nil, 0555, nil);\n\to9srv_%s.tree = %s_tree;\n", c->name, c->name, c->name);
-    print("\t{ File *__f = createfile(%s_tree->root, \"ctl\", nil, 0666, nil); if(__f) __f->aux = s; }\n", c->name);
-    print("\t{ File *__f = createfile(%s_tree->root, \"data\", nil, 0666, nil); if(__f) __f->aux = s; }\n", c->name);
-    print("\t{ File *__f = createfile(%s_tree->root, \"status\", nil, 0444, nil); if(__f) __f->aux = s; }\n", c->name);
-    print("\t{ File *__f = createfile(%s_tree->root, \"methods\", nil, 0444, nil); if(__f) __f->aux = s; }\n", c->name);
-    print("\t%s_create_instance(s, \"%s\");\n", c->name, c->name);
-    print("\tproccreate(%s_loop, s, 65536);\n", c->name);
-    /* Phase 1 (ARCHITECTURE.md): unique idempotent service posts —
-     * o9.<app>.<class>.<inst> names via o9_ns_service_name; stale posts
-     * removed so re-runs never sysfatal */
-    print("\t{ char __sp[160]; snprint(__sp, sizeof __sp, \"/srv/%%s\", o9_srv_%s); remove(__sp); }\n", c->name);
-    print("\t{ char __ln[300]; snprint(__ln, sizeof __ln, \"mount /srv/%%s %%s\", o9_srv_%s, o9_mount_%s); o9_ns_recipe(o9_app_root_%s, __o9app, __ln); }\n", c->name, c->name, c->name);
-    print("\tif(o9_ns_ensure_dir(o9_mount_%s) == 0)\n", c->name);
-    print("\t\tthreadpostmountsrv(&o9srv_%s, o9_srv_%s, o9_mount_%s, MREPL);\n", c->name, c->name, c->name);
-    print("\telse\n\t\tthreadpostmountsrv(&o9srv_%s, o9_srv_%s, nil, MREPL);\n}\n", c->name, c->name);
+    /* No boot instance created here — instances come from main()'s `new`
+     * statements, which call the constructor and register with the variable
+     * name.  The class loop proc is started per-instance by gen_local_new. */
+    print("}\n");
 }
 
 ulong
@@ -4409,6 +4420,22 @@ main_has_remote_new(Node *main_func)
  * templates themselves still emit nothing. */
 
 static Node *mono_list;	/* instantiated decls, in discovery order */
+
+/* Names of classes that got a gen_class_server (hence an
+ * o9_register_class_<C>); the per-app boot calls register for each. */
+static char *o9_registered[256];
+static int o9_nregistered;
+static void
+o9_note_registered(char *name)
+{
+    int i;
+    if(name == nil || o9_nregistered >= nelem(o9_registered))
+        return;
+    for(i = 0; i < o9_nregistered; i++)
+        if(strcmp(o9_registered[i], name) == 0)
+            return;
+    o9_registered[o9_nregistered++] = strdup(name);
+}
 
 static void mono_scan_node(Node *n);
 static Type* type_subst(Type *t, TypeBind *bindings);
@@ -4544,7 +4571,107 @@ codegen(Node *root)
     print("#define o9_offsetof(s, m) (long)(&(((s*)0)->m))\n");
     print("typedef struct ArcEntry {\n\tulong id;\n\tlong count;\n} ArcEntry;\n\n");
     print("typedef struct ArcLedger {\n\tArcEntry entries[64];\n} ArcLedger;\n");
+    /* Per-app facade: ONE Srv with a FLAT four-file tree, built once at
+     * startup and never mutated at runtime.  No class/object dirs -> no
+     * runtime createfile/walkfile (the source of the lib9p faults).  The
+     * app has a uniform shape regardless of its classes.  ctl names its
+     * target instance in the line (method Class.inst method arg...);
+     * status/methods list the object graph and public surface by reading.
+     *
+     * Class handlers register themselves in a small table so the flat
+     * ctl/read handler can route to any class's fsread/fswrite body. */
+    print("typedef struct O9ClassH O9ClassH;\n");
+    print("struct O9ClassH {\n");
+    print("\tchar *name;\n");
+    print("\tvoid (*read)(Req*, void*);\n");
+    print("\tvoid (*write)(Req*, void*);\n");
+    print("\tvoid *(*find)(char*);\t/* <C>_find_instance */\n");
+    print("};\n");
+    print("extern O9ClassH o9app_classes[64];\n");
+    print("extern int o9app_nclasses;\n");
+    print("extern Srv o9app_srv;\n");
+    print("extern Tree *o9app_tree;\n");
+    print("extern char o9app_root[128];\n");
+    print("extern char o9app_srvname[128];\n");
+    print("extern char o9app_mount[256];\n");
+    print("extern char o9app_name[64];\n");
+    print("extern char o9app_exports[256];\t/* real on-disk exports dir path */\n");
+    print("static void o9app_register_handler(char *name, void (*rd)(Req*,void*), void (*wr)(Req*,void*), void *(*find)(char*)){\n");
+    print("\tif(o9app_nclasses >= nelem(o9app_classes)) return;\n");
+    print("\to9app_classes[o9app_nclasses].name = name;\n");
+    print("\to9app_classes[o9app_nclasses].read = rd;\n");
+    print("\to9app_classes[o9app_nclasses].write = wr;\n");
+    print("\to9app_classes[o9app_nclasses].find = find;\n");
+    print("\to9app_nclasses++;\n}\n");
+    /* Split a "Class.inst" token; returns the class handler and writes
+     * the bare instance name into instout.  nil if not found. */
+    print("static O9ClassH *o9app_resolve(char *tok, char *instout, int n){\n");
+    print("\tchar *dot; int i;\n");
+    print("\tif(tok == nil) return nil;\n");
+    print("\tdot = strchr(tok, '.');\n");
+    print("\tif(dot != nil){\n");
+    print("\t\tint clen = dot - tok;\n");
+    print("\t\tsnprint(instout, n, \"%%s\", dot+1);\n");
+    print("\t\tfor(i = 0; i < o9app_nclasses; i++)\n");
+    print("\t\t\tif(strncmp(o9app_classes[i].name, tok, clen) == 0 && o9app_classes[i].name[clen] == '\\0')\n");
+    print("\t\t\t\treturn &o9app_classes[i];\n");
+    print("\t\treturn nil;\n");
+    print("\t}\n");
+    /* No class prefix: search every class for an instance of that name */
+    print("\tsnprint(instout, n, \"%%s\", tok);\n");
+    print("\tfor(i = 0; i < o9app_nclasses; i++)\n");
+    print("\t\tif(o9app_classes[i].find != nil && o9app_classes[i].find(tok) != nil)\n");
+    print("\t\t\treturn &o9app_classes[i];\n");
+    print("\treturn nil;\n}\n");
     print("#endif\n\n");
+    /* Shared app-server globals (once per program). */
+    print("O9ClassH o9app_classes[64];\n");
+    print("int o9app_nclasses;\n");
+    print("Srv o9app_srv;\n");
+    print("Tree *o9app_tree;\n");
+    print("char o9app_root[128];\n");
+    print("char o9app_srvname[128];\n");
+    print("char o9app_mount[256];\n");
+    print("char o9app_name[64];\n");
+    print("char o9app_exports[256];\n\n");
+
+    /* exports/: real on-disk directory under <root>/exports.  Objects
+     * publish Tabulae as plain .tab files there (writefile/tab_commit).
+     * The path is in o9app_exports for use by an export() builtin. */
+    /* Flat root handlers.  The four files share these; ctl routes by the
+     * line's Class.inst to a class handler, the rest aggregate. */
+    print("static char o9app_lastdata[4096];\n");
+    print("static void o9app_root_read(Req *r){\n");
+    print("#ifdef __GNUC__\n\tchar *name = r->fid->file->dir.name;\n#else\n\tchar *name = r->fid->file->name;\n#endif\n");
+    print("\tchar buf[8192]; char *p = buf; int i;\n");
+    print("\tif(strcmp(name, \"data\") == 0){ readstr(r, o9app_lastdata); respond(r, nil); return; }\n");
+    print("\tif(strcmp(name, \"ctl\") == 0){ readstr(r, \"\"); respond(r, nil); return; }\n");
+    print("\tif(strcmp(name, \"status\") == 0){\n");
+    print("\t\tp += snprint(p, sizeof buf-(p-buf), \"app %%s\\nstate running\\nclasses\", o9app_name);\n");
+    print("\t\tfor(i = 0; i < o9app_nclasses; i++) p += snprint(p, sizeof buf-(p-buf), \" %%s\", o9app_classes[i].name);\n");
+    print("\t\tp += snprint(p, sizeof buf-(p-buf), \"\\n\");\n");
+    print("\t\treadstr(r, buf); respond(r, nil); return;\n\t}\n");
+    print("\tif(strcmp(name, \"methods\") == 0){\n");
+    print("\t\tfor(i = 0; i < o9app_nclasses; i++){\n");
+    print("\t\t\tchar mb[4096]; o9_method_serialize(o9app_classes[i].name, mb, sizeof mb);\n");
+    print("\t\t\tp += snprint(p, sizeof buf-(p-buf), \"%%s\", mb);\n");
+    print("\t\t}\n");
+    print("\t\treadstr(r, buf); respond(r, nil); return;\n\t}\n");
+    print("\trespond(r, \"not found\");\n}\n");
+    print("static void o9app_root_write(Req *r){\n");
+    print("#ifdef __GNUC__\n\tchar *name = r->fid->file->dir.name;\n#else\n\tchar *name = r->fid->file->name;\n#endif\n");
+    print("\tchar cmd[1024], *f[16]; int nf; char inst[64]; O9ClassH *ch;\n");
+    print("\tif(strcmp(name, \"ctl\") != 0){ respond(r, \"read only\"); return; }\n");
+    print("\tsnprint(cmd, sizeof cmd, \"%%.*s\", (int)r->ifcall.count, (char*)r->ifcall.data);\n");
+    print("\tnf = tokenize(cmd, f, nelem(f));\n");
+    print("\tif(nf < 3 || strcmp(f[0], \"method\") != 0){ respond(r, \"want: method Class.inst name [argN=v]\"); return; }\n");
+    /* f[1] is Class.inst (or bare inst); resolve to a class handler and
+     * rewrite f[1] to the bare instance the class handler expects. */
+    print("\tch = o9app_resolve(f[1], inst, sizeof inst);\n");
+    print("\tif(ch == nil){ respond(r, \"unknown object\"); return; }\n");
+    print("\tf[1] = inst;\n");
+    print("\tch->write(r, nil);\t/* class fswrite: routes by f[1]=inst */\n");
+    print("}\n\n");
 
     /* 1. Emit headers for ALL known classes/interfaces (local and imported) */
     for(cd = classes; cd; cd = cd->next){
@@ -4565,14 +4692,60 @@ codegen(Node *root)
             gen_class_server(n);
     last = gen_classes(root);
 
+    /* Per-app facade: one Srv/tree for the whole program.  o9_app_start
+     * sets the app names, allocates the shared tree, and posts the single
+     * /srv/o9.<app>; each class then registers INTO it. */
+    print("static void o9_app_start(int argc, char **argv){\n");
+    print("\tchar *__o9app = \"%s\";\n", last != nil ? last->name : "app");
+    print("\tif(argc > 1 && argv[1] != nil && argv[1][0] != '\\0') __o9app = argv[1];\n");
+    print("\tsnprint(o9app_name, sizeof o9app_name, \"%%s\", __o9app);\n");
+    print("\to9_ns_app_root(o9app_root, sizeof o9app_root, __o9app);\n");
+    print("\to9_ns_service_name(o9app_srvname, sizeof o9app_srvname, __o9app, __o9app, \"app\");\n");
+    print("\to9_ns_class_path(o9app_mount, sizeof o9app_mount, o9app_root, __o9app);\n");
+    print("\to9_ns_ensure_app(o9app_root);\n");
+    /* Real on-disk exports dir: objects publish mountable .tab files here
+     * via plain writefile/tab_commit (NOT served-tree createfile).  Reached
+     * over 9P as real files on the app namespace.  See TABULA.md. */
+    print("\tsnprint(o9app_exports, sizeof o9app_exports, \"%%s/exports\", o9app_root);\n");
+    print("\to9_ns_ensure_dir(o9app_exports);\n");
+    print("\to9app_tree = alloctree(nil, nil, DMDIR|0555, nil);\n");
+    print("\to9app_srv.tree = o9app_tree;\n");
+    print("\to9app_srv.read = o9app_root_read;\n\to9app_srv.write = o9app_root_write;\n");
+    /* Build the flat four-file tree ONCE, before any post — no runtime
+     * tree mutation ever.  9lx servers create files right after alloctree. */
+    print("\tcreatefile(o9app_tree->root, \"ctl\", \"o9\", 0666, nil);\n");
+    print("\tcreatefile(o9app_tree->root, \"data\", \"o9\", 0444, nil);\n");
+    print("\tcreatefile(o9app_tree->root, \"status\", \"o9\", 0444, nil);\n");
+    print("\tcreatefile(o9app_tree->root, \"methods\", \"o9\", 0444, nil);\n");
+    /* exports/ — real on-disk dir at <root>/exports.  Objects publish
+     * Tabulae here as real .tab files (plain writefile, no tree mutation).
+     * Reachable over 9P via the app's namespace root; separate from the
+     * control tree (ctl/data/status/methods).  See TABULA.md. */
+    print("\tsnprint(o9app_exports, sizeof o9app_exports, \"%%s/exports\", o9app_root);\n");
+    print("\to9_ns_ensure_dir(o9app_exports);\n");
+    print("}\n");
+    print("static void o9_app_post(void){\n");
+    print("\t{ char __sp[160]; snprint(__sp, sizeof __sp, \"/srv/%%s\", o9app_srvname); remove(__sp); }\n");
+    print("\t{ char __ln[300]; snprint(__ln, sizeof __ln, \"mount /srv/%%s %%s\", o9app_srvname, o9app_mount); o9_ns_recipe(o9app_root, o9app_name, __ln); }\n");
+    print("\tif(o9_ns_ensure_dir(o9app_mount) == 0)\n");
+    print("\t\tthreadpostmountsrv(&o9app_srv, o9app_srvname, o9app_mount, MREPL);\n");
+    print("\telse\n\t\tthreadpostmountsrv(&o9app_srv, o9app_srvname, nil, MREPL);\n");
+    print("}\n\n");
+
     print("int mainstacksize = 65536;\n\n");
     print("void\nthreadmain(int argc, char **argv)\n{\n");
     print("\tvlong __o9fr[8][12];\n");
     print("\tUSED(argc); USED(argv); USED(__o9fr);\n");
     print("\to9_registry_start();\n");
     gen_object_metadata(root);
-    if(last && !has_remote_new){
-        print("\to9_main_%s(argc, argv);\n", last->name);
+    if(!has_remote_new){
+        /* One app server; every class that got a class-server (generic
+         * and non-generic alike) registers into it, then post once. */
+        int __ri;
+        print("\to9_app_start(argc, argv);\n");
+        for(__ri = 0; __ri < o9_nregistered; __ri++)
+            print("\to9_register_class_%s();\n", o9_registered[__ri]);
+        print("\to9_app_post();\n");
     }
     if(main_func){
         num_locals = 0;

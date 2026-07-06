@@ -393,6 +393,23 @@ o9_object_set_value(O9ObjectStore *s, char *oid, char *value)
 	return tab_commit(s->tab);
 }
 
+/* Reap tombstone: libtab is append-only, so a reaped object marks its
+ * node row state=reaped rather than deleting it (auditable history).
+ * Graph views filter state=live; the object's tree dir is removed
+ * separately by the facade. */
+int
+o9_object_set_state(O9ObjectStore *s, char *oid, char *state)
+{
+	TabRow *row;
+
+	row = o9_object_find_row(s, oid);
+	if(row == nil)
+		return -1;
+	if(o9_object_set_col(s, row, "state", state) < 0)
+		return -1;
+	return tab_commit(s->tab);
+}
+
 char*
 o9_object_get(O9ObjectStore *s, char *oid, char *col)
 {
@@ -736,6 +753,27 @@ o9_readline(void)
 	}
 	buf[i] = '\0';
 	return strdup(buf);
+}
+
+/* Block the calling thread forever, yielding the CPU, so a posted 9P
+ * server keeps serving.  Unlike `while(true){}` (which spins and starves
+ * the server proc under the cooperative thread scheduler), this receives
+ * on a channel that never fires — zero CPU, fully yielded. */
+void
+o9_serve(void)
+{
+	Channel *idle;
+	void *v;
+
+	idle = chancreate(sizeof(void*), 0);
+	if(idle == nil){
+		/* fall back to a yielding sleep loop if alloc fails */
+		for(;;)
+			sleep(1000);
+	}
+	for(;;)
+		v = recvp(idle);	/* never returns; keeps the server alive */
+	USED(v);
 }
 
 /* Method table backed by libtab — the dispatch source of truth.
