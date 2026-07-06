@@ -80,7 +80,8 @@ enum {
 enum {
     NFAbstract = 1<<0,
     NFMethodDecl = 1<<1,
-    NFSelfCalled = 1<<2
+    NFSelfCalled = 1<<2,
+    NFPrivate = 1<<3	/* class-scoped; not reachable through the app facade */
 };
 
 struct Node {
@@ -1265,6 +1266,7 @@ typeinfo_from_legacy(char *t)
 %token <name> TINTLIT TSTRINGLIT TCHARLIT
 %token TCLASS TINTERFACE TSTRUCT TENUM TMODULE TIMPORT TFUNC TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TLIST TNIL TABSTRACT TDELETE
 %token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TOBJECT TLINK TREF TREPLICA TTRUE TFALSE TARROW
+%token TPUBLIC TPRIVATE
 %token TEQ TADD TSUB TCHANSEND TCHANRECV TCHANTRY TEQEQ TNEQ TLE TGE
 %token TAND TOR TLSHIFT TRSHIFT TFORSEMI
 
@@ -1284,7 +1286,7 @@ typeinfo_from_legacy(char *t)
 %right '!' '~' UMINUS
 %left '.' '['
  
-%type <node> program top_levels top_level class_decl class_head interface_decl interface_head struct_decl struct_head enum_decl enum_vals enum_val module_decl module_head import_decl object_decl link_decl member_list member var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename name_ref type_name_ref decl_name generic_name enum_name member_name param_list param call_args call_arg func_top_level for_init for_cond for_step else_clause generic_opt generic_names link_kind abstract_opt
+%type <node> program top_levels top_level class_decl class_head interface_decl interface_head struct_decl struct_head enum_decl enum_vals enum_val module_decl module_head import_decl object_decl link_decl member_list member member_body var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename name_ref type_name_ref decl_name generic_name enum_name member_name param_list param call_args call_arg func_top_level for_init for_cond for_step else_clause generic_opt generic_names link_kind abstract_opt
 %type <type> type_expr type_primary
 %type <types> type_args type_args_opt
 
@@ -1590,6 +1592,21 @@ member_list:
     ;
 
 member:
+    member_body            { $$ = $1; }
+    | TPUBLIC member_body  { $$ = $2; }  /* public is the default; explicit form */
+    | TPRIVATE member_body {
+        /* class-scoped: not reachable through the app facade, callable
+         * only from the declaring class's own methods.  A secret field
+         * desugars to a small list (blob + seal/open); mark every node
+         * in it private so the accessors are private too. */
+        Node *n;
+        for(n = $2; n != nil; n = n->next)
+            n->flags |= NFPrivate;
+        $$ = $2;
+    }
+    ;
+
+member_body:
     var_decl
     | func_decl
     | method_decl
@@ -2241,6 +2258,8 @@ yylex(void)
             if(strcmp(buf, "atomic") == 0) return TATOMIC;
             if(strcmp(buf, "stream") == 0) return TSTREAM;
             if(strcmp(buf, "secret") == 0) return TSECRET;
+            if(strcmp(buf, "public") == 0) return TPUBLIC;
+            if(strcmp(buf, "private") == 0) return TPRIVATE;
             if(strcmp(buf, "cap") == 0) return TCAP;
             if(strcmp(buf, "object") == 0) return TOBJECT;
             if(strcmp(buf, "link") == 0) return TLINK;
@@ -5842,6 +5861,12 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
                 (*errs)++;
             } else if(tm.node != nil){
                 tm.node->flags |= NFSelfCalled;	/* emit the o9_self_ wrapper */
+                /* class-scoped private: a bare self-call is legal only when
+                 * the method is declared in this very class, not inherited
+                 * private from an ancestor (C#-style) */
+                if((tm.node->flags & NFPrivate) && tm.owner != scope_class)
+                    fprint(2, "o9c: error: line %d: '%s.%s' is private\n", sem_line,
+                        tm.owner != nil ? tm.owner->name : "?", e->name), (*errs)++;
                 {
                 Node *p, *a;
                 Type *expected;
@@ -5922,6 +5947,11 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
                     Node *p, *a;
                     Type *expected;
                     int pi;
+                    /* private is class-scoped: an external obj.method() call
+                     * is by definition from outside the declaring class */
+                    if(tm.node->flags & NFPrivate)
+                        fprint(2, "o9c: error: line %d: '%s.%s' is private\n", sem_line,
+                            tm.owner != nil ? tm.owner->name : cnode->name, e->name), (*errs)++;
                     if(node_list_len(tm.node->right) != node_list_len(e->right)){
                         fprint(2, "o9c: error: line %d: method '%s' needs %d argument(s)\n", sem_line,
                             e->name, node_list_len(tm.node->right));

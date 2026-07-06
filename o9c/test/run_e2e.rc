@@ -61,6 +61,7 @@ runcase e2e_lookup
 runcase e2e_crypto
 runcase e2e_send
 runcase e2e_secret
+runcase e2e_private
 
 if(! ~ $fail 0)
 	exit fail

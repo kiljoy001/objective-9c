@@ -1,0 +1,15 @@
+// public/private (C#-style). private is class-scoped: callable only
+// from the declaring class's own methods. A public method may call a
+// private sibling in the same class; the program runs normally.
+class Counter {
+    private int64 val;
+    method Counter(int64 n) { val = n; }
+    private method void bump(int64 d) { val = val + d; }
+    method void add(int64 d) { bump(d); }        // public -> private, same class: ok
+    method int64 get() { return val; }
+}
+func main() {
+    Counter c = new Counter(40);
+    c.add(2);
+    print(c.get(), "\n");
+}

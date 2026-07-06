@@ -1,0 +1,12 @@
+// Calling a private method from outside its declaring class is refused.
+class Counter {
+    private int64 val;
+    method Counter(int64 n) { val = n; }
+    private method void bump(int64 d) { val = val + d; }
+    method int64 get() { return val; }
+}
+func main() {
+    Counter c = new Counter(40);
+    c.bump(2);        // external call to a private method: error
+    print(c.get(), "\n");
+}
