@@ -71,6 +71,33 @@ anonymous single-method class + method.
 `function` is the standalone one-method routine; also directly callable,
 not only spawnable.
 
+## CRITICAL: anonymous-class identity must derive from the function name
+
+A trap (Scott caught this pre-build): if `function` synthesizes an
+anonymous class, that class's identity CANNOT be a generic placeholder
+("anon", "function", etc.) — two different functions (worker, logger)
+would collide in every hash-keyed table:
+
+- **Method store** keys rows on `"<class>/0x<selector>"` (o9_runtime.c
+  ~891) — same class name -> colliding rows.
+- **Dispatch selector** is `o9_hash(<name>)` — same synthesized name ->
+  same selector -> the `case 0x...:` dispatch-loop collision (the exact
+  bug we hit in deep-inheritance constructor dispatch).
+- **Registry oid** keys the live-object table — needs a distinct oid.
+
+Fix (bake into the design): the synthesized anonymous class takes its
+identity FROM THE FUNCTION (method) NAME, and THAT is what gets hashed.
+`function worker(...)` -> a class whose name/selector derive from
+`worker`; `function logger(...)` -> from `logger`. Distinct names ->
+distinct selectors, distinct method-store keys, distinct rows.
+
+For multiple concurrent instances of the SAME function (the numbered
+channels), the class is shared (worker's one method) but each spawned
+INSTANCE needs a distinct registry oid — e.g. `worker#0`, `worker#1`
+(function name + spawn index). Class identity from the function name;
+instance identity from name + index. This is also where the "numbered"
+in numbered channels comes from.
+
 ## Honest caveats (survive even this simplification)
 
 1. **Concurrency, not parallelism.** o9 runs on the Plan 9 thread
