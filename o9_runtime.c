@@ -1767,23 +1767,40 @@ o9_clunk(int fd)
 }
 
 /*
- * o9_connect — dial and 9P handshake
- * addr can be "il!host!service", "tcp!host!port", or "/srv/name" (Unix)
+ * o9_connect — dial and 9P handshake.
+ *
+ * Distance selects the transport (o9 is a Plan 9 / 9front language):
+ *   near (0) -> IL   (reliable sequenced datagrams, built for 9P; the
+ *                     low-latency LAN-realm transport)
+ *   far  (1) -> TCP  (wide area)
+ * If addr already carries a transport (has a '!' before the host, or is
+ * a /srv path), it is dialed as-is.  Otherwise the distance's transport
+ * is prepended: "host!service" -> "il!host!service" for near.
  */
 int
-o9_connect(void *client, char *addr, char *srvname)
+o9_connect(void *client, char *addr, char *srvname, int distance)
 {
 	o9_Object *obj = client;
-	char buf[256];
+	char buf[256], dialaddr[256];
 	uchar rbuf[256];
 	int fd, n, msize;
 
 	if(addr == nil) return -1;
 
-	fd = dial(addr, nil, nil, nil);
+	/* Prepend the distance's transport unless one is already given. */
+	if(addr[0] == '/' || strncmp(addr, "il!", 3) == 0 ||
+	   strncmp(addr, "tcp!", 4) == 0 || strncmp(addr, "net!", 4) == 0){
+		snprint(dialaddr, sizeof dialaddr, "%s", addr);
+	} else if(distance == 0){
+		snprint(dialaddr, sizeof dialaddr, "il!%s", addr);	/* near = IL */
+	} else {
+		snprint(dialaddr, sizeof dialaddr, "tcp!%s", addr);	/* far = TCP */
+	}
+
+	fd = dial(dialaddr, nil, nil, nil);
 	if(fd < 0) return -1;
 
-	strncpy(buf, addr, sizeof(buf)-1);
+	strncpy(buf, dialaddr, sizeof(buf)-1);
 	obj->fd = fd;
 	if(srvname)
 		strncpy(obj->srvname, srvname, sizeof(obj->srvname)-1);

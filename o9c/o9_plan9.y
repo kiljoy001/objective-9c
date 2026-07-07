@@ -2850,7 +2850,7 @@ gen_assign_new_to(char *varname, char *target, int is_field, char *lhs_type, Nod
         print("\t%s.table = &%s;\n", target, tbl);
         print("\t{\n\t\tchar __addr[128];\n\t\tsnprint(__addr, sizeof __addr, ");
         gen_expr(first_arg);
-        print(");\n\t\to9_connect(&%s, __addr, \"%s\");\n", target, cn);
+        print(");\n\t\to9_connect(&%s, __addr, \"%s\", %d);\n", target, cn, dval);
         print("\t\t%s.distance = %d;\n", target, dval);
         if(rest > 0){
             ai = 0;
@@ -3100,7 +3100,7 @@ gen_stmt(Node *c, Node *s)
                         print("\t\tsnprint(__addr, sizeof __addr, ");
                         gen_expr(first_arg);
                         print(");\n");
-                        print("\t\to9_connect(&%s, __addr, \"%s\");\n", s->name, cn);
+                        print("\t\to9_connect(&%s, __addr, \"%s\", %d);\n", s->name, cn, dval);
                     }
                     print("\t\t%s.distance = %d;\n", s->name, dval);
                     /* Send constructor args (skip address, send rest) */

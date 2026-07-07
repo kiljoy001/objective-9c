@@ -94,13 +94,12 @@ the test that the architecture is coherent:
   one `/srv/o9.<app>` (per-app fileserver; see roadmap A).
 - **distance tiers** = how far the struct is from the code touching it
   (transport selection under one 9P interface; not separate dispatch
-  systems).  `same` = shm/channel/asm (any host).  `far` = 9P over TCP
-  (anywhere).  `near` = a *radius* (other machines, low-latency, same
-  trust realm) whose 9P transport is chosen per substrate: **IL on Plan
-  9, QUIC off Plan 9** — the same idea decades apart (connection mux,
-  low-latency handshake; QUIC also brings built-in crypto, which folds
-  in the realm-auth story).  The runtime branches only on
-  remote-vs-in-process today; per-transport `near` is future work.
+  systems).  `same` = shm/channel/asm.  `near` = **9P over IL** (Plan 9's
+  reliable sequenced datagrams, built for 9P — the low-latency LAN-realm
+  transport).  `far` = **9P over TCP** (wide area).  o9 is a Plan 9 /
+  9front language and leans into it: `o9_connect` prepends `il!` for near
+  and `tcp!` for far unless the address already carries a transport.
+  Implemented; full suite green.
 - **reference graph** = structs holding fids to other structs (an edge
   view of the ledger; roadmap C).
 - **live / REPL** = the struct (state) outlives the code (behavior)

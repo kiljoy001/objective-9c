@@ -3,14 +3,13 @@
 > **See TOUCHSTONE.md for the architecture of record.**  This document
 > is detail under those decisions.  Two things below are superseded:
 > (1) composition is the *application fileserver's* job, not the
-> namespace's — an app is one 9P server that exposes its objects as
-> paths (roadmap A); the namespace still assembles apps into a tree, but
-> it is no longer the object-composition mechanism.  (2) `near` names a *radius*
-> (other machines, low-latency, same trust realm), not one transport —
-> the substrate picks the 9P transport that serves that radius: **IL on
-> Plan 9, QUIC off Plan 9**.  The runtime today branches only on
-> remote-vs-in-process; per-transport `near` selection is future work,
-> and until then `near` dials over the same path as `far`.
+> namespace's — an app is ONE 9P server with a FLAT interface
+> (ctl/data/status/methods); objects are NOT paths, they are named in the
+> ctl line (method Class.inst method ...).  Objects are CSP actors, not
+> fileservers.  The namespace assembles apps into a tree; it is no longer
+> the object-composition mechanism.  (2) o9 is a Plan 9 / 9front language:
+> `near` = 9P over IL, `far` = 9P over TCP.  o9_connect prepends the
+> transport by distance.  (No QUIC / dual-substrate — lean into Plan 9.)
 
 o9 is built on one premise: **the network is not a library, it is the
 execution model.** Every object is addressable; locality is a performance

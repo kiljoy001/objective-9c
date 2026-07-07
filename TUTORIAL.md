@@ -24,7 +24,7 @@ func main() {
 }                                    // numbers as %lld; % is literal
 ```
 
-## 2. Classes — every object is an actor + a fileserver
+## 2. Classes — every object is a CSP actor
 
 ```
 class Counter {

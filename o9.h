@@ -74,7 +74,7 @@ extern int   o9_ns_ensure_dir(char *path);
 extern int   o9_ns_ensure_app(char *root);
 extern int   o9_init_client(void *client, char *srvname, int size);
 extern int   o9_init_client_path(void *client, char *path, char *srvname, int size);
-extern int   o9_connect(void *client, char *addr, char *srvname);
+extern int   o9_connect(void *client, char *addr, char *srvname, int distance);	/* near=0 IL, far=1 TCP */
 extern void* o9_dispatch_data(void *client, ulong hash);
 extern void* o9_dispatch_call(void *client, ulong hash, void *args);
 extern void  o9_cache_fill(void *client, ulong hash, int is_ctrl);
