@@ -2354,6 +2354,8 @@ int has_return = 0;			/* 1 when a return statement was emitted */
 int try_seen = 0;			/* 1 when a try expr needs the done: label */
 Node *defer_list = nil;			/* deferred calls for the current method (LIFO) */
 Node *cur_class;			/* current class being codegen'd, for type lookups */
+int in_constructor_body = 0;		/* 1 while typechecking a constructor body */
+char *ctor_class_name = nil;		/* the class whose ctor body is being checked */
 int new_tmp_id = 0;
 
 /* Variable-to-class symbol table */
@@ -6204,6 +6206,13 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
                     (*errs)++;
                 }
             }
+            if(in_constructor_body && ctor_class_name != nil && e->name != nil &&
+               strcmp(e->name, ctor_class_name) == 0){
+                fprint(2, "o9c: error: line %d: cannot 'new %s' inside %s's own constructor "
+                    "(a class cannot construct itself while it is half-built; build it in a method or factory)\n",
+                    sem_line, ctor_class_name, ctor_class_name);
+                (*errs)++;
+            }
         }
         break;
     case NObject:
@@ -6530,6 +6539,13 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
                     (*errs)++;
                 }
             }
+            if(in_constructor_body && ctor_class_name != nil && e->left->name != nil &&
+               strcmp(e->left->name, ctor_class_name) == 0){
+                fprint(2, "o9c: error: line %d: cannot 'new %s' inside %s's own constructor "
+                    "(a class cannot construct itself while it is half-built; build it in a method or factory)\n",
+                    sem_line, ctor_class_name, ctor_class_name);
+                (*errs)++;
+            }
         }
         if(e->left != nil && e->left->type == NSelfCall && e->left->name != nil &&
            strcmp(e->left->name, "lookup") == 0){
@@ -6578,13 +6594,24 @@ check_node(Node *n, Node *scope_class, int *errs)
         }
         if(c->type == NMethod){
             Type *saved_return;
+            int saved_ctor;
             typecheck_expr(c, scope_class, errs);
             check_node(c->right, scope_class, errs);
             mark = mark_type_syms();
             add_decl_type_syms(c->right);
             saved_return = current_return_type;
             current_return_type = decl_typeinfo(c);
+            /* A constructor is a method named after its class.  Constructing
+             * an object inside a constructor is forbidden (half-built state
+             * is hard to reason about); flag it so NClass can reject it. */
+            saved_ctor = in_constructor_body;
+            in_constructor_body = (scope_class != nil && c->name != nil &&
+                scope_class->name != nil && strcmp(c->name, scope_class->name) == 0);
+            if(in_constructor_body)
+                ctor_class_name = scope_class->name;
             check_node(c->left, scope_class, errs);
+            in_constructor_body = saved_ctor;
+            if(!saved_ctor) ctor_class_name = nil;
             current_return_type = saved_return;
             restore_type_syms(mark);
             continue;

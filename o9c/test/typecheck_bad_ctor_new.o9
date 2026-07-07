@@ -1,0 +1,15 @@
+// A class cannot construct ITSELF inside its own constructor — the object
+// is half-built, and reentrant self-spawn is unsafe (like Swift's two-phase
+// init rules, or the C++/Java infinite-recursion footgun). Constructing a
+// DIFFERENT class into a field (composition) is fine; only self-new is
+// banned. Build more of your own kind in a method/factory instead.
+class Node {
+    int64 val;
+    method Node(int64 n) {
+        val = n;
+        Node child = new Node(n - 1);   // ERROR: new Node inside Node's ctor
+    }
+}
+func main() {
+    Node root = new Node(3);
+}

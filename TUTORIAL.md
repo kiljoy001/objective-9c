@@ -68,6 +68,12 @@ o9-honest: no hidden super calls, you write the chain. If the parent has
 no constructor, `new Child(...)` reaches the nearest ancestor constructor
 automatically (no `super` needed).
 
+A class cannot `new` **itself** inside its own constructor — the object
+is half-built (same reason Swift's two-phase init forbids it; C++/Java
+just recurse forever). Constructing a *different* class into a field
+(composition) is fine; build more of your own kind in a method, not the
+constructor.
+
 ### public / private — the network boundary
 
 A member is `public` by default. `private` makes it class-scoped

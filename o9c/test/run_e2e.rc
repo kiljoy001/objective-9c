@@ -71,8 +71,9 @@ runcase e2e_hard_defer
 runcase e2e_hard_field
 runcase e2e_hard_deep
 runcase e2e_hard_super
-# Known-failing adversarial cases (HARD_CASES.md), re-enable as fixed:
-#   e2e_hard_ctor     — recursive construction GP-faults
+# All six adversarial cases resolved (HARD_CASES.md): five fixed, and
+# new-inside-a-constructor is now a clean compile error
+# (typecheck_bad_ctor_new.o9), not a crash.
 
 if(! ~ $fail 0)
 	exit fail

@@ -45,12 +45,32 @@ calls the parent's ctor impl on the same self. Verified species 7 / legs
 (chaining) are the two halves that make deep inheritance with per-level
 constructors fully work.
 
-## BUG 2 — recursive construction crashes (e2e_hard_ctor)
+## BUG 2 — self-recursive construction — RESOLVED (forbidden by design)
 
-A constructor doing `new` of its own class (`Node child = new Node(n-1)`)
-faults hard: `general protection violation pc=0x208c55`. Reentrant actor
-spawn during a constructor's own dispatch corrupts memory.
-Priority: HIGH — a GP fault, not a clean error.
+A constructor doing `new` of its OWN class (`Node child = new Node(n-1)`
+inside Node's ctor) faulted hard (GP violation) — reentrant actor spawn
+during a constructor's own dispatch corrupts memory.
+
+Decision (Scott): this is correctly FORBIDDEN, not a gap. A class cannot
+construct itself while half-built — the same reason Swift's two-phase
+init rejects self-use before all fields are set, and why C++/Java only
+"allow" it into infinite recursion. o9's actor model makes it worse (a
+GP-fault, not just stack overflow), so the compiler now rejects it with a
+clear diagnostic instead of crashing.
+
+Fix: narrow typecheck guard — `new C` inside C's own constructor is a
+compile error ("cannot 'new C' inside C's own constructor ... build it in
+a method or factory"). The ban is NARROW: `new OtherClass` into a field
+(composition, e.g. Car makes an Engine) is still allowed — only direct
+self-construction is banned. Verified: typecheck_bad_ctor_new errors as
+expected; e2e_hard_field (composition) still passes.
+
+## Summary — all six resolved
+
+1. Recursion: worked as-is.  2. Nested try: worked.  3. Multiple defers:
+worked.  4. Object-as-field composition: fixed.  5. Deep inheritance:
+fixed (constructor alias + super()).  6. Self-recursive construction:
+forbidden by design (clean error, not a crash).
 
 ## BUG 3 — object-as-field breaks in a constructor (e2e_hard_field)
 
