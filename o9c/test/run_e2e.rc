@@ -65,6 +65,13 @@ runcase e2e_private
 runcase e2e_twoclass
 runcase e2e_state
 runcase e2e_error
+runcase e2e_hard_recursion
+runcase e2e_hard_nesttry
+runcase e2e_hard_defer
+runcase e2e_hard_field
+# Known-failing adversarial cases (HARD_CASES.md), re-enable as fixed:
+#   e2e_hard_deep     — inherited field access returns 0
+#   e2e_hard_ctor     — recursive construction GP-faults
 
 if(! ~ $fail 0)
 	exit fail

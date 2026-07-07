@@ -1,0 +1,17 @@
+// HARD 2: deep inheritance (4 levels) + method resolution order.
+// Risk: state flattening and dispatch across a long chain.
+class A {
+    int64 a;
+    method A(int64 x) { a = x; }
+    method int64 va() { return a; }
+    method int64 who() { return 1; }
+}
+class B { A; method int64 who() { return 2; } }   // overrides who
+class C { B; method int64 vc() { return va() + 100; } }  // calls inherited va
+class D { C; method int64 who() { return 4; } }   // overrides again
+func main() {
+    D d = new D(7);
+    print("va ", d.va(), "\n");       // 7  (inherited 3 levels up)
+    print("vc ", d.vc(), "\n");       // 107 (C method calling A method)
+    print("who ", d.who(), "\n");     // 4  (most-derived override wins)
+}

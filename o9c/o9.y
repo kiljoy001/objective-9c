@@ -180,6 +180,7 @@ find_class(char *name)
 Node* mk(int type, char *name, char *typename, Node *l, Node *r);
 static Node* mk_secret_field(Node *tn, char *name);
 static void o9_note_registered(char *name);
+static int member_exists(Node *cnode, char *name);
 Node* append_node(Node *list, Node *node);
 char* map_type(char *t);
 char* get_sym_type(Node *c, char *name);
@@ -2541,14 +2542,39 @@ gen_expr(Node *e)
             if(d > 7) d = 7;
             /* Pack: frame[0]=shm_base (for ctrl thunk), frame[1..N]=real args */
             print("(__o9fr[%d][0]=", d);
-            if(e->left && e->left->type == NIdent && e->left->name){
-                char *__cnx = get_var_class(e->left->name);
-                if(__cnx) print("(vlong)((%s_Client*)&", __cnx);
-                gen_expr(e->left);
-                if(__cnx) print(")->shm_base");
-            } else {
-                print("(vlong)&");
-                gen_expr(e->left);
+            {
+                /* The receiver's frame slot must hold its shm_base (the
+                 * Internal*), not the Client struct.  Works for a local
+                 * handle (NIdent) and a class-typed field (NPropRead). */
+                char *rcls = e->left != nil ? get_expr_type(e->left) : nil;
+                char *fcls = nil;
+                /* class-typed field of the current class? (motor.rev() in a
+                 * method, where motor is a field, parses as bare NIdent) */
+                if(e->left && e->left->type == NIdent && e->left->name &&
+                   in_method_body && gen_class != nil && !is_local(e->left->name) &&
+                   member_exists(gen_class, e->left->name)){
+                    Node *fn = member_node(gen_class, e->left->name, 0);
+                    Type *ft = fn != nil ? decl_typeinfo(fn) : nil;
+                    if(ft != nil && type_is_class_ref(ft))
+                        fcls = fn->typename;	/* the field's declared class */
+                }
+                if(fcls != nil){
+                    print("(vlong)((%s_Client*)&", fcls);
+                    gen_expr(e->left);
+                    print(")->shm_base");
+                } else if(e->left && e->left->type == NIdent && e->left->name){
+                    char *__cnx = get_var_class(e->left->name);
+                    if(__cnx) print("(vlong)((%s_Client*)&", __cnx);
+                    gen_expr(e->left);
+                    if(__cnx) print(")->shm_base");
+                } else if(rcls != nil && is_class_type(rcls)){
+                    print("(vlong)((%s_Client*)&", rcls);
+                    gen_expr(e->left);
+                    print(")->shm_base");
+                } else {
+                    print("(vlong)&");
+                    gen_expr(e->left);
+                }
             }
             {
                 int i = 1;
@@ -2773,6 +2799,7 @@ void gen_stmt(Node *c, Node *s);
 static int member_exists(Node *cnode, char *name);
 int count_state_cols(Node *c);
 void gen_init_internal_state(Node *c, char *ptr);
+void gen_assign_new_to(char *varname, char *target, int is_field, char *lhs_type, Node *n);
 void gen_state_store_typed(char *stateexpr, char *fieldexpr, char *name, Type *type);
 void gen_state_store_flagged(char *stateexpr, char *fieldexpr, char *name, Type *type, int flags);
 void gen_state_store(char *stateexpr, char *fieldexpr, char *name, char *typename);
@@ -2780,12 +2807,30 @@ void gen_state_store(char *stateexpr, char *fieldexpr, char *name, char *typenam
 void
 gen_assign_new(char *varname, char *lhs_type, Node *n)
 {
+    gen_assign_new_to(varname, varname, 0, lhs_type, n);
+}
+
+/* target is the C lvalue to store the client into (e.g. "motor" for a
+ * local, "self->motor" for a field).  is_field: don't declare a local
+ * client/tbl; use a temp AsmTable and store into the field.  varname is
+ * still the instance NAME (for create_instance and state). */
+void
+gen_assign_new_to(char *varname, char *target, int is_field, char *lhs_type, Node *n)
+{
     char *cn, *dist;
     int dval, nctor, id, ai;
     Node *ca;
+    char tbl[96];
 
-    if(varname == nil || lhs_type == nil || n == nil || n->name == nil)
+    if(varname == nil || target == nil || lhs_type == nil || n == nil || n->name == nil)
         return;
+    if(is_field){
+        /* field target: its client struct is embedded in the Internal;
+         * use a temp AsmTable rather than a `<var>_tbl` local. */
+        snprint(tbl, sizeof tbl, "__o9tbl%d", new_tmp_id);
+    } else {
+        snprint(tbl, sizeof tbl, "%s_tbl", varname);
+    }
     cn = n->name;
     dist = n->typename;
     dval = (dist && strcmp(dist, "near") == 0) ? 0 : (dist && strcmp(dist, "far") == 0) ? 1 : -1;
@@ -2793,16 +2838,18 @@ gen_assign_new(char *varname, char *lhs_type, Node *n)
     for(ca = n->right; ca; ca = ca->next)
         nctor++;
 
+    if(is_field)
+        print("\to9_AsmTable %s;\n", tbl);
     if(dval >= 0 && n->right && n->right->type == NStringLit){
         Node *first_arg = n->right;
         int rest = nctor - 1;
-        print("\tmemset(&%s, 0, sizeof(%s_Client));\n", varname, lhs_type);
-        print("\tmemset(&%s_tbl, 0, sizeof(o9_AsmTable));\n", varname);
-        print("\t%s.table = &%s_tbl;\n", varname, varname);
+        print("\tmemset(&%s, 0, sizeof(%s_Client));\n", target, lhs_type);
+        print("\tmemset(&%s, 0, sizeof(o9_AsmTable));\n", tbl);
+        print("\t%s.table = &%s;\n", target, tbl);
         print("\t{\n\t\tchar __addr[128];\n\t\tsnprint(__addr, sizeof __addr, ");
         gen_expr(first_arg);
-        print(");\n\t\to9_connect(&%s, __addr, \"%s\");\n", varname, cn);
-        print("\t\t%s.distance = %d;\n", varname, dval);
+        print(");\n\t\to9_connect(&%s, __addr, \"%s\");\n", target, cn);
+        print("\t\t%s.distance = %d;\n", target, dval);
         if(rest > 0){
             ai = 0;
             print("\t\tvlong __args_%s[%d];\n", varname, rest);
@@ -2815,7 +2862,7 @@ gen_assign_new(char *varname, char *lhs_type, Node *n)
                 print(";\n");
                 ai++;
             }
-            print("\t\tobj9_msgSendN(&%s, \"%s\", 0x%lux, __args_%s, %d);\n", varname, cn, o9_hash(cn), varname, rest);
+            print("\t\tobj9_msgSendN(&%s, \"%s\", 0x%lux, __args_%s, %d);\n", target, cn, o9_hash(cn), varname, rest);
         }
         print("\t}\n");
         return;
@@ -2833,12 +2880,12 @@ gen_assign_new(char *varname, char *lhs_type, Node *n)
         snprint(ptr, sizeof ptr, "__o9n%d", id);
         gen_init_internal_state(find_class(cn), ptr);
     }
-    print("\tmemset(&%s, 0, sizeof(%s_Client));\n", varname, lhs_type);
-    print("\tmemset(&%s_tbl, 0, sizeof(o9_AsmTable));\n", varname);
-    print("\t%s.shm_base = __o9n%d;\n", varname, id);
-    print("\t%s.dispatch_chan = __o9n%d->dispatch_chan;\n", varname, id);
-    print("\t%s.table = &%s_tbl;\n", varname, varname);
-    print("\t%s.distance = %d;\n", varname, dval >= 0 ? dval : -1);
+    print("\tmemset(&%s, 0, sizeof(%s_Client));\n", target, lhs_type);
+    print("\tmemset(&%s, 0, sizeof(o9_AsmTable));\n", tbl);
+    print("\t%s.shm_base = __o9n%d;\n", target, id);
+    print("\t%s.dispatch_chan = __o9n%d->dispatch_chan;\n", target, id);
+    print("\t%s.table = &%s;\n", target, tbl);
+    print("\t%s.distance = %d;\n", target, dval >= 0 ? dval : -1);
     print("\tproccreate(%s_loop, __o9n%d, 65536);\n", cn, id);
     print("\t%s_create_instance(__o9n%d, \"%s\");\n", cn, id, varname);
     if(nctor > 0){
@@ -2854,9 +2901,9 @@ gen_assign_new(char *varname, char *lhs_type, Node *n)
             ai++;
         }
         print("\tobj9_msgSendN(&%s, \"%s\", 0x%lux, __args_%s_%d, %d); }\n",
-            varname, cn, o9_hash(cn), varname, id, nctor);
+            target, cn, o9_hash(cn), varname, id, nctor);
     } else {
-        print("\tobj9_msgSendN(&%s, \"%s\", 0x%lux, nil, 0);\n", varname, cn, o9_hash(cn));
+        print("\tobj9_msgSendN(&%s, \"%s\", 0x%lux, nil, 0);\n", target, cn, o9_hash(cn));
     }
 }
 
@@ -3126,7 +3173,17 @@ gen_stmt(Node *c, Node *s)
             if(lt == nil || strcmp(lt, "vlong") == 0)
                 lt = get_var_class(s->left->name);
             if(lt != nil && is_class_type(lt) && is_subclass(s->right->name, lt)){
-                gen_assign_new(s->left->name, lt, s->right);
+                /* If the LHS is a class-typed FIELD (member of the current
+                 * class, not a local), store into self->field, not a
+                 * dangling local. */
+                if(in_method_body && gen_class != nil && !is_local(s->left->name) &&
+                   member_exists(gen_class, s->left->name)){
+                    char tgt[128];
+                    snprint(tgt, sizeof tgt, "self->%s", s->left->name);
+                    gen_assign_new_to(s->left->name, tgt, 1, lt, s->right);
+                } else {
+                    gen_assign_new(s->left->name, lt, s->right);
+                }
                 break;
             }
         }
@@ -3423,7 +3480,9 @@ count_state_cols(Node *c)
             p = find_class(m->name);
             if(p) n += count_state_cols(p);
         }
-        if(m->type == NProp || m->type == NState || m->type == NAtomic)
+        /* class-typed fields are live handles, not persistable state */
+        if((m->type == NProp || m->type == NState || m->type == NAtomic) &&
+           !type_is_class_ref(m->typeinfo))
             n++;
     }
     return n;
@@ -3439,7 +3498,8 @@ gen_state_col_names(Node *c)
             p = find_class(m->name);
             if(p) gen_state_col_names(p);
         }
-        if(m->type == NProp || m->type == NState || m->type == NAtomic){
+        if((m->type == NProp || m->type == NState || m->type == NAtomic) &&
+           !type_is_class_ref(m->typeinfo)){
             if(m->flags & NFPrivate)
                 print("\"debug:%s\", ", m->name);
             else
@@ -3615,6 +3675,12 @@ gen_init_internal_state(Node *c, char *ptr)
         }
         if(m->type == NProp || m->type == NState || m->type == NAtomic){
             Node *d = type_decl_node(m->typeinfo);
+            if(type_is_class_ref(m->typeinfo)){
+                /* class-typed field: a live handle (embedded Client), not
+                 * persistable state — zero it, no state column write. */
+                print("\tmemset(&%s->%s, 0, sizeof(%s));\n", ptr, m->name, type_storage_for_codegen(m->typeinfo));
+                continue;
+            }
             if(type_is_collection(m->typeinfo, "Dict"))
                 print("\to9_dict_init(&%s->%s);\n", ptr, m->name);
             else if(d != nil && d->type == NStruct)
@@ -4262,7 +4328,10 @@ gen_class_server(Node *c)
             char *fmt = type_fmt_for_codegen(m->typeinfo);
             char *cast = type_cast_for_codegen(m->typeinfo);
             Node *d = type_decl_node(m->typeinfo);
-            if(strcmp(t, "O9Dict") == 0){
+            if(type_is_class_ref(m->typeinfo)){
+                /* class-typed field is a live handle, not a readable value */
+                print("\tif(strcmp(name, \"%s\") == 0){ readstr(r, \"<handle>\\n\"); respond(r, nil); return; }\n", m->name);
+            } else if(strcmp(t, "O9Dict") == 0){
                 /* Dict property: serialize */
                 print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
                 print("\t\tchar *__s = o9_dict_serialize(&inst->%s); snprint(buf, sizeof buf, \"%%s\", __s); readstr(r, buf); free(__s); respond(r, nil); return;\n\t}\n", m->name);
@@ -4395,7 +4464,9 @@ gen_class_server(Node *c)
         if(m->type == NProp || m->type == NAtomic){
             char *t = type_storage_for_codegen(m->typeinfo);
             Node *d = type_decl_node(m->typeinfo);
-            if(strcmp(t, "O9Dict") == 0) {
+            if(type_is_class_ref(m->typeinfo)){
+                /* class-typed field is a handle — not writable via 9P */
+            } else if(strcmp(t, "O9Dict") == 0) {
                 /* Dict property: deserialize */
                 print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
                 print("\t\to9_dict_deserialize(&inst->%s, r->ifcall.data);\n", m->name);

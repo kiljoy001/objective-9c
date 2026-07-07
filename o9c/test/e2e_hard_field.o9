@@ -1,0 +1,17 @@
+// HARD 4: an object holding a handle to another object as a field, and
+// calling through it. The reference case — does a class-typed field work
+// as a live handle across dispatch?
+class Engine {
+    int64 power;
+    method Engine(int64 p) { power = p; }
+    method int64 rev() { return power * 2; }
+}
+class Car {
+    Engine motor;                       // class-typed field: a handle
+    method Car(int64 p) { motor = new Engine(p); }
+    method int64 drive() { return motor.rev(); }   // call through the field
+}
+func main() {
+    Car c = new Car(50);
+    print("drive ", c.drive(), "\n");   // 100
+}

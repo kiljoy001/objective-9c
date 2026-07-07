@@ -1,0 +1,21 @@
+// HARD 5: nested try — error propagation through two levels. And a
+// method that catches by NOT using try (checks the value itself).
+class Chain {
+    method int64 leaf(int64 n) {
+        if(n < 0) { fail("negative"); }
+        return n * 2;
+    }
+    method int64 mid(int64 n) {
+        int64 x = try leaf(n);          // propagates leaf's error
+        return x + 1;
+    }
+    method int64 top(int64 n) {
+        int64 y = try mid(n);           // propagates mid's (which propagated leaf's)
+        return y + 1;
+    }
+}
+func main() {
+    Chain c = new Chain();
+    print("ok ", c.top(5), "\n");       // leaf 10 -> mid 11 -> top 12
+    print("bad ", c.top(-1), "\n");     // leaf fails, propagates twice -> 0
+}

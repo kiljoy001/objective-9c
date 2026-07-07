@@ -1,0 +1,23 @@
+// HARD 3: self-reference in constructor — an object that builds another
+// of its own class during construction.
+// Risk: reentrant new / actor spawn during a constructor's dispatch.
+class Node {
+    int64 val;
+    int64 childval;
+    method Node(int64 n) {
+        val = n;
+        if(n > 0) {
+            Node child = new Node(n - 1);   // recursive construction
+            childval = child.get();
+        } else {
+            childval = -1;
+        }
+    }
+    method int64 get() { return val; }
+    method int64 childv() { return childval; }
+}
+func main() {
+    Node root = new Node(3);
+    print("val ", root.get(), "\n");        // 3
+    print("child ", root.childv(), "\n");   // 2 (the child Node(2)'s val)
+}

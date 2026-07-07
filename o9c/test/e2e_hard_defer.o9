@@ -1,0 +1,22 @@
+// HARD 6: multiple defers (LIFO order) and a defer on the error path.
+// Prints the order deferred calls actually run.
+class Trace {
+    method void mark(int64 n) { print("mark ", n, "\n"); }
+    method int64 three() {
+        defer mark(1);                  // should run LAST
+        defer mark(2);
+        defer mark(3);                  // should run FIRST (LIFO)
+        return 0;
+    }
+    method int64 withfail(int64 n) {
+        defer mark(9);                  // must run even though we fail
+        if(n < 0) { fail("neg"); }
+        return n;
+    }
+}
+func main() {
+    Trace t = new Trace();
+    t.three();                          // expect: mark 3, mark 2, mark 1
+    print("---\n");
+    print("r ", t.withfail(-1), "\n");  // mark 9 (defer ran), then r 0 (failed)
+}

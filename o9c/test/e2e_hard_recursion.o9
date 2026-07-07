@@ -1,0 +1,18 @@
+// HARD 1: recursion through CSP dispatch. A method calling itself.
+// Risk: the reply channel could deadlock — the impl proc is waiting to
+// send its reply while a nested self-call waits to receive one.
+class Math {
+    method int64 fact(int64 n) {
+        if(n <= 1) { return 1; }
+        return n * fact(n - 1);        // self-recursion via bare self-call
+    }
+    method int64 fib(int64 n) {
+        if(n < 2) { return n; }
+        return fib(n - 1) + fib(n - 2);  // double recursion
+    }
+}
+func main() {
+    Math m = new Math();
+    print("fact5 ", m.fact(5), "\n");    // 120
+    print("fib10 ", m.fib(10), "\n");    // 55
+}
