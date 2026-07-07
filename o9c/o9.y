@@ -2998,6 +2998,46 @@ gen_stmt(Node *c, Node *s)
         }
         return;
     }
+    /* super(args): explicit parent-constructor chaining.  Calls the
+     * nearest ancestor's constructor impl on THIS self (same object), so
+     * every level of an Animal<-Mammal<-Cat chain initializes its own
+     * fields.  Only valid inside a constructor body. */
+    if(s->type == NSelfCall && s->name != nil && strcmp(s->name, "super") == 0){
+        Node *parent = nil, *im;
+        Node *ca;
+        int na = 0;
+        if(gen_class != nil){
+            for(im = gen_class->left; im != nil; im = im->next)
+                if(im->type == NInherit){ parent = find_class(im->name); break; }
+        }
+        if(parent == nil){
+            fprint(2, "o9c: error: line %d: super() with no parent class\n", s->line);
+            semantic_errors++;
+            return;
+        }
+        for(ca = s->right; ca != nil; ca = ca->next) na++;
+        /* pack args, build a message, call the parent ctor impl directly */
+        print("\t{ ");
+        if(na > 0){
+            int ai2 = 0;
+            print("vlong __superargs[%d]; ", na);
+            for(ca = s->right; ca != nil; ca = ca->next){
+                print("__superargs[%d] = ", ai2);
+                if(type_storage_pointerish(ca->typeinfo)){ print("(vlong)(uintptr)("); gen_expr(ca); print(")"); }
+                else { print("(vlong)("); gen_expr(ca); print(")"); }
+                print("; ");
+                ai2++;
+            }
+            print("O9Msg __superm = {0x%lux, __superargs, %d, chancreate(sizeof(void*), 1)}; ",
+                o9_hash(parent->name), na);
+        } else {
+            print("O9Msg __superm = {0x%lux, nil, 0, chancreate(sizeof(void*), 1)}; ",
+                o9_hash(parent->name));
+        }
+        print("o9_impl_%s_%s((%s_Internal*)self, &__superm); ", parent->name, parent->name, parent->name);
+        print("{ O9Reply *__sr = recvp(__superm.replyc); free(__sr); } chanfree(__superm.replyc); }\n");
+        return;
+    }
     switch(s->type){
     case NLocalVar:
         if(is_primitive(s->typename)){
@@ -6219,6 +6259,14 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
         break;
     case NSelfCall:
         annotate_expr_type(e, scope_class);
+        /* super(args): parent-ctor chaining — typecheck args, arity is
+         * resolved against the parent constructor at codegen. */
+        if(e->name != nil && strcmp(e->name, "super") == 0){
+            Node *a;
+            for(a = e->right; a != nil; a = a->next)
+                typecheck_expr(a, scope_class, errs);
+            break;
+        }
         {
             Type *st = nil;
             TypedMember tm;

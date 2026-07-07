@@ -50,6 +50,24 @@ synchronously, then the actor exits (see e2e_delete.o9).
 Inheritance: name the parent as a member (`Base;`). `interface` and
 `abstract class` are compile-time contracts the checker enforces.
 
+Construction chains explicitly with `super(args)` — when a class and its
+parent both have constructors, call the parent's first so every level
+initializes its own fields (e2e_hard_super.o9):
+
+```
+class Animal { int64 species;
+    method Animal(int64 s) { species = s; } }
+class Mammal { Animal; int64 legs;
+    method Mammal(int64 s, int64 l) { super(s); legs = l; } }  // super -> Animal(s)
+class Cat { Mammal; int64 lives;
+    method Cat(int64 s, int64 l, int64 v) { super(s, l); lives = v; } }
+// new Cat(7,4,9): Cat -> super -> Mammal -> super -> Animal; all fields set
+```
+
+o9-honest: no hidden super calls, you write the chain. If the parent has
+no constructor, `new Child(...)` reaches the nearest ancestor constructor
+automatically (no `super` needed).
+
 ### public / private — the network boundary
 
 A member is `public` by default. `private` makes it class-scoped

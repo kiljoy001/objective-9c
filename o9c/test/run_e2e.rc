@@ -70,6 +70,7 @@ runcase e2e_hard_nesttry
 runcase e2e_hard_defer
 runcase e2e_hard_field
 runcase e2e_hard_deep
+runcase e2e_hard_super
 # Known-failing adversarial cases (HARD_CASES.md), re-enable as fixed:
 #   e2e_hard_ctor     — recursive construction GP-faults
 

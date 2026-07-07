@@ -35,6 +35,16 @@ to the same impl. Works at any depth because the alias always targets the
 concrete class's hash. Verified: va 7 / vc 107 / who 4. Full suite green,
 no regression (constructor dispatch is used by every class).
 
+Follow-up — super() chaining (e2e_hard_super): the alias fixes `new Child`
+reaching the NEAREST ancestor ctor. When MULTIPLE levels have their own
+constructor (Animal<-Mammal<-Cat, each with a ctor), each must chain to
+its parent so every level's fields get set. Added explicit `super(args)`
+(o9-honest, no hidden calls): a gen_stmt special form that packs args and
+calls the parent's ctor impl on the same self. Verified species 7 / legs
+4 / lives 9 through a 3-level chain. The alias (entry) and super
+(chaining) are the two halves that make deep inheritance with per-level
+constructors fully work.
+
 ## BUG 2 — recursive construction crashes (e2e_hard_ctor)
 
 A constructor doing `new` of its own class (`Node child = new Node(n-1)`)

@@ -1,0 +1,33 @@
+// Explicit super() chaining: Animal <- Mammal <- Cat, each with its own
+// constructor. super(args) calls the parent ctor on the same object, so
+// every level's fields get initialized. Proves inherited members are
+// preserved with real values through a multi-constructor chain.
+class Animal {
+    int64 species;
+    method Animal(int64 s) { species = s; }
+    method int64 getSpecies() { return species; }
+}
+class Mammal {
+    Animal;
+    int64 legs;
+    method Mammal(int64 s, int64 l) {
+        super(s);                       // Animal(s) sets species
+        legs = l;
+    }
+    method int64 getLegs() { return legs; }
+}
+class Cat {
+    Mammal;
+    int64 lives;
+    method Cat(int64 s, int64 l, int64 v) {
+        super(s, l);                    // Mammal(s,l) -> super(s) -> Animal(s)
+        lives = v;
+    }
+    method int64 getLives() { return lives; }
+}
+func main() {
+    Cat c = new Cat(7, 4, 9);
+    print("species ", c.getSpecies(), "\n");   // 7  (Animal's field, 2 levels up)
+    print("legs ", c.getLegs(), "\n");          // 4  (Mammal's field)
+    print("lives ", c.getLives(), "\n");        // 9  (Cat's own)
+}
