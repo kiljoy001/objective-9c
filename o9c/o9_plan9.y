@@ -3951,6 +3951,23 @@ void gen_dispatch_cases(Node *c, char *childname) {
         if(m->type == NMethod && method_has_body(m)) {
             ulong h = o9_hash(m->name);
             int i, found = 0;
+            /* A constructor is a method whose name equals its defining
+             * class.  When that class is an ANCESTOR (not the class being
+             * constructed), `new <childname>(...)` dispatches under
+             * hash(childname), not hash(ancestor) — so the inherited
+             * constructor must ALSO be reachable under the child's hash,
+             * however deep the chain.  Alias it to hash(childname). */
+            if(childname != nil && strcmp(m->name, c->name) == 0 &&
+               strcmp(c->name, childname) != 0){
+                ulong ch = o9_hash(childname);
+                int j, cfound = 0;
+                for(j=0; j<num_emitted; j++) if(emitted_hashes[j] == ch){ cfound = 1; break; }
+                if(!cfound){
+                    print("\t\tcase 0x%lux: o9_impl_%s_%s((%s_Internal*)self, m); break;\t/* inherited ctor as %s */\n",
+                        ch, c->name, m->name, c->name, childname);
+                    emitted_hashes[num_emitted++] = ch;
+                }
+            }
             for(i=0; i<num_emitted; i++) { if(emitted_hashes[i] == h) { found = 1; break; } }
             if(!found) {
                 print("\t\tcase 0x%lux: o9_impl_%s_%s((%s_Internal*)self, m); break;\n", h, c->name, m->name, c->name);

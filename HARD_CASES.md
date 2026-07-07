@@ -15,19 +15,25 @@ three found real bugs.
 - **Multiple defers** (`e2e_hard_defer`): LIFO order correct; defers run
   on the fail path too.
 
-## BUG 1 — inherited field access returns 0 (e2e_hard_deep)
+## BUG 1 — inherited constructor never runs (e2e_hard_deep) — FIXED
 
-4-level inheritance (A<-B<-C<-D). Method *override* dispatch works
-(`who()` returns the most-derived 4). But reading an inherited FIELD
-through the chain fails:
-- `d.va()` returned **0**, expected 7 (va reads field `a` from A, 3
-  levels up)
-- `d.vc()` returned **100**, expected 107 (C method calls A method va)
+4-level inheritance (A<-B<-C<-D). Symptom: reading an inherited field
+returned 0 (`d.va()` = 0 not 7). Not a struct-layout bug — the Internal
+structs are correctly flattened and identical, and `o9_impl_A_va` reads
+`self->a` correctly.
 
-So flattened state isn't read correctly across depth. Override dispatch
-and field access use different mechanisms; field access breaks at depth.
-Priority: HIGH — deep inheritance is silently wrong (returns 0, no
-error).
+Real cause: the FIELD WAS NEVER SET because the inherited constructor
+never ran. `new D(7)` dispatches under `o9_hash("D")`, but the inherited
+`A` constructor was registered in D's dispatch loop only under
+`o9_hash("A")`. Selector mismatch -> "bad selector" -> constructor
+skipped -> `a` stays 0.
+
+Fix (gen_dispatch_cases): a constructor is a method whose name equals its
+defining class. When that class is an ANCESTOR of the one being
+constructed, ALSO emit a dispatch case under `o9_hash(childname)` aliased
+to the same impl. Works at any depth because the alias always targets the
+concrete class's hash. Verified: va 7 / vc 107 / who 4. Full suite green,
+no regression (constructor dispatch is used by every class).
 
 ## BUG 2 — recursive construction crashes (e2e_hard_ctor)
 
