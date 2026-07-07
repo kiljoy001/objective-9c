@@ -325,6 +325,9 @@ static Builtin builtins[] = {
     {"writefile", "o9_writefile", 2, "int64",  {"string", "string"}},
     {"readline",  "o9_readline",  0, "string", {nil, nil}},
     {"serve",     "o9_serve",     0, "void",   {nil, nil}},
+    /* Tabula constructors: new_tab(name, "cols") / open_tab(path) */
+    {"new_tab",   "o9_tab_new",   2, "Tabula", {"string", "string"}},
+    {"open_tab",  "o9_tab_open",  1, "Tabula", {"string", nil}},
     /* fail(msg): error-as-value — sets the method error and returns.
      * Special-cased in gen_stmt (goto done); table entry is for typecheck. */
     {"fail",      "o9_fail",      1, "void",   {"string", nil}},
@@ -935,6 +938,8 @@ type_storage_for_codegen(Type *t)
     if(t->kind == TyName){
         if(strcmp(t->name, "chan") == 0)
             return "Channel*";
+        if(strcmp(t->name, "Tabula") == 0)
+            return "O9Tabula*";	/* a handle, not an embedded value */
         p = type_builtin_plan9(t->name);
         if(p != nil)
             return p;
@@ -1133,6 +1138,7 @@ is_primitive(char *t)
     if(strcmp(t, "ushort") == 0) return 1;
     if(strcmp(t, "uchar") == 0) return 1;
     if(strcmp(t, "void") == 0) return 1;
+    if(strcmp(t, "Tabula") == 0) return 1;	/* handle type, primitive-like decl */
     if(find_class(t) && find_class(t)->type == NEnum) return 1;
     if(find_class(t) && find_class(t)->type == NStruct) return 1;
     return 0;
@@ -2506,6 +2512,27 @@ gen_expr(Node *e)
     case NMsgSend:
         {
             Type *lt = e->left != nil ? e->left->typeinfo : nil;
+            /* Tabula methods: the receiver is an O9Tabula* handle, so
+             * t.method(args) lowers to o9_tab_method(t, args). */
+            if(lt != nil && lt->kind == TyName && lt->name != nil &&
+               strcmp(lt->name, "Tabula") == 0){
+                char *fn = nil;
+                if(strcmp(e->name, "add") == 0) fn = "o9_tab_add";
+                else if(strcmp(e->name, "set") == 0) fn = "o9_tab_set";
+                else if(strcmp(e->name, "get") == 0) fn = "o9_tab_get";
+                else if(strcmp(e->name, "first") == 0) fn = "o9_tab_first";
+                else if(strcmp(e->name, "next") == 0) fn = "o9_tab_next";
+                else if(strcmp(e->name, "serialize") == 0) fn = "o9_tab_serialize";
+                else if(strcmp(e->name, "close") == 0) fn = "o9_tab_close";
+                if(fn != nil){
+                    Node *a;
+                    print("%s(", fn);
+                    gen_expr(e->left);
+                    for(a = e->right; a != nil; a = a->next){ print(", "); gen_expr(a); }
+                    print(")");
+                    break;
+                }
+            }
             if(type_is_collection(lt, "List")){
                 if(strcmp(e->name, "Add") == 0){
                     Type *et = type_list_at(lt->args, 0);
@@ -5802,6 +5829,15 @@ annotate_expr_type(Node *e, Node *scope_class)
         lt = annotate_expr_type(e->left, scope_class);
         for(a = e->right; a; a = a->next)
             annotate_expr_type(a, scope_class);
+        if(lt != nil && lt->kind == TyName && lt->name != nil &&
+           strcmp(lt->name, "Tabula") == 0){
+            if(strcmp(e->name, "get") == 0 || strcmp(e->name, "serialize") == 0)
+                return set_expr_type(e, type_name("string"));
+            if(strcmp(e->name, "close") == 0)
+                return set_expr_type(e, type_name("void"));
+            /* add/set/first/next return int64 (status / row-present) */
+            return set_expr_type(e, type_name("int64"));
+        }
         if(type_is_collection(lt, "List")){
             if(strcmp(e->name, "Length") == 0)
                 return set_expr_type(e, type_name("int64"));
@@ -6368,6 +6404,21 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
             Type *lt = e->left->typeinfo;
             Node *cnode = nil;
             TypedMember tm;
+            if(lt != nil && lt->kind == TyName && lt->name != nil &&
+               strcmp(lt->name, "Tabula") == 0){
+                Node *a;
+                if(strcmp(e->name, "add") != 0 && strcmp(e->name, "set") != 0 &&
+                   strcmp(e->name, "get") != 0 && strcmp(e->name, "first") != 0 &&
+                   strcmp(e->name, "next") != 0 && strcmp(e->name, "serialize") != 0 &&
+                   strcmp(e->name, "close") != 0){
+                    fprint(2, "o9c: error: line %d: Tabula has no method '%s' "
+                        "(add/set/get/first/next/serialize/close)\n", sem_line, e->name);
+                    (*errs)++;
+                }
+                for(a = e->right; a != nil; a = a->next)
+                    typecheck_expr(a, scope_class, errs);
+                break;
+            }
             if(type_is_collection(lt, "List")){
                 if(strcmp(e->name, "Add") != 0 && strcmp(e->name, "Length") != 0){
                     fprint(2, "o9c: error: line %d: List has no method '%s'\n", sem_line, e->name);

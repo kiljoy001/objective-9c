@@ -30,6 +30,7 @@ static Builtin builtins[] = {
 	{ "ulong", "ulong", "scalar", "%lud", "0" },
 	{ "ushort", "ushort", "scalar", "%ud", "0" },
 	{ "uchar", "uchar", "scalar", "%ud", "0" },
+	{ "Tabula", "O9Tabula*", "pointer", "%p", "nil" },	/* table handle */
 	{ nil, nil, nil, nil, nil }
 };
 

@@ -1,0 +1,19 @@
+// Tabula — the first-class table type. Create, fill with rows, iterate,
+// read cells, serialize. Backed by libtab; every value is text.
+func main() {
+    Tabula t = new_tab("orders", "item,qty");
+    t.add("a");
+    t.set("item", "widget");
+    t.set("qty", "5");
+    t.add("b");
+    t.set("item", "gadget");
+    t.set("qty", "3");
+
+    // iterate and read cells back
+    int64 n = t.first();
+    while(n == 1) {
+        print(t.get("item"), " ", t.get("qty"), "\n");
+        n = t.next();
+    }
+    t.close();
+}
