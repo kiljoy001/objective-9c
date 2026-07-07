@@ -2750,6 +2750,7 @@ static int member_exists(Node *cnode, char *name);
 int count_state_cols(Node *c);
 void gen_init_internal_state(Node *c, char *ptr);
 void gen_state_store_typed(char *stateexpr, char *fieldexpr, char *name, Type *type);
+void gen_state_store_flagged(char *stateexpr, char *fieldexpr, char *name, Type *type, int flags);
 void gen_state_store(char *stateexpr, char *fieldexpr, char *name, char *typename);
 
 void
@@ -2801,7 +2802,7 @@ gen_assign_new(char *varname, char *lhs_type, Node *n)
     print("\tmemset(__o9n%d, 0, sizeof(%s_Internal));\n", id, cn);
     print("\t__o9n%d->dispatch_chan = chancreate(sizeof(void*), 10);\n", id);
     print("\t__o9n%d->distance = %d;\n", id, dval >= 0 ? dval : -1);
-    print("\t__o9n%d->state = o9_state_create(\"%s\", \"%s\", o9_state_cols_%s, %d);\n",
+    print("\t__o9n%d->state = o9_state_create_path(o9app_root, \"%s\", \"%s\", o9_state_cols_%s, %d);\n",
         id, cn, varname, cn, count_state_cols(find_class(cn)));
     {
         char ptr[64];
@@ -2855,7 +2856,7 @@ gen_local_new(Node *s, char *cn, int distance)
     print("\t%s.table = &%s_tbl;\n", s->name, s->name);
     print("\t__%s->distance = %d;\n", s->name, distance);
     print("\t%s.distance = %d;\n", s->name, distance);
-    print("\t__%s->state = o9_state_create(\"%s\", \"%s\", o9_state_cols_%s, %d);\n",
+    print("\t__%s->state = o9_state_create_path(o9app_root, \"%s\", \"%s\", o9_state_cols_%s, %d);\n",
         s->name, cn, s->name, cn, count_state_cols(find_class(cn)));
     if(find_class(cn)){
         Node *cnode = find_class(cn);
@@ -3107,7 +3108,7 @@ gen_stmt(Node *c, Node *s)
                             gen_expr(s->right);
                             print(");\n");
                         }
-                        gen_state_store_typed("__i->state", field, s->left->name, ft);
+                        gen_state_store_flagged("__i->state", field, s->left->name, ft, fieldnode ? fieldnode->flags : 0);
                     }
                     print("\t\t} }\n");
                     break;
@@ -3155,7 +3156,7 @@ gen_stmt(Node *c, Node *s)
                             gen_expr(s->right);
                             print(");\n");
                         }
-                        gen_state_store_typed("__i->state", field, s->name, ft);
+                        gen_state_store_flagged("__i->state", field, s->name, ft, fieldnode ? fieldnode->flags : 0);
                     }
                     print("\t\t} }\n");
                     break;
@@ -3193,7 +3194,7 @@ gen_stmt(Node *c, Node *s)
                     print(");\n");
                 }
                 snprint(field, sizeof field, "self->%s", s->left->name);
-                gen_state_store_typed("self->state", field, s->left->name, ft);
+                gen_state_store_flagged("self->state", field, s->left->name, ft, fieldnode ? fieldnode->flags : 0);
                 break;
             }
         }
@@ -3206,7 +3207,7 @@ gen_stmt(Node *c, Node *s)
     case NReturn:
         if(in_method_body){
             has_return = 1;
-            print("\tr->ret = (uintptr)("); gen_expr(s->left); print(");\n\tgoto done;\n");
+            print("\t__o9r->ret = (uintptr)("); gen_expr(s->left); print(");\n\tgoto done;\n");
         } else {
             print("\treturn "); gen_expr(s->left); print(";\n");
         }
@@ -3357,8 +3358,12 @@ gen_state_col_names(Node *c)
             p = find_class(m->name);
             if(p) gen_state_col_names(p);
         }
-        if(m->type == NProp || m->type == NState || m->type == NAtomic)
-            print("\"%s\", ", m->name);
+        if(m->type == NProp || m->type == NState || m->type == NAtomic){
+            if(m->flags & NFPrivate)
+                print("\"debug:%s\", ", m->name);
+            else
+                print("\"%s\", ", m->name);
+        }
     }
 }
 
@@ -3391,6 +3396,21 @@ void
 gen_state_store(char *stateexpr, char *fieldexpr, char *name, char *typename)
 {
     gen_state_store_typed(stateexpr, fieldexpr, name, typeinfo_from_legacy(typename));
+}
+
+/* Like gen_state_store_typed, but private fields get a "debug:" column
+ * prefix — present in the tab for debugging, not part of the public
+ * contract.  Peers reading the state tab see "debug:val" and know it is
+ * an implementation detail, not an advertised interface. */
+void
+gen_state_store_flagged(char *stateexpr, char *fieldexpr, char *name, Type *type, int flags)
+{
+    char colname[128];
+    if(flags & NFPrivate)
+        snprint(colname, sizeof colname, "debug:%s", name);
+    else
+        snprint(colname, sizeof colname, "%s", name);
+    gen_state_store_typed(stateexpr, fieldexpr, colname, type);
 }
 
 static int
@@ -3521,7 +3541,7 @@ gen_init_internal_state(Node *c, char *ptr)
             else
                 print("\t%s->%s = 0;\n", ptr, m->name);
             snprint(field, sizeof field, "%s->%s", ptr, m->name);
-            gen_state_store_typed(state, field, m->name, m->typeinfo);
+            gen_state_store_flagged(state, field, m->name, m->typeinfo, m->flags);
         }
     }
 }
@@ -3871,7 +3891,7 @@ gen_class_server(Node *c)
                 }
             }
             print("static void o9_impl_%s_%s(%s_Internal *self, O9Msg *msg) {\n", c->name, m->name, c->name);
-            print("\tO9Reply *r = mallocz(sizeof(O9Reply), 1);\n");
+            print("\tO9Reply *__o9r = mallocz(sizeof(O9Reply), 1);\n");
             print("\tvlong __o9fr[8][12];\n\tUSED(__o9fr);\n");
             /* Unpack params from msg->args (packed as vlong array for now) */
             {
@@ -3893,7 +3913,7 @@ gen_class_server(Node *c)
             in_method_body = 0;
             gen_class = nil;
             if(has_return) print("done:\n");
-            print("\tr->ok = 1;\n\tsendp(msg->replyc, r);\n}\n\n");
+            print("\t__o9r->ok = 1;\n\tsendp(msg->replyc, __o9r);\n}\n\n");
 			/* Ctrl dispatch thunk (void(*)(void*) for asm cache) */
 			{
 				int np = 0, pi;

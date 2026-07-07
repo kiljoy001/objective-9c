@@ -126,17 +126,28 @@ needs to exist first.
   needs a real trust boundary is spawned `far` into its own app-process,
   paying 9P cost exactly where isolation is wanted.
 
-- **B. One `kind`-keyed ledger per app.**  Not four files — **one store,
-  four views** selected by a `kind` column: `method` (dispatch, exists
-  today), `state`, `ref`, `mount`.  One open, one thing to sign, one
-  thing to checkpoint.  This is the app's memory and, serialized, its
-  image checkpoint (inert data — reconstruct locally, no RCE).
+- **B. ~~One `kind`-keyed ledger per app.~~  Abandoned (July 2026).**
+  A unified store requires a query filter to answer "what methods does
+  this class have?" — a separate `methods.tab` answers that by existing.
+  One file, one purpose is the honest Plan 9 design.  What actually lives
+  on disk per app is already clean and separate:
+    - `<app>.methods.tab` — method registrations
+    - `<app>.objects.tab` — object inventory / node table
+    - `<class>.<inst>.tab` — per-instance field state (`state` keyword)
+    - `exports/<name>.tab` — published Tabulae (written by `export()`)
+  These are the four stores.  Keep them separate.  Roadmap order
+  collapses to **A (done) → C → D**.
 
-- **C. Reference graph — the `kind=ref` view (the missing organ).**  One
-  row per handle: `(from_oid, field, to_oid)`.  The genuinely new runtime
-  piece: instrument every handle-valued assignment to write the edge.
-  Turns scattered live servers into a browsable program; gives live
-  redefinition its blast-radius query.
+- **C. ~~Reference graph.~~  Abandoned (July 2026) — wrong in principle.**
+  An explicit reference graph (write-barrier on every handle assignment)
+  is a manual GC write barrier: you're doing by hand what a GC does
+  automatically.  o9 has no GC and no VM, and this mechanism belongs to
+  that world.  The object graph in o9 is not stored — it is *enacted at
+  call time* through late-bound dispatch, exactly as in ObjC.  "What does
+  this object connect to" is answered by the registry (who's alive, by
+  oid) and the namespace (what's bound where), which are already real and
+  working.  Objects find each other by name (lookup by oid), not by held
+  pointers.  That is the correct model for this architecture.
 
 - **D. REPL / live editing (gated, last).**  Attach to the app server
   (A), browse ledger + graph (B/C), swap a method's thunk while state in
@@ -151,6 +162,27 @@ needs to exist first.
 
 Order is unambiguous: **A → B → C → D.**  None requires the transmitted
 code / rehydration path that was cut.
+
+## Inter-object state access without dispatch
+
+The state tab is a file. Reading another object's state requires no
+dispatch, no channel, no round-trip — just a file read.  This splits
+inter-object access into two natural patterns:
+
+- **Read state** — `readfile("<root>/state/<Class>.<inst>.tab")` or mount
+  the namespace and `cat` it.  Any object, any process, any machine with
+  namespace access.  Zero dispatch overhead.  The data is inert, signable,
+  cat-able.  This replaces the "getter method" pattern that OO languages
+  overuse.
+- **Invoke behavior** — `send(handle, "method Class.inst name args")` or
+  direct dispatch.  Required for methods with side effects, arguments,
+  or computed return values.
+
+`public`/`private` on fields maps onto what appears in the state tab:
+private fields are omitted, `secret` fields appear sealed.  The file is
+the public data interface; `ctl` is the behavior interface.  Two distinct
+things with two distinct mechanisms — not collapsed into a single
+message-send for everything.
 
 ## What was cut, permanently
 

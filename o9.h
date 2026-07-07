@@ -230,5 +230,6 @@ extern void     o9_state_set(O9State *s, char *col, char *value);
 extern void     o9_state_set_int(O9State *s, char *col, vlong value);
 extern char*    o9_state_get(O9State *s, char *col);
 extern vlong    o9_state_get_int(O9State *s, char *col);
+extern int      o9_state_flush(O9State *s, char *path);	/* explicit persist to disk */
 
 #endif

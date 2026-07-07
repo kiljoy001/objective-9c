@@ -15,7 +15,7 @@ fn cleanup {
 	if(! ~ $spid '')
 		kill $spid >[2]/dev/null
 	unmount /n/ext >[2]/dev/null
-	rm -f $srv >[2]/dev/null
+	rm -f $srv /tmp/ext.c /tmp/ext.6 /tmp/ext /tmp/ext_result >[2]/dev/null
 }
 
 fn fail_msg {

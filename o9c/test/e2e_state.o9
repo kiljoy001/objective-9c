@@ -1,0 +1,29 @@
+// State field visibility in the .tab file:
+//   public state  -> written as plain column (readable by peers)
+//   private state -> written as debug:name (inspectable, not a contract)
+//   secret state  -> written as sealed AEAD blob (always)
+//
+// This test checks that the three-tier scheme compiles and the values
+// are correctly stored; the external state-read probe (run_state.rc)
+// verifies the actual column names in the tab file.
+class Sensor {
+    state int64 reading;              // public: peers can read this
+    private state int64 raw;          // debug: implementation detail
+    secret string token;              // sealed: never plaintext at rest
+    method Sensor(int64 r) {
+        reading = r;
+        raw = r * 10;
+        string k = passkey("sensor-key", "sensor.salt.v1");
+        seal_token(k, "tok-abc");
+    }
+    method void update(int64 r) {
+        reading = r;
+        raw = r * 10;
+    }
+    method int64 get() { return reading; }
+}
+func main() {
+    Sensor s = new Sensor(42);
+    s.update(7);
+    print("reading ", s.get(), "\n");
+}

@@ -5,6 +5,11 @@
 #include "o9.h"
 #include "libtab.h"
 
+/* tab_serialize is a real libtab export declared in tab_internal.h (the
+ * header split is packaging, not a privacy boundary); we use it to write
+ * an in-memory state tab to a program-chosen path on explicit flush. */
+extern char *tab_serialize(Tab *t, int *outlen);
+
 /* 9P encoding helpers — little-endian */
 #define PUT2(p, v) do{ (p)[0]=(v)&0xff; (p)[1]=((v)>>8)&0xff; }while(0)
 #define PUT4(p, v) do{ (p)[0]=(v)&0xff; (p)[1]=((v)>>8)&0xff; (p)[2]=((v)>>16)&0xff; (p)[3]=((v)>>24)&0xff; }while(0)
@@ -1074,31 +1079,24 @@ o9_state_create_common(char *root, char *classname, char *instname, char **cols,
 		free(spec);
 		return nil;
 	}
-	if(root != nil && root[0] != '\0'){
-		o9_ns_ensure_app(root);
-		snprint(dir, sizeof dir, "%s/state", root);
-		o9_ns_ensure_dir(dir);
-		snprint(path, sizeof path, "%s/%s.%s.tab", dir, classname, instname);
-	}else{
-		snprint(path, sizeof path, "/tmp/o9state.%ld.%s.%s.tab",
-			(long)getpid(), classname, instname);
-	}
+	USED(dir);
+	/* Nominal path only — a label identifying the tab and the default
+	 * target for an explicit o9_state_flush.  NOTHING is read from or
+	 * written to disk here: object state is a live in-memory tab, not a
+	 * file.  root, when present, just names where a flush would default. */
+	if(root != nil && root[0] != '\0')
+		snprint(path, sizeof path, "%s/state/%s.%s.tab", root, classname, instname);
+	else
+		snprint(path, sizeof path, "%s.%s.tab", classname, instname);
 	s->path = strdup(path);
 	if(s->path == nil){
 		free(spec);
 		free(s);
 		return nil;
 	}
-	if(root != nil && root[0] != '\0'){
-		s->tab = tab_open(s->path);
-		if(s->tab != nil && !o9_state_schema_matches(s->tab, cols, ncols)){
-			tab_close(s->tab);
-			s->tab = nil;
-			remove(s->path);
-		}
-	}
-	if(s->tab == nil)
-		s->tab = tab_create(s->path, classname, spec, outcols);
+	/* tab_create builds the tab in memory; the path is where tab_commit
+	 * WOULD write, but we never commit unless o9_state_flush is called. */
+	s->tab = tab_create(s->path, classname, spec, outcols);
 	free(spec);
 	if(s->tab == nil){
 		free(s->path);
@@ -1140,6 +1138,9 @@ o9_state_close(O9State *s)
 	free(s);
 }
 
+/* In-memory only: mutate the live tab, do NOT touch disk.  Object state
+ * is not tied to a file — persistence is an explicit act (o9_state_flush)
+ * the program chooses when it wants durability. */
 void
 o9_state_set(O9State *s, char *col, char *value)
 {
@@ -1147,8 +1148,37 @@ o9_state_set(O9State *s, char *col, char *value)
 		return;
 	if(value == nil)
 		value = "";
-	if(tab_set(s->tab, s->row, col, value) == 0)
-		tab_commit(s->tab);
+	tab_set(s->tab, s->row, col, value);
+}
+
+/* Explicit persistence: serialize the in-memory state tab to `path`
+ * (a .tab file the program chooses).  This is the opt-in "write my
+ * state to disk" primitive — nothing writes automatically.  Returns 0
+ * on success, -1 on failure. */
+int
+o9_state_flush(O9State *s, char *path)
+{
+	char *buf;
+	int n, fd;
+
+	if(s == nil || s->tab == nil || path == nil || path[0] == '\0')
+		return -1;
+	buf = tab_serialize(s->tab, &n);
+	if(buf == nil)
+		return -1;
+	fd = create(path, OWRITE, 0644);
+	if(fd < 0){
+		free(buf);
+		return -1;
+	}
+	if(write(fd, buf, n) != n){
+		close(fd);
+		free(buf);
+		return -1;
+	}
+	close(fd);
+	free(buf);
+	return 0;
 }
 
 void
