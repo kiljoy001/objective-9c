@@ -1,0 +1,32 @@
+// Error handling — fail / try / defer.
+//   fail(msg)  : set an error value, return early (errors are values)
+//   try expr   : propagate the callee's error out of this method
+//   defer expr : run cleanup at method exit, on every path
+class Bank {
+    int64 balance;
+    int64 log;
+    method Bank(int64 b) { balance = b; log = 0; }
+    method int64 withdraw(int64 n) {
+        if(n > balance) { fail("insufficient funds"); }
+        balance = balance - n;
+        return balance;
+    }
+    method int64 get() { return balance; }
+    method int64 logged() { return log; }
+    // try propagates withdraw's error; defer always bumps log
+    method int64 spend(int64 n) {
+        defer bump();
+        int64 left = try withdraw(n);
+        return left;
+    }
+    method void bump() { log = log + 1; }
+}
+func main() {
+    Bank b = new Bank(100);
+    print("ok ", b.spend(30), "\n");     // 70; defer ran (log 1)
+    print("bal ", b.get(), "\n");        // 70
+    print("log ", b.logged(), "\n");     // 1
+    print("bad ", b.spend(1000), "\n");  // withdraw fails, try propagates; defer still ran
+    print("bal ", b.get(), "\n");        // 70 (unchanged)
+    print("log ", b.logged(), "\n");     // 2 (defer ran on the error path too)
+}

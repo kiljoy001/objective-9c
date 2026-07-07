@@ -74,7 +74,9 @@ enum {
     NModule,
     NTypeParam,
     NSelfCall,
-    NDelete
+    NDelete,
+    NTry,
+    NDefer
 };
 
 enum {
@@ -322,6 +324,9 @@ static Builtin builtins[] = {
     {"writefile", "o9_writefile", 2, "int64",  {"string", "string"}},
     {"readline",  "o9_readline",  0, "string", {nil, nil}},
     {"serve",     "o9_serve",     0, "void",   {nil, nil}},
+    /* fail(msg): error-as-value — sets the method error and returns.
+     * Special-cased in gen_stmt (goto done); table entry is for typecheck. */
+    {"fail",      "o9_fail",      1, "void",   {"string", nil}},
     {"lookup",    "o9_lookup_client", 1, "void", {"string", nil}},
     /* code as data: fire a shell-identical ctl line at any handle.
      * "object" marks a class-typed slot, passed by address. */
@@ -1269,6 +1274,7 @@ typeinfo_from_legacy(char *t)
 %token TCLASS TINTERFACE TSTRUCT TENUM TMODULE TIMPORT TFUNC TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TLIST TNIL TABSTRACT TDELETE
 %token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TOBJECT TLINK TREF TREPLICA TTRUE TFALSE TARROW
 %token TPUBLIC TPRIVATE
+%token TTRY TDEFER
 %token TEQ TADD TSUB TCHANSEND TCHANRECV TCHANTRY TEQEQ TNEQ TLE TGE
 %token TAND TOR TLSHIFT TRSHIFT TFORSEMI
 
@@ -1797,6 +1803,7 @@ stmt:
     | typename member_name TEQ expr ';' { $$ = mk_typed(NLocalVar, $2->name, $1, $4, nil); if(is_class_type($1->name)) add_var_class($2->name, $1->name); }
     | expr ';' { $$ = $1; }
     | TRETURN expr ';' { $$ = mk(NReturn, nil, nil, $2, nil); }
+    | TDEFER expr ';' { $$ = mk(NDefer, nil, nil, $2, nil); }
     | TDELETE TIDENT ';' { $$ = mk(NDelete, $2->name, nil, $2, nil); }
     | TPRINT '(' call_args ')' ';' {
         $$ = mk(NFuncCall, "print", nil, $3, nil);
@@ -1887,6 +1894,12 @@ expr:
     | TTRUE { $$ = mk(NBoolLit, "1", nil, nil, nil); }
     | TFALSE { $$ = mk(NBoolLit, "0", nil, nil, nil); }
     | TNIL { $$ = mk(NBoolLit, "nil", nil, nil, nil); }
+    | TTRY expr {
+        /* try expr: propagate the callee's error out of this method */
+        Node *n = mk(NTry, nil, nil, $2, nil);
+        n->typeinfo = $2->typeinfo;	/* try yields the success value's type */
+        $$ = n;
+    }
     | TNEW typename '(' call_args ')' {
         Node *n = mk(NClass, $2->name, "same", nil, nil);
         n->typeinfo = $2->typeinfo;
@@ -2262,6 +2275,8 @@ yylex(void)
             if(strcmp(buf, "secret") == 0) return TSECRET;
             if(strcmp(buf, "public") == 0) return TPUBLIC;
             if(strcmp(buf, "private") == 0) return TPRIVATE;
+            if(strcmp(buf, "try") == 0) return TTRY;
+            if(strcmp(buf, "defer") == 0) return TDEFER;
             if(strcmp(buf, "cap") == 0) return TCAP;
             if(strcmp(buf, "object") == 0) return TOBJECT;
             if(strcmp(buf, "link") == 0) return TLINK;
@@ -2335,6 +2350,8 @@ int in_class_context = 1;		/* 0 when generating top-level main() */
 int in_method_body = 0;		/* 1 when generating inside a method impl */
 static int msg_depth;		/* lexical nesting depth of NMsgSend packing */
 int has_return = 0;			/* 1 when a return statement was emitted */
+int try_seen = 0;			/* 1 when a try expr needs the done: label */
+Node *defer_list = nil;			/* deferred calls for the current method (LIFO) */
 Node *cur_class;			/* current class being codegen'd, for type lookups */
 int new_tmp_id = 0;
 
@@ -2396,6 +2413,13 @@ gen_expr(Node *e)
 {
     if(e == nil) return;
     switch(e->type){
+    case NTry:
+        /* At expression position, try just evaluates its call — the error
+         * check is emitted at statement level (gen_try_check) since 6c has
+         * no statement-expressions.  Bare `try f();` also lands here via
+         * the expr-statement path, which emits the check after. */
+        gen_expr(e->left);
+        break;
     case NIdent:
         if(is_local(e->name))
             print("%s", e->name);
@@ -2884,10 +2908,49 @@ gen_local_new(Node *s, char *cn, int distance)
 }
 
 void
+/* Emit the try error-propagation check for a statement whose RHS was a
+ * `try`.  Must come AFTER the call's value has been assigned/used, so
+ * the value is captured before we potentially goto done.  6c has no
+ * statement-expressions, so try is a statement-level construct. */
+static void
+gen_try_check(void)
+{
+    try_seen = 1;
+    print("\tif(o9_call_err != nil){ __o9r->err = o9_call_err; goto done; }\n");
+}
+
+/* True if e is a `try` wrapper (possibly the RHS of a stmt). */
+static int
+is_try(Node *e)
+{
+    return e != nil && e->type == NTry;
+}
+
+void
 gen_stmt(Node *c, Node *s)
 {
     Node *n;
     if(s == nil) return;
+    /* fail("msg"): set the method's error and jump to the exit.  Reuses
+     * the same done: mechanism as return — errors are values, no
+     * unwinding.  Only meaningful inside a method body. */
+    if(s->type == NSelfCall && s->name != nil && strcmp(s->name, "fail") == 0){
+        if(in_method_body){
+            has_return = 1;	/* ensure the done: label is emitted */
+            print("\t__o9r->err = ");
+            if(s->right != nil)
+                gen_expr(s->right);
+            else
+                print("\"failed\"");
+            print(";\n\tgoto done;\n");
+        } else {
+            /* outside a method: emit as a diagnostic + return */
+            print("\tfprint(2, \"fail: %%s\\n\", ");
+            if(s->right != nil) gen_expr(s->right); else print("\"failed\"");
+            print(");\n");
+        }
+        return;
+    }
     switch(s->type){
     case NLocalVar:
         if(is_primitive(s->typename)){
@@ -2899,6 +2962,7 @@ gen_stmt(Node *c, Node *s)
                 print("\to9_dict_init(&%s);\n", s->name);
             } else if(s->left){
                 print("\t%s = ", s->name); gen_expr(s->left); print(";\n");
+                if(is_try(s->left)) gen_try_check();
             } else {
                 print("\tmemset(&%s, 0, sizeof(%s));\n", s->name, type_storage_for_codegen(s->typeinfo));
             }
@@ -3207,9 +3271,25 @@ gen_stmt(Node *c, Node *s)
     case NReturn:
         if(in_method_body){
             has_return = 1;
-            print("\t__o9r->ret = (uintptr)("); gen_expr(s->left); print(");\n\tgoto done;\n");
+            if(is_try(s->left)){
+                /* return try f(): capture, check error, then set ret */
+                print("\t{ vlong __rv = (vlong)("); gen_expr(s->left); print(");\n");
+                print("\tif(o9_call_err != nil){ __o9r->err = o9_call_err; goto done; }\n");
+                print("\t__o9r->ret = (uintptr)__rv; }\n\tgoto done;\n");
+            } else {
+                print("\t__o9r->ret = (uintptr)("); gen_expr(s->left); print(");\n\tgoto done;\n");
+            }
         } else {
             print("\treturn "); gen_expr(s->left); print(";\n");
+        }
+        break;
+    case NDefer:
+        /* Collect the deferred call; it is emitted at the method's done:
+         * label so it runs on every exit path (LIFO: prepend). */
+        {
+            Node *dn = mk(NDefer, nil, nil, s->left, nil);
+            dn->next = defer_list;
+            defer_list = dn;
         }
         break;
     case NIf:
@@ -3265,6 +3345,7 @@ gen_stmt(Node *c, Node *s)
         break;
     default:
         print("\t"); gen_expr(s); print(";\n");
+        if(is_try(s)) gen_try_check();	/* bare `try f();` */
         break;
     }
 }
@@ -3909,10 +3990,23 @@ gen_class_server(Node *c)
             in_method_body = 1;
             gen_class = c;
             has_return = 0;
+            try_seen = 0;
+            defer_list = nil;
             for(s = m->left; s; s = s->next) gen_stmt(c, s);
+            /* Emit the exit label if any return/try/defer needs it. */
+            if(has_return || try_seen || defer_list != nil) print("done:\n");
+            /* Deferred cleanup runs on every exit path (normal, fail, try),
+             * LIFO — list was prepended, emit in list order.  Still inside
+             * the method body context so self-calls resolve. */
+            {
+                Node *dn;
+                for(dn = defer_list; dn != nil; dn = dn->next){
+                    print("\t"); gen_expr(dn->left); print(";\n");
+                }
+                defer_list = nil;
+            }
             in_method_body = 0;
             gen_class = nil;
-            if(has_return) print("done:\n");
             print("\t__o9r->ok = 1;\n\tsendp(msg->replyc, __o9r);\n}\n\n");
 			/* Ctrl dispatch thunk (void(*)(void*) for asm cache) */
 			{
@@ -3943,8 +4037,8 @@ gen_class_server(Node *c)
 					print("\tO9Msg __m = {0x%lux, nil, 0, chancreate(sizeof(void*), 1)};\n", o9_hash(m->name));
 				print("\to9_impl_%s_%s(self, &__m);\n", c->name, m->name);
 				print("\t{ O9Reply *__r = recvp(__m.replyc);\n");
-				print("\tif(__r->err != nil){ werrstr(\"%%s\", __r->err); ((vlong*)__a)[0] = 0; }\n");
-				print("\telse ((vlong*)__a)[0] = (vlong)(uintptr)__r->ret;\n");
+				print("\tif(__r->err != nil){ werrstr(\"%%s\", __r->err); o9_call_err = __r->err; ((vlong*)__a)[0] = 0; }\n");
+				print("\telse { o9_call_err = nil; ((vlong*)__a)[0] = (vlong)(uintptr)__r->ret; }\n");
 				print("\tfree(__r); }\n");
 				print("\tchanfree(__m.replyc);\n}\n\n");
 
@@ -3974,8 +4068,8 @@ gen_class_server(Node *c)
 					print("\to9_impl_%s_%s(self, &__m);\n", c->name, m->name);
 					print("\t__r = recvp(__m.replyc);\n");
 					if(!isvoid){
-						print("\tif(__r->err != nil){ werrstr(\"%%s\", __r->err); __v = 0; }\n");
-						print("\telse __v = (%s)__r->ret;\n", rst);
+						print("\tif(__r->err != nil){ werrstr(\"%%s\", __r->err); o9_call_err = __r->err; __v = 0; }\n");
+						print("\telse { o9_call_err = nil; __v = (%s)__r->ret; }\n", rst);
 					} else
 						print("\tif(__r->err != nil) werrstr(\"%%s\", __r->err);\n");
 					print("\tfree(__r);\n\tchanfree(__m.replyc);\n");
@@ -5521,6 +5615,9 @@ annotate_expr_type(Node *e, Node *scope_class)
     if(e == nil)
         return type_name("void");
     switch(e->type){
+    case NTry:
+        /* try yields the wrapped call's type */
+        return set_expr_type(e, annotate_expr_type(e->left, scope_class));
     case NIntLit:
         return set_expr_type(e, type_name("int64"));
     case NStringLit:
@@ -5944,6 +6041,11 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
         sem_line = e->line;
 
     switch(e->type){
+    case NTry:
+    case NDefer:
+        /* try/defer wrap a call expression — typecheck the inner call */
+        typecheck_expr(e->left, scope_class, errs);
+        break;
     case NProp:
     case NState:
     case NAtomic:
@@ -6411,6 +6513,8 @@ node_kind(int type)
     case NLshift: return "NLshift";
     case NRshift: return "NRshift";
     case NNot: return "NNot";
+    case NTry: return "NTry";
+    case NDefer: return "NDefer";
     case NBitNot: return "NBitNot";
     case NNeg: return "NNeg";
     case NIf: return "NIf";

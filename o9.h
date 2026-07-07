@@ -84,6 +84,7 @@ extern void  o9_clunk(int fd);
 extern void* obj9_msgSend(void *receiver, char *method, ulong selector, void *args);
 extern void* obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int nargs);
 extern ulong o9_hash(char *s);
+extern char *o9_call_err;	/* last dispatch error, for the `try` builtin */
 
 /* Array operations — line-based dynamic arrays (one vlong per line) */
 extern vlong  o9_array_get(char *data, vlong idx);

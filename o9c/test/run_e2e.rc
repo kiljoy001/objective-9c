@@ -64,6 +64,7 @@ runcase e2e_secret
 runcase e2e_private
 runcase e2e_twoclass
 runcase e2e_state
+runcase e2e_error
 
 if(! ~ $fail 0)
 	exit fail

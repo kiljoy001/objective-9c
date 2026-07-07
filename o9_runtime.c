@@ -45,6 +45,11 @@ o9_atomic_dec(long *p)
 }
 void o9_cache_fill(void *client, ulong hash, int is_ctrl);
 
+/* Last-call error signal for `try`: set non-nil by a failed dispatch,
+ * nil on success.  try checks this right after a call to decide whether
+ * to propagate.  Errors-as-values: a plain global, no unwinding. */
+char *o9_call_err;
+
 ulong
 o9_hash(char *s)
 {
@@ -1611,9 +1616,12 @@ obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int narg
         r = recvp(m->replyc);
         if(r->err != nil){
             werrstr("%s", r->err);
+            o9_call_err = r->err;	/* for try: last-call error signal */
             ret = nil;
-        } else
+        } else {
+            o9_call_err = nil;
             ret = (void*)r->ret;
+        }
         chanfree(m->replyc);
         free(r);
         free(m);
@@ -1631,8 +1639,10 @@ obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int narg
                 if(nl != nil)
                     *nl = '\0';
                 werrstr("%s", data + 7);
+                o9_call_err = "remote call failed";
                 return nil;
             }
+            o9_call_err = nil;
             return (void*)(uintptr)strtoll(data, nil, 0);
         }
     }
