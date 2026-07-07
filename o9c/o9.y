@@ -3769,6 +3769,13 @@ gen_init_internal_state(Node *c, char *ptr)
             p = find_class(m->name);
             if(p) gen_init_internal_state(p, ptr);
         }
+        if(m->type == NStream){
+            /* CSP channel for object IPC: auto-created at construction so
+             * the field is a live channel (both self-use and object-to-
+             * object send/recv).  Buffered so a send need not rendezvous. */
+            print("\t%s->%s = chancreate(sizeof(void*), 8);\n", ptr, m->name);
+            continue;
+        }
         if(m->type == NProp || m->type == NState || m->type == NAtomic){
             Node *d = type_decl_node(m->typeinfo);
             if(type_is_class_ref(m->typeinfo)){

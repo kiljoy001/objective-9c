@@ -1,0 +1,21 @@
+// CSP channels: object-internal IPC, auto-created at construction.
+// (Regression: chan fields were declared Channel* but never chancreate'd,
+// so send/recv hit a nil channel.) Buffered so a send need not rendezvous.
+class Pipe {
+    chan c;
+    method void put(int64 v) { c -> v; }
+    method int64 take() { int64 x; x = <- c; return x; }
+}
+func main() {
+    Pipe p = new Pipe();
+    // Go-style: send several, receive in order (buffered channel)
+    p.put(10);
+    p.put(20);
+    p.put(30);
+    int64 a; int64 b; int64 d;
+    a = p.take();
+    b = p.take();
+    d = p.take();
+    print("order ", a, " ", b, " ", d, "\n");   // 10 20 30 (FIFO)
+    print("sum ", a + b + d, "\n");              // 60
+}
