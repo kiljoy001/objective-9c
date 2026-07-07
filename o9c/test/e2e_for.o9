@@ -1,0 +1,23 @@
+// for loop: C-style init/cond/step with assignments. Regression for the
+// TFORSEMI lexer bug (header ; not converted) and the missing init/step
+// codegen (assignments in a for-clause were dropped -> infinite loop).
+func main() {
+    int64 sum;
+    int64 i;
+    sum = 0;
+    for(i = 0; i < 5; i = i + 1) {
+        sum = sum + i;
+    }
+    print("sum ", sum, "\n");           // 0+1+2+3+4 = 10
+    // nested for
+    int64 grid;
+    int64 r;
+    grid = 0;
+    for(r = 0; r < 3; r = r + 1) {
+        int64 col;
+        for(col = 0; col < 3; col = col + 1) {
+            grid = grid + 1;
+        }
+    }
+    print("grid ", grid, "\n");         // 3*3 = 9
+}

@@ -2087,12 +2087,21 @@ yylex(void)
     while((c = lex_getc()) != Beof){
         if(isspace(c))
             continue;
-        /* Inside for(...): track paren depth, convert ';' to TFORSEMI */
+        /* Inside for(...): convert the header's ';' separators to
+         * TFORSEMI so for_init/cond/step can be exprs.  for_paren_depth:
+         * 0 after `for` (awaiting the header '('), 1 inside the header,
+         * >1 in nested parens.  The ')' that closes the header (depth 1)
+         * ends for-mode (-1); nested ')' just decrements. */
         if(for_paren_depth >= 0){
-            if(c == '(') { for_paren_depth++; return '('; }
-            if(c == ')' && for_paren_depth > 0) { for_paren_depth--; return ')'; }
-            if(c == ')' && for_paren_depth == 0) { for_paren_depth = -1; return ')'; }
-            if(c == ';') return TFORSEMI;
+            if(c == '('){ for_paren_depth++; return '('; }
+            if(c == ')'){
+                for_paren_depth--;
+                if(for_paren_depth <= 0)
+                    for_paren_depth = -1;	/* header closed: leave for-mode */
+                return ')';
+            }
+            if(c == ';' && for_paren_depth == 1)	/* only header ';' */
+                return TFORSEMI;
         }
         if(c == '~')
             return '~';
@@ -2983,7 +2992,6 @@ gen_local_new(Node *s, char *cn, int distance)
     }
 }
 
-void
 /* Emit the try error-propagation check for a statement whose RHS was a
  * `try`.  Must come AFTER the call's value has been assigned/used, so
  * the value is captured before we potentially goto done.  6c has no
@@ -3000,6 +3008,23 @@ static int
 is_try(Node *e)
 {
     return e != nil && e->type == NTry;
+}
+
+/* Emit a for-loop init/step clause (no leading tab, no trailing ;).
+ * These are usually assignments (i = 0, i = i+1) which gen_expr does not
+ * handle — emit "lhs = rhs" inline; otherwise fall through to gen_expr. */
+void
+gen_for_clause(Node *e)
+{
+    if(e == nil)
+        return;
+    if(e->type == NAssign && e->left != nil && e->right != nil){
+        gen_expr(e->left);
+        print(" = ");
+        gen_expr(e->right);
+        return;
+    }
+    gen_expr(e);
 }
 
 void
@@ -3458,13 +3483,15 @@ gen_stmt(Node *c, Node *s)
         print("\t}\n");
         break;
     case NFor:
-        /* s->left=init, s->right->left=cond, s->right->right=step, s->right->next=body */
+        /* s->left=init, s->right->left=cond, s->right->right=step, s->right->next=body.
+         * init/step are expressions but are usually ASSIGNMENTS (i = 0;
+         * i = i+1), which gen_expr does not emit — handle inline here. */
         print("\tfor(");
-        if(s->left) gen_expr(s->left);
+        gen_for_clause(s->left);
         print("; ");
-        if(s->right->left) gen_expr(s->right->left);
+        if(s->right->left) gen_expr(s->right->left);	/* cond is a plain expr */
         print("; ");
-        if(s->right->right) gen_expr(s->right->right);
+        gen_for_clause(s->right->right);
         print("){\n");
         for(n = s->right->next; n; n = n->next) gen_stmt(c, n);
         print("\t}\n");
@@ -4283,8 +4310,10 @@ gen_class_server(Node *c)
     print("\t\tswitch(m->sel){\n");
     num_emitted = 0;
     gen_dispatch_cases(c, c->name);
-    print("\t\tcase 0x%lux: o9_cleanup_%s(self); { O9Reply *__dr = mallocz(sizeof(O9Reply), 1); __dr->ok = 1; sendp(m->replyc, __dr); } threadexits(nil); break;\n", o9_hash("destroy"), c->name);
-    print("\t\tdefault: { O9Reply *r = mallocz(sizeof(O9Reply), 1); r->err = \"bad selector\"; sendp(m->replyc, r); } break;\n");
+    /* destroy: replyc may be nil (ARC-reap sends destroy with no reply
+     * channel) — only reply if a caller is waiting. */
+    print("\t\tcase 0x%lux: o9_cleanup_%s(self); if(m->replyc != nil){ O9Reply *__dr = mallocz(sizeof(O9Reply), 1); __dr->ok = 1; sendp(m->replyc, __dr); } threadexits(nil); break;\n", o9_hash("destroy"), c->name);
+    print("\t\tdefault: if(m->replyc != nil){ O9Reply *r = mallocz(sizeof(O9Reply), 1); r->err = \"bad selector\"; sendp(m->replyc, r); } break;\n");
     print("\t\t}\n\t}\n}\n\n");
 
     /* Per-app facade: root/mount/srv are shared app globals now.  Alias
