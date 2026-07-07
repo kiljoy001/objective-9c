@@ -234,4 +234,16 @@ extern vlong    o9_state_get_int(O9State *s, char *col);
 extern int      o9_state_flush(O9State *s, char *path);	/* explicit persist to disk */
 extern int      o9_state_serialize(O9State *s, char *out, int nout);	/* debug: dump live tab */
 
+/* Tabula — the language-level table type, over libtab. Text in/out. */
+typedef struct O9Tabula O9Tabula;
+extern O9Tabula* o9_tab_new(char *name, char *cols);	/* cols = "a,b,c" */
+extern O9Tabula* o9_tab_open(char *path);
+extern int       o9_tab_add(O9Tabula *t, char *key);	/* append row, becomes current */
+extern int       o9_tab_set(O9Tabula *t, char *col, char *val);
+extern char*     o9_tab_get(O9Tabula *t, char *col);
+extern int       o9_tab_first(O9Tabula *t);	/* start iteration; 1 if a row */
+extern int       o9_tab_next(O9Tabula *t);	/* advance; 1 if a row, 0 at end */
+extern char*     o9_tab_serialize(O9Tabula *t);	/* whole tab as text (malloc'd) */
+extern void      o9_tab_close(O9Tabula *t);
+
 #endif

@@ -59,6 +59,11 @@ crypto-test:V:	libo9.a
 	$LD -o o9c/test/crypto_test crypto_test.$O libo9.a
 	o9c/test/crypto_test
 
+tab-test:V:	libo9.a
+	$CC -I. o9c/test/tab_test.c
+	$LD -o o9c/test/tab_test tab_test.$O libo9.a
+	o9c/test/tab_test
+
 # === runtime library ===
 RUNTIME_OBJ=\
 	o9_dispatch.$O\

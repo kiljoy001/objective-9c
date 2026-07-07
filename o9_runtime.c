@@ -1220,6 +1220,183 @@ o9_state_serialize(O9State *s, char *out, int nout)
 	return n;
 }
 
+/* ---- Tabula: the language-level table type, over libtab ----
+ *
+ * A Tabula is a thin wrapper: a Tab plus a "current row" cursor for the
+ * add/set build style and an iterator for reading.  o9 exposes it with
+ * method syntax (t.add(key); t.set(col, val); t.get(col); t.next()).
+ * Every value in/out is a string — the o9 boundary is text.
+ */
+struct O9Tabula {
+	Tab *tab;
+	TabRow *cur;	/* current row: target of set/get, advanced by next */
+	TabIter *it;	/* active read iterator */
+	char *path;	/* nominal path (where a flush would write) */
+};
+
+/* new_tab(name, "col1,col2,...") — create an in-memory Tabula with the
+ * given comma-separated columns (plain text cells).  nil on failure. */
+O9Tabula*
+o9_tab_new(char *name, char *cols)
+{
+	O9Tabula *t;
+	TabColSpec spec[64];
+	char buf[512], *p, *q;
+	int n;
+
+	if(name == nil || name[0] == '\0')
+		name = "tab";
+	t = mallocz(sizeof *t, 1);
+	if(t == nil)
+		return nil;
+	/* column 0 is always "id" — the row head attr tab_add_row keys on,
+	 * matching the state-tab schema.  User columns follow. */
+	memset(&spec[0], 0, sizeof spec[0]);
+	spec[0].name = "id";
+	n = 1;
+	if(cols != nil && cols[0] != '\0'){
+		strncpy(buf, cols, sizeof buf - 1);
+		buf[sizeof buf - 1] = '\0';
+		p = buf;
+		while(p != nil && *p != '\0' && n < nelem(spec)){
+			q = strchr(p, ',');
+			if(q != nil)
+				*q++ = '\0';
+			while(*p == ' ') p++;
+			if(strcmp(p, "id") == 0){ p = q; continue; }	/* no dup id */
+			memset(&spec[n], 0, sizeof spec[n]);
+			spec[n].name = strdup(p);
+			n++;
+			p = q;
+		}
+	}
+	/* nominal path — never written unless the program flushes it */
+	{
+		char pbuf[128];
+		snprint(pbuf, sizeof pbuf, "%s.tab", name);
+		t->path = strdup(pbuf);
+	}
+	t->tab = tab_create(t->path, name, spec, n);
+	if(t->tab == nil){
+		free(t->path);
+		free(t);
+		return nil;
+	}
+	return t;
+}
+
+/* open_tab(path) — read an existing .tab file into a Tabula. */
+O9Tabula*
+o9_tab_open(char *path)
+{
+	O9Tabula *t;
+
+	if(path == nil || path[0] == '\0')
+		return nil;
+	t = mallocz(sizeof *t, 1);
+	if(t == nil)
+		return nil;
+	t->tab = tab_open(path);
+	if(t->tab == nil){
+		free(t);
+		return nil;
+	}
+	t->path = strdup(path);
+	return t;
+}
+
+/* t.add(key) — append a row keyed by "id"=key; it becomes the current
+ * row for subsequent set().  Returns 0 / -1. */
+int
+o9_tab_add(O9Tabula *t, char *key)
+{
+	if(t == nil || t->tab == nil || key == nil)
+		return -1;
+	t->cur = tab_add_row(t->tab, "id", key);
+	return t->cur != nil ? 0 : -1;
+}
+
+/* t.set(col, val) — set a cell on the current row. */
+int
+o9_tab_set(O9Tabula *t, char *col, char *val)
+{
+	if(t == nil || t->tab == nil || t->cur == nil || col == nil)
+		return -1;
+	if(val == nil)
+		val = "";
+	return tab_set(t->tab, t->cur, col, val);
+}
+
+/* t.get(col) — read a cell from the current row (empty string if none). */
+char*
+o9_tab_get(O9Tabula *t, char *col)
+{
+	const char *v;
+
+	if(t == nil || t->cur == nil || col == nil)
+		return "";
+	v = tab_get(t->cur, col);
+	return v != nil ? (char*)v : "";
+}
+
+/* t.first() — start iteration; sets current row to the first, or nil.
+ * Returns 1 if there is a row, 0 if empty. */
+int
+o9_tab_first(O9Tabula *t)
+{
+	if(t == nil || t->tab == nil)
+		return 0;
+	if(t->it != nil)
+		tab_iter_close(t->it);
+	t->it = tab_iter(t->tab);
+	if(t->it == nil){
+		t->cur = nil;
+		return 0;
+	}
+	t->cur = tab_iter_next(t->it);
+	return t->cur != nil ? 1 : 0;
+}
+
+/* t.next() — advance to the next row.  Returns 1 if a row is now
+ * current, 0 at end (iterator closed). */
+int
+o9_tab_next(O9Tabula *t)
+{
+	if(t == nil || t->it == nil)
+		return 0;
+	t->cur = tab_iter_next(t->it);
+	if(t->cur == nil){
+		tab_iter_close(t->it);
+		t->it = nil;
+		return 0;
+	}
+	return 1;
+}
+
+/* t.serialize() — the whole tab as text bytes (malloc'd; caller frees).
+ * This is the on-the-wire / exportable form. */
+char*
+o9_tab_serialize(O9Tabula *t)
+{
+	int n;
+	if(t == nil || t->tab == nil)
+		return strdup("");
+	return tab_serialize(t->tab, &n);
+}
+
+void
+o9_tab_close(O9Tabula *t)
+{
+	if(t == nil)
+		return;
+	if(t->it != nil)
+		tab_iter_close(t->it);
+	if(t->tab != nil)
+		tab_close(t->tab);
+	free(t->path);
+	free(t);
+}
+
 char*
 o9_state_get(O9State *s, char *col)
 {
