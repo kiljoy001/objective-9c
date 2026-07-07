@@ -51,6 +51,9 @@ run-test:V:	o9c libo9.a
 ext-test:V:	o9c libo9.a
 	rc ./o9c/test/run_ext.rc
 
+debug-test:V:	o9c libo9.a
+	rc ./o9c/test/run_debug.rc
+
 crypto-test:V:	libo9.a
 	$CC -I. o9c/test/crypto_test.c
 	$LD -o o9c/test/crypto_test crypto_test.$O libo9.a

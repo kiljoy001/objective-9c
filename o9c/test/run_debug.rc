@@ -1,0 +1,102 @@
+#!/bin/rc
+# Debug-state probe: verify the `state` file is gated by O9DEBUG.
+#   O9DEBUG off -> reading state returns "debug disabled"
+#   O9DEBUG on  -> reading state dumps live object state:
+#                  public field plain, private as debug:, secret sealed.
+# Reads over 9P from outside the server process.
+rfork e
+
+tool=./o9c/o9c
+fail=0
+app=Sensor
+srv=/srv/o9.^$app^.^$app^.app
+
+rm -f /tmp/debug_result
+
+fn cleanup {
+	if(! ~ $spid '')
+		kill $spid >[2]/dev/null
+	unmount /n/dbg >[2]/dev/null
+	rm -f $srv /tmp/ds.c /tmp/ds.6 /tmp/ds >[2]/dev/null
+}
+
+fn fail_msg {
+	echo $* >> /tmp/debug_result
+	fail=1
+}
+fn ok_msg {
+	echo $* >> /tmp/debug_result
+}
+
+# build once
+if(! $tool < o9c/test/debug_server.o9 > /tmp/ds.c){ fail_msg 'debug: transpile failed'; exit fail }
+if(! 6c -FVw -I. -o /tmp/ds.6 /tmp/ds.c){ fail_msg 'debug: compile failed'; exit fail }
+if(! 6l -o /tmp/ds /tmp/ds.6 libo9.a /$objtype/lib/libndb.a){ fail_msg 'debug: link failed'; exit fail }
+
+# --- Phase 1: O9DEBUG OFF -> state gated ---
+rm -f $srv
+O9DEBUG=() /tmp/ds &
+spid=$apid
+n=0
+while(! test -e $srv){
+	if(~ $n 50){ fail_msg 'debug: server (off) never posted'; cleanup; exit fail }
+	sleep 0.1
+	n=`{hoc -e $n+1}
+}
+mount $srv /n/dbg
+s1=`{cat /n/dbg/state}
+if(~ $s1 *disabled*)
+	ok_msg 'debug off: gated OK'
+if not
+	fail_msg 'debug: state not gated when O9DEBUG off: '$s1
+kill $spid; spid=''
+unmount /n/dbg
+rm -f $srv
+
+# --- Phase 2: O9DEBUG ON -> state dumped ---
+O9DEBUG=1 /tmp/ds &
+spid=$apid
+n=0
+while(! test -e $srv){
+	if(~ $n 50){ fail_msg 'debug: server (on) never posted'; cleanup; exit fail }
+	sleep 0.1
+	n=`{hoc -e $n+1}
+}
+mount $srv /n/dbg
+cat /n/dbg/state > /tmp/debug_dump
+
+# public field 'reading' present plain
+if(grep -s reading /tmp/debug_dump)
+	ok_msg 'debug on: public reading present OK'
+if not
+	fail_msg 'debug: public reading missing in dump'
+
+# private field as debug:raw
+if(grep -s 'debug:raw' /tmp/debug_dump)
+	ok_msg 'debug on: private debug:raw present OK'
+if not
+	fail_msg 'debug: private field not shown as debug:raw'
+
+# secret sealed — token__blob present, plaintext NOT
+if(grep -s token__blob /tmp/debug_dump){
+	if(grep -s tok-abc /tmp/debug_dump)
+		fail_msg 'debug: secret plaintext leaked in dump'
+	if not
+		ok_msg 'debug on: secret sealed OK'
+}
+if not
+	fail_msg 'debug: secret blob missing in dump'
+
+rm -f /tmp/debug_dump
+cleanup
+
+if(~ $fail 0){
+	echo 'debug_state: OK'
+	rm -f /tmp/debug_result
+}
+if not {
+	echo 'debug_state: FAIL'
+	cat /tmp/debug_result >[1=2]
+	rm -f /tmp/debug_result
+	exit fail
+}

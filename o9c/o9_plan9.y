@@ -4056,6 +4056,18 @@ gen_class_server(Node *c)
     print("\tfor(i = 0; i < %s_ninstances; i++)\n", c->name);
     print("\t\tif(strcmp(%s_instances[i].name, name) == 0) return %s_instances[i].inst;\n", c->name, c->name);
     print("\treturn nil;\n}\n\n");
+    /* Debug dumpstate: serialize every live instance's in-memory state
+     * tab into out.  Returns bytes written.  Only reached when O9DEBUG. */
+    print("static int %s_dumpstate(char *out, int nout){\n", c->name);
+    print("\tint i, w = 0, n;\n");
+    print("\tif(out == nil || nout <= 0) return 0;\n");
+    print("\tout[0] = '\\0';\n");
+    print("\tfor(i = 0; i < %s_ninstances && w < nout-1; i++){\n", c->name);
+    print("\t\tn = snprint(out+w, nout-w, \"%%s:\\n\", %s_instances[i].name); w += n;\n", c->name);
+    print("\t\tn = o9_state_serialize(%s_instances[i].inst->state, out+w, nout-w); w += n;\n", c->name);
+    print("\t\tif(w < nout-1){ out[w++] = '\\n'; out[w] = '\\0'; }\n");
+    print("\t}\n");
+    print("\treturn w;\n}\n\n");
     /* Forward-declare the facade handlers: record_instance binds them into
      * each object dir's O9FileAux, but their bodies come further below. */
     print("static void fsread_%s(Req *r, void *instv);\n", c->name);
@@ -4335,7 +4347,7 @@ gen_class_server(Node *c)
      * creates its boot instance (recorded in the registry, no dir). */
     o9_note_registered(c->name);	/* boot calls o9_register_class_<C> */
     print("void o9_register_class_%s(void) {\n", c->name);
-    print("\to9app_register_handler(\"%s\", fsread_%s, fswrite_%s, (void*(*)(char*))%s_find_instance);\n", c->name, c->name, c->name, c->name);
+    print("\to9app_register_handler(\"%s\", fsread_%s, fswrite_%s, (void*(*)(char*))%s_find_instance, %s_dumpstate);\n", c->name, c->name, c->name, c->name, c->name);
     print("\to9_objects_%s = o9_object_store_create_path(o9app_root, o9app_name);\n", c->name);
     print("\to9_method_store_init(o9app_root, o9app_name);\n");
     gen_method_registrations(c, c);
@@ -4606,6 +4618,7 @@ codegen(Node *root)
     print("\tvoid (*read)(Req*, void*);\n");
     print("\tvoid (*write)(Req*, void*);\n");
     print("\tvoid *(*find)(char*);\t/* <C>_find_instance */\n");
+    print("\tint (*dumpstate)(char*, int);\t/* <C>_dumpstate: debug */\n");
     print("};\n");
     print("extern O9ClassH o9app_classes[64];\n");
     print("extern int o9app_nclasses;\n");
@@ -4616,13 +4629,17 @@ codegen(Node *root)
     print("extern char o9app_mount[256];\n");
     print("extern char o9app_name[64];\n");
     print("extern char o9app_exports[256];\t/* real on-disk exports dir path */\n");
-    print("static void o9app_register_handler(char *name, void (*rd)(Req*,void*), void (*wr)(Req*,void*), void *(*find)(char*)){\n");
+    print("static void o9app_register_handler(char *name, void (*rd)(Req*,void*), void (*wr)(Req*,void*), void *(*find)(char*), int (*dump)(char*,int)){\n");
     print("\tif(o9app_nclasses >= nelem(o9app_classes)) return;\n");
     print("\to9app_classes[o9app_nclasses].name = name;\n");
     print("\to9app_classes[o9app_nclasses].read = rd;\n");
     print("\to9app_classes[o9app_nclasses].write = wr;\n");
     print("\to9app_classes[o9app_nclasses].find = find;\n");
+    print("\to9app_classes[o9app_nclasses].dumpstate = dump;\n");
     print("\to9app_nclasses++;\n}\n");
+    /* Debug gate: O9DEBUG env var exposes live object state via the
+     * `state` file.  Off by default — encapsulation preserved. */
+    print("extern int o9app_debug;\n");
     /* Split a "Class.inst" token; returns the class handler and writes
      * the bare instance name into instout.  nil if not found. */
     print("static O9ClassH *o9app_resolve(char *tok, char *instout, int n){\n");
@@ -4653,7 +4670,8 @@ codegen(Node *root)
     print("char o9app_srvname[128];\n");
     print("char o9app_mount[256];\n");
     print("char o9app_name[64];\n");
-    print("char o9app_exports[256];\n\n");
+    print("char o9app_exports[256];\n");
+    print("int o9app_debug;\t/* set from O9DEBUG at startup */\n\n");
 
     /* exports/: real on-disk directory under <root>/exports.  Objects
      * publish Tabulae as plain .tab files there (writefile/tab_commit).
@@ -4675,6 +4693,16 @@ codegen(Node *root)
     print("\t\tfor(i = 0; i < o9app_nclasses; i++){\n");
     print("\t\t\tchar mb[4096]; o9_method_serialize(o9app_classes[i].name, mb, sizeof mb);\n");
     print("\t\t\tp += snprint(p, sizeof buf-(p-buf), \"%%s\", mb);\n");
+    print("\t\t}\n");
+    print("\t\treadstr(r, buf); respond(r, nil); return;\n\t}\n");
+    /* state: DEBUG-only inspector.  Off by default (encapsulation);
+     * O9DEBUG dumps every live object's serialized state tab. */
+    print("\tif(strcmp(name, \"state\") == 0){\n");
+    print("\t\tif(!o9app_debug){ readstr(r, \"debug disabled (set O9DEBUG)\\n\"); respond(r, nil); return; }\n");
+    print("\t\tfor(i = 0; i < o9app_nclasses; i++){\n");
+    print("\t\t\tif(o9app_classes[i].dumpstate == nil) continue;\n");
+    print("\t\t\tp += snprint(p, sizeof buf-(p-buf), \"# %%s\\n\", o9app_classes[i].name);\n");
+    print("\t\t\tp += o9app_classes[i].dumpstate(p, (int)(sizeof buf-(p-buf)));\n");
     print("\t\t}\n");
     print("\t\treadstr(r, buf); respond(r, nil); return;\n\t}\n");
     print("\trespond(r, \"not found\");\n}\n");
@@ -4719,6 +4747,7 @@ codegen(Node *root)
     print("\tchar *__o9app = \"%s\";\n", last != nil ? last->name : "app");
     print("\tif(argc > 1 && argv[1] != nil && argv[1][0] != '\\0') __o9app = argv[1];\n");
     print("\tsnprint(o9app_name, sizeof o9app_name, \"%%s\", __o9app);\n");
+    print("\t{ char *__d = getenv(\"O9DEBUG\"); o9app_debug = (__d != nil && __d[0] != '\\0'); free(__d); }\n");
     print("\to9_ns_app_root(o9app_root, sizeof o9app_root, __o9app);\n");
     print("\to9_ns_service_name(o9app_srvname, sizeof o9app_srvname, __o9app, __o9app, \"app\");\n");
     print("\to9_ns_class_path(o9app_mount, sizeof o9app_mount, o9app_root, __o9app);\n");
@@ -4737,6 +4766,7 @@ codegen(Node *root)
     print("\tcreatefile(o9app_tree->root, \"data\", \"o9\", 0444, nil);\n");
     print("\tcreatefile(o9app_tree->root, \"status\", \"o9\", 0444, nil);\n");
     print("\tcreatefile(o9app_tree->root, \"methods\", \"o9\", 0444, nil);\n");
+    print("\tcreatefile(o9app_tree->root, \"state\", \"o9\", 0444, nil);\t/* debug inspector */\n");
     /* exports/ — real on-disk dir at <root>/exports.  Objects publish
      * Tabulae here as real .tab files (plain writefile, no tree mutation).
      * Reachable over 9P via the app's namespace root; separate from the

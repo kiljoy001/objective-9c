@@ -1,0 +1,19 @@
+// Server for the debug-state probe: a Sensor with public, private, and
+// secret state. run_debug.rc reads the `state` file with O9DEBUG off
+// (gated) and on (dumps live state, private as debug:, secret sealed).
+class Sensor {
+    state int64 reading;
+    private state int64 raw;
+    secret string token;
+    method Sensor(int64 r) {
+        reading = r;
+        raw = r * 10;
+        string k = passkey("sensor-key", "sensor.salt.v1");
+        seal_token(k, "tok-abc");
+    }
+    method int64 get() { return reading; }
+}
+func main() {
+    Sensor s = new Sensor(42);
+    serve();
+}

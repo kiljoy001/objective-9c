@@ -1190,6 +1190,31 @@ o9_state_set_int(O9State *s, char *col, vlong value)
 	o9_state_set(s, col, buf);
 }
 
+/* Serialize the live in-memory state tab into out (debug inspection).
+ * Returns bytes written (excluding the terminator), or 0 on failure.
+ * Public fields appear plain, private as debug:<field>, secret sealed. */
+int
+o9_state_serialize(O9State *s, char *out, int nout)
+{
+	char *buf;
+	int n;
+
+	if(out == nil || nout <= 0)
+		return 0;
+	out[0] = '\0';
+	if(s == nil || s->tab == nil)
+		return 0;
+	buf = tab_serialize(s->tab, &n);
+	if(buf == nil)
+		return 0;
+	if(n >= nout)
+		n = nout - 1;
+	memmove(out, buf, n);
+	out[n] = '\0';
+	free(buf);
+	return n;
+}
+
 char*
 o9_state_get(O9State *s, char *col)
 {
