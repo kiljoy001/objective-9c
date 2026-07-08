@@ -1,0 +1,68 @@
+#!/bin/rc
+# Session isolation regression test (SESSIONS.md, review finding #6).
+# Two concurrent sessions (clone) drive two objects; each must read ITS
+# OWN result from its session data file — the fix for the global
+# o9app_lastdata race where one caller could read another's result.
+# Also checks the role split: result -> data, ok/error -> status.
+# Exits non-zero on failure. Run from repo root.
+
+tool=./o9c/o9c
+app=o9sesstest
+src=o9c/test/sess_app.o9
+bin=/tmp/o9sess.$pid
+mtpt=/n/o9sess.$pid
+srv=/srv/o9.$app.$app.app
+fail=0
+
+fn cleanup {
+	unmount $mtpt >[2]/dev/null
+	kill o9sess.$pid >[2]/dev/null
+	rm -f $srv $bin /tmp/o9sess.$pid.^*
+}
+
+if(! test -e $tool){ echo missing $tool >[1=2]; exit missing }
+if(! test -e libo9.a){ echo missing libo9.a >[1=2]; exit missing }
+
+rm -f $srv
+if(! $tool $src > /tmp/o9sess.$pid.c){ echo 'session: FAIL: transpile' >[1=2]; exit fail }
+if(! 6c -FVw -I. -o /tmp/o9sess.$pid.6 /tmp/o9sess.$pid.c){ echo 'session: FAIL: 6c' >[1=2]; exit fail }
+if(! 6l -o $bin /tmp/o9sess.$pid.6 libo9.a /$objtype/lib/libndb.a){ echo 'session: FAIL: 6l' >[1=2]; exit fail }
+
+$bin $app &
+p=$apid
+@{ sleep 15; kill $p >[2]/dev/null } &
+
+i=0
+while(! test -e $srv && test $i -lt 12){ sleep 1; i=`{hoc -e $i+1} }
+if(! test -e $srv){ echo 'session: FAIL: no /srv post' >[1=2]; cleanup; exit fail }
+
+if(! mount -c $srv $mtpt){ echo 'session: FAIL: mount' >[1=2]; cleanup; exit fail }
+
+# two sessions
+sida=`{cat $mtpt/clone}
+sidb=`{cat $mtpt/clone}
+if(~ $sida '' || ~ $sidb ''){ echo 'session: FAIL: clone gave no id' >[1=2]; cleanup; exit fail }
+if(! test -e $mtpt/$sida/ctl){ echo 'session: FAIL: no session ctl' >[1=2]; cleanup; exit fail }
+
+# each session drives its own object
+echo 'method Counter.a set arg0=100' > $mtpt/$sida/ctl
+echo 'method Counter.b set arg0=200' > $mtpt/$sidb/ctl
+echo 'method Counter.a get' > $mtpt/$sida/ctl
+echo 'method Counter.b get' > $mtpt/$sidb/ctl
+
+# assertion: each session's data has ITS OWN result (no cross)
+adat=`{cat $mtpt/$sida/data}
+bdat=`{cat $mtpt/$sidb/data}
+if(! ~ $adat 100){ echo 'session: FAIL: session A data ='^$adat^' want 100' >[1=2]; fail=1 }
+if(! ~ $bdat 200){ echo 'session: FAIL: session B data ='^$bdat^' want 200' >[1=2]; fail=1 }
+# assertion: status carries ok (role split)
+astat=`{cat $mtpt/$sida/status}
+if(! ~ $astat ok){ echo 'session: FAIL: session A status ='^$astat^' want ok' >[1=2]; fail=1 }
+
+kill $p >[2]/dev/null
+cleanup
+
+if(~ $fail 0)
+	echo session: OK
+if not
+	exit fail

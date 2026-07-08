@@ -4561,7 +4561,7 @@ gen_class_server(Node *c)
     print("\t\t\t\t%s_record_instance(f[1], target);\n", c->name);
     print("\t\t\t\tproccreate(%s_loop, target, 65536);\n", c->name);
     print("\t\t\t}\n");
-    print("\t\t\tsnprint(o9app_lastdata, sizeof o9app_lastdata, \"ok new %%s\\n\", f[1]);\n");
+    print("\t\t\t{ char __nb[128]; snprint(__nb, sizeof __nb, \"ok new %%s\\n\", f[1]); o9app_put_status(__nb); o9app_put_result(__nb); }\n");
     print("\t\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t\t}\n");
     print("\t\tif(strcmp(f[0], \"method\") == 0){\n");
     print("\t\t\tif(nf < 3){ if(inst) snprint(inst->error, sizeof inst->error, \"method needs instance and name\"); respond(r, \"bad method\"); return; }\n");
@@ -4594,21 +4594,27 @@ gen_class_server(Node *c)
                 o9_hash(m->name), np > 0 ? "__wargs" : "nil", np);
             print("\t\t\t\tsendp(target->dispatch_chan, &__wm);\n");
             print("\t\t\t\tO9Reply *__o9rep = recvp(__wm.replyc);\n");
-            /* Flat facade: the ctl reply goes to the app-level data buffer
-             * (o9app_lastdata), which the root `data` file returns — so an
-             * external 9P caller reads its result there. */
-            print("\t\t\t\tif(__o9rep->err != nil) snprint(o9app_lastdata, sizeof o9app_lastdata, \"error: %%s\\n\", __o9rep->err);\n");
-            print("\t\t\t\telse\n");
+            /* Roles (SESSIONS.md): success/error -> STATUS, the return
+             * value -> DATA. o9app_put_* route to the current session
+             * (or o9app_lastdata for the root-ctl path). */
+            print("\t\t\t\tif(__o9rep->err != nil){\n");
+            print("\t\t\t\t\tchar __eb[256]; snprint(__eb, sizeof __eb, \"error: %%s\\n\", __o9rep->err);\n");
+            print("\t\t\t\t\to9app_put_status(__eb); o9app_put_result(\"\");\n");
+            print("\t\t\t\t} else {\n");
+            print("\t\t\t\t\to9app_put_status(\"ok\\n\");\n");
             if(type_is_void(m->typeinfo)){
-                print("\t\t\t\tsnprint(o9app_lastdata, sizeof o9app_lastdata, \"ok\\n\");\n");
+                print("\t\t\t\t\to9app_put_result(\"\");\n");
             } else {
                 char *fmt = type_fmt_for_codegen(m->typeinfo);
                 char *cast = type_cast_for_codegen(m->typeinfo);
+                print("\t\t\t\t\t{ char __rb[4096];\n");
                 if(strcmp(fmt, "%s") == 0)
-                    print("\t\t\t\tsnprint(o9app_lastdata, sizeof o9app_lastdata, \"%%s\\n\", (char*)__o9rep->ret);\n");
+                    print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%s\\n\", (char*)__o9rep->ret);\n");
                 else
-                    print("\t\t\t\tsnprint(o9app_lastdata, sizeof o9app_lastdata, \"%s\\n\", (%s)__o9rep->ret);\n", fmt, cast);
+                    print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%s\\n\", (%s)__o9rep->ret);\n", fmt, cast);
+                print("\t\t\t\t\to9app_put_result(__rb); }\n");
             }
+            print("\t\t\t\t}\n");
             print("\t\t\t\tfree(__o9rep); chanfree(__wm.replyc); }\n");
             print("\t\t\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t\t\t}\n");
         }
@@ -5034,13 +5040,64 @@ codegen(Node *root)
      * serialized bytes live in the child File's aux. */
     /* Flat root handlers.  The four files share these; ctl routes by the
      * line's Class.inst to a class handler, the rest aggregate. */
+    /* Per-session conversation state (SESSIONS.md). Fixes the per-caller
+     * race: results/status live on the SESSION, not a global mailbox. A
+     * session is allocated by reading `clone`; its dir + ctl/data/status
+     * are createfile'd into the served root, each carrying the O9Session*
+     * in File->aux. */
+    print("typedef struct O9Session O9Session;\n");
+    print("struct O9Session { int id; File *dir; char data[4096]; char status[256]; };\n");
+    print("static int o9app_next_sid = 1;\n");
+    /* o9app_lastdata: kept ONLY as the root-ctl (fire-and-forget /
+     * single-client debug) reply. Result-bearing calls use a session. */
     print("static char o9app_lastdata[4096];\n");
+    /* o9app_cur_session: set by a session ctl-write before dispatch so the
+     * class fswrite stores the result on the right session; nil for the
+     * root-ctl path (result -> o9app_lastdata). */
+    print("static O9Session *o9app_cur_session;\n");
+    /* Where the class fswrite should store a call's result/status. */
+    print("static void o9app_put_result(char *s){\n");
+    print("\tif(o9app_cur_session != nil) snprint(o9app_cur_session->data, sizeof o9app_cur_session->data, \"%%s\", s);\n");
+    print("\telse snprint(o9app_lastdata, sizeof o9app_lastdata, \"%%s\", s);\n");
+    print("}\n");
+    print("static void o9app_put_status(char *s){\n");
+    print("\tif(o9app_cur_session != nil) snprint(o9app_cur_session->status, sizeof o9app_cur_session->status, \"%%s\", s);\n");
+    print("}\n");
+    /* Allocate a session: createfile <id>/ + <id>/{ctl,data,status} into
+     * the stable root (the authsrv/ramfs createfile-into-stable-parent
+     * pattern), each file carrying the O9Session* in aux. */
+    print("static O9Session *o9app_new_session(void){\n");
+    print("\tO9Session *s = mallocz(sizeof *s, 1);\n");
+    print("\tchar nm[32]; File *cf;\n");
+    print("\tif(s == nil) return nil;\n");
+    print("\ts->id = o9app_next_sid++;\n");
+    print("\tsnprint(nm, sizeof nm, \"%%d\", s->id);\n");
+    print("\ts->dir = createfile(o9app_tree->root, nm, \"o9\", DMDIR|0555, s);\n");
+    print("\tif(s->dir == nil){ free(s); return nil; }\n");
+    print("\tcf = createfile(s->dir, \"ctl\", \"o9\", 0222, s);\n");
+    print("\tcreatefile(s->dir, \"data\", \"o9\", 0444, s);\n");
+    print("\tcreatefile(s->dir, \"status\", \"o9\", 0444, s);\n");
+    print("\tUSED(cf);\n");
+    print("\tsnprint(s->status, sizeof s->status, \"ready\\n\");\n");
+    print("\treturn s;\n}\n");
     print("static void o9app_root_read(Req *r){\n");
     print("#ifdef __GNUC__\n\tchar *name = r->fid->file->dir.name;\n#else\n\tchar *name = r->fid->file->name;\n#endif\n");
     print("\tchar buf[8192]; char *p = buf; int i;\n");
+    /* clone: reading allocates a session and returns its id. */
+    print("\tif(strcmp(name, \"clone\") == 0){\n");
+    print("\t\tO9Session *__s = o9app_new_session();\n");
+    print("\t\tchar __idb[16];\n");
+    print("\t\tif(__s == nil){ respond(r, \"no session\"); return; }\n");
+    print("\t\tsnprint(__idb, sizeof __idb, \"%%d\\n\", __s->id);\n");
+    print("\t\treadstr(r, __idb); respond(r, nil); return;\n\t}\n");
+    /* Session-local data/status: the file's aux is the O9Session; serve
+     * that session's private result/status (the per-caller fix). Named
+     * data/status distinguishes them from exports (arbitrary names). */
+    print("\tif(r->fid->file->aux != nil && (strcmp(name, \"data\") == 0 || strcmp(name, \"status\") == 0)){\n");
+    print("\t\tO9Session *__s = r->fid->file->aux;\n");
+    print("\t\treadstr(r, strcmp(name, \"data\") == 0 ? __s->data : __s->status); respond(r, nil); return;\n\t}\n");
     /* Export file: its aux holds an O9Export with the serialized bytes.
-     * Serve them ramfs-style (offset/count).  The fixed control files
-     * were created with aux=nil, so a non-nil aux marks an export. */
+     * Serve them ramfs-style (offset/count). */
     print("\tif(r->fid->file->aux != nil){\n");
     print("\t\tO9Export *__ex = r->fid->file->aux;\n");
     print("\t\tvlong __off = r->ifcall.offset; long __cnt = r->ifcall.count;\n");
@@ -5048,6 +5105,7 @@ codegen(Node *root)
     print("\t\tif(__off + __cnt > __ex->ndata) __cnt = __ex->ndata - __off;\n");
     print("\t\tmemmove(r->ofcall.data, __ex->data + __off, __cnt);\n");
     print("\t\tr->ofcall.count = __cnt; respond(r, nil); return;\n\t}\n");
+    /* Root data: only the root-ctl (fire-and-forget/debug) reply. */
     print("\tif(strcmp(name, \"data\") == 0){ readstr(r, o9app_lastdata); respond(r, nil); return; }\n");
     print("\tif(strcmp(name, \"ctl\") == 0){ readstr(r, \"\"); respond(r, nil); return; }\n");
     print("\tif(strcmp(name, \"status\") == 0){\n");
@@ -5076,15 +5134,28 @@ codegen(Node *root)
     print("#ifdef __GNUC__\n\tchar *name = r->fid->file->dir.name;\n#else\n\tchar *name = r->fid->file->name;\n#endif\n");
     print("\tchar cmd[1024], *f[16]; int nf; char inst[64]; O9ClassH *ch;\n");
     print("\tif(strcmp(name, \"ctl\") != 0){ respond(r, \"read only\"); return; }\n");
+    /* A session ctl write carries its O9Session* in the file's aux; set it
+     * as the current session so results/status land on THIS session (the
+     * per-caller fix). Root /ctl has aux==nil -> o9app_lastdata path. */
+    print("\to9app_cur_session = r->fid->file->aux;\n");
     print("\tsnprint(cmd, sizeof cmd, \"%%.*s\", (int)r->ifcall.count, (char*)r->ifcall.data);\n");
     print("\tnf = tokenize(cmd, f, nelem(f));\n");
-    print("\tif(nf < 3 || strcmp(f[0], \"method\") != 0){ respond(r, \"want: method Class.inst name [argN=v]\"); return; }\n");
-    /* f[1] is Class.inst (or bare inst); resolve to a class handler and
-     * rewrite f[1] to the bare instance the class handler expects. */
-    print("\tch = o9app_resolve(f[1], inst, sizeof inst);\n");
-    print("\tif(ch == nil){ respond(r, \"unknown object\"); return; }\n");
-    print("\tf[1] = inst;\n");
-    print("\tch->write(r, nil);\t/* class fswrite: routes by f[1]=inst */\n");
+    print("\tif(nf < 3 || (strcmp(f[0], \"method\") != 0 && strcmp(f[0], \"new\") != 0)){ o9app_cur_session = nil; respond(r, \"want: method Class.inst name | new Class inst\"); return; }\n");
+    /* Resolve to a class handler. new Class inst -> resolve by CLASS name
+     * (f[1] is the class). method Class.inst -> resolve by Class.inst.
+     * The class fswrite re-tokenizes r->ifcall.data itself and handles
+     * both new and method, so we only need to pick the right handler. */
+    print("\tif(strcmp(f[0], \"new\") == 0){\n");
+    print("\t\tint __ci; ch = nil;\n");
+    print("\t\tfor(__ci = 0; __ci < o9app_nclasses; __ci++)\n");
+    print("\t\t\tif(strcmp(o9app_classes[__ci].name, f[1]) == 0){ ch = &o9app_classes[__ci]; break; }\n");
+    print("\t\tif(ch == nil){ o9app_cur_session = nil; respond(r, \"unknown class\"); return; }\n");
+    print("\t} else {\n");
+    print("\t\tch = o9app_resolve(f[1], inst, sizeof inst);\n");
+    print("\t\tif(ch == nil){ o9app_cur_session = nil; respond(r, \"unknown object\"); return; }\n");
+    print("\t}\n");
+    print("\tch->write(r, nil);\t/* class fswrite re-parses r->ifcall.data */\n");
+    print("\to9app_cur_session = nil;\n");
     print("}\n\n");
 
     /* o9_export_tab: publish a Tabula into the served-tree exports/ dir at
@@ -5148,6 +5219,10 @@ codegen(Node *root)
     print("\tcreatefile(o9app_tree->root, \"status\", \"o9\", 0444, nil);\n");
     print("\tcreatefile(o9app_tree->root, \"methods\", \"o9\", 0444, nil);\n");
     print("\tcreatefile(o9app_tree->root, \"state\", \"o9\", 0444, nil);\t/* debug inspector */\n");
+    /* clone: reading it allocates a session <id>/ with session-local
+     * ctl/data/status (SESSIONS.md) — the /net/tcp/clone pattern that
+     * gives concurrent callers a private, path-addressable conversation. */
+    print("\tcreatefile(o9app_tree->root, \"clone\", \"o9\", 0444, nil);\n");
     /* exports/ is a served-tree DIRECTORY inside the application file tree
      * (NOT on disk).  It is the one MUTABLE part: objects publish Tabulae
      * into it at runtime via a single createfile into this stable parent
