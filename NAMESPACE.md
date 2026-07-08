@@ -82,16 +82,51 @@ Decide when the produce-into-namespace surface is designed.
 - Relationship to sessions: is a session's file set a produced namespace
   too (unifying clone/exports under one "produced namespace" concept)?
 
+## Adversarial goal: NAMESPACE OUTPUT INTEGRITY
+
+The security boundary for THIS thesis (as the private-facade review was
+the boundary for the object model). The produce-into-namespace surface
+must prove:
+
+- clients CANNOT write into produced regions unless explicitly allowed
+  (produced files default read-only; the app produces, clients read).
+- export/produced names cannot ESCAPE the region: reject `/`, `..`, empty
+  names, control bytes, absolute paths (same discipline as the import
+  subtree boundary). A produced name is a leaf in the app's tree, not a
+  path.
+- session namespaces are ISOLATED from each other (already: clone gives
+  each conversation its own dir; a client can't reach another session's
+  files). Adversarial: prove no cross-session read/write.
+- produced trees do NOT expose private object state by accident (the #7
+  private-facade discipline extends to produced files — a produced file
+  must never serialize a private field).
+- replacing / re-exporting a file is ATOMIC from a reader's view (a
+  concurrent reader sees the old bytes or the new bytes, never a torn
+  half). Current o9_export_tab swaps aux->data — check the swap ordering.
+- dead `link` behavior is REMOVED or FAILS CLOSED — never silently
+  fabricates /obj/ paths and binds phantom regions (it currently
+  o9_ns_ensure_dir's a source dir and binds unchecked = fails OPEN).
+
+The distinction to preserve HARD: clone is NOT object composition — it is
+a per-client PRODUCED namespace. exports/ is NOT object export — it is
+data PUBLICATION. Both are the app producing files, not objects being
+mounted as parts.
+
 ## Build order (design-first)
 
 1. This doc — the reframe + honesty check.
-2. Retire dead link-as-object-composition (remove or gut NLink codegen +
-   the keywords, like cap) — stop advertising the abandoned model.
+2. DONE: `link`/`replace`/`union` REMOVED entirely (token, grammar,
+   lexer, codegen, typecheck, fixtures) — not stubbed, not fail-closed,
+   gone. Why keep a keyword whose only behavior is to error? It composed
+   the abandoned jumble model, binding /obj/ paths the flat facade never
+   creates. Retired like cap.
 3. Design the produce-into-namespace surface (generalize exports/) from
-   the open questions above.
+   the open questions above, with the output-integrity goals as the
+   security spec.
 4. Build it; tests: an app produces a tree of files into a namespace, a
-   client mounts and reads the produced shape.
+   client mounts and reads the produced shape — plus the output-integrity
+   adversarial tests.
 
-Nothing built yet. Relates to the app-facade (the shipped shape), exports
-(the first produce-into-namespace instance), and sessions (per-caller
-produced file sets).
+Nothing built yet except the link fail-closed. Relates to the app-facade
+(the shipped shape), exports (the first produce-into-namespace instance),
+and sessions (per-caller produced file sets).

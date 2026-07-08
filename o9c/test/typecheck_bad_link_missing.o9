@@ -1,5 +1,0 @@
-class Counter {
-}
-
-object Counter primary;
-link replace primary -> missing;

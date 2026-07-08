@@ -1282,7 +1282,7 @@ typeinfo_from_legacy(char *t)
 %token <node> TIDENT TTYPE TQIDENT TTYPEIDENT TENUMIDENT
 %token <name> TINTLIT TSTRINGLIT TCHARLIT
 %token TCLASS TINTERFACE TSTRUCT TENUM TMODULE TIMPORT TFUNC TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TLIST TNIL TABSTRACT TDELETE
-%token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TOBJECT TLINK TREPLACE TUNION TTRUE TFALSE TARROW
+%token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TOBJECT TTRUE TFALSE TARROW
 %token TPUBLIC TPRIVATE
 %token TTRY TDEFER
 %token TEQ TADD TSUB TCHANSEND TCHANRECV TCHANTRY TEQEQ TNEQ TLE TGE
@@ -1304,7 +1304,7 @@ typeinfo_from_legacy(char *t)
 %right '!' '~' UMINUS
 %left '.' '['
  
-%type <node> program top_levels top_level class_decl class_head interface_decl interface_head struct_decl struct_head enum_decl enum_vals enum_val module_decl module_head import_decl object_decl link_decl member_list member member_body var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename name_ref type_name_ref decl_name generic_name enum_name member_name param_list param call_args call_arg func_top_level for_init for_cond for_step else_clause generic_opt generic_names link_kind abstract_opt
+%type <node> program top_levels top_level class_decl class_head interface_decl interface_head struct_decl struct_head enum_decl enum_vals enum_val module_decl module_head import_decl object_decl member_list member member_body var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename name_ref type_name_ref decl_name generic_name enum_name member_name param_list param call_args call_arg func_top_level for_init for_cond for_step else_clause generic_opt generic_names abstract_opt
 %type <type> type_expr type_primary
 %type <types> type_args type_args_opt
 
@@ -1402,7 +1402,6 @@ top_level:
     | module_decl
     | import_decl
     | object_decl
-    | link_decl
     | func_top_level
     ;
 
@@ -1450,23 +1449,6 @@ object_decl:
         $$ = mk_typed(NObject, name, $2, nil, nil);
         set_node_names($$, source, name);
         add_object_sym($$);
-    }
-    ;
-
-link_kind:
-    TREPLACE { $$ = mk(NIdent, "replace", nil, nil, nil); }
-    | TUNION { $$ = mk(NIdent, "union", nil, nil, nil); }
-    ;
-
-link_decl:
-    TLINK link_kind name_ref TCHANSEND name_ref ';'
-    {
-        Node *from, *to;
-
-        from = object_ref($3);
-        to = object_ref($5);
-        $$ = mk(NLink, from->name, $2->name, from, to);
-        set_node_names($$, from->qname, from->cname);
     }
     ;
 
@@ -2313,9 +2295,6 @@ yylex(void)
             if(strcmp(buf, "defer") == 0) return TDEFER;
             if(strcmp(buf, "cap") == 0) return TCAP;
             if(strcmp(buf, "object") == 0) return TOBJECT;
-            if(strcmp(buf, "link") == 0) return TLINK;
-            if(strcmp(buf, "replace") == 0) return TREPLACE;
-            if(strcmp(buf, "union") == 0) return TUNION;
             if(strcmp(buf, "chan") == 0) return TCHAN;
             if(strcmp(buf, "return") == 0) return TRETURN;
             if(strcmp(buf, "if") == 0) return TIF;
@@ -3693,7 +3672,7 @@ has_object_metadata(Node *root)
     for(n = root; n; n = n->next){
         if(n->type == NModule && has_object_metadata(n->left))
             return 1;
-        if(n->type == NObject || n->type == NLink)
+        if(n->type == NObject)
             return 1;
     }
     return 0;
@@ -3724,7 +3703,6 @@ gen_object_metadata_items(Node *root)
 {
     Node *n;
     char *typetext;
-    char *target;
 
     for(n = root; n; n = n->next){
         if(n->type == NModule){
@@ -3744,28 +3722,6 @@ gen_object_metadata_items(Node *root)
                 typetext != nil ? typetext : "",
                 n->typename != nil ? n->typename : "");
         }
-        if(n->type == NLink && n->left != nil && n->right != nil){
-            char *sc = n->left->cname != nil ? n->left->cname : n->left->name;
-            char *tc = n->right->cname != nil ? n->right->cname : n->right->name;
-            char *mf = (n->typename != nil && strcmp(n->typename, "union") == 0) ? "MBEFORE" : "MREPL";
-            print("\t\t{ char __ls[300], __ld[300], __ll[640];\n");
-            print("\t\tsnprint(__ls, sizeof __ls, \"%%s/obj/%s\", __o9root);\n", tc);
-            print("\t\tsnprint(__ld, sizeof __ld, \"%%s/obj/%s\", __o9root);\n", sc);
-            print("\t\to9_ns_ensure_dir(__ld);\n");
-            print("\t\tbind(__ls, __ld, %s);\n", mf);
-            print("\t\tsnprint(__ll, sizeof __ll, \"bind %s%%s %%s\", __ls, __ld);\n",
-                strcmp(mf, "MBEFORE") == 0 ? "-b " : "");
-            print("\t\to9_ns_recipe(__o9root, __o9app, __ll);\n\t\t}\n");
-            target = n->right->qname != nil ? n->right->qname : n->right->name;
-            print("\t\t{ O9State *__s = o9_state_create_path(__o9root, \"o9link\", \"%s__%s__%s\", __o9_link_cols, 3);\n",
-                n->left->cname != nil ? n->left->cname : n->left->name,
-                n->typename != nil ? n->typename : "link",
-                n->right->cname != nil ? n->right->cname : n->right->name);
-            print("\t\tif(__s){ o9_state_set(__s, \"kind\", \"%s\"); o9_state_set(__s, \"source\", \"%s\"); o9_state_set(__s, \"target\", \"%s\"); o9_state_close(__s); } }\n",
-                n->typename != nil ? n->typename : "",
-                n->left->qname != nil ? n->left->qname : n->left->name,
-                target != nil ? target : "");
-        }
     }
 }
 
@@ -3782,7 +3738,6 @@ gen_object_metadata(Node *root)
     print("\t\tchar __o9root[128];\n");
     print("\t\tO9ObjectStore *__o9objects;\n");
     print("\t\tchar *__o9_obj_cols[] = { \"qname\", \"type\", \"cname\", \"status\" };\n");
-    print("\t\tchar *__o9_link_cols[] = { \"kind\", \"source\", \"target\" };\n");
     print("\t\tif(argc > 1 && argv[1] != nil && argv[1][0] != '\\0') __o9app = argv[1];\n");
     print("\t\to9_ns_app_root(__o9root, sizeof __o9root, __o9app);\n");
     print("\t\to9_ns_ensure_app(__o9root);\n");
@@ -6557,18 +6512,10 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
             (*errs)++;
         }
         break;
-    case NLink:
-        if(e->left == nil || e->left->qname == nil || resolve_object_sym(e->left->qname) == nil){
-            fprint(2, "o9c: error: line %d: link source '%s' is not a declared object\n", sem_line,
-                e->left && e->left->qname ? e->left->qname : e->name);
-            (*errs)++;
-        }
-        if(e->right == nil || e->right->qname == nil || resolve_object_sym(e->right->qname) == nil){
-            fprint(2, "o9c: error: line %d: link target '%s' is not a declared object\n", sem_line,
-                e->right && e->right->qname ? e->right->qname : "<nil>");
-            (*errs)++;
-        }
-        break;
+    /* NLink removed: `link` (object-as-fileserver namespace composition)
+     * is retired — the keyword is gone from the grammar, so NLink can no
+     * longer be produced. See NAMESPACE.md (namespace control reframed as
+     * organizing produced output, not object composition). */
     case NPropRead:
         annotate_expr_type(e, scope_class);
         /* Check: prop read, must not be a method */
