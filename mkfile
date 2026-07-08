@@ -41,6 +41,9 @@ export-test:V:	o9c libo9.a
 session-test:V:	o9c libo9.a
 	rc ./o9c/test/run_session.rc
 
+ctlargs-test:V:	o9c libo9.a
+	rc ./o9c/test/run_ctlargs.rc
+
 debug-test:V:	o9c libo9.a
 	rc ./o9c/test/run_debug.rc
 

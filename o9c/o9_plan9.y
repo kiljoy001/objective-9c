@@ -4597,12 +4597,31 @@ gen_class_server(Node *c)
                 continue;	/* constructor: not re-invokable over 9P */
             for(p = m->right; p; p = p->next) np++;
             print("\t\t\tif(strcmp(f[2], \"%s\") == 0){\n", m->name);
+            /* ARITY (finding #5): a network boundary must not silently
+             * default missing args to 0 or ignore extras. Require exactly
+             * np args after `method Class.inst name` (tokens f[3..]). */
+            print("\t\t\t\tif(nf - 3 != %d){ char __ab[96]; snprint(__ab, sizeof __ab, \"error: %s takes %d arg(s), got %%d\\n\", nf-3); o9app_put_status(__ab); o9app_put_result(\"\"); respond(r, nil); return; }\n",
+                np, m->name, np);
             if(np > 0){
                 int pi;
                 print("\t\t\t\tvlong __wargs[%d] = {0};\n", np);
-                for(pi = 0; pi < np; pi++){
-                    print("\t\t\t\tif(nf > %d){ v = strchr(f[%d], '='); __wargs[%d] = strtoll(v ? v+1 : f[%d], nil, 0); }\n",
-                        pi+3, pi+3, pi, pi+3);
+                /* TYPED PARSING (finding #4): parse each arg per its
+                 * DECLARED type, not blindly as strtoll. int-like ->
+                 * strtoll; string -> the string pointer (as vlong);
+                 * class/Tabula handles cannot be marshaled over a text
+                 * ctl line -> reject. */
+                for(p = m->right, pi = 0; p; p = p->next, pi++){
+                    char *pt = p->typename != nil ? p->typename : "vlong";
+                    print("\t\t\t\tv = strchr(f[%d], '='); v = v ? v+1 : f[%d];\n", pi+3, pi+3);
+                    if(type_is_class_ref(p->typeinfo)){
+                        print("\t\t\t\t{ o9app_put_status(\"error: %s: object-handle args not callable over ctl\\n\"); o9app_put_result(\"\"); respond(r, nil); return; }\n", m->name);
+                    } else if(strcmp(pt, "string") == 0){
+                        print("\t\t\t\t__wargs[%d] = (vlong)(uintptr)v;\n", pi);
+                    } else if(strcmp(pt, "Tabula") == 0){
+                        print("\t\t\t\t{ o9app_put_status(\"error: %s: Tabula args not callable over ctl\\n\"); o9app_put_result(\"\"); respond(r, nil); return; }\n", m->name);
+                    } else {
+                        print("\t\t\t\t__wargs[%d] = strtoll(v, nil, 0);\n", pi);
+                    }
                 }
             }
             print("\t\t\t\t{ O9Msg __wm = {0x%lux, %s, %d, chancreate(sizeof(void*), 0)};\n",

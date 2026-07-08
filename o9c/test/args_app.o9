@@ -1,0 +1,10 @@
+class Echo {
+    prop int64 n;
+    method void setn(int64 x) { n = x; }
+    method int64 getn() { return n; }
+    method string greet(string who) { return who; }
+}
+func main() {
+    Echo e = new Echo();
+    serve();
+}

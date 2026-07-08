@@ -1,0 +1,42 @@
+#!/bin/rc
+# ctl argument boundary regression (review #4 typed parsing, #5 arity).
+# Asserts: int arg works, STRING arg works (was strtoll->0), too-few and
+# too-many args are rejected with an arity error. Exits non-zero on fail.
+tool=./o9c/o9c
+app=o9ctlargs
+src=o9c/test/args_app.o9
+bin=/tmp/o9args.$pid
+mtpt=/n/o9args.$pid
+srv=/srv/o9.$app.$app.app
+fail=0
+fn cleanup { unmount $mtpt >[2]/dev/null; kill o9args.$pid >[2]/dev/null; rm -f $srv $bin /tmp/o9args.$pid.^* }
+fn ck { if(! ~ $1 $2){ echo 'ctlargs: FAIL: '$3' got=['$1'] want=['$2']' >[1=2]; fail=1 } }
+
+if(! test -e $tool){ echo missing $tool >[1=2]; exit missing }
+rm -f $srv
+if(! $tool $src > /tmp/o9args.$pid.c){ echo 'ctlargs: FAIL transpile' >[1=2]; exit fail }
+if(! 6c -FVw -I. -o /tmp/o9args.$pid.6 /tmp/o9args.$pid.c){ echo 'ctlargs: FAIL 6c' >[1=2]; exit fail }
+if(! 6l -o $bin /tmp/o9args.$pid.6 libo9.a /$objtype/lib/libndb.a){ echo 'ctlargs: FAIL 6l' >[1=2]; exit fail }
+$bin $app &
+p=$apid
+@{ sleep 15; kill $p >[2]/dev/null } &
+i=0
+while(! test -e $srv && test $i -lt 12){ sleep 1; i=`{hoc -e $i+1} }
+if(! test -e $srv){ echo 'ctlargs: FAIL no /srv' >[1=2]; cleanup; exit fail }
+mount -c $srv $mtpt
+sid=`{cat $mtpt/clone}
+echo 'method Echo.e setn arg0=42' > $mtpt/$sid/ctl
+echo 'method Echo.e getn' > $mtpt/$sid/ctl
+ck `{cat $mtpt/$sid/data} 42 'int arg'
+echo 'method Echo.e greet arg0=hello' > $mtpt/$sid/ctl
+ck `{cat $mtpt/$sid/data} hello 'string arg (not strtoll)'
+echo 'method Echo.e setn' > $mtpt/$sid/ctl
+few=`{cat $mtpt/$sid/status}
+if(! ~ $few *'got 0'*){ echo 'ctlargs: FAIL too-few not rejected: '$few >[1=2]; fail=1 }
+echo 'method Echo.e setn arg0=1 arg1=2' > $mtpt/$sid/ctl
+many=`{cat $mtpt/$sid/status}
+if(! ~ $many *'got 2'*){ echo 'ctlargs: FAIL too-many not rejected: '$many >[1=2]; fail=1 }
+kill $p >[2]/dev/null
+cleanup
+if(~ $fail 0) echo ctlargs: OK
+if not exit fail
