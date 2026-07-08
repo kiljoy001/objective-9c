@@ -328,6 +328,9 @@ static Builtin builtins[] = {
     /* Tabula constructors: new_tab(name, "cols") / open_tab(path) */
     {"new_tab",   "o9_tab_new",   2, "Tabula", {"string", "string"}},
     {"open_tab",  "o9_tab_open",  1, "Tabula", {"string", nil}},
+    /* export(name, tab): publish a Tabula into the served-tree exports/
+     * dir (mutable app file tree) — reachable through the mount. */
+    {"export",    "o9_export_tab",2, "void",   {"string", "Tabula"}},
     /* fail(msg): error-as-value — sets the method error and returns.
      * Special-cased in gen_stmt (goto done); table entry is for typecheck. */
     {"fail",      "o9_fail",      1, "void",   {"string", nil}},
@@ -4941,7 +4944,7 @@ codegen(Node *root)
     print("extern char o9app_srvname[128];\n");
     print("extern char o9app_mount[256];\n");
     print("extern char o9app_name[64];\n");
-    print("extern char o9app_exports[256];\t/* real on-disk exports dir path */\n");
+    print("extern File *o9app_exports_dir;\t/* served-tree exports/ dir */\n");
     print("static void o9app_register_handler(char *name, void (*rd)(Req*,void*), void (*wr)(Req*,void*), void *(*find)(char*), int (*dump)(char*,int)){\n");
     print("\tif(o9app_nclasses >= nelem(o9app_classes)) return;\n");
     print("\to9app_classes[o9app_nclasses].name = name;\n");
@@ -4983,18 +4986,33 @@ codegen(Node *root)
     print("char o9app_srvname[128];\n");
     print("char o9app_mount[256];\n");
     print("char o9app_name[64];\n");
-    print("char o9app_exports[256];\n");
+    print("File *o9app_exports_dir;\t/* served-tree exports/ dir (mutable) */\n");
     print("int o9app_debug;\t/* set from O9DEBUG at startup */\n\n");
+    /* One published Tabula: its serialized bytes live in the File's aux,
+     * served ramfs-style on read.  This is the mutable part of the fs. */
+    print("typedef struct O9Export O9Export;\n");
+    print("struct O9Export { char *data; int ndata; };\n\n");
 
-    /* exports/: real on-disk directory under <root>/exports.  Objects
-     * publish Tabulae as plain .tab files there (writefile/tab_commit).
-     * The path is in o9app_exports for use by an export() builtin. */
+    /* exports/ is a served-tree DIRECTORY (part of the application file
+     * tree, reachable through the mount) — NOT an on-disk directory.
+     * Objects publish Tabulae into it at runtime via createfile; the
+     * serialized bytes live in the child File's aux. */
     /* Flat root handlers.  The four files share these; ctl routes by the
      * line's Class.inst to a class handler, the rest aggregate. */
     print("static char o9app_lastdata[4096];\n");
     print("static void o9app_root_read(Req *r){\n");
     print("#ifdef __GNUC__\n\tchar *name = r->fid->file->dir.name;\n#else\n\tchar *name = r->fid->file->name;\n#endif\n");
     print("\tchar buf[8192]; char *p = buf; int i;\n");
+    /* Export file: its aux holds an O9Export with the serialized bytes.
+     * Serve them ramfs-style (offset/count).  The fixed control files
+     * were created with aux=nil, so a non-nil aux marks an export. */
+    print("\tif(r->fid->file->aux != nil){\n");
+    print("\t\tO9Export *__ex = r->fid->file->aux;\n");
+    print("\t\tvlong __off = r->ifcall.offset; long __cnt = r->ifcall.count;\n");
+    print("\t\tif(__off >= __ex->ndata){ r->ofcall.count = 0; respond(r, nil); return; }\n");
+    print("\t\tif(__off + __cnt > __ex->ndata) __cnt = __ex->ndata - __off;\n");
+    print("\t\tmemmove(r->ofcall.data, __ex->data + __off, __cnt);\n");
+    print("\t\tr->ofcall.count = __cnt; respond(r, nil); return;\n\t}\n");
     print("\tif(strcmp(name, \"data\") == 0){ readstr(r, o9app_lastdata); respond(r, nil); return; }\n");
     print("\tif(strcmp(name, \"ctl\") == 0){ readstr(r, \"\"); respond(r, nil); return; }\n");
     print("\tif(strcmp(name, \"status\") == 0){\n");
@@ -5034,6 +5052,26 @@ codegen(Node *root)
     print("\tch->write(r, nil);\t/* class fswrite: routes by f[1]=inst */\n");
     print("}\n\n");
 
+    /* o9_export_tab: publish a Tabula into the served-tree exports/ dir at
+     * runtime.  A single createfile into the stable exports parent (the
+     * safe pattern); the serialized bytes go in the child File's aux.  If
+     * a file of that name exists, its bytes are replaced (re-export). */
+    print("void o9_export_tab(char *name, O9Tabula *t){\n");
+    print("\tFile *f; O9Export *ex; char *bytes;\n");
+    print("\tif(o9app_exports_dir == nil || name == nil || t == nil) return;\n");
+    print("\tbytes = o9_tab_serialize(t);\n");
+    print("\tf = createfile(o9app_exports_dir, name, \"o9\", 0444, nil);\n");
+    print("\tif(f == nil){\t/* exists: replace its bytes */\n");
+    print("\t\tf = walkfile(o9app_exports_dir, name);\n");
+    print("\t\tif(f == nil){ free(bytes); return; }\n");
+    print("\t}\n");
+    print("\tex = f->aux;\n");
+    print("\tif(ex == nil){ ex = mallocz(sizeof *ex, 1); f->aux = ex; }\n");
+    print("\tfree(ex->data);\n");
+    print("\tex->data = bytes; ex->ndata = bytes != nil ? strlen(bytes) : 0;\n");
+    print("\tf->length = ex->ndata;\n");
+    print("}\n\n");
+
     /* 1. Emit headers for ALL known classes/interfaces (local and imported) */
     for(cd = classes; cd; cd = cd->next){
         if(cd->node->type != NStruct && cd->node->type != NEnum)
@@ -5057,13 +5095,6 @@ codegen(Node *root)
      * sets the app names, allocates the shared tree, and posts the single
      * /srv/o9.<app>; each class then registers INTO it. */
     print("static void o9_app_start(int argc, char **argv){\n");
-    /* Private namespace per app: rfork(RFNAMEG) gives this app its OWN
-     * namespace, copied from the parent's. Mounts/binds the app makes
-     * (the facade, link ref/replica composition) are then ISOLATED —
-     * they can't leak to or collide with other apps. This is the Plan 9
-     * way to have safe per-app namespace composition (cf. ramfs). Done
-     * once at startup, before any ns touching. */
-    print("\trfork(RFNAMEG);\n");
     print("\tchar *__o9app = \"%s\";\n", last != nil ? last->name : "app");
     print("\tif(argc > 1 && argv[1] != nil && argv[1][0] != '\\0') __o9app = argv[1];\n");
     print("\tsnprint(o9app_name, sizeof o9app_name, \"%%s\", __o9app);\n");
@@ -5072,40 +5103,48 @@ codegen(Node *root)
     print("\to9_ns_service_name(o9app_srvname, sizeof o9app_srvname, __o9app, __o9app, \"app\");\n");
     print("\to9_ns_class_path(o9app_mount, sizeof o9app_mount, o9app_root, __o9app);\n");
     print("\to9_ns_ensure_app(o9app_root);\n");
-    /* Real on-disk exports dir: objects publish mountable .tab files here
-     * via plain writefile/tab_commit (NOT served-tree createfile).  Reached
-     * over 9P as real files on the app namespace.  See TABULA.md. */
-    print("\tsnprint(o9app_exports, sizeof o9app_exports, \"%%s/exports\", o9app_root);\n");
-    print("\to9_ns_ensure_dir(o9app_exports);\n");
     print("\to9app_tree = alloctree(nil, nil, DMDIR|0555, nil);\n");
     print("\to9app_srv.tree = o9app_tree;\n");
     print("\to9app_srv.read = o9app_root_read;\n\to9app_srv.write = o9app_root_write;\n");
-    /* Build the flat four-file tree ONCE, before any post — no runtime
-     * tree mutation ever.  9lx servers create files right after alloctree. */
+    /* The four control files + state are a FIXED shape, built once, never
+     * mutated (their content is live, their structure is frozen). */
     print("\tcreatefile(o9app_tree->root, \"ctl\", \"o9\", 0666, nil);\n");
     print("\tcreatefile(o9app_tree->root, \"data\", \"o9\", 0444, nil);\n");
     print("\tcreatefile(o9app_tree->root, \"status\", \"o9\", 0444, nil);\n");
     print("\tcreatefile(o9app_tree->root, \"methods\", \"o9\", 0444, nil);\n");
     print("\tcreatefile(o9app_tree->root, \"state\", \"o9\", 0444, nil);\t/* debug inspector */\n");
-    /* exports/ — real on-disk dir at <root>/exports.  Objects publish
-     * Tabulae here as real .tab files (plain writefile, no tree mutation).
-     * Reachable over 9P via the app's namespace root; separate from the
-     * control tree (ctl/data/status/methods).  See TABULA.md. */
-    print("\tsnprint(o9app_exports, sizeof o9app_exports, \"%%s/exports\", o9app_root);\n");
-    print("\to9_ns_ensure_dir(o9app_exports);\n");
+    /* exports/ is a served-tree DIRECTORY inside the application file tree
+     * (NOT on disk).  It is the one MUTABLE part: objects publish Tabulae
+     * into it at runtime via a single createfile into this stable parent
+     * dir (the authsrv/ramfs-proven safe pattern — no nested subtree, no
+     * walkfile).  Reachable through the mount; ls reflects live objects. */
+    print("\to9app_exports_dir = createfile(o9app_tree->root, \"exports\", \"o9\", DMDIR|0555, nil);\n");
     print("}\n");
     print("static void o9_app_post(void){\n");
     print("\t{ char __sp[160]; snprint(__sp, sizeof __sp, \"/srv/%%s\", o9app_srvname); remove(__sp); }\n");
     print("\t{ char __ln[300]; snprint(__ln, sizeof __ln, \"mount /srv/%%s %%s\", o9app_srvname, o9app_mount); o9_ns_recipe(o9app_root, o9app_name, __ln); }\n");
     print("\tif(o9_ns_ensure_dir(o9app_mount) == 0)\n");
-    print("\t\tthreadpostmountsrv(&o9app_srv, o9app_srvname, o9app_mount, MREPL);\n");
-    print("\telse\n\t\tthreadpostmountsrv(&o9app_srv, o9app_srvname, nil, MREPL);\n");
+    /* MREPL|MCREATE: the exports/ dir is mutable — objects createfile
+     * into it at runtime — so the facade mount must permit creation
+     * (this is exactly what ramfs uses: MREPL|MCREATE). */
+    print("\t\tthreadpostmountsrv(&o9app_srv, o9app_srvname, o9app_mount, MREPL|MCREATE);\n");
+    print("\telse\n\t\tthreadpostmountsrv(&o9app_srv, o9app_srvname, nil, MREPL|MCREATE);\n");
     print("}\n\n");
 
     print("int mainstacksize = 65536;\n\n");
     print("void\nthreadmain(int argc, char **argv)\n{\n");
     print("\tvlong __o9fr[8][12];\n");
     print("\tUSED(argc); USED(argv); USED(__o9fr);\n");
+    /* Per-app namespace isolation MUST happen here — the very first thing
+     * in threadmain, BEFORE o9_registry_start or any proccreate. Forking
+     * the namespace group after procs exist disturbs the thread library's
+     * proc/rendezvous group. RFNAMEG copies the namespace (isolation);
+     * then re-bind the global #s (srv) device onto /srv so the app's post
+     * stays reachable to other processes (facade) — the iostats.c /
+     * lib/namespace pattern. Isolation for the app's own tree + shared
+     * /srv for the post. Verified: mk export-test = export: OK. */
+    print("\trfork(RFNAMEG);\n");
+    print("\tbind(\"#s\", \"/srv\", MREPL|MCREATE);\n");
     print("\to9_registry_start();\n");
     gen_object_metadata(root);
     if(!has_remote_new){

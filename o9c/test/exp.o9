@@ -1,0 +1,9 @@
+func main() {
+    Tabula t = new_tab("orders", "item,qty");
+    t.add("a");
+    t.set("item", "widget");
+    t.set("qty", "5");
+    export("orders", t);
+    print("exported\n");
+    serve();
+}

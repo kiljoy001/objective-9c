@@ -1,0 +1,88 @@
+#!/bin/rc
+# Export regression test — 9front. Builds an o9 program that publishes a
+# Tabula into the served-tree exports/ dir, mounts the app's /srv post
+# from a SEPARATE namespace, and ASSERTS the exported file appears with
+# the expected name and contents. Exits non-zero on any failure (a real
+# pass/fail test, not a diagnostic).
+#
+# Run from the repo root:  rc o9c/test/run_export.rc
+
+tool=./o9c/o9c
+# unique app name so cleanup touches ONLY this test's /srv post
+app=o9exptest
+src=o9c/test/exp.o9
+cfile=/tmp/o9exp.$pid.c
+bin=/tmp/o9exp.$pid
+log=/tmp/o9exp.$pid.log
+mtpt=/n/o9exp.$pid
+srvglob=/srv/o9.$app.$app.app
+
+fn cleanup {
+	unmount $mtpt >[2]/dev/null
+	kill o9exp.$pid >[2]/dev/null
+	# only our own post — never a blanket /srv/o9.*.app wipe
+	rm -f $srvglob $cfile $bin $log
+}
+
+fail=0
+fn checkfail {
+	if(! ~ $1 ''){
+		echo 'export: FAIL:' $2 >[1=2]
+		fail=1
+	}
+}
+
+if(! test -e $tool){ echo missing $tool >[1=2]; exit missing }
+if(! test -e libo9.a){ echo missing libo9.a >[1=2]; exit missing }
+
+rm -f $srvglob
+# build
+if(! $tool $src > $cfile){ echo 'export: FAIL: transpile' >[1=2]; exit fail }
+if(! 6c -FVw -I. -o /tmp/o9exp.$pid.6 $cfile){ echo 'export: FAIL: 6c' >[1=2]; exit fail }
+if(! 6l -o $bin /tmp/o9exp.$pid.6 libo9.a /$objtype/lib/libndb.a){ echo 'export: FAIL: 6l' >[1=2]; exit fail }
+
+# run with our unique app name; watchdog kills it if it hangs
+$bin $app > $log >[2=1] &
+p=$apid
+@{ sleep 15 ; kill $p >[2]/dev/null } &
+guard=$apid
+
+# wait for the /srv post to appear (up to ~6s)
+i=0
+while(! test -e $srvglob && test $i -lt 12){ sleep 1; i=`{echo $i+1|bc} }
+if(! test -e $srvglob){
+	echo 'export: FAIL: no /srv post at' $srvglob >[1=2]
+	cat $log >[1=2]
+	kill $p $guard >[2]/dev/null
+	cleanup
+	exit fail
+}
+
+# mount from THIS namespace with create perm and probe
+if(! mount -c $srvglob $mtpt){
+	echo 'export: FAIL: mount' $srvglob >[1=2]
+	kill $p $guard >[2]/dev/null
+	cleanup
+	exit fail
+}
+
+# assertion 1: exports/orders exists
+if(! test -e $mtpt/exports/orders){
+	echo 'export: FAIL: exports/orders not present' >[1=2]
+	ls -l $mtpt/exports >[1=2]
+	checkfail x 'missing exports/orders'
+}
+# assertion 2: contents contain the row data we set (widget, qty 5)
+if(test -e $mtpt/exports/orders){
+	got=`{cat $mtpt/exports/orders}
+	echo $"got | grep -s widget    ; checkfail $status 'orders missing "widget"'
+	echo $"got | grep -s '5'        ; checkfail $status 'orders missing qty 5'
+}
+
+kill $p $guard >[2]/dev/null
+cleanup
+
+if(~ $fail 0)
+	echo export: OK
+if not
+	exit fail
