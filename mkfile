@@ -22,25 +22,9 @@ o9c/y.tab.$O:	o9c/y.tab.c
 o9c:V:	$CFILES
 	cd o9c; $LD -o o9c y.tab.$O o9_type.$O
 
-# === sidecar type AST prototype ===
-TYPECFILES=\
-	o9c/type.tab.$O\
-	o9c/o9_type.$O\
-
-o9c/type.tab.h o9c/type.tab.c: o9c/o9_type_ast.y
-	cd o9c; yacc -d o9_type_ast.y; mv y.tab.c type.tab.c; mv y.tab.h type.tab.h
-
-o9c/type.tab.$O:	o9c/type.tab.c o9c/o9_type.h
-	cd o9c; $CC -o type.tab.$O type.tab.c
-
+# o9_type.o — the live type-builtin table, linked into o9c (above).
 o9c/o9_type.$O:	o9c/o9_type.c o9c/o9_type.h
 	cd o9c; $CC -o o9_type.$O o9_type.c
-
-o9type:V:	$TYPECFILES
-	cd o9c; $LD -o o9type type.tab.$O o9_type.$O
-
-type-test:V:	o9type
-	rc ./o9c/test/type_ast.rc
 
 ast-test:V:	o9c
 	rc ./o9c/test/production_ast.rc
@@ -50,6 +34,9 @@ run-test:V:	o9c libo9.a
 
 ext-test:V:	o9c libo9.a
 	rc ./o9c/test/run_ext.rc
+
+export-test:V:	o9c libo9.a
+	rc ./o9c/test/run_export.rc
 
 debug-test:V:	o9c libo9.a
 	rc ./o9c/test/run_debug.rc

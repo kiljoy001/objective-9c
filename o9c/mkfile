@@ -1,7 +1,6 @@
 TARG=o9c
 OFILES=y.tab.o o9_type.o
 HFILES=node.h o9_type.h y.tab.h
-TYPEOFILES=type.tab.o o9_type.o
 
 $TARG: $OFILES
 	9l -o $TARG $OFILES -lbio
@@ -9,22 +8,8 @@ $TARG: $OFILES
 y.tab.c y.tab.h: o9.y o9_type.h
         yacc -d o9.y
 
-type.tab.c type.tab.h: o9_type_ast.y
-	yacc -d o9_type_ast.y
-	mv y.tab.c type.tab.c
-	mv y.tab.h type.tab.h
-
-o9type: $TYPEOFILES
-	9l -o o9type $TYPEOFILES
-
-type-test: o9type
-	cd ..; rc ./o9c/test/type_ast.rc
-
 ast-test: $TARG
 	cd ..; rc ./o9c/test/production_ast.rc
-
-type.tab.o: type.tab.c o9_type.h
-	9c type.tab.c
 
 o9_type.o: o9_type.c o9_type.h
 	9c o9_type.c
