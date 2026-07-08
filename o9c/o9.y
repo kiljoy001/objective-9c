@@ -6340,12 +6340,39 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
         break;
     case NSelfCall:
         annotate_expr_type(e, scope_class);
-        /* super(args): parent-ctor chaining — typecheck args, arity is
-         * resolved against the parent constructor at codegen. */
+        /* super(args): parent-ctor chaining — typecheck args and check
+         * arity against the parent's constructor. */
         if(e->name != nil && strcmp(e->name, "super") == 0){
             Node *a;
             for(a = e->right; a != nil; a = a->next)
                 typecheck_expr(a, scope_class, errs);
+            if(scope_class != nil){
+                Node *im, *parent = nil, *pctor = nil, *m;
+                for(im = scope_class->left; im != nil; im = im->next)
+                    if(im->type == NInherit){ parent = find_class(im->name); break; }
+                if(parent == nil){
+                    fprint(2, "o9c: error: line %d: super() with no parent class\n", sem_line);
+                    (*errs)++;
+                } else {
+                    for(m = parent->left; m != nil; m = m->next)
+                        if(m->type == NMethod && m->name != nil &&
+                           strcmp(m->name, parent->name) == 0){ pctor = m; break; }
+                    if(pctor == nil){
+                        if(node_list_len(e->right) != 0){
+                            fprint(2, "o9c: error: line %d: %s has no constructor; super() takes no arguments\n",
+                                sem_line, parent->name);
+                            (*errs)++;
+                        }
+                    } else {
+                        int want = node_list_len(pctor->right), got = node_list_len(e->right);
+                        if(want != got){
+                            fprint(2, "o9c: error: line %d: super() calls %s(%d args), got %d\n",
+                                sem_line, parent->name, want, got);
+                            (*errs)++;
+                        }
+                    }
+                }
+            }
             break;
         }
         {
@@ -6443,12 +6470,21 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
             if(lt != nil && lt->kind == TyName && lt->name != nil &&
                strcmp(lt->name, "Tabula") == 0){
                 Node *a;
-                if(strcmp(e->name, "add") != 0 && strcmp(e->name, "set") != 0 &&
-                   strcmp(e->name, "get") != 0 && strcmp(e->name, "first") != 0 &&
-                   strcmp(e->name, "next") != 0 && strcmp(e->name, "serialize") != 0 &&
-                   strcmp(e->name, "close") != 0){
+                int want = -1, got = node_list_len(e->right);
+                if(strcmp(e->name, "add") == 0) want = 1;
+                else if(strcmp(e->name, "set") == 0) want = 2;
+                else if(strcmp(e->name, "get") == 0) want = 1;
+                else if(strcmp(e->name, "first") == 0) want = 0;
+                else if(strcmp(e->name, "next") == 0) want = 0;
+                else if(strcmp(e->name, "serialize") == 0) want = 0;
+                else if(strcmp(e->name, "close") == 0) want = 0;
+                if(want < 0){
                     fprint(2, "o9c: error: line %d: Tabula has no method '%s' "
                         "(add/set/get/first/next/serialize/close)\n", sem_line, e->name);
+                    (*errs)++;
+                } else if(got != want){
+                    fprint(2, "o9c: error: line %d: Tabula.%s takes %d argument%s, got %d\n",
+                        sem_line, e->name, want, want == 1 ? "" : "s", got);
                     (*errs)++;
                 }
                 for(a = e->right; a != nil; a = a->next)
