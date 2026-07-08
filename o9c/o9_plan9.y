@@ -3390,6 +3390,9 @@ gen_stmt(Node *c, Node *s)
                 char *t = type_storage_for_codegen(ft);
                 Node *d = type_decl_node(ft);
                 char field[128];
+                /* atomic field: guard the read-modify-write with its QLock */
+                if(mt == NAtomic)
+                    print("\tqlock(&self->__lock_%s);\n", s->left->name);
                 if(strcmp(t, "char*") == 0){
                     print("\tfree(self->%s);\n", s->left->name);
                     print("\tself->%s = strdup(", s->left->name);
@@ -3408,6 +3411,8 @@ gen_stmt(Node *c, Node *s)
                     gen_expr(s->right);
                     print(");\n");
                 }
+                if(mt == NAtomic)
+                    print("\tqunlock(&self->__lock_%s);\n", s->left->name);
                 snprint(field, sizeof field, "self->%s", s->left->name);
                 gen_state_store_flagged("self->state", field, s->left->name, ft, fieldnode ? fieldnode->flags : 0);
                 break;
@@ -3560,6 +3565,12 @@ gen_internal_fields(Node *c)
         }
         if(m->type == NProp || m->type == NState || m->type == NAtomic)
             print("\t%s %s;\n", type_storage_for_codegen(m->typeinfo), m->name);
+        if(m->type == NAtomic)	/* companion QLock guarding atomic access.
+             * QLock (not Lock): a spinlock in the cooperative CSP
+             * scheduler would let a waiter busy-spin without ever yielding
+             * to the holder — deadlock. QLock sleeps the waiter and is
+             * safe to hold across a blocking RHS. */
+            print("\tQLock __lock_%s;\n", m->name);
         if(m->type == NStream)
             print("\tChannel *%s;\n", m->name);
     }
