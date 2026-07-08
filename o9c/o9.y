@@ -3843,7 +3843,9 @@ gen_cache_entries_buf(Node *c, char *classname, char *bufname)
             p = find_class(m->name);
             if(p) gen_cache_entries_buf(p, classname, bufname);
         }
-        if(m->type == NProp) print("\t\tp += snprint(p, sizeof %s - (p-%s), \"d:%%ld:%%ld\\n\", %ldL, (long)o9_offsetof(%s_Internal, %s));\n", bufname, bufname, o9_hash(m->name), classname, m->name);
+        /* private field: don't expose its offset in the facade-reachable
+         * status cache (#7). */
+        if(m->type == NProp && !(m->flags & NFPrivate)) print("\t\tp += snprint(p, sizeof %s - (p-%s), \"d:%%ld:%%ld\\n\", %ldL, (long)o9_offsetof(%s_Internal, %s));\n", bufname, bufname, o9_hash(m->name), classname, m->name);
         if(m->type == NMethod && method_has_body(m) &&
            c->type == NClass && (c->flags & NFAbstract) == 0){
             /* This cache table also lands in facade-reachable `status` —
@@ -3974,6 +3976,10 @@ gen_type_metadata_entries_buf(Node *c, char *bufname)
         }
         if(m->type == NProp || m->type == NState || m->type == NAtomic ||
            m->type == NSecret || m->type == NCap){
+            /* private field: not part of the facade-reachable status
+             * surface (#7). */
+            if(m->flags & NFPrivate)
+                continue;
             typetext = metadata_type_render(m);
             storage = type_storage_for_codegen(m->typeinfo);
             print("\t\tp += snprint(p, sizeof %s - (p-%s), \"%s name=%s typename=%s type=%s storage=%s\\n\");\n",
@@ -4420,6 +4426,15 @@ gen_class_server(Node *c)
     print("\t\tif(w < nout-1){ out[w++] = '\\n'; out[w] = '\\0'; }\n");
     print("\t}\n");
     print("\treturn w;\n}\n\n");
+    /* listinstances (#8): append \" <name>\" per live instance so the root
+     * status can list instances, not just classes. */
+    print("static int %s_listinstances(char *out, int nout){\n", c->name);
+    print("\tint i, w = 0, n;\n");
+    print("\tif(out == nil || nout <= 0) return 0;\n");
+    print("\tfor(i = 0; i < %s_ninstances && w < nout-1; i++){\n", c->name);
+    print("\t\tn = snprint(out+w, nout-w, \" %%s\", %s_instances[i].name); w += n;\n", c->name);
+    print("\t}\n");
+    print("\treturn w;\n}\n\n");
     /* Forward-declare the facade handlers: record_instance binds them into
      * each object dir's O9FileAux, but their bodies come further below. */
     print("static void fsread_%s(Req *r, void *instv);\n", c->name);
@@ -4496,8 +4511,18 @@ gen_class_server(Node *c)
     /* Method file reads: check for stored O9Reply in fid aux */
     for(m = c->left; m; m = m->next){
         if(m->type == NMethod && strcmp(m->name, "main") != 0 && !type_is_void(m->typeinfo)){
-            char *fmt = type_fmt_for_codegen(m->typeinfo);
-            char *cast = type_cast_for_codegen(m->typeinfo);
+            char *fmt, *cast;
+            /* SECURITY (#7): the per-class handler must also skip private
+             * methods + the constructor. Latent today (the flat facade
+             * doesn't expose these per-method files as paths), but if
+             * object paths return, private members must not become
+             * readable — same rule as the ctl/facade seams. */
+            if(m->flags & NFPrivate)
+                continue;
+            if(m->name != nil && c->name != nil && strcmp(m->name, c->name) == 0)
+                continue;	/* constructor */
+            fmt = type_fmt_for_codegen(m->typeinfo);
+            cast = type_cast_for_codegen(m->typeinfo);
             print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
             print("\t\tO9Reply *__o9rep = r->fid->aux;\n");
             print("\t\tif(__o9rep == nil){ respond(r, \"no pending reply\"); return; }\n");
@@ -4516,10 +4541,17 @@ gen_class_server(Node *c)
     }
     for(m = c->left; m; m = m->next){
         if(m->type == NProp || m->type == NAtomic){
-            char *t = type_storage_for_codegen(m->typeinfo);
-            char *fmt = type_fmt_for_codegen(m->typeinfo);
-            char *cast = type_cast_for_codegen(m->typeinfo);
-            Node *d = type_decl_node(m->typeinfo);
+            char *t, *fmt, *cast;
+            Node *d;
+            /* SECURITY (#7): private fields must not be readable through a
+             * per-class prop path. Latent (flat facade doesn't expose
+             * these paths now), but defense-in-depth for if they return. */
+            if(m->flags & NFPrivate)
+                continue;
+            t = type_storage_for_codegen(m->typeinfo);
+            fmt = type_fmt_for_codegen(m->typeinfo);
+            cast = type_cast_for_codegen(m->typeinfo);
+            d = type_decl_node(m->typeinfo);
             if(type_is_class_ref(m->typeinfo)){
                 /* class-typed field is a live handle, not a readable value */
                 print("\tif(strcmp(name, \"%s\") == 0){ readstr(r, \"<handle>\\n\"); respond(r, nil); return; }\n", m->name);
@@ -4662,6 +4694,12 @@ gen_class_server(Node *c)
         if(m->type == NMethod && strcmp(m->name, "main") != 0){
             int np = 0;
             Node *p;
+            /* SECURITY (#7): no per-method write file for private methods
+             * or the constructor. */
+            if(m->flags & NFPrivate)
+                continue;
+            if(m->name != nil && c->name != nil && strcmp(m->name, c->name) == 0)
+                continue;
             for(p = m->right; p; p = p->next) np++;
             print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
             if(np > 0){
@@ -4688,8 +4726,14 @@ gen_class_server(Node *c)
     }
     for(m = c->left; m; m = m->next){
         if(m->type == NProp || m->type == NAtomic){
-            char *t = type_storage_for_codegen(m->typeinfo);
-            Node *d = type_decl_node(m->typeinfo);
+            char *t;
+            Node *d;
+            /* SECURITY (#7): private fields not writable via a per-class
+             * prop path. */
+            if(m->flags & NFPrivate)
+                continue;
+            t = type_storage_for_codegen(m->typeinfo);
+            d = type_decl_node(m->typeinfo);
             if(type_is_class_ref(m->typeinfo)){
                 /* class-typed field is a handle — not writable via 9P */
             } else if(strcmp(t, "O9Dict") == 0) {
@@ -4738,7 +4782,7 @@ gen_class_server(Node *c)
      * creates its boot instance (recorded in the registry, no dir). */
     o9_note_registered(c->name);	/* boot calls o9_register_class_<C> */
     print("void o9_register_class_%s(void) {\n", c->name);
-    print("\to9app_register_handler(\"%s\", fsread_%s, fswrite_%s, (void*(*)(char*))%s_find_instance, %s_dumpstate);\n", c->name, c->name, c->name, c->name, c->name);
+    print("\to9app_register_handler(\"%s\", fsread_%s, fswrite_%s, (void*(*)(char*))%s_find_instance, %s_dumpstate, %s_listinstances);\n", c->name, c->name, c->name, c->name, c->name, c->name);
     print("\to9_objects_%s = o9_object_store_create_path(o9app_root, o9app_name);\n", c->name);
     print("\to9_method_store_init(o9app_root, o9app_name);\n");
     gen_method_registrations(c, c);
@@ -5010,6 +5054,7 @@ codegen(Node *root)
     print("\tvoid (*write)(Req*, void*);\n");
     print("\tvoid *(*find)(char*);\t/* <C>_find_instance */\n");
     print("\tint (*dumpstate)(char*, int);\t/* <C>_dumpstate: debug */\n");
+    print("\tint (*listinst)(char*, int);\t/* <C>_listinstances: append \" name\" per live instance */\n");
     print("};\n");
     print("extern O9ClassH o9app_classes[64];\n");
     print("extern int o9app_nclasses;\n");
@@ -5020,13 +5065,14 @@ codegen(Node *root)
     print("extern char o9app_mount[256];\n");
     print("extern char o9app_name[64];\n");
     print("extern File *o9app_exports_dir;\t/* served-tree exports/ dir */\n");
-    print("static void o9app_register_handler(char *name, void (*rd)(Req*,void*), void (*wr)(Req*,void*), void *(*find)(char*), int (*dump)(char*,int)){\n");
+    print("static void o9app_register_handler(char *name, void (*rd)(Req*,void*), void (*wr)(Req*,void*), void *(*find)(char*), int (*dump)(char*,int), int (*listinst)(char*,int)){\n");
     print("\tif(o9app_nclasses >= nelem(o9app_classes)) return;\n");
     print("\to9app_classes[o9app_nclasses].name = name;\n");
     print("\to9app_classes[o9app_nclasses].read = rd;\n");
     print("\to9app_classes[o9app_nclasses].write = wr;\n");
     print("\to9app_classes[o9app_nclasses].find = find;\n");
     print("\to9app_classes[o9app_nclasses].dumpstate = dump;\n");
+    print("\to9app_classes[o9app_nclasses].listinst = listinst;\n");
     print("\to9app_nclasses++;\n}\n");
     /* Debug gate: O9DEBUG env var exposes live object state via the
      * `state` file.  Off by default — encapsulation preserved. */
@@ -5145,7 +5191,13 @@ codegen(Node *root)
     print("\tif(strcmp(name, \"status\") == 0){\n");
     print("\t\tp += snprint(p, sizeof buf-(p-buf), \"app %%s\\nstate running\\nclasses\", o9app_name);\n");
     print("\t\tfor(i = 0; i < o9app_nclasses; i++) p += snprint(p, sizeof buf-(p-buf), \" %%s\", o9app_classes[i].name);\n");
+    /* #8: list instances per class (docs say classes AND instances). */
     print("\t\tp += snprint(p, sizeof buf-(p-buf), \"\\n\");\n");
+    print("\t\tfor(i = 0; i < o9app_nclasses; i++){\n");
+    print("\t\t\tp += snprint(p, sizeof buf-(p-buf), \"instances %%s\", o9app_classes[i].name);\n");
+    print("\t\t\tif(o9app_classes[i].listinst != nil) p += o9app_classes[i].listinst(p, (int)(sizeof buf-(p-buf)));\n");
+    print("\t\t\tp += snprint(p, sizeof buf-(p-buf), \"\\n\");\n");
+    print("\t\t}\n");
     print("\t\treadstr(r, buf); respond(r, nil); return;\n\t}\n");
     print("\tif(strcmp(name, \"methods\") == 0){\n");
     print("\t\tfor(i = 0; i < o9app_nclasses; i++){\n");

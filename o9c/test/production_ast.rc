@@ -183,7 +183,9 @@ $tool < o9c/test/multi_arg_method.o9 > $meta >[2] $err || exit multi-arg-meta
 require_file 'obj9_msgSendN' $meta
 require_file '__o9fr.0..1, 2' $meta
 require_file '__wargs' $meta
-require_file 'nf > 4' $meta
+# arity + typed-arg parsing (review #4/#5): the old `nf > N` blind guard
+# is replaced by an exact-arity check and per-arg strtoll/string parsing.
+require_file 'nf - 3 !=' $meta
 rm -f $meta
 
 $tool -ast < o9c/test/inherit_contracts.o9 > $ast || exit inherit-ast
