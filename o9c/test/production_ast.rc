@@ -64,6 +64,21 @@ fn require_error {
 	}
 }
 
+# Like require_error but passes the source PATH (imports resolve relative
+# to the file's dir, so subtree-escape checks fire).
+fn require_error_path {
+	src=$1
+	pattern=$2
+	$tool $src > $ast >[2] $err
+	grep $"pattern $err > /dev/null
+	if(! ~ $status ''){
+		echo missing expected error for $src: $pattern >[1=2]
+		cat $err >[1=2]
+		rm -f $ast $err $meta
+		exit fail
+	}
+}
+
 compile o9c/test/ast_complete.o9 ast_complete
 compile o9c/test/enum_types.o9 enum_types
 compile o9c/test/module_types.o9 module_types
@@ -220,6 +235,7 @@ require_error o9c/test/typecheck_bad_builtin_arity.o9 'builtin ''len'' needs 1 a
 require_error o9c/test/typecheck_bad_secret_type.o9 'secret field ''pin'' must be string'
 require_error o9c/test/typecheck_bad_private_call.o9 '''Counter.bump'' is private'
 require_error o9c/test/typecheck_bad_ctor_new.o9 'cannot ''new Node'' inside Node''s own constructor'
+require_error_path o9c/test/impdir/escape.o9 'escapes the importing'
 require_error o9c/test/typecheck_bad_super_arity.o9 'calls Animal'
 require_error o9c/test/typecheck_bad_tab_arity.o9 'Tabula.set takes 2 arguments, got 1'
 require_error o9c/test/typecheck_bad_interface_new.o9 'cannot instantiate interface ''Sink'''

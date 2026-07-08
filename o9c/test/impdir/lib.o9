@@ -1,0 +1,7 @@
+// imported library — its classes get spliced into the importer's
+// compilation (full bodies, not name stubs).
+class Greeter {
+    prop int64 base;
+    method void setbase(int64 b) { base = b; }
+    method int64 answer() { return base + 42; }
+}

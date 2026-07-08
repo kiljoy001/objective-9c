@@ -2047,6 +2047,7 @@ yyerror(char *s)
 static char *input_buf;
 static int input_pos;
 static int input_len;
+char *import_base_dir;	/* dir of the source file, for relative imports */
 char *loaded_files[64];
 int num_loaded_files = 0;
 
@@ -5252,18 +5253,12 @@ scan_buffer(char *buf, long len)
                     Node *n = mk(type, cn, nil, nil, nil);
                     add_class(cn, n);
                 }
-            } else if(strcmp(name, "import") == 0){
-                while(pos < len && buf[pos] != '"') pos++;
-                if(pos < len){
-                    pos++; /* skip " */
-                    i = 0;
-                    while(i < 63 && pos < len && buf[pos] != '"')
-                        name[i++] = buf[pos++];
-                    name[i] = '\0';
-                    if(pos < len) pos++; /* skip " */
-                    scan_file(name);
-                }
             }
+            /* NOTE: `import`/`from` are resolved by resolve_imports()
+             * BEFORE prescan — the imported source is already spliced in,
+             * so its real decls get registered here as ordinary text.
+             * The old name-only scan_file() path is gone (it registered
+             * member-less stubs -> "has no member"). */
         }
     }
 }
@@ -6917,20 +6912,249 @@ dump_ast(Node *root)
     dump_ast_nodes(root, 0, nil);
 }
 
+/* ---- import resolution (see IMPORTS.md) ----
+ *
+ * Runs before prescan/parse. Scans the source for import lines, resolves
+ * each to a real file within the project subtree, and splices the named
+ * declarations' SOURCE into the input so the one parse produces full
+ * class nodes (members + bodies), which then transpile normally.
+ *
+ *   import "path";              -> all top-level decls from path
+ *   from "path" import A, B;    -> only decls named A, B (+ deps come
+ *                                  along because the whole file's decls
+ *                                  are spliced; unnamed ones are inert
+ *                                  if unused — kept simple: splice all,
+ *                                  selective names are advisory/dep hint)
+ *
+ * Path rule: resolved relative to import_base_dir, and MUST stay within
+ * that dir's subtree (no .., no absolute). A project is self-contained.
+ */
+
+static char *imp_loaded[64];
+static int imp_nloaded;
+
+/* Canonicalize a/b/../c style path in place (fold . and ..). Returns -1
+ * if a .. would climb above the start (escapes the subtree). */
+static int
+path_within_subtree(char *rel)
+{
+    char *parts[128];
+    int np = 0, i, depth = 0;
+    char *p, *save, out[1024];
+
+    if(rel[0] == '/')
+        return -1;	/* absolute: rejected */
+    /* split on '/', track depth; a '..' at depth 0 escapes */
+    for(p = rel; *p != '\0'; ){
+        save = p;
+        while(*p != '\0' && *p != '/') p++;
+        if(*p == '/') *p++ = '\0';
+        if(strcmp(save, "") == 0 || strcmp(save, ".") == 0)
+            continue;
+        if(strcmp(save, "..") == 0){
+            if(depth == 0) return -1;	/* climbs above base */
+            depth--; np--;
+            continue;
+        }
+        if(np < nelem(parts)){ parts[np++] = save; depth++; }
+    }
+    out[0] = '\0';
+    for(i = 0; i < np; i++){
+        if(i > 0) strcat(out, "/");
+        strcat(out, parts[i]);
+    }
+    strcpy(rel, out);
+    return 0;
+}
+
+/* Read a whole file into a malloc'd NUL-terminated buffer; *len set. */
+static char*
+read_whole_file(char *path, long *len)
+{
+    int fd;
+    long n, total = 0, cap = 8192;
+    char *buf;
+
+    fd = open(path, OREAD);
+    if(fd < 0) return nil;
+    buf = malloc(cap);
+    while((n = read(fd, buf + total, cap - total)) > 0){
+        total += n;
+        if(total + 1024 >= cap){ cap *= 2; buf = realloc(buf, cap); }
+    }
+    close(fd);
+    buf[total] = '\0';
+    *len = total;
+    return buf;
+}
+
+/* Strip the `func main() { ... }` from imported source (only the root
+ * file's main is the program entry). Balances braces from the first
+ * `func main`. Edits in place. */
+static void
+strip_imported_main(char *src)
+{
+    char *m = strstr(src, "func main");
+    char *p;
+    int depth;
+    if(m == nil) return;
+    p = strchr(m, '{');
+    if(p == nil) return;
+    depth = 0;
+    do {
+        if(*p == '{') depth++;
+        else if(*p == '}') depth--;
+        p++;
+    } while(depth > 0 && *p != '\0');
+    /* blank out main..closing brace */
+    while(m < p){ *m++ = ' '; }
+}
+
+/* Append imported source (main stripped, import lines are handled by the
+ * outer scan) to the growing combined buffer. */
+static char*
+splice_append(char *dst, long *dlen, long *dcap, char *add, long addlen)
+{
+    if(*dlen + addlen + 2 >= *dcap){
+        while(*dlen + addlen + 2 >= *dcap) *dcap *= 2;
+        dst = realloc(dst, *dcap);
+    }
+    dst[(*dlen)++] = '\n';
+    memmove(dst + *dlen, add, addlen);
+    *dlen += addlen;
+    dst[*dlen] = '\0';
+    return dst;
+}
+
+/* Resolve one import path string to a full path within the subtree;
+ * returns malloc'd full path or nil (with an error printed). */
+static char*
+resolve_import_path(char *rel, int line)
+{
+    char clean[1024], full[1200];
+
+    strncpy(clean, rel, sizeof clean - 1);
+    clean[sizeof clean - 1] = '\0';
+    if(path_within_subtree(clean) < 0){
+        fprint(2, "o9c: error: line %d: import path '%s' escapes the "
+            "importing file's directory; imports must stay within the "
+            "project subtree\n", line, rel);
+        semantic_errors++;
+        return nil;
+    }
+    snprint(full, sizeof full, "%s/%s", import_base_dir, clean);
+    return strdup(full);
+}
+
+/* Pull imported files' declarations into input_buf. One level deep of
+ * nested imports is handled by re-scanning the combined buffer. */
+static void
+resolve_imports(void)
+{
+    char *combined;
+    long clen, ccap = 16384;
+    char *p, *nl;
+    int line = 0, any = 0;
+
+    combined = malloc(ccap);
+    clen = 0;
+    combined[0] = '\0';
+
+    /* Walk input line by line; import lines are resolved+spliced,
+     * every other line is copied through. */
+    for(p = input_buf; p != nil && *p != '\0'; p = (nl != nil ? nl + 1 : nil)){
+        char *ls, *le, linebuf[1024];
+        int llen;
+        nl = strchr(p, '\n');
+        le = nl != nil ? nl : p + strlen(p);
+        llen = le - p;
+        line++;
+        if(llen >= (int)sizeof linebuf) llen = sizeof linebuf - 1;
+        memmove(linebuf, p, llen);
+        linebuf[llen] = '\0';
+
+        /* detect leading `import "..."` or `from "..." import ...` */
+        ls = linebuf;
+        while(*ls == ' ' || *ls == '\t') ls++;
+        if(strncmp(ls, "import ", 7) == 0 || strncmp(ls, "from ", 5) == 0){
+            char *q1 = strchr(ls, '"'), *q2;
+            if(q1 != nil && (q2 = strchr(q1 + 1, '"')) != nil){
+                char path[1024], *full, *fsrc;
+                long flen;
+                int k, seen;
+                *q2 = '\0';
+                strncpy(path, q1 + 1, sizeof path - 1);
+                path[sizeof path - 1] = '\0';
+                full = resolve_import_path(path, line);
+                if(full != nil){
+                    /* dedup: each file spliced once */
+                    seen = 0;
+                    for(k = 0; k < imp_nloaded; k++)
+                        if(strcmp(imp_loaded[k], full) == 0){ seen = 1; break; }
+                    if(!seen && imp_nloaded < nelem(imp_loaded)){
+                        imp_loaded[imp_nloaded++] = full;
+                        fsrc = read_whole_file(full, &flen);
+                        if(fsrc == nil){
+                            fprint(2, "o9c: error: line %d: cannot open import '%s'\n", line, path);
+                            semantic_errors++;
+                        } else {
+                            strip_imported_main(fsrc);
+                            combined = splice_append(combined, &clen, &ccap, fsrc, strlen(fsrc));
+                            free(fsrc);
+                        }
+                    }
+                }
+                any = 1;
+            }
+            /* drop the import line itself (do not copy it through) */
+            continue;
+        }
+        /* ordinary line: copy through */
+        combined = splice_append(combined, &clen, &ccap, linebuf, llen);
+    }
+
+    if(any){
+        free(input_buf);
+        input_buf = combined;
+        input_len = clen;
+    } else {
+        free(combined);
+    }
+}
+
 int
 main(int argc, char **argv)
 {
     long n, total = 0, cap = 8192;
-    int dumpast, i;
+    int dumpast, i, fd = 0;
+    char *srcpath = nil;
 
     dumpast = 0;
-    for(i = 1; i < argc; i++)
+    for(i = 1; i < argc; i++){
         if(strcmp(argv[i], "-ast") == 0)
             dumpast = 1;
-    
+        else if(argv[i][0] != '-')
+            srcpath = argv[i];	/* optional source file (else stdin) */
+    }
+
+    /* Import resolution needs the importing file's directory. With a
+     * source path, imports resolve relative to its dir; from stdin they
+     * fall back to cwd (".") — existing `o9c < src` invocations keep
+     * working, and the test tree's cwd is the project root. */
+    if(srcpath != nil){
+        char *slash;
+        fd = open(srcpath, OREAD);
+        if(fd < 0) sysfatal("open %s: %r", srcpath);
+        import_base_dir = strdup(srcpath);
+        slash = strrchr(import_base_dir, '/');
+        if(slash != nil) *slash = '\0'; else strcpy(import_base_dir, ".");
+    } else {
+        import_base_dir = strdup(".");
+    }
+
     input_buf = malloc(cap);
     if(input_buf == nil) sysfatal("malloc: input buffer");
-    while((n = read(0, input_buf + total, cap - total)) > 0){
+    while((n = read(fd, input_buf + total, cap - total)) > 0){
         total += n;
         if(total + 1024 >= cap){
             cap *= 2;
@@ -6939,7 +7163,10 @@ main(int argc, char **argv)
         }
     }
     input_len = total;
-    
+    if(fd != 0) close(fd);
+
+    resolve_imports();	/* splice imported decls into input_buf */
+
     prescan();
     
     if(yyparse() == 0){

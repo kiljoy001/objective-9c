@@ -1,0 +1,2 @@
+from "../../../etc/passwd.o9" import X;
+func main() { print("nope\n"); }

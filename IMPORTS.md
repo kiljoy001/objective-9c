@@ -1,10 +1,15 @@
 # o9 imports — design (July 2026)
 
-Status: DESIGN + partial current state. The current `import "path";`
-is half-built (registers class NAMES with nil bodies via the prescan —
-so an imported class exists but has no members and no generated code;
-"'X' has no member 'm'" and nothing to link). This doc is the intended
-real design. Not fully built yet.
+Status: BUILT (July 2026). Both forms work end-to-end; the imported
+class's full body is spliced into the compilation and transpiled. The
+subtree boundary is enforced. Tests: e2e_import (from-import runs),
+production_ast escape.o9 (../ rejected). Selective filtering by name is
+advisory for now — the whole imported file is spliced (main stripped);
+unused decls are inert. Tightening to true name-selection + transitive
+closure is a future refinement.
+
+Compile with a PATH for imports: `o9c FILE.o9` (imports resolve relative
+to FILE's dir). `o9c < FILE.o9` still works (resolves relative to cwd).
 
 ## Principle: the path is the path (anti-Python)
 
