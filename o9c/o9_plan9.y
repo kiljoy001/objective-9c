@@ -5057,6 +5057,13 @@ codegen(Node *root)
      * sets the app names, allocates the shared tree, and posts the single
      * /srv/o9.<app>; each class then registers INTO it. */
     print("static void o9_app_start(int argc, char **argv){\n");
+    /* Private namespace per app: rfork(RFNAMEG) gives this app its OWN
+     * namespace, copied from the parent's. Mounts/binds the app makes
+     * (the facade, link ref/replica composition) are then ISOLATED —
+     * they can't leak to or collide with other apps. This is the Plan 9
+     * way to have safe per-app namespace composition (cf. ramfs). Done
+     * once at startup, before any ns touching. */
+    print("\trfork(RFNAMEG);\n");
     print("\tchar *__o9app = \"%s\";\n", last != nil ? last->name : "app");
     print("\tif(argc > 1 && argv[1] != nil && argv[1][0] != '\\0') __o9app = argv[1];\n");
     print("\tsnprint(o9app_name, sizeof o9app_name, \"%%s\", __o9app);\n");
