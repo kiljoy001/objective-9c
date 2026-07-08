@@ -3839,8 +3839,16 @@ gen_cache_entries_buf(Node *c, char *classname, char *bufname)
         }
         if(m->type == NProp) print("\t\tp += snprint(p, sizeof %s - (p-%s), \"d:%%ld:%%ld\\n\", %ldL, (long)o9_offsetof(%s_Internal, %s));\n", bufname, bufname, o9_hash(m->name), classname, m->name);
         if(m->type == NMethod && method_has_body(m) &&
-           c->type == NClass && (c->flags & NFAbstract) == 0)
+           c->type == NClass && (c->flags & NFAbstract) == 0){
+            /* This cache table also lands in facade-reachable `status` —
+             * don't expose private methods' or a constructor's handler
+             * pointer there (it's not external API). */
+            if(m->flags & NFPrivate)
+                continue;
+            if(m->name != nil && c->name != nil && strcmp(m->name, c->name) == 0)
+                continue;	/* constructor */
             print("\t\tp += snprint(p, sizeof %s - (p-%s), \"c:%%ld:%%p\\n\", %ldL, o9_ctrl_%s_%s);\n", bufname, bufname, o9_hash(m->name), c->name, m->name);
+        }
     }
 }
 
@@ -3868,6 +3876,17 @@ gen_method_registrations(Node *c, Node *concrete)
         }
         if(m->type == NMethod && method_has_body(m) &&
            c->type == NClass && (c->flags & NFAbstract) == 0){
+            /* Do NOT register private methods or constructors as callable
+             * facade API: private is class-scoped (unreachable through the
+             * mount, matching the compile-time check), and a constructor
+             * must not be re-invokable on a live object over 9P. They
+             * still get an INTERNAL dispatch case (gen_dispatch_cases) for
+             * o9-to-o9 calls, super(), and new — this only gates the
+             * external API surface (method store + /methods). */
+            if(m->flags & NFPrivate)
+                continue;
+            if(m->name != nil && c->name != nil && strcmp(m->name, c->name) == 0)
+                continue;	/* constructor */
             argc = 0;
             n = 0;
             sig[0] = '\0';
@@ -3961,6 +3980,13 @@ gen_type_metadata_entries_buf(Node *c, char *bufname)
                 storage);
         }
         if(m->type == NMethod){
+            /* This metadata feeds the facade-reachable `status` surface,
+             * so private methods and constructors must not appear (they
+             * are not external API). */
+            if(m->flags & NFPrivate)
+                continue;
+            if(m->name != nil && c->name != nil && strcmp(m->name, c->name) == 0)
+                continue;	/* constructor */
             typetext = metadata_type_render(m);
             storage = type_storage_for_codegen(m->typeinfo);
             argc = node_list_len(m->right);
@@ -4545,6 +4571,15 @@ gen_class_server(Node *c)
         if(m->type == NMethod && strcmp(m->name, "main") != 0){
             int np = 0;
             Node *p;
+            /* SECURITY: do not emit a ctl-dispatch case for private
+             * methods or the constructor — this is the seam that made
+             * `method Class.inst <private>` callable over the mount. The
+             * method still has an INTERNAL dispatch case (o9-to-o9 calls,
+             * super, new go through the actor loop, not this ctl path). */
+            if(m->flags & NFPrivate)
+                continue;
+            if(m->name != nil && c->name != nil && strcmp(m->name, c->name) == 0)
+                continue;	/* constructor: not re-invokable over 9P */
             for(p = m->right; p; p = p->next) np++;
             print("\t\t\tif(strcmp(f[2], \"%s\") == 0){\n", m->name);
             if(np > 0){

@@ -166,6 +166,19 @@ reject_file '"cache", nil, 0444' $meta
 reject_file '"__distance__", nil, 0444' $meta
 rm -f $meta
 
+# SECURITY: private methods + the constructor must NOT reach the facade
+# (not registered, not ctl-callable), but public methods must. Regression
+# for the facade private-leak (a private method was callable via
+# `method Class.inst <private>` over the mount).
+$tool < o9c/test/facade_private.o9 > $meta >[2] $err || exit facade-priv-meta
+require_file 'strcmp\(f\[2\], "add"\)' $meta        # public: ctl-callable
+require_file 'o9_method_register\("Counter", "add"' $meta   # public: registered
+reject_file 'strcmp\(f\[2\], "bump"\)' $meta        # private: NOT ctl-callable
+reject_file 'o9_method_register\("Counter", "bump"' $meta   # private: NOT registered
+reject_file 'strcmp\(f\[2\], "Counter"\)' $meta     # constructor: NOT ctl-callable
+require_file 'o9_impl_Counter_bump' $meta           # but private IS impl'd (internal)
+rm -f $meta
+
 $tool < o9c/test/multi_arg_method.o9 > $meta >[2] $err || exit multi-arg-meta
 require_file 'obj9_msgSendN' $meta
 require_file '__o9fr.0..1, 2' $meta
