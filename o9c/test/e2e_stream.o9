@@ -1,0 +1,17 @@
+// `stream` keyword: the alternate spelling of a chan field (both make
+// NStream, auto-created at construction). Zero prior coverage; confirms
+// stream works like chan (object-internal CSP IPC).
+class Pipe {
+    stream s;
+    method void put(int64 v) { s -> v; }
+    method int64 take() { int64 x; x = <- s; return x; }
+}
+func main() {
+    Pipe p = new Pipe();
+    p.put(11);
+    p.put(22);
+    int64 a; int64 b;
+    a = p.take();
+    b = p.take();
+    print("sum ", a + b, "\n");   // 33
+}
