@@ -1282,7 +1282,7 @@ typeinfo_from_legacy(char *t)
 %token <node> TIDENT TTYPE TQIDENT TTYPEIDENT TENUMIDENT
 %token <name> TINTLIT TSTRINGLIT TCHARLIT
 %token TCLASS TINTERFACE TSTRUCT TENUM TMODULE TIMPORT TFUNC TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TLIST TNIL TABSTRACT TDELETE
-%token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TOBJECT TLINK TREF TREPLICA TTRUE TFALSE TARROW
+%token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TOBJECT TLINK TREPLACE TUNION TTRUE TFALSE TARROW
 %token TPUBLIC TPRIVATE
 %token TTRY TDEFER
 %token TEQ TADD TSUB TCHANSEND TCHANRECV TCHANTRY TEQEQ TNEQ TLE TGE
@@ -1454,8 +1454,8 @@ object_decl:
     ;
 
 link_kind:
-    TREF { $$ = mk(NIdent, "ref", nil, nil, nil); }
-    | TREPLICA { $$ = mk(NIdent, "replica", nil, nil, nil); }
+    TREPLACE { $$ = mk(NIdent, "replace", nil, nil, nil); }
+    | TUNION { $$ = mk(NIdent, "union", nil, nil, nil); }
     ;
 
 link_decl:
@@ -2314,8 +2314,8 @@ yylex(void)
             if(strcmp(buf, "cap") == 0) return TCAP;
             if(strcmp(buf, "object") == 0) return TOBJECT;
             if(strcmp(buf, "link") == 0) return TLINK;
-            if(strcmp(buf, "ref") == 0) return TREF;
-            if(strcmp(buf, "replica") == 0) return TREPLICA;
+            if(strcmp(buf, "replace") == 0) return TREPLACE;
+            if(strcmp(buf, "union") == 0) return TUNION;
             if(strcmp(buf, "chan") == 0) return TCHAN;
             if(strcmp(buf, "return") == 0) return TRETURN;
             if(strcmp(buf, "if") == 0) return TIF;
@@ -3747,7 +3747,7 @@ gen_object_metadata_items(Node *root)
         if(n->type == NLink && n->left != nil && n->right != nil){
             char *sc = n->left->cname != nil ? n->left->cname : n->left->name;
             char *tc = n->right->cname != nil ? n->right->cname : n->right->name;
-            char *mf = (n->typename != nil && strcmp(n->typename, "replica") == 0) ? "MBEFORE" : "MREPL";
+            char *mf = (n->typename != nil && strcmp(n->typename, "union") == 0) ? "MBEFORE" : "MREPL";
             print("\t\t{ char __ls[300], __ld[300], __ll[640];\n");
             print("\t\tsnprint(__ls, sizeof __ls, \"%%s/obj/%s\", __o9root);\n", tc);
             print("\t\tsnprint(__ld, sizeof __ld, \"%%s/obj/%s\", __o9root);\n", sc);

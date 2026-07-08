@@ -133,7 +133,7 @@ require 'NProp name=value typename=T qname=value cname=value type=T'
 require 'NAssign type=int64'
 require 'NIdent name=delta qname=delta cname=delta type=int64'
 require 'NObject name=App__boxed typename=App__Box__int64 qname=App.boxed cname=App__boxed type=App.Box<int64>'
-require 'NLink name=App__primary typename=ref qname=App.primary cname=App__primary'
+require 'NLink name=App__primary typename=replace qname=App.primary cname=App__primary'
 require 'NMsgSend name=inc qname=inc cname=inc type=void'
 require 'NIdent name=counter qname=counter cname=counter type=App.Counter'
 rm -f $ast

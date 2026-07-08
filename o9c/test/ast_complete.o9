@@ -27,7 +27,7 @@ module App {
 
     object Counter primary;
     object Box<int64> boxed;
-    link ref primary -> boxed;
+    link replace primary -> boxed;
 
     func main() {
         App.Color c = App.Green;

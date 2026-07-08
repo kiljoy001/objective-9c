@@ -274,8 +274,8 @@ cat /mnt/o9/state                    # live object state (debug only)
 
 ## 8. Composition
 
-`object` and `link` declarations record intent; `link ref a -> b`
-binds b over a at startup, `link replica` union-binds (read
+`object` and `link` declarations record intent; `link replace a -> b`
+binds b over a at startup, `link union` union-binds (read
 fallback). Every mount/bind is mirrored in the app's namespace recipe —
 your program's assembly, as replayable text.
 

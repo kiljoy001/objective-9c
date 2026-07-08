@@ -131,11 +131,11 @@ format). The compiler's `object` and `link` declarations compile to it:
 ```
  mount /srv/o9.App.Counter    /mnt/o9/App/class/Counter
  bind  …/class/Counter/c      /mnt/o9/App/obj/c
- bind  …/obj/mirror           /mnt/o9/App/obj/primary    # link ref
+ bind  …/obj/mirror           /mnt/o9/App/obj/primary    # link replace
  bind -b …/obj/backup         /mnt/o9/App/obj/primary    # fallback union
 ```
 
-`link ref` is a bind — kernel-implemented redirection; union binds give
+`link replace` is a bind — kernel-implemented redirection; union binds give
 failover; re-resolution is re-binding after a repost.
 
 **The /srv seam (verified on the grid):** a server's self-mount is
@@ -175,7 +175,7 @@ generic instantiation.
 - [x] **Phase 1**: idempotent unique `/srv` posts — verified across the
       grid (demo/TWO_MACHINE_DEMO.md)
 - [x] **Phase 2**: registry actor + namespace assembly recipe
-- [x] **Phase 3**: `link ref`/`replica` as binds with union fallbacks
+- [x] **Phase 3**: `link replace`/`union` as binds with union fallbacks
 - [ ] Next: oid handle form in method args; registry watch channels;
       replica sync; module-based stdlib services under `lib/`;
       IL placement for `new near`
