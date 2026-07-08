@@ -6468,6 +6468,27 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
         sem_line = e->line;
 
     switch(e->type){
+    case NIdent:
+        /* Bare identifier: if it resolves to a private MEMBER owned by an
+         * ANCESTOR (not scope_class itself), reject — private is
+         * declaring-class-only (strict C#). A subclass cannot read its
+         * parent's private via a bare field access (inheritance flattens
+         * the struct, so the field is physically reachable — the check
+         * must be here). Locals/params and same-class privates are fine. */
+        if(scope_class != nil && e->name != nil && !is_local(e->name)){
+            Type *st = scope_class->typeinfo;
+            TypedMember tm;
+            if(st == nil)
+                st = type_from_name(scope_class->qname != nil ? scope_class->qname : scope_class->name);
+            if(typed_member_lookup(st, e->name, 0, &tm) && tm.node != nil &&
+               (tm.node->flags & NFPrivate) && tm.owner != scope_class){
+                fprint(2, "o9c: error: line %d: '%s.%s' is private "
+                    "(a subclass cannot access an inherited private member)\n",
+                    sem_line, tm.owner != nil ? tm.owner->name : "?", e->name);
+                (*errs)++;
+            }
+        }
+        break;
     case NTry:
     case NDefer:
         /* try/defer wrap a call expression — typecheck the inner call */

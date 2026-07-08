@@ -248,6 +248,7 @@ require_error o9c/test/typecheck_bad_builtin_arity.o9 'builtin ''len'' needs 1 a
 require_error o9c/test/typecheck_bad_secret_type.o9 'secret field ''pin'' must be string'
 require_error o9c/test/typecheck_bad_private_call.o9 '''Counter.bump'' is private'
 require_error o9c/test/typecheck_bad_privfield_read.o9 '''Counter.val'' is private'
+require_error o9c/test/typecheck_bad_inherited_private.o9 'subclass cannot access an inherited private'
 require_error o9c/test/typecheck_bad_privfield_write.o9 '''Counter.val'' is private'
 require_error o9c/test/typecheck_bad_ctor_new.o9 'cannot ''new Node'' inside Node''s own constructor'
 require_error o9c/test/typecheck_bad_cap.o9 '''cap'' is not a language keyword'

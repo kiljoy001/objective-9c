@@ -1,0 +1,13 @@
+class Base {
+    private int64 hidden;
+    method void seed() { hidden = 42; }
+}
+class Derived {
+    Base;
+    method int64 leak() { return hidden; }
+}
+func main() {
+    Derived d = new Derived();
+    d.seed();
+    print("leak ", d.leak(), "\n");
+}
