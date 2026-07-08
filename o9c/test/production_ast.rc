@@ -235,6 +235,7 @@ require_error o9c/test/typecheck_bad_builtin_arity.o9 'builtin ''len'' needs 1 a
 require_error o9c/test/typecheck_bad_secret_type.o9 'secret field ''pin'' must be string'
 require_error o9c/test/typecheck_bad_private_call.o9 '''Counter.bump'' is private'
 require_error o9c/test/typecheck_bad_ctor_new.o9 'cannot ''new Node'' inside Node''s own constructor'
+require_error o9c/test/typecheck_bad_cap.o9 '''cap'' is not a language keyword'
 require_error_path o9c/test/impdir/escape.o9 'escapes the importing'
 require_error_path o9c/test/impdir/usefrom.o9 'from ... import'' is not supported'
 require_error o9c/test/typecheck_bad_super_arity.o9 'calls Animal'

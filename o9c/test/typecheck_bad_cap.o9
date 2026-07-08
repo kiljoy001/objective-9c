@@ -1,0 +1,5 @@
+class Vault {
+    cap string token;
+    method string show() { return token; }
+}
+func main() { Vault v = new Vault(); print(v.show(), "\n"); }

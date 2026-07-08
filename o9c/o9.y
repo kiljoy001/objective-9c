@@ -1673,7 +1673,21 @@ secret_decl:
 cap_decl:
     TCAP typename member_name ';'
     {
-        $$ = mk_typed(NCap, $3->name, $2, nil, nil);
+        /* `cap` is removed — and not reserved for later. Capabilities
+         * are already provided one layer down: a 9P fid / namespace mount
+         * IS an unforgeable handle to a resource, granted, delegated, and
+         * attenuated by namespace composition, over pubkey identity. A
+         * language-level `cap` field would duplicate (or fight) that OS
+         * mechanism — un-o9. Authority to reach an object = whether it's
+         * in your namespace; a bearer token = a `secret` field + a check.
+         * There is no gap for a `cap` keyword to fill. */
+        fprint(2, "o9c: error: 'cap' is not a language keyword. "
+            "Capabilities in o9 are 9P fids / namespace mounts (an "
+            "unforgeable handle granted by whoever mounts it), over "
+            "pubkey identity — not a field type. Use a namespace mount "
+            "for authority, or a `secret` field for a bearer token.\n");
+        semantic_errors++;
+        $$ = mk_typed(NProp, $3->name, $2, nil, nil);
     }
     ;
 
