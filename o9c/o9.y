@@ -7073,10 +7073,20 @@ resolve_imports(void)
         memmove(linebuf, p, llen);
         linebuf[llen] = '\0';
 
-        /* detect leading `import "..."` or `from "..." import ...` */
+        /* detect leading `import "..."`.  `from "..." import ...` is
+         * rejected: it would splice the whole file identically to
+         * `import`, so the name list would be a lie.  One honest verb.
+         * (A real filtering `from` can return when it actually filters.) */
         ls = linebuf;
         while(*ls == ' ' || *ls == '\t') ls++;
-        if(strncmp(ls, "import ", 7) == 0 || strncmp(ls, "from ", 5) == 0){
+        if(strncmp(ls, "from ", 5) == 0){
+            fprint(2, "o9c: error: line %d: 'from ... import' is not "
+                "supported; use `import \"path\";` (it pulls the file's "
+                "declarations). Selective import is not yet implemented.\n", line);
+            semantic_errors++;
+            continue;	/* drop the line */
+        }
+        if(strncmp(ls, "import ", 7) == 0){
             char *q1 = strchr(ls, '"'), *q2;
             if(q1 != nil && (q2 = strchr(q1 + 1, '"')) != nil){
                 char path[1024], *full, *fsrc;
@@ -7166,6 +7176,8 @@ main(int argc, char **argv)
     if(fd != 0) close(fd);
 
     resolve_imports();	/* splice imported decls into input_buf */
+    if(semantic_errors > 0)	/* import errors: stop before parse cascades */
+        exits("import");
 
     prescan();
     

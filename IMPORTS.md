@@ -65,12 +65,19 @@ physically cannot escape the project root (no ../../../ traversal into
 other projects or system files). Better than Python (imports from
 anywhere on sys.path) and C #include (searches system paths).
 
-## Two forms (Python-like, kept deliberately)
+## One honest verb: `import "path";`
 
-- `import "path";` — import ALL public decls from the file (import-all).
-- `from "path" import A, B;` — selective: only the named decls (+ their
-  transitive dependencies — if A uses a struct Point from the same file,
-  Point comes too even if unnamed).
+`import "path";` pulls the file's declarations (full bodies) into the
+compilation.
+
+There is deliberately NO `from "path" import A, B;`. It was tried and
+removed: because the mechanism splices the WHOLE file, a `from` that
+named A, B produced output IDENTICAL to `import` — the name list was a
+lie. o9 does not ship a verb that overpromises. `from` is rejected with:
+"'from ... import' is not supported; use `import "path";`. Selective
+import is not yet implemented." A real filtering `from` (splice only the
+named decls + their transitive dependency closure) can return WHEN it
+actually filters — not before.
 
 ## Mechanism: splice into one compilation
 

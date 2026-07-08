@@ -1,2 +1,2 @@
-import "../../../etc/passwd.o9";
+from "lib.o9" import Greeter;
 func main() { print("nope\n"); }
