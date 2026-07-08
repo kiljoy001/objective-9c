@@ -1,0 +1,19 @@
+// Class-typed method parameters: a Counter handle passed as an argument
+// (regression for the vlong-pack bug — Counter_Client can't be one vlong;
+// now passed by pointer, deref'd into a local value in the impl).
+class Counter {
+    prop int64 val;
+    method void set(int64 n) { val = n; }
+    method int64 get() { return val; }
+    method void copyfrom(Counter other) { val = other.get(); }
+    method int64 sumwith(Counter other) { return val + other.get(); }
+}
+func main() {
+    Counter a = new Counter();
+    Counter b = new Counter();
+    a.set(42);
+    b.copyfrom(a);
+    print("b ", b.get(), "\n");        // 42
+    b.set(8);
+    print("sum ", a.sumwith(b), "\n"); // 42 + 8 = 50
+}

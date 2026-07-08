@@ -2638,7 +2638,13 @@ gen_expr(Node *e)
                     char buf[64];
                     snprint(buf, sizeof buf, ", __o9fr[%d][%d]=", d, i);
                     print(buf);
-                    if(type_storage_pointerish(a->typeinfo)){
+                    if(type_is_class_ref(a->typeinfo)){
+                        /* class-typed arg: pass a pointer to the Client
+                         * (the impl derefs it into a local value). */
+                        print("(vlong)(uintptr)&(");
+                        gen_expr(a);
+                        print(")");
+                    } else if(type_storage_pointerish(a->typeinfo)){
                         print("(vlong)(uintptr)(");
                         gen_expr(a);
                         print(")");
@@ -4221,7 +4227,14 @@ gen_class_server(Node *c)
                 int pi = 0;
                 for(p = m->right; p; p = p->next){
                     char *st = type_storage_for_codegen(p->typeinfo);
-                    if(storage_pointerish(st))
+                    if(type_is_class_ref(p->typeinfo))
+                        /* class-typed param: the caller packs a pointer to
+                         * its Client (the fat struct can't be one vlong).
+                         * Deref into a local VALUE so the param behaves
+                         * exactly like a class-typed local — every
+                         * receiver-use site (&param) then works unchanged. */
+                        print("\t%s %s = *(%s*)(uintptr)((vlong*)msg->args)[%d];\n", st, p->name, st, pi);
+                    else if(storage_pointerish(st))
                         print("\t%s %s = (%s)(uintptr)((vlong*)msg->args)[%d];\n", st, p->name, st, pi);
                     else
                         print("\t%s %s = ((vlong*)msg->args)[%d];\n", st, p->name, pi);
@@ -4259,14 +4272,16 @@ gen_class_server(Node *c)
 				if(np > 0){
 						for(pn = m->right, pi = 0; pn; pn = pn->next, pi++){
 							char *st = type_storage_for_codegen(pn->typeinfo);
-							if(storage_pointerish(st))
+							if(type_is_class_ref(pn->typeinfo))
+								print("\t%s *__arg%d = (%s*)(uintptr)((vlong*)__a)[%d];\n", st, pi, st, pi+1);
+							else if(storage_pointerish(st))
 								print("\t%s __arg%d = (%s)(uintptr)((vlong*)__a)[%d];\n", st, pi, st, pi+1);
 							else
 								print("\t%s __arg%d = ((vlong*)__a)[%d];\n", st, pi, pi+1);
 						}
 						print("\tvlong __args[%d];\n", np);
 						for(pn = m->right, pi = 0; pn; pn = pn->next, pi++){
-							if(type_storage_pointerish(pn->typeinfo))
+							if(type_is_class_ref(pn->typeinfo) || type_storage_pointerish(pn->typeinfo))
 								print("\t__args[%d] = (vlong)(uintptr)__arg%d;\n", pi, pi);
 							else
 								print("\t__args[%d] = (vlong)__arg%d;\n", pi, pi);
