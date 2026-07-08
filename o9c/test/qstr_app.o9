@@ -1,0 +1,8 @@
+class Greeter {
+    prop int64 dummy;
+    method string greet(string who) { return who; }
+}
+func main() {
+    Greeter g = new Greeter();
+    serve();
+}

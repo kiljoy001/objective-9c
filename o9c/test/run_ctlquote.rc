@@ -1,0 +1,31 @@
+#!/bin/rc
+# Adversarial: a ctl string arg with spaces works when SINGLE-QUOTED
+# (arg0='hello world') — the Plan 9 tokenize contract. Unquoted stays a
+# genuine two-token error (correct). Documents + locks the contract.
+tool=./o9c/o9c
+app=o9ctlq
+src=o9c/test/qstr_app.o9
+bin=/tmp/o9ctlq.$pid
+mtpt=/n/o9ctlq.$pid
+srv=/srv/o9.$app.$app.app
+fail=0
+fn cleanup { unmount $mtpt >[2]/dev/null; kill o9ctlq.$pid >[2]/dev/null; rm -f $srv $bin /tmp/o9ctlq.$pid.^* }
+if(! $tool $src > /tmp/o9ctlq.$pid.c){ echo 'ctlquote: FAIL transpile' >[1=2]; exit fail }
+if(! 6c -FVw -I. -o /tmp/o9ctlq.$pid.6 /tmp/o9ctlq.$pid.c){ echo 'ctlquote: FAIL 6c' >[1=2]; exit fail }
+if(! 6l -o $bin /tmp/o9ctlq.$pid.6 libo9.a /$objtype/lib/libndb.a){ echo 'ctlquote: FAIL 6l' >[1=2]; exit fail }
+rm -f $srv
+$bin $app &
+p=$apid
+@{ sleep 15; kill $p >[2]/dev/null } &
+i=0
+while(! test -e $srv && test $i -lt 12){ sleep 1; i=`{hoc -e $i+1} }
+if(! test -e $srv){ echo 'ctlquote: FAIL no /srv' >[1=2]; cleanup; exit fail }
+mount -c $srv $mtpt
+sid=`{cat $mtpt/clone}
+echo 'method Greeter.g greet arg0=''hello world''' > $mtpt/$sid/ctl
+got=`{cat $mtpt/$sid/data}
+if(! ~ $"got 'hello world'){ echo 'ctlquote: FAIL quoted spaced string: ['^$"got^']' >[1=2]; fail=1 }
+kill $p >[2]/dev/null
+cleanup
+if(~ $fail 0) echo ctlquote: OK
+if not exit fail

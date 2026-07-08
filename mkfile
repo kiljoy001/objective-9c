@@ -44,6 +44,9 @@ session-test:V:	o9c libo9.a
 ctlargs-test:V:	o9c libo9.a
 	rc ./o9c/test/run_ctlargs.rc
 
+ctlquote-test:V:	o9c libo9.a
+	rc ./o9c/test/run_ctlquote.rc
+
 debug-test:V:	o9c libo9.a
 	rc ./o9c/test/run_debug.rc
 

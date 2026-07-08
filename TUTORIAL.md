@@ -244,6 +244,12 @@ echo 'method Counter.c get' > /mnt/o9/ctl
 cat /mnt/o9/data                     # → the value, or "error: <msg>" on failure
 ```
 
+A string arg with spaces must be **single-quoted** (the ctl line is
+tokenized rc-style): `arg0='hello world'` is one value; unquoted
+`hello world` is two tokens and fails the arity check — as it should.
+Object-handle and Tabula args can't be marshaled over a text ctl line
+and are rejected (pass objects in-process instead).
+
 The five files: `ctl` (write a call), `data` (read the result), `status`
 (the live object graph), `methods` (the public API — this *is* the
 contract, generated from the actual public methods, so it never drifts),
