@@ -6435,6 +6435,15 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
                 } else if(!typed_member_lookup(lt, e->name, 0, &tm)){
                     fprint(2, "o9c: error: line %d: '%s' has no member '%s'\n", sem_line, cnode->name, e->name);
                     (*errs)++;
+                } else if(tm.node != nil && (tm.node->flags & NFPrivate) &&
+                          tm.owner != scope_class){
+                    /* private field: class-scoped (C#-style). obj.field is
+                     * legal only inside the DECLARING class's own methods
+                     * (covers both read and write — NAssign's lhs lands
+                     * here too). Subclasses and externals are rejected. */
+                    fprint(2, "o9c: error: line %d: '%s.%s' is private\n", sem_line,
+                        tm.owner != nil ? tm.owner->name : cnode->name, e->name);
+                    (*errs)++;
                 }
             }
         }
@@ -6641,9 +6650,12 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
                     Node *p, *a;
                     Type *expected;
                     int pi;
-                    /* private is class-scoped: an external obj.method() call
-                     * is by definition from outside the declaring class */
-                    if(tm.node->flags & NFPrivate)
+                    /* private is class-scoped (C#-style): obj.method() is
+                     * legal when the CALL SITE is inside the declaring
+                     * class (same-class other.bump() ok); rejected from
+                     * anywhere else, including subclasses. Matches the
+                     * bare self-call rule (tm.owner != scope_class). */
+                    if((tm.node->flags & NFPrivate) && tm.owner != scope_class)
                         fprint(2, "o9c: error: line %d: '%s.%s' is private\n", sem_line,
                             tm.owner != nil ? tm.owner->name : cnode->name, e->name), (*errs)++;
                     if(node_list_len(tm.node->right) != node_list_len(e->right)){

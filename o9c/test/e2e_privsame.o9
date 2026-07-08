@@ -1,0 +1,12 @@
+class Counter {
+    private int64 val;
+    private method void bump(int64 n) { val = val + n; }
+    method void add(int64 n) { bump(n); }
+    method int64 get() { return val; }
+}
+func main() {
+    Counter c = new Counter();
+    c.add(5);
+    c.add(3);
+    print("val ", c.get(), "\n");
+}
