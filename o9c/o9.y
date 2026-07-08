@@ -5067,7 +5067,10 @@ codegen(Node *root)
     /* One published Tabula: its serialized bytes live in the File's aux,
      * served ramfs-style on read.  This is the mutable part of the fs. */
     print("typedef struct O9Export O9Export;\n");
-    print("struct O9Export { char *data; int ndata; };\n\n");
+    /* aux tag: both O9Export and O9Session live in File->aux; the first
+     * field discriminates them (destroyfid only has the Fid). */
+    print("enum { O9AUX_EXPORT = 1, O9AUX_SESSION = 2 };\n");
+    print("struct O9Export { int tag; char *data; int ndata; };\n\n");
 
     /* exports/ is a served-tree DIRECTORY (part of the application file
      * tree, reachable through the mount) — NOT an on-disk directory.
@@ -5080,17 +5083,19 @@ codegen(Node *root)
      * session is allocated by reading `clone`; its dir + ctl/data/status
      * are createfile'd into the served root, each carrying the O9Session*
      * in File->aux. */
+    /* Sessions: a GROW-AND-REUSE POOL (the Plan 9 /net clone model, with
+     * List-style growth). Slot dirs <i>/{ctl,data,status} are created once
+     * and NEVER removed — clone hands out a free slot, a slot frees when
+     * its client's fids clunk (flag flip, no tree mutation). This dissolves
+     * both the leak (slots are bounded by peak concurrency, then recycled)
+     * and the reap re-entrancy fault (nothing is ever removefile'd). */
     print("typedef struct O9Session O9Session;\n");
-    print("struct O9Session { int id; File *dir; char data[4096]; char status[256]; };\n");
-    print("static int o9app_next_sid = 1;\n");
-    /* o9app_lastdata: kept ONLY as the root-ctl (fire-and-forget /
-     * single-client debug) reply. Result-bearing calls use a session. */
-    print("static char o9app_lastdata[4096];\n");
-    /* o9app_cur_session: set by a session ctl-write before dispatch so the
-     * class fswrite stores the result on the right session; nil for the
-     * root-ctl path (result -> o9app_lastdata). */
+    print("struct O9Session { int tag; int id; File *dir; long ref; int inuse; char data[4096]; char status[256]; };\n");
+    print("static O9Session **o9app_sessions;\t/* the pool (grows) */\n");
+    print("static int o9app_nsessions;\t/* slots created */\n");
+    print("static int o9app_sessions_cap;\n");
+    print("static char o9app_lastdata[4096];\t/* root-ctl fire-and-forget reply */\n");
     print("static O9Session *o9app_cur_session;\n");
-    /* Where the class fswrite should store a call's result/status. */
     print("static void o9app_put_result(char *s){\n");
     print("\tif(o9app_cur_session != nil) snprint(o9app_cur_session->data, sizeof o9app_cur_session->data, \"%%s\", s);\n");
     print("\telse snprint(o9app_lastdata, sizeof o9app_lastdata, \"%%s\", s);\n");
@@ -5098,29 +5103,67 @@ codegen(Node *root)
     print("static void o9app_put_status(char *s){\n");
     print("\tif(o9app_cur_session != nil) snprint(o9app_cur_session->status, sizeof o9app_cur_session->status, \"%%s\", s);\n");
     print("}\n");
-    /* Allocate a session: createfile <id>/ + <id>/{ctl,data,status} into
-     * the stable root (the authsrv/ramfs createfile-into-stable-parent
-     * pattern), each file carrying the O9Session* in aux. */
-    print("static O9Session *o9app_new_session(void){\n");
-    print("\tO9Session *s = mallocz(sizeof *s, 1);\n");
-    print("\tchar nm[32]; File *cf;\n");
+    /* Create one new pool slot: <i>/{ctl,data,status} into the stable root
+     * (single createfile-into-stable-parent — the safe pattern; done at
+     * GROWTH only, never destroyed). */
+    print("static O9Session *o9app_grow_session(void){\n");
+    print("\tO9Session *s; char nm[32]; File *dir;\n");
+    print("\tif(o9app_nsessions >= o9app_sessions_cap){\n");
+    print("\t\tint ncap = o9app_sessions_cap ? o9app_sessions_cap*2 : 8;\n");
+    print("\t\tO9Session **np = realloc(o9app_sessions, ncap*sizeof(O9Session*));\n");
+    print("\t\tif(np == nil) return nil;\n");
+    print("\t\to9app_sessions = np; o9app_sessions_cap = ncap;\n");
+    print("\t}\n");
+    print("\ts = mallocz(sizeof *s, 1);\n");
     print("\tif(s == nil) return nil;\n");
-    print("\ts->id = o9app_next_sid++;\n");
+    print("\ts->tag = O9AUX_SESSION;\n");
+    print("\ts->id = o9app_nsessions;\n");
     print("\tsnprint(nm, sizeof nm, \"%%d\", s->id);\n");
-    print("\ts->dir = createfile(o9app_tree->root, nm, \"o9\", DMDIR|0555, s);\n");
-    print("\tif(s->dir == nil){ free(s); return nil; }\n");
-    print("\tcf = createfile(s->dir, \"ctl\", \"o9\", 0222, s);\n");
-    print("\tcreatefile(s->dir, \"data\", \"o9\", 0444, s);\n");
-    print("\tcreatefile(s->dir, \"status\", \"o9\", 0444, s);\n");
-    print("\tUSED(cf);\n");
+    print("\tdir = createfile(o9app_tree->root, nm, \"o9\", DMDIR|0555, s);\n");
+    print("\tif(dir == nil){ free(s); return nil; }\n");
+    print("\ts->dir = dir;\n");
+    print("\tcreatefile(dir, \"ctl\", \"o9\", 0222, s);\n");
+    print("\tcreatefile(dir, \"data\", \"o9\", 0444, s);\n");
+    print("\tcreatefile(dir, \"status\", \"o9\", 0444, s);\n");
+    print("\to9app_sessions[o9app_nsessions++] = s;\n");
+    print("\treturn s;\n}\n");
+    /* clone: reuse a free slot (inuse==0), else grow. Reset its state. */
+    print("static O9Session *o9app_alloc_session(void){\n");
+    print("\tint i; O9Session *s = nil;\n");
+    print("\tfor(i = 0; i < o9app_nsessions; i++)\n");
+    print("\t\tif(o9app_sessions[i]->inuse == 0){ s = o9app_sessions[i]; break; }\n");
+    print("\tif(s == nil) s = o9app_grow_session();\n");
+    print("\tif(s == nil) return nil;\n");
+    print("\ts->inuse = 1; s->ref = 0;\n");
+    print("\ts->data[0] = '\\0';\n");
     print("\tsnprint(s->status, sizeof s->status, \"ready\\n\");\n");
     print("\treturn s;\n}\n");
+    /* A session fid clunks: decrement ref; at 0 mark the slot FREE for
+     * reuse. FLAG FLIP ONLY — no removefile (that re-enters lib9p's tree
+     * cleanup mid-clunk = fl->f==nil). The dir stays, recycled by clone. */
+    print("static void o9app_destroyfid(Fid *f){\n");
+    print("\tif(f != nil && f->file != nil && f->file->aux != nil &&\n");
+    print("\t   *(int*)f->file->aux == O9AUX_SESSION && f->omode != -1){\n");
+    print("\t\tO9Session *s = f->file->aux;\n");
+    print("#ifdef __GNUC__\n\t\tif(__sync_sub_and_fetch(&s->ref, 1) <= 0)\n#else\n\t\tif(adec(&s->ref) <= 0)\n#endif\n");
+    print("\t\t\ts->inuse = 0;\t/* slot free for reuse; dir NOT removed */\n");
+    print("\t}\n");
+    print("}\n");
+    /* A session fid opens: ref++ (balanced by destroyfid). */
+    print("static void o9app_open(Req *r){\n");
+    print("\tif(r->fid != nil && r->fid->file != nil && r->fid->file->aux != nil &&\n");
+    print("\t   *(int*)r->fid->file->aux == O9AUX_SESSION){\n");
+    print("\t\tO9Session *s = r->fid->file->aux;\n");
+    print("#ifdef __GNUC__\n\t\t__sync_fetch_and_add(&s->ref, 1);\n#else\n\t\tainc(&s->ref);\n#endif\n");
+    print("\t}\n");
+    print("\trespond(r, nil);\n");
+    print("}\n");
     print("static void o9app_root_read(Req *r){\n");
     print("#ifdef __GNUC__\n\tchar *name = r->fid->file->dir.name;\n#else\n\tchar *name = r->fid->file->name;\n#endif\n");
     print("\tchar buf[8192]; char *p = buf; int i;\n");
     /* clone: reading allocates a session and returns its id. */
     print("\tif(strcmp(name, \"clone\") == 0){\n");
-    print("\t\tO9Session *__s = o9app_new_session();\n");
+    print("\t\tO9Session *__s = o9app_alloc_session();\n");
     print("\t\tchar __idb[16];\n");
     print("\t\tif(__s == nil){ respond(r, \"no session\"); return; }\n");
     print("\t\tsnprint(__idb, sizeof __idb, \"%%d\\n\", __s->id);\n");
@@ -5128,12 +5171,12 @@ codegen(Node *root)
     /* Session-local data/status: the file's aux is the O9Session; serve
      * that session's private result/status (the per-caller fix). Named
      * data/status distinguishes them from exports (arbitrary names). */
-    print("\tif(r->fid->file->aux != nil && (strcmp(name, \"data\") == 0 || strcmp(name, \"status\") == 0)){\n");
+    print("\tif(r->fid->file->aux != nil && *(int*)r->fid->file->aux == O9AUX_SESSION){\n");
     print("\t\tO9Session *__s = r->fid->file->aux;\n");
     print("\t\treadstr(r, strcmp(name, \"data\") == 0 ? __s->data : __s->status); respond(r, nil); return;\n\t}\n");
     /* Export file: its aux holds an O9Export with the serialized bytes.
      * Serve them ramfs-style (offset/count). */
-    print("\tif(r->fid->file->aux != nil){\n");
+    print("\tif(r->fid->file->aux != nil && *(int*)r->fid->file->aux == O9AUX_EXPORT){\n");
     print("\t\tO9Export *__ex = r->fid->file->aux;\n");
     print("\t\tvlong __off = r->ifcall.offset; long __cnt = r->ifcall.count;\n");
     print("\t\tif(__off >= __ex->ndata){ r->ofcall.count = 0; respond(r, nil); return; }\n");
@@ -5178,7 +5221,7 @@ codegen(Node *root)
     /* A session ctl write carries its O9Session* in the file's aux; set it
      * as the current session so results/status land on THIS session (the
      * per-caller fix). Root /ctl has aux==nil -> o9app_lastdata path. */
-    print("\to9app_cur_session = r->fid->file->aux;\n");
+    print("\to9app_cur_session = (r->fid->file->aux != nil && *(int*)r->fid->file->aux == O9AUX_SESSION) ? r->fid->file->aux : nil;\n");
     print("\tsnprint(cmd, sizeof cmd, \"%%.*s\", (int)r->ifcall.count, (char*)r->ifcall.data);\n");
     print("\tnf = tokenize(cmd, f, nelem(f));\n");
     print("\tif(nf < 3 || (strcmp(f[0], \"method\") != 0 && strcmp(f[0], \"new\") != 0)){ o9app_cur_session = nil; respond(r, \"want: method Class.inst name | new Class inst\"); return; }\n");
@@ -5213,7 +5256,7 @@ codegen(Node *root)
     print("\t\tif(f == nil){ free(bytes); return; }\n");
     print("\t}\n");
     print("\tex = f->aux;\n");
-    print("\tif(ex == nil){ ex = mallocz(sizeof *ex, 1); f->aux = ex; }\n");
+    print("\tif(ex == nil){ ex = mallocz(sizeof *ex, 1); ex->tag = O9AUX_EXPORT; f->aux = ex; }\n");
     print("\tfree(ex->data);\n");
     print("\tex->data = bytes; ex->ndata = bytes != nil ? strlen(bytes) : 0;\n");
     print("\tf->length = ex->ndata;\n");
@@ -5253,6 +5296,7 @@ codegen(Node *root)
     print("\to9app_tree = alloctree(nil, nil, DMDIR|0555, nil);\n");
     print("\to9app_srv.tree = o9app_tree;\n");
     print("\to9app_srv.read = o9app_root_read;\n\to9app_srv.write = o9app_root_write;\n");
+    print("\to9app_srv.open = o9app_open;\n\to9app_srv.destroyfid = o9app_destroyfid;\t/* session reap */\n");
     /* The four control files + state are a FIXED shape, built once, never
      * mutated (their content is live, their structure is frozen). */
     print("\tcreatefile(o9app_tree->root, \"ctl\", \"o9\", 0666, nil);\n");

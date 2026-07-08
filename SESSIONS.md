@@ -67,6 +67,29 @@ commands (create object, shutdown, reload, debug toggle) — never for
 result-bearing calls (those have no session to route the reply to). Any
 call that returns a value goes through a session.
 
+## Session lifecycle: grow-and-reuse pool (NOT create/destroy)
+
+Sessions are a GROW-AND-REUSE POOL — the Plan 9 /net clone model, with
+C#-List-style growth. This is how /net conversations work: a fixed set of
+numbered dirs, REUSED, never destroyed. o9 adds growth (List-style) so
+there's no hard cap.
+
+- Slot dirs <i>/{ctl,data,status} are created ONCE (at first use / on
+  growth) and NEVER removed.
+- clone: reuse a free slot (inuse==0); if none, grow the pool (realloc +
+  one createfile-into-stable-parent — the safe pattern). Reset the slot's
+  state (data/status/ref) and return its id.
+- A slot frees when its client's fids clunk: open -> ref++, destroyfid ->
+  ref--; at 0, inuse=0. FLAG FLIP ONLY — the dir is NOT removed.
+
+Why not create-on-clone / removefile-on-reap (the obvious design): doing
+removefile inside destroyfid RE-ENTERS lib9p's tree cleanup mid-clunk ->
+"fl->f == nil" assertion (the same hazard as the old per-object facade).
+The pool sidesteps it entirely: nothing is ever removed, so no
+re-entrancy, and no leak (slots bounded by peak concurrency, then
+recycled forever). Tag O9AUX_SESSION (vs O9AUX_EXPORT) in File->aux
+distinguishes session files from export files.
+
 ## Implementation notes
 
 - clone: a served file whose READ allocates a new session (id counter),

@@ -1,0 +1,38 @@
+#!/bin/rc
+# Session pool reuse (adversarial: sessions must not leak). clone hands
+# out slot 0; after its fids clunk the slot frees; the NEXT clone must
+# REUSE slot 0 (same id), not grow the pool. Proves the grow-and-reuse
+# model (Plan 9 /net clone) recycles instead of leaking. Exits nonzero on
+# fail.
+tool=./o9c/o9c
+app=o9reuse
+src=o9c/test/reap_app.o9
+bin=/tmp/o9reuse.$pid
+mtpt=/n/o9reuse.$pid
+srv=/srv/o9.$app.$app.app
+fail=0
+fn cleanup { unmount $mtpt >[2]/dev/null; kill o9reuse.$pid >[2]/dev/null; rm -f $srv $bin /tmp/o9reuse.$pid.^* }
+if(! $tool $src > /tmp/o9reuse.$pid.c){ echo 'sessreuse: FAIL transpile' >[1=2]; exit fail }
+if(! 6c -FVw -I. -o /tmp/o9reuse.$pid.6 /tmp/o9reuse.$pid.c){ echo 'sessreuse: FAIL 6c' >[1=2]; exit fail }
+if(! 6l -o $bin /tmp/o9reuse.$pid.6 libo9.a /$objtype/lib/libndb.a){ echo 'sessreuse: FAIL 6l' >[1=2]; exit fail }
+rm -f $srv
+$bin $app &
+p=$apid
+@{ sleep 15; kill $p >[2]/dev/null } &
+i=0
+while(! test -e $srv && test $i -lt 12){ sleep 1; i=`{hoc -e $i+1} }
+if(! test -e $srv){ echo 'sessreuse: FAIL no /srv' >[1=2]; cleanup; exit fail }
+mount -c $srv $mtpt
+sid1=`{cat $mtpt/clone}
+echo 'method Counter.a set arg0=7' > $mtpt/$sid1/ctl
+# session 1 fids now clunked; slot should be free. next clone reuses it.
+sid2=`{cat $mtpt/clone}
+if(! ~ $sid1 $sid2){ echo 'sessreuse: FAIL slot not reused: sid1='^$sid1^' sid2='^$sid2 >[1=2]; fail=1 }
+# and the reused session must still work
+echo 'method Counter.a get' > $mtpt/$sid2/ctl
+got=`{cat $mtpt/$sid2/data}
+if(! ~ $got 7){ echo 'sessreuse: FAIL reused session broken: data='^$got >[1=2]; fail=1 }
+kill $p >[2]/dev/null
+cleanup
+if(~ $fail 0) echo sessreuse: OK
+if not exit fail
