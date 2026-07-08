@@ -1,0 +1,38 @@
+// Width/sized types: arithmetic + storage across the integer widths and
+// char. Never tested before (all 0 in the coverage sweep). Proves each
+// keyword parses, stores, and computes correctly.
+class Widths {
+    prop int8 i8;
+    prop int16 i16;
+    prop int32 i32;
+    prop uint8 u8;
+    prop uint16 u16;
+    prop uint32 u32;
+    prop uint64 u64;
+    prop uchar uc;
+    prop ushort us;
+    prop uvlong uv;
+    prop char ch;
+    method void setup() {
+        i8 = 100;
+        i16 = 3000;
+        i32 = 70000;
+        u8 = 200;
+        u16 = 60000;
+        u32 = 100000;
+        u64 = 5000000;
+        uc = 250;
+        us = 40000;
+        uv = 9000000;
+        ch = 65;
+    }
+    method int64 sum() {
+        return i8 + i16 + i32 + u8 + u16 + u32 + u64 + uc + us + uv + ch;
+    }
+}
+func main() {
+    Widths w = new Widths();
+    w.setup();
+    print("sum ", w.sum(), "\n");
+    print("ch ", w.ch, "\n");
+}

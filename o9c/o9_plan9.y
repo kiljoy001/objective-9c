@@ -5927,6 +5927,14 @@ type_assignable_semantic(Type *target, Type *actual)
         as = type_storage_for_codegen(actual);
         if(strcmp(ts, as) == 0)
             return 1;
+        /* Numeric width conversion: any integer/char scalar is assignable
+         * to any other (C's implicit integer conversions — an int64
+         * literal into an int8, etc.). Keep bool strict: an int is not a
+         * bool. Makes the width types (int8..uint64, char, uchar, ...)
+         * actually usable — a literal is int64, and every width would
+         * otherwise reject it. */
+        if(!type_is_bool(target) && !type_is_bool(actual))
+            return 1;
     }
     return 0;
 }
