@@ -1,0 +1,17 @@
+// module: namespace grouping of declarations. Classes inside a module
+// are qualified (App.Counter) but usable normally. Runtime e2e — previously
+// only transpile-tested, never run.
+module App {
+    class Counter {
+        prop int64 val;
+        method void set(int64 n) { val = n; }
+        method int64 get() { return val; }
+    }
+    func main() {
+        Counter c = new Counter();
+        c.set(30);
+        print("val ", c.get(), "\n");
+        c.set(c.get() + 12);
+        print("val ", c.get(), "\n");
+    }
+}
