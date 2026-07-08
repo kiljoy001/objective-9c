@@ -138,17 +138,40 @@ INSTANCE needs a distinct registry oid - e.g. `worker#0`, `worker#1`
 instance identity comes from function + index. This is also where the
 "numbered" in numbered channels comes from.
 
-## Honest caveats (survive even this simplification)
+## Parallelism: VERIFIED REAL (July 2026, from 9front libthread source)
 
-1. **Concurrency first; verify parallelism claims on 9front.** The
-   design should assume CSP-style interleaved progress through Plan 9
-   thread/proc scheduling and should not sell `spawn` as a compute-
-   parallelism feature until the exact target scheduler behavior is
-   verified.
-2. **Cooperative scheduler.** A proc that never yields (a tight compute
-   loop with no channel op) starves others. Real use must be
-   communication-bounded (CSP encourages this) or explicitly yield.
-   Document this loudly; it's a footgun for compute-heavy spawns.
+Corrects an earlier hedge. o9 objects DO run in true multicore parallel.
+
+libthread has two levels:
+- **threadcreate** — a thread within the SAME Proc. Threads in one Proc
+  share a per-Proc scheduler (p->lock/p->readylock) and are COOPERATIVELY
+  scheduled (switch only at yield/channel ops). Intra-Proc: concurrency,
+  not parallelism.
+- **proccreate** — a new Proc via rfork(RFPROC|RFMEM). RFPROC = a separate
+  KERNEL process; each Proc runs its own scheduler; 9front is SMP and
+  schedules separate kernel procs on separate CORES. RFMEM shares the
+  address space (so channels/shared state work). Inter-Proc: REAL
+  PARALLELISM. No libthread global run-queue serializes them (_threadpq
+  is only a cleanup/kill registry, not a scheduler queue); no CPU pinning.
+
+**o9 objects use proccreate** (every <C>_loop actor is its own Proc —
+o9.y ~2930/2979/4564). So two o9 objects genuinely execute simultaneously
+on multiple cores; method dispatch between them is real IPC over shared
+(RFMEM) memory. Object-level parallelism is ALREADY here, not a future
+feature. `function`/`spawn` (a one-method anonymous object) inherits it —
+a spawn is a proccreate = a parallel unit.
+
+The ONE serialization point is the FACADE: srv->slock + our inline-
+blocking recvp in the ctl-write handler (see o9-facade-serial-not-racy)
+serializes client-request INTAKE. Once a call is dispatched to an
+object's proc, that proc runs in parallel. To parallelize request intake
+too: srvrelease around the blocking recvp + make cur_session per-request
+(the two are coupled).
+
+Caveat that DOES survive: within a single Proc, threads are cooperative
+(a thread in a compute loop with no yield starves its Proc's other
+threads). But objects are separate Procs, so one object's compute loop
+does NOT starve other objects — the kernel preempts across Procs.
 3. **Result collection / join.** Open question: does a numbered spawn
    support a join/wait for its result, or is the numbered channel the
    only way to get it back (fire-and-forget + channel)? Lean: the
