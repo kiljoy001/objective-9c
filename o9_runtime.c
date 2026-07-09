@@ -1411,6 +1411,76 @@ o9_tab_close(O9Tabula *t)
 	free(t);
 }
 
+/* ---- Task<T>: a one-shot spawn JOIN HANDLE (see CONCURRENCY.md) ----
+ *
+ * spawn f(args) returns a Task<T>. Internally channel-backed (the
+ * "numbered channel" — compiler/runtime plumbing, never user-facing): a
+ * forwarder proc puts the spawned method's O9Reply (value+error) into
+ * `done`. t.await() blocks on it, sets the caller's PER-PROC call-error
+ * on failure (so `try t.await()` propagates), and returns the value.
+ * Result carries value AND error, so spawned failures never route
+ * through a global.
+ */
+struct O9Task {
+	int id;			/* spawn index (the "number") */
+	Channel *done;		/* forwarder sends the O9Reply* here */
+	O9Reply *reply;		/* cached after first await */
+};
+
+O9Task*
+o9_task_new(int id)
+{
+	O9Task *t = mallocz(sizeof *t, 1);
+	if(t == nil)
+		return nil;
+	t->id = id;
+	t->done = chancreate(sizeof(void*), 1);	/* buffered: forwarder need not rendezvous */
+	return t;
+}
+
+/* The forwarder (or the method, later) delivers the result here.
+ * Returned as void* so o9.h needn't reference Channel (thread.h). */
+void*
+o9_task_chan(O9Task *t)
+{
+	return t != nil ? t->done : nil;
+}
+
+/* Block for the spawned result. On error, set the per-proc call-error so
+ * `try t.await()` propagates; return 0. Else return the value. Idempotent
+ * (caches the reply — await twice is safe). */
+vlong
+o9_task_await(O9Task *t)
+{
+	if(t == nil){
+		o9_set_call_err("await of nil task");
+		return 0;
+	}
+	if(t->reply == nil)
+		t->reply = recvp(t->done);
+	if(t->reply == nil){
+		o9_set_call_err("task produced no result");
+		return 0;
+	}
+	if(t->reply->err != nil){
+		o9_set_call_err(t->reply->err);
+		return 0;
+	}
+	o9_set_call_err(nil);
+	return (vlong)t->reply->ret;
+}
+
+void
+o9_task_close(O9Task *t)
+{
+	if(t == nil)
+		return;
+	if(t->done != nil)
+		chanfree(t->done);
+	free(t->reply);
+	free(t);
+}
+
 char*
 o9_state_get(O9State *s, char *col)
 {

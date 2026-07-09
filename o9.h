@@ -249,4 +249,12 @@ extern int       o9_tab_next(O9Tabula *t);	/* advance; 1 if a row, 0 at end */
 extern char*     o9_tab_serialize(O9Tabula *t);	/* whole tab as text (malloc'd) */
 extern void      o9_tab_close(O9Tabula *t);
 
+/* Task<T> — a one-shot spawn join handle (channel-backed; the numbered
+ * channel is internal). spawn returns it; t.await() joins. */
+typedef struct O9Task O9Task;
+extern O9Task*   o9_task_new(int id);
+extern void*     o9_task_chan(O9Task *t);	/* internal: the done Channel* (as void*) */
+extern vlong     o9_task_await(O9Task *t);	/* block; value, or per-proc err + 0 */
+extern void      o9_task_close(O9Task *t);
+
 #endif
