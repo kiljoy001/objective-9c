@@ -87,16 +87,48 @@ channel carries T" before it can soundly reject bad sends/receives.
 
 ## `function` and `spawn` (part 2, the bigger build)
 
-`function name(args) { ... }` declares the body — desugars to an
-anonymous single-method class + method.
+`function name(params) type { body }` declares the body. It DESUGARS INTO
+A NORMAL CLASS (a fixed template the compiler writes for you), so the
+ENTIRE existing class pipeline (Internal struct, dispatch loop,
+proccreate, ARC, method impl) handles it unchanged — no new codegen path.
 
-`spawn name(args)` (syntax TBD) desugars to:
-1. construct the anonymous object,
-2. proccreate its dispatch loop (already what `new` does),
-3. send it the args,
-4. hand back a NUMBERED channel to collect the result,
-5. destroy/unregister the one-shot instance after the result is
-   delivered.
+### The template (Scott's design): fixed skeleton + one user method
+
+Every function-class has the SAME standardized, user-UNEDITABLE envelope
+— 3 framework-owned props — with the user method as the only payload:
+
+    class <name-identity> {              // name from the function (module-qualified)
+        prop int64      __spawn_index;   // FIXED: instance number (the "numbered" in numbered channels; oid = name#N)
+        prop chan       __spawn_result;  // FIXED: where this instance delivers its return value
+        prop int64      __spawn_state;   // FIXED: 0 pending / 1 running / 2 done
+        method type run(params) { body } // the ONLY user-defined part
+    }
+
+This is a factory/template pattern: the framework owns the STRUCTURE
+(concurrency plumbing = the envelope), the user owns the COMPUTATION (the
+method = the payload). Uniformity means the runtime spawn/teardown/result
+code is ONE path over a known layout, not per-function introspection. The
+invariant is ENFORCED: the compiler rejects any attempt to add members to
+a `function` (it is exactly one method over the fixed skeleton) — the
+"safe systems language" leg applied to the concurrency primitive.
+
+Identity: class name from the function (module-qualified — Mod.worker vs
+Other.worker must not collide); instance oid = name#index (__spawn_index).
+
+### spawn
+
+`spawn name(args)` — one uniform runtime op against the known template:
+1. construct the instance (existing `new` path: struct + proccreate loop),
+2. set __spawn_index (next per-function counter), wire __spawn_result to
+   a fresh channel, __spawn_state = pending,
+3. send the args to its dispatch loop (non-blocking — do NOT recvp here),
+4. return the __spawn_result channel to the caller (the NUMBERED channel),
+5. the method, on return, delivers its value to __spawn_result and sets
+   state=done; teardown/unregister the one-shot instance after delivery.
+
+Do not use a nil method reply channel: generated methods send an O9Reply
+to msg->replyc. spawn uses the instance's __spawn_result as the typed
+result path (or a wrapper that forwards O9Reply->ret into it).
 
 Do not use a nil method reply channel for spawn. Current generated
 methods always send an `O9Reply` to `msg->replyc`; a nil `replyc` would

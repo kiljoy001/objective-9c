@@ -83,7 +83,8 @@ enum {
     NFAbstract = 1<<0,
     NFMethodDecl = 1<<1,
     NFSelfCalled = 1<<2,
-    NFPrivate = 1<<3	/* class-scoped; not reachable through the app facade */
+    NFPrivate = 1<<3,	/* class-scoped; not reachable through the app facade */
+    NFFunction = 1<<4	/* a synthesized function-class (fixed spawn template) */
 };
 
 struct Node {
@@ -1281,7 +1282,7 @@ typeinfo_from_legacy(char *t)
 
 %token <node> TIDENT TTYPE TQIDENT TTYPEIDENT TENUMIDENT
 %token <name> TINTLIT TSTRINGLIT TCHARLIT
-%token TCLASS TINTERFACE TSTRUCT TENUM TMODULE TIMPORT TFUNC TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TLIST TNIL TABSTRACT TDELETE
+%token TCLASS TINTERFACE TSTRUCT TENUM TMODULE TIMPORT TFUNC TFUNCTION TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TLIST TNIL TABSTRACT TDELETE TSPAWN
 %token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TOBJECT TTRUE TFALSE TARROW
 %token TPUBLIC TPRIVATE
 %token TTRY TDEFER
@@ -1304,7 +1305,7 @@ typeinfo_from_legacy(char *t)
 %right '!' '~' UMINUS
 %left '.' '['
  
-%type <node> program top_levels top_level class_decl class_head interface_decl interface_head struct_decl struct_head enum_decl enum_vals enum_val module_decl module_head import_decl object_decl member_list member member_body var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename name_ref type_name_ref decl_name generic_name enum_name member_name param_list param call_args call_arg func_top_level for_init for_cond for_step else_clause generic_opt generic_names abstract_opt
+%type <node> program top_levels top_level class_decl class_head interface_decl interface_head struct_decl struct_head enum_decl enum_vals enum_val module_decl module_head import_decl object_decl member_list member member_body var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename name_ref type_name_ref decl_name generic_name enum_name member_name param_list param call_args call_arg func_top_level function_decl for_init for_cond for_step else_clause generic_opt generic_names abstract_opt
 %type <type> type_expr type_primary
 %type <types> type_args type_args_opt
 
@@ -1403,6 +1404,7 @@ top_level:
     | import_decl
     | object_decl
     | func_top_level
+    | function_decl
     ;
 
 module_head:
@@ -1456,6 +1458,19 @@ func_top_level:
     TFUNC TIDENT '(' ')' '{' stmt_list '}'
     {
         $$ = mk(NMethod, $2->name, "void", $6, nil);
+    }
+    ;
+
+/* `function name(params) type { body }` — desugars to a templated class
+ * (fixed spawn skeleton + the one user method `run`). See CONCURRENCY.md. */
+function_decl:
+    TFUNCTION TIDENT '(' param_list ')' typename '{' stmt_list '}'
+    {
+        $$ = synth_function_class($2->name, $6, $4, $8);
+    }
+    | TFUNCTION TIDENT '(' param_list ')' '{' stmt_list '}'
+    {
+        $$ = synth_function_class($2->name, nil, $4, $7);
     }
     ;
 
@@ -2033,6 +2048,50 @@ mk_secret_field(Node *tn, char *name)
     return fld;
 }
 
+/* Synthesize the templated class for a `function` (see CONCURRENCY.md):
+ * a fixed, user-uneditable skeleton (3 framework props) + the user's one
+ * method named `run`. Desugars to a normal NClass so the whole existing
+ * class pipeline (struct, dispatch loop, proccreate, ARC) handles it.
+ *   fname   = the function's source name (becomes the class identity)
+ *   rettn   = return typename node (nil -> void)
+ *   params  = the method's param list
+ *   body    = the method body (stmt_list)
+ */
+static Node*
+synth_function_class(char *fname, Node *rettn, Node *params, Node *body)
+{
+    char *source, *name;
+    Node *cls, *members, *meth;
+
+    source = qualify_source_name(current_module, fname);
+    name = mangle_source_name(source);
+    cls = mk(NClass, name, nil, nil, nil);
+    set_node_names(cls, source, name);
+    cls->flags |= NFFunction;	/* marks a function-class: template invariant enforced */
+
+    /* Fixed framework-owned props — the standardized envelope. Order is
+     * stable; the runtime spawn/teardown reads them by name. */
+    members = mk(NProp, "__spawn_index", "int64", nil, nil);
+    members->flags |= NFPrivate;
+    members->next = mk(NProp, "__spawn_state", "int64", nil, nil);
+    members->next->flags |= NFPrivate;
+    /* __spawn_result is a chan (object-IPC endpoint, auto-created). */
+    members->next->next = mk(NStream, "__spawn_result", "chan", nil, nil);
+    members->next->next->flags |= NFPrivate;
+
+    /* The one user method, named `run`. */
+    if(rettn != nil)
+        meth = mk_typed(NMethod, "run", rettn, body, params);
+    else
+        meth = mk(NMethod, "run", "void", body, params);
+    meth->flags |= NFSelfCalled;	/* callable directly too */
+    members->next->next->next = meth;
+
+    cls->left = members;
+    add_class(cls->name, cls);
+    return cls;
+}
+
 void
 yyerror(char *s)
 {
@@ -2278,6 +2337,8 @@ yylex(void)
             if(strcmp(buf, "module") == 0) return TMODULE;
             if(strcmp(buf, "import") == 0) return TIMPORT;
             if(strcmp(buf, "func") == 0) return TFUNC;
+            if(strcmp(buf, "function") == 0) return TFUNCTION;
+            if(strcmp(buf, "spawn") == 0) return TSPAWN;
             if(strcmp(buf, "new") == 0) return TNEW;
             if(strcmp(buf, "near") == 0) return TNEAR;
             if(strcmp(buf, "delete") == 0) return TDELETE;
