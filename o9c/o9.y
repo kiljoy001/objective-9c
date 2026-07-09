@@ -1308,7 +1308,7 @@ typeinfo_from_legacy(char *t)
 %right '!' '~' UMINUS
 %left '.' '['
  
-%type <node> program top_levels top_level class_decl class_head interface_decl interface_head struct_decl struct_head enum_decl enum_vals enum_val module_decl module_head import_decl object_decl member_list member member_body var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename name_ref type_name_ref decl_name generic_name enum_name member_name param_list param call_args call_arg func_top_level function_decl for_init for_cond for_step else_clause generic_opt generic_names abstract_opt
+%type <node> program top_levels top_level class_decl class_head interface_decl interface_head struct_decl struct_head enum_decl enum_vals enum_val module_decl module_head import_decl object_decl member_list member member_body var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename name_ref type_name_ref decl_name generic_name enum_name member_name spawn_name param_list param call_args call_arg func_top_level function_decl for_init for_cond for_step else_clause generic_opt generic_names abstract_opt
 %type <type> type_expr type_primary
 %type <types> type_args type_args_opt
 
@@ -1351,6 +1351,11 @@ member_name:
     TIDENT { $$ = $1; }
     | TTYPEIDENT { $$ = $1; }
     | TENUMIDENT { $$ = $1; }
+    ;
+
+spawn_name:
+    TIDENT { $$ = $1; }
+    | TTYPEIDENT { $$ = $1; }
     ;
 
 type_expr:
@@ -1934,7 +1939,7 @@ expr:
     }
     /* spawn f(args): run function-class f concurrently; evaluates to a
      * Task<T> (join handle). name = function, right = args. */
-    | TSPAWN TIDENT '(' call_args ')' {
+    | TSPAWN spawn_name '(' call_args ')' {
         Node *n = mk(NSpawn, $2->name, nil, nil, $4);
         $$ = n;
     }
@@ -7364,6 +7369,7 @@ node_kind(int type)
     case NDelete: return "NDelete";
     case NPropRead: return "NPropRead";
     case NFuncCall: return "NFuncCall";
+    case NSpawn: return "NSpawn";
     case NFor: return "NFor";
     case NArrayGet: return "NArrayGet";
     case NArraySet: return "NArraySet";

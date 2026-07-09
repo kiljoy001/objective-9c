@@ -105,6 +105,7 @@ runcase e2e_stream
 runcase e2e_module
 runcase e2e_atomic
 runcase e2e_widths
+runcase spawn_task
 importcase e2e_import
 runcase e2e_hard_recursion
 runcase e2e_hard_nesttry

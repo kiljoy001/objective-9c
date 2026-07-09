@@ -1,0 +1,9 @@
+function w(int64 n) int64 {
+    return n + 1;
+}
+
+func main() {
+    Task<int64> t = spawn w(5);
+    int64 v = t.await();
+    print(v, "\n");
+}

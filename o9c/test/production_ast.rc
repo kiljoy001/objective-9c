@@ -202,6 +202,11 @@ require 'NMsgSend name=set qname=set cname=set type=void'
 require 'NMsgSend name=get qname=get cname=get type=int64'
 rm -f $ast
 
+$tool -ast < o9c/test/spawn_task.o9 > $ast || exit spawn-ast
+require 'NSpawn name=w.*type=Task<int64>'
+require 'NMsgSend name=await.*type=int64'
+rm -f $ast
+
 require_error o9c/test/typecheck_bad_method_arity.o9 'method ''set'' needs 1 argument'
 require_error o9c/test/typecheck_bad_method_arg.o9 'argument 1 to ''set'' has type string, expected int64'
 require_error o9c/test/typecheck_bad_generic_method_arg.o9 'argument 1 to ''set'' has type int64, expected string'
