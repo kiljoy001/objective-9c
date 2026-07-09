@@ -67,6 +67,50 @@ commands (create object, shutdown, reload, debug toggle) — never for
 result-bearing calls (those have no session to route the reply to). Any
 call that returns a value goes through a session.
 
+## A session is an EXPLICIT CONVERSATION (not an open-fid lifetime)
+
+Decided (Scott): a session lives until the client explicitly closes it —
+NOT until its last fid clunks. This is the whole point of path-visible
+clone (shell use):
+
+    sid=`{cat /mnt/o9/clone}
+    echo 'method Counter.c get' > /mnt/o9/$sid/ctl   # ctl fid clunks here
+    cat /mnt/o9/$sid/data                            # separate open — still reads it
+    echo close > /mnt/o9/$sid/ctl                    # ends the conversation
+
+Refcount->free would recycle the session in the gap between echo>ctl
+(clunk) and cat data (open) — different processes, different fids. So:
+- clone allocates; inuse=1 until explicit `close`.
+- destroyfid is DIAGNOSTICS ONLY (ref count) — clunking a fid does NOT
+  end the conversation.
+- `echo close > <id>/ctl` marks the slot reusable (inuse=0, status
+  "closed").
+- allocating a reused slot clears data/status.
+- correctness never depends on timing (no idle-timeout).
+
+Cost: a forgetful client leaks its slot until reused — bounded, normal
+Plan 9 "manual release" territory. A future admin `close-all`/`reap-idle`
+root ctl command can mop up; correctness doesn't need it.
+
+## Request concurrency + per-request session (no global)
+
+The facade WOULD serialize all clients: lib9p runs every request handler
+under srv->slock, and our ctl handler blocks inline on recvp (the actor's
+reply). One slow call blocked the whole app. Two coupled fixes:
+
+1. srvrelease(r->srv) before the blocking recvp, srvacquire after — drops
+   slock while waiting so OTHER requests run (the lib9p idiom). Now N
+   clients' calls are in flight to N parallel object-procs at once.
+2. The session is DYNAMIC REQUEST STATE derived from r
+   (o9app_req_session(r) via r->fid->file->aux), NOT a process-global.
+   A global cur_session would be clobbered by a concurrent request once
+   srvrelease lets them interleave -> A stores its result into B's
+   session. Per-request routing + a per-session QLock (guards data/status)
+   + a pool QLock (guards alloc/reuse) make it actually concurrency-safe.
+
+The two are COUPLED: srvrelease without per-request session = corruption;
+that's why they land together.
+
 ## Session lifecycle: grow-and-reuse pool (NOT create/destroy)
 
 Sessions are a GROW-AND-REUSE POOL — the Plan 9 /net clone model, with

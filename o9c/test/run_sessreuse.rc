@@ -1,9 +1,12 @@
 #!/bin/rc
-# Session pool reuse (adversarial: sessions must not leak). clone hands
-# out slot 0; after its fids clunk the slot frees; the NEXT clone must
-# REUSE slot 0 (same id), not grow the pool. Proves the grow-and-reuse
-# model (Plan 9 /net clone) recycles instead of leaking. Exits nonzero on
-# fail.
+# Session lifetime = EXPLICIT conversation (not open-fid lifetime). Proves:
+#  1. A session PERSISTS across fid clunks (echo>ctl clunks, then cat data
+#     as a separate open still reads the result) — the shell-ergonomics fix.
+#  2. Clunking fids does NOT recycle the slot: a 2nd clone WITHOUT close
+#     gets a DIFFERENT id (no premature reuse).
+#  3. After `echo close > ctl`, the slot IS reused by the next clone
+#     (bounded pool, no leak).
+# Exits nonzero on fail.
 tool=./o9c/o9c
 app=o9reuse
 src=o9c/test/reap_app.o9
@@ -23,15 +26,19 @@ i=0
 while(! test -e $srv && test $i -lt 12){ sleep 1; i=`{hoc -e $i+1} }
 if(! test -e $srv){ echo 'sessreuse: FAIL no /srv' >[1=2]; cleanup; exit fail }
 mount -c $srv $mtpt
+# (1) session persists across fid clunks: two separate echo>ctl opens, then cat
 sid1=`{cat $mtpt/clone}
 echo 'method Counter.a set arg0=7' > $mtpt/$sid1/ctl
-# session 1 fids now clunked; slot should be free. next clone reuses it.
+echo 'method Counter.a get' > $mtpt/$sid1/ctl
+got=`{cat $mtpt/$sid1/data}
+if(! ~ $got 7){ echo 'sessreuse: FAIL session did not persist across clunks: data='^$got >[1=2]; fail=1 }
+# (2) NOT closed -> next clone gets a DIFFERENT slot (no premature reuse)
 sid2=`{cat $mtpt/clone}
-if(! ~ $sid1 $sid2){ echo 'sessreuse: FAIL slot not reused: sid1='^$sid1^' sid2='^$sid2 >[1=2]; fail=1 }
-# and the reused session must still work
-echo 'method Counter.a get' > $mtpt/$sid2/ctl
-got=`{cat $mtpt/$sid2/data}
-if(! ~ $got 7){ echo 'sessreuse: FAIL reused session broken: data='^$got >[1=2]; fail=1 }
+if(~ $sid1 $sid2){ echo 'sessreuse: FAIL slot reused without close: sid1='^$sid1^' sid2='^$sid2 >[1=2]; fail=1 }
+# (3) close sid1 -> a subsequent clone REUSES it
+echo close > $mtpt/$sid1/ctl
+sid3=`{cat $mtpt/clone}
+if(! ~ $sid1 $sid3){ echo 'sessreuse: FAIL closed slot not reused: sid1='^$sid1^' sid3='^$sid3 >[1=2]; fail=1 }
 kill $p >[2]/dev/null
 cleanup
 if(~ $fail 0) echo sessreuse: OK

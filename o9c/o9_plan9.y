@@ -4563,7 +4563,7 @@ gen_class_server(Node *c)
     print("\t\t\t\t%s_record_instance(f[1], target);\n", c->name);
     print("\t\t\t\tproccreate(%s_loop, target, 65536);\n", c->name);
     print("\t\t\t}\n");
-    print("\t\t\t{ char __nb[128]; snprint(__nb, sizeof __nb, \"ok new %%s\\n\", f[1]); o9app_put_status(__nb); o9app_put_result(__nb); }\n");
+    print("\t\t\t{ char __nb[128]; snprint(__nb, sizeof __nb, \"ok new %%s\\n\", f[1]); o9app_put_status(r, __nb); o9app_put_result(r, __nb); }\n");
     print("\t\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t\t}\n");
     print("\t\tif(strcmp(f[0], \"method\") == 0){\n");
     print("\t\t\tif(nf < 3){ if(inst) snprint(inst->error, sizeof inst->error, \"method needs instance and name\"); respond(r, \"bad method\"); return; }\n");
@@ -4587,7 +4587,7 @@ gen_class_server(Node *c)
             /* ARITY (finding #5): a network boundary must not silently
              * default missing args to 0 or ignore extras. Require exactly
              * np args after `method Class.inst name` (tokens f[3..]). */
-            print("\t\t\t\tif(nf - 3 != %d){ char __ab[96]; snprint(__ab, sizeof __ab, \"error: %s takes %d arg(s), got %%d\\n\", nf-3); o9app_put_status(__ab); o9app_put_result(\"\"); respond(r, nil); return; }\n",
+            print("\t\t\t\tif(nf - 3 != %d){ char __ab[96]; snprint(__ab, sizeof __ab, \"error: %s takes %d arg(s), got %%d\\n\", nf-3); o9app_put_status(r, __ab); o9app_put_result(r, \"\"); respond(r, nil); return; }\n",
                 np, m->name, np);
             if(np > 0){
                 int pi;
@@ -4601,11 +4601,11 @@ gen_class_server(Node *c)
                     char *pt = p->typename != nil ? p->typename : "vlong";
                     print("\t\t\t\tv = strchr(f[%d], '='); v = v ? v+1 : f[%d];\n", pi+3, pi+3);
                     if(type_is_class_ref(p->typeinfo)){
-                        print("\t\t\t\t{ o9app_put_status(\"error: %s: object-handle args not callable over ctl\\n\"); o9app_put_result(\"\"); respond(r, nil); return; }\n", m->name);
+                        print("\t\t\t\t{ o9app_put_status(r, \"error: %s: object-handle args not callable over ctl\\n\"); o9app_put_result(r, \"\"); respond(r, nil); return; }\n", m->name);
                     } else if(strcmp(pt, "string") == 0){
                         print("\t\t\t\t__wargs[%d] = (vlong)(uintptr)v;\n", pi);
                     } else if(strcmp(pt, "Tabula") == 0){
-                        print("\t\t\t\t{ o9app_put_status(\"error: %s: Tabula args not callable over ctl\\n\"); o9app_put_result(\"\"); respond(r, nil); return; }\n", m->name);
+                        print("\t\t\t\t{ o9app_put_status(r, \"error: %s: Tabula args not callable over ctl\\n\"); o9app_put_result(r, \"\"); respond(r, nil); return; }\n", m->name);
                     } else {
                         print("\t\t\t\t__wargs[%d] = strtoll(v, nil, 0);\n", pi);
                     }
@@ -4614,17 +4614,24 @@ gen_class_server(Node *c)
             print("\t\t\t\t{ O9Msg __wm = {0x%lux, %s, %d, chancreate(sizeof(void*), 0)};\n",
                 o9_hash(m->name), np > 0 ? "__wargs" : "nil", np);
             print("\t\t\t\tsendp(target->dispatch_chan, &__wm);\n");
+            /* REQUEST CONCURRENCY: drop srv->slock while blocked on the
+             * actor's reply so OTHER client requests can run meanwhile
+             * (the lib9p srvrelease/srvacquire idiom). Without this the
+             * whole app serializes on one slow call. Safe now that the
+             * session follows r (no global cur_session to clobber). */
+            print("\t\t\t\tsrvrelease(r->srv);\n");
             print("\t\t\t\tO9Reply *__o9rep = recvp(__wm.replyc);\n");
+            print("\t\t\t\tsrvacquire(r->srv);\n");
             /* Roles (SESSIONS.md): success/error -> STATUS, the return
              * value -> DATA. o9app_put_* route to the current session
              * (or o9app_lastdata for the root-ctl path). */
             print("\t\t\t\tif(__o9rep->err != nil){\n");
             print("\t\t\t\t\tchar __eb[256]; snprint(__eb, sizeof __eb, \"error: %%s\\n\", __o9rep->err);\n");
-            print("\t\t\t\t\to9app_put_status(__eb); o9app_put_result(\"\");\n");
+            print("\t\t\t\t\to9app_put_status(r, __eb); o9app_put_result(r, \"\");\n");
             print("\t\t\t\t} else {\n");
-            print("\t\t\t\t\to9app_put_status(\"ok\\n\");\n");
+            print("\t\t\t\t\to9app_put_status(r, \"ok\\n\");\n");
             if(type_is_void(m->typeinfo)){
-                print("\t\t\t\t\to9app_put_result(\"\");\n");
+                print("\t\t\t\t\to9app_put_result(r, \"\");\n");
             } else {
                 char *fmt = type_fmt_for_codegen(m->typeinfo);
                 char *cast = type_cast_for_codegen(m->typeinfo);
@@ -4633,7 +4640,7 @@ gen_class_server(Node *c)
                     print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%s\\n\", (char*)__o9rep->ret);\n");
                 else
                     print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%s\\n\", (%s)__o9rep->ret);\n", fmt, cast);
-                print("\t\t\t\t\to9app_put_result(__rb); }\n");
+                print("\t\t\t\t\to9app_put_result(r, __rb); }\n");
             }
             print("\t\t\t\t}\n");
             print("\t\t\t\tfree(__o9rep); chanfree(__wm.replyc); }\n");
@@ -5090,18 +5097,33 @@ codegen(Node *root)
      * both the leak (slots are bounded by peak concurrency, then recycled)
      * and the reap re-entrancy fault (nothing is ever removefile'd). */
     print("typedef struct O9Session O9Session;\n");
-    print("struct O9Session { int tag; int id; File *dir; long ref; int inuse; char data[4096]; char status[256]; };\n");
+    /* QLock per session guards data/status against concurrent request
+     * handlers (once srvrelease lets requests interleave). */
+    print("struct O9Session { int tag; int id; File *dir; QLock lock; long ref; int inuse; char data[4096]; char status[256]; };\n");
     print("static O9Session **o9app_sessions;\t/* the pool (grows) */\n");
     print("static int o9app_nsessions;\t/* slots created */\n");
     print("static int o9app_sessions_cap;\n");
+    print("static QLock o9app_pool_lock;\t/* guards pool alloc/reuse */\n");
     print("static char o9app_lastdata[4096];\t/* root-ctl fire-and-forget reply */\n");
-    print("static O9Session *o9app_cur_session;\n");
-    print("static void o9app_put_result(char *s){\n");
-    print("\tif(o9app_cur_session != nil) snprint(o9app_cur_session->data, sizeof o9app_cur_session->data, \"%%s\", s);\n");
-    print("\telse snprint(o9app_lastdata, sizeof o9app_lastdata, \"%%s\", s);\n");
+    /* NO global cur_session. The session is DYNAMIC REQUEST STATE — it
+     * follows the Req*, derived from r->fid->file->aux. A global would be
+     * clobbered by a concurrent request while the first is inside
+     * ch->write (blocked on the actor's reply). */
+    print("static O9Session *o9app_req_session(Req *r){\n");
+    print("\tvoid *aux;\n");
+    print("\tif(r == nil || r->fid == nil || r->fid->file == nil) return nil;\n");
+    print("\taux = r->fid->file->aux;\n");
+    print("\tif(aux != nil && *(int*)aux == O9AUX_SESSION) return aux;\n");
+    print("\treturn nil;\n");
     print("}\n");
-    print("static void o9app_put_status(char *s){\n");
-    print("\tif(o9app_cur_session != nil) snprint(o9app_cur_session->status, sizeof o9app_cur_session->status, \"%%s\", s);\n");
+    print("static void o9app_put_result(Req *r, char *s){\n");
+    print("\tO9Session *sess = o9app_req_session(r);\n");
+    print("\tif(sess != nil){ qlock(&sess->lock); snprint(sess->data, sizeof sess->data, \"%%s\", s); qunlock(&sess->lock); }\n");
+    print("\telse snprint(o9app_lastdata, sizeof o9app_lastdata, \"%%s\", s);\t/* root-ctl fire-and-forget */\n");
+    print("}\n");
+    print("static void o9app_put_status(Req *r, char *s){\n");
+    print("\tO9Session *sess = o9app_req_session(r);\n");
+    print("\tif(sess != nil){ qlock(&sess->lock); snprint(sess->status, sizeof sess->status, \"%%s\", s); qunlock(&sess->lock); }\n");
     print("}\n");
     /* Create one new pool slot: <i>/{ctl,data,status} into the stable root
      * (single createfile-into-stable-parent — the safe pattern; done at
@@ -5127,29 +5149,46 @@ codegen(Node *root)
     print("\tcreatefile(dir, \"status\", \"o9\", 0444, s);\n");
     print("\to9app_sessions[o9app_nsessions++] = s;\n");
     print("\treturn s;\n}\n");
-    /* clone: reuse a free slot (inuse==0), else grow. Reset its state. */
+    /* clone: a session is an EXPLICIT CONVERSATION owned by the client
+     * until they `echo close > <id>/ctl` — NOT an open-fid lifetime. That
+     * is the whole point of path-visible clone (shell use: echo>ctl then
+     * cat data are separate opens; the session must persist between them).
+     * Reuse a CLOSED slot (inuse==0), else grow. Clear its buffers on
+     * (re)alloc. Pool-locked. */
     print("static O9Session *o9app_alloc_session(void){\n");
     print("\tint i; O9Session *s = nil;\n");
+    print("\tqlock(&o9app_pool_lock);\n");
     print("\tfor(i = 0; i < o9app_nsessions; i++)\n");
     print("\t\tif(o9app_sessions[i]->inuse == 0){ s = o9app_sessions[i]; break; }\n");
     print("\tif(s == nil) s = o9app_grow_session();\n");
-    print("\tif(s == nil) return nil;\n");
+    print("\tif(s == nil){ qunlock(&o9app_pool_lock); return nil; }\n");
     print("\ts->inuse = 1; s->ref = 0;\n");
+    print("\tqlock(&s->lock);\n");
     print("\ts->data[0] = '\\0';\n");
     print("\tsnprint(s->status, sizeof s->status, \"ready\\n\");\n");
+    print("\tqunlock(&s->lock);\n");
+    print("\tqunlock(&o9app_pool_lock);\n");
     print("\treturn s;\n}\n");
-    /* A session fid clunks: decrement ref; at 0 mark the slot FREE for
-     * reuse. FLAG FLIP ONLY — no removefile (that re-enters lib9p's tree
-     * cleanup mid-clunk = fl->f==nil). The dir stays, recycled by clone. */
+    /* close: the ONLY thing that ends a conversation — marks the slot
+     * reusable. `echo close > <id>/ctl`. */
+    print("static void o9app_close_session(O9Session *s){\n");
+    print("\tif(s == nil) return;\n");
+    print("\tqlock(&o9app_pool_lock);\n");
+    print("\ts->inuse = 0;\n");
+    print("\tqlock(&s->lock); snprint(s->status, sizeof s->status, \"closed\\n\"); s->data[0] = '\\0'; qunlock(&s->lock);\n");
+    print("\tqunlock(&o9app_pool_lock);\n");
+    print("}\n");
+    /* destroyfid: DIAGNOSTICS ONLY (ref count). Clunking a fid does NOT
+     * end the conversation — the client owns it until an explicit close.
+     * This is what makes echo>ctl; cat data safe (ctl clunks first). */
     print("static void o9app_destroyfid(Fid *f){\n");
     print("\tif(f != nil && f->file != nil && f->file->aux != nil &&\n");
     print("\t   *(int*)f->file->aux == O9AUX_SESSION && f->omode != -1){\n");
     print("\t\tO9Session *s = f->file->aux;\n");
-    print("#ifdef __GNUC__\n\t\tif(__sync_sub_and_fetch(&s->ref, 1) <= 0)\n#else\n\t\tif(adec(&s->ref) <= 0)\n#endif\n");
-    print("\t\t\ts->inuse = 0;\t/* slot free for reuse; dir NOT removed */\n");
+    print("#ifdef __GNUC__\n\t\t__sync_sub_and_fetch(&s->ref, 1);\n#else\n\t\tadec(&s->ref);\n#endif\n");
     print("\t}\n");
     print("}\n");
-    /* A session fid opens: ref++ (balanced by destroyfid). */
+    /* open: ref++ (diagnostics; balanced by destroyfid). */
     print("static void o9app_open(Req *r){\n");
     print("\tif(r->fid != nil && r->fid->file != nil && r->fid->file->aux != nil &&\n");
     print("\t   *(int*)r->fid->file->aux == O9AUX_SESSION){\n");
@@ -5173,7 +5212,9 @@ codegen(Node *root)
      * data/status distinguishes them from exports (arbitrary names). */
     print("\tif(r->fid->file->aux != nil && *(int*)r->fid->file->aux == O9AUX_SESSION){\n");
     print("\t\tO9Session *__s = r->fid->file->aux;\n");
-    print("\t\treadstr(r, strcmp(name, \"data\") == 0 ? __s->data : __s->status); respond(r, nil); return;\n\t}\n");
+    print("\t\tchar __sb[4096];\n");
+    print("\t\tqlock(&__s->lock); snprint(__sb, sizeof __sb, \"%%s\", strcmp(name, \"data\") == 0 ? __s->data : __s->status); qunlock(&__s->lock);\n");
+    print("\t\treadstr(r, __sb); respond(r, nil); return;\n\t}\n");
     /* Export file: its aux holds an O9Export with the serialized bytes.
      * Serve them ramfs-style (offset/count). */
     print("\tif(r->fid->file->aux != nil && *(int*)r->fid->file->aux == O9AUX_EXPORT){\n");
@@ -5218,13 +5259,18 @@ codegen(Node *root)
     print("#ifdef __GNUC__\n\tchar *name = r->fid->file->dir.name;\n#else\n\tchar *name = r->fid->file->name;\n#endif\n");
     print("\tchar cmd[1024], *f[16]; int nf; char inst[64]; O9ClassH *ch;\n");
     print("\tif(strcmp(name, \"ctl\") != 0){ respond(r, \"read only\"); return; }\n");
-    /* A session ctl write carries its O9Session* in the file's aux; set it
-     * as the current session so results/status land on THIS session (the
-     * per-caller fix). Root /ctl has aux==nil -> o9app_lastdata path. */
-    print("\to9app_cur_session = (r->fid->file->aux != nil && *(int*)r->fid->file->aux == O9AUX_SESSION) ? r->fid->file->aux : nil;\n");
+    /* No global cur_session: the session is derived from r inside the
+     * put_result/put_status helpers (o9app_req_session(r)), so concurrent
+     * requests each route to their OWN session. */
     print("\tsnprint(cmd, sizeof cmd, \"%%.*s\", (int)r->ifcall.count, (char*)r->ifcall.data);\n");
     print("\tnf = tokenize(cmd, f, nelem(f));\n");
-    print("\tif(nf < 3 || (strcmp(f[0], \"method\") != 0 && strcmp(f[0], \"new\") != 0)){ o9app_cur_session = nil; respond(r, \"want: method Class.inst name | new Class inst\"); return; }\n");
+    /* `close`: end THIS conversation (a session ctl only) — mark the slot
+     * reusable. The explicit release that ends a session's lifetime. */
+    print("\tif(nf >= 1 && strcmp(f[0], \"close\") == 0){\n");
+    print("\t\tO9Session *__cs = o9app_req_session(r);\n");
+    print("\t\tif(__cs != nil) o9app_close_session(__cs);\n");
+    print("\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t}\n");
+    print("\tif(nf < 3 || (strcmp(f[0], \"method\") != 0 && strcmp(f[0], \"new\") != 0)){ respond(r, \"want: method Class.inst name | new Class inst | close\"); return; }\n");
     /* Resolve to a class handler. new Class inst -> resolve by CLASS name
      * (f[1] is the class). method Class.inst -> resolve by Class.inst.
      * The class fswrite re-tokenizes r->ifcall.data itself and handles
@@ -5233,13 +5279,12 @@ codegen(Node *root)
     print("\t\tint __ci; ch = nil;\n");
     print("\t\tfor(__ci = 0; __ci < o9app_nclasses; __ci++)\n");
     print("\t\t\tif(strcmp(o9app_classes[__ci].name, f[1]) == 0){ ch = &o9app_classes[__ci]; break; }\n");
-    print("\t\tif(ch == nil){ o9app_cur_session = nil; respond(r, \"unknown class\"); return; }\n");
+    print("\t\tif(ch == nil){ respond(r, \"unknown class\"); return; }\n");
     print("\t} else {\n");
     print("\t\tch = o9app_resolve(f[1], inst, sizeof inst);\n");
-    print("\t\tif(ch == nil){ o9app_cur_session = nil; respond(r, \"unknown object\"); return; }\n");
+    print("\t\tif(ch == nil){ respond(r, \"unknown object\"); return; }\n");
     print("\t}\n");
     print("\tch->write(r, nil);\t/* class fswrite re-parses r->ifcall.data */\n");
-    print("\to9app_cur_session = nil;\n");
     print("}\n\n");
 
     /* o9_export_tab: publish a Tabula into the served-tree exports/ dir at
