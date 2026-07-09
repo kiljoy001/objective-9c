@@ -562,8 +562,6 @@ is_known_type_name(char *name)
 
     if(name == nil)
         return 0;
-    if(strcmp(name, "Task") == 0)	/* builtin generic: Task<T> (spawn handle) */
-        return 1;
     if(type_is_builtin_name(name))
         return 1;
     if(is_type_param_name(name))
@@ -1287,7 +1285,7 @@ typeinfo_from_legacy(char *t)
 
 %token <node> TIDENT TTYPE TQIDENT TTYPEIDENT TENUMIDENT
 %token <name> TINTLIT TSTRINGLIT TCHARLIT
-%token TCLASS TINTERFACE TSTRUCT TENUM TMODULE TIMPORT TFUNC TFUNCTION TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TLIST TNIL TABSTRACT TDELETE TSPAWN
+%token TCLASS TINTERFACE TSTRUCT TENUM TMODULE TIMPORT TFUNC TFUNCTION TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TLIST TTASK TNIL TABSTRACT TDELETE TSPAWN
 %token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TOBJECT TTRUE TFALSE TARROW
 %token TPUBLIC TPRIVATE
 %token TTRY TDEFER
@@ -1375,6 +1373,7 @@ type_primary:
     | TTYPE { $$ = type_name($1->name); }
     | TLIST '<' type_args '>' { $$ = type_apply("List", $3); }
     | TDICT '<' type_args '>' { $$ = type_apply("Dict", $3); }
+    | TTASK '<' type_args '>' { $$ = type_apply("Task", $3); }
     | '(' type_expr ')' { $$ = $2; }
     ;
 
@@ -2355,6 +2354,7 @@ yylex(void)
             if(strcmp(buf, "delete") == 0) return TDELETE;
             if(strcmp(buf, "far") == 0) return TFAR;
             if(strcmp(buf, "Dict") == 0) return TDICT;
+            if(strcmp(buf, "Task") == 0) return TTASK;	/* dedicated token, like List/Dict */
             if(strcmp(buf, "method") == 0) return TMETHOD;
             if(strcmp(buf, "state") == 0) return TSTATE;
             if(strcmp(buf, "prop") == 0) return TPROP;
