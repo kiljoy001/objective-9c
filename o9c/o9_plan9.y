@@ -3003,7 +3003,7 @@ static void
 gen_try_check(void)
 {
     try_seen = 1;
-    print("\tif(o9_call_err != nil){ __o9r->err = o9_call_err; goto done; }\n");
+    print("\t{ char *__ce = o9_get_call_err(); if(__ce != nil){ __o9r->err = __ce; goto done; } }\n");
 }
 
 /* True if e is a `try` wrapper (possibly the RHS of a stmt). */
@@ -3433,7 +3433,7 @@ gen_stmt(Node *c, Node *s)
             if(is_try(s->left)){
                 /* return try f(): capture, check error, then set ret */
                 print("\t{ vlong __rv = (vlong)("); gen_expr(s->left); print(");\n");
-                print("\tif(o9_call_err != nil){ __o9r->err = o9_call_err; goto done; }\n");
+                print("\t{ char *__ce = o9_get_call_err(); if(__ce != nil){ __o9r->err = __ce; goto done; } }\n");
                 print("\t__o9r->ret = (uintptr)__rv; }\n\tgoto done;\n");
             } else {
                 print("\t__o9r->ret = (uintptr)("); gen_expr(s->left); print(");\n\tgoto done;\n");
@@ -4254,8 +4254,8 @@ gen_class_server(Node *c)
 					print("\tO9Msg __m = {0x%lux, nil, 0, chancreate(sizeof(void*), 1)};\n", o9_hash(m->name));
 				print("\to9_impl_%s_%s(self, &__m);\n", c->name, m->name);
 				print("\t{ O9Reply *__r = recvp(__m.replyc);\n");
-				print("\tif(__r->err != nil){ werrstr(\"%%s\", __r->err); o9_call_err = __r->err; ((vlong*)__a)[0] = 0; }\n");
-				print("\telse { o9_call_err = nil; ((vlong*)__a)[0] = (vlong)(uintptr)__r->ret; }\n");
+				print("\tif(__r->err != nil){ werrstr(\"%%s\", __r->err); o9_set_call_err(__r->err); ((vlong*)__a)[0] = 0; }\n");
+				print("\telse { o9_set_call_err(nil); ((vlong*)__a)[0] = (vlong)(uintptr)__r->ret; }\n");
 				print("\tfree(__r); }\n");
 				print("\tchanfree(__m.replyc);\n}\n\n");
 
@@ -4285,8 +4285,8 @@ gen_class_server(Node *c)
 					print("\to9_impl_%s_%s(self, &__m);\n", c->name, m->name);
 					print("\t__r = recvp(__m.replyc);\n");
 					if(!isvoid){
-						print("\tif(__r->err != nil){ werrstr(\"%%s\", __r->err); o9_call_err = __r->err; __v = 0; }\n");
-						print("\telse { o9_call_err = nil; __v = (%s)__r->ret; }\n", rst);
+						print("\tif(__r->err != nil){ werrstr(\"%%s\", __r->err); o9_set_call_err(__r->err); __v = 0; }\n");
+						print("\telse { o9_set_call_err(nil); __v = (%s)__r->ret; }\n", rst);
 					} else
 						print("\tif(__r->err != nil) werrstr(\"%%s\", __r->err);\n");
 					print("\tfree(__r);\n\tchanfree(__m.replyc);\n");
