@@ -76,7 +76,8 @@ enum {
     NSelfCall,
     NDelete,
     NTry,
-    NDefer
+    NDefer,
+    NSpawn
 };
 
 enum {
@@ -561,6 +562,8 @@ is_known_type_name(char *name)
 
     if(name == nil)
         return 0;
+    if(strcmp(name, "Task") == 0)	/* builtin generic: Task<T> (spawn handle) */
+        return 1;
     if(type_is_builtin_name(name))
         return 1;
     if(is_type_param_name(name))
@@ -971,6 +974,8 @@ type_storage_for_codegen(Type *t)
             return "O9Slice";
         if(strcmp(t->name, "Dict") == 0)
             return "O9Dict";
+        if(strcmp(t->name, "Task") == 0)
+            return "O9Task*";	/* handle; <T> only types await's return */
         d = type_decl_node(t);
         c = type_cname(type_name(t->name));
         if(d != nil && (d->type == NClass || d->type == NInterface)){
@@ -1928,6 +1933,12 @@ expr:
         n->right = $4;
         $$ = n;
     }
+    /* spawn f(args): run function-class f concurrently; evaluates to a
+     * Task<T> (join handle). name = function, right = args. */
+    | TSPAWN TIDENT '(' call_args ')' {
+        Node *n = mk(NSpawn, $2->name, nil, nil, $4);
+        $$ = n;
+    }
     | TNEW TNEAR typename '(' call_args ')' {
         Node *n = mk(NClass, $3->name, "near", nil, nil);
         n->typeinfo = $3->typeinfo;
@@ -2496,6 +2507,25 @@ gen_expr(Node *e)
          * the expr-statement path, which emits the check after. */
         gen_expr(e->left);
         break;
+    case NSpawn:
+        /* spawn f(args) -> o9_spawn_<f>(args). Returns O9Task*. The
+         * per-function helper (emitted with the function-class) owns
+         * construction + forwarder + non-blocking dispatch. */
+        {
+            char *fq = qualify_source_name(current_module, e->name);
+            char *fc = mangle_source_name(fq);
+            Node *a;
+            print("o9_spawn_%s(", fc);
+            for(a = e->right; a; a = a->next){
+                if(a != e->right) print(", ");
+                if(a->typeinfo != nil && (type_is_class_ref(a->typeinfo) || type_storage_pointerish(a->typeinfo))){
+                    print("(vlong)(uintptr)("); gen_expr(a); print(")");
+                } else
+                    gen_expr(a);
+            }
+            print(")");
+        }
+        break;
     case NIdent:
         if(is_local(e->name))
             print("%s", e->name);
@@ -2579,6 +2609,15 @@ gen_expr(Node *e)
     case NMsgSend:
         {
             Type *lt = e->left != nil ? e->left->typeinfo : nil;
+            /* Task<T> methods: t.await() -> o9_task_await(t). The receiver
+             * is an O9Task* handle. await returns T (value), sets per-proc
+             * error on a spawned failure (so `try t.await()` propagates). */
+            if(lt != nil && lt->kind == TyApply && lt->name != nil &&
+               strcmp(lt->name, "Task") == 0 && strcmp(e->name, "await") == 0){
+                char *rt = type_storage_for_codegen(type_list_at(lt->args, 0));
+                print("(%s)o9_task_await(", rt); gen_expr(e->left); print(")");
+                break;
+            }
             /* Tabula methods: the receiver is an O9Tabula* handle, so
              * t.method(args) lowers to o9_tab_method(t, args). */
             if(lt != nil && lt->kind == TyName && lt->name != nil &&
@@ -4799,6 +4838,77 @@ gen_class_server(Node *c)
     print("\trespond(r, \"read only or not found\");\n}\n\n");
     print("int %s_create_instance(%s_Internal *inst, char *name) {\n", c->name, c->name);
     print("\treturn %s_record_instance(name, inst);\n}\n", c->name);
+
+    /* Spawn helper for a function-class: o9_spawn_<C>(typed args) ->
+     * O9Task*. Constructs a one-shot instance, sends run(args) WITHOUT
+     * waiting, and starts a forwarder proc that owns the wait (recvp the
+     * reply, push it into the task's channel, reap the instance). NSpawn
+     * lowers to a call of this. See CONCURRENCY.md. */
+    if(c->flags & NFFunction){
+        Node *rm = nil, *pn;
+        int np = 0, pi;
+        for(rm = c->left; rm != nil; rm = rm->next)
+            if(rm->type == NMethod && rm->name != nil && strcmp(rm->name, "run") == 0)
+                break;
+        for(pn = (rm ? rm->right : nil); pn; pn = pn->next) np++;
+        /* forwarder context + proc */
+        print("typedef struct O9SpawnCtx_%s { Channel *replyc; O9Task *task; %s_Internal *inst; } O9SpawnCtx_%s;\n",
+            c->name, c->name, c->name);
+        print("static void o9_spawn_forward_%s(void *v){\n", c->name);
+        print("\tO9SpawnCtx_%s *ctx = v;\n", c->name);
+        print("\tO9Reply *__r = recvp(ctx->replyc);\n");
+        print("\tsendp((Channel*)o9_task_chan(ctx->task), __r);\t/* deliver value+error to the Task */\n");
+        print("\t/* reap the one-shot instance */\n");
+        print("\t{ O9Msg *__dm = mallocz(sizeof(O9Msg), 1); __dm->sel = 0x%lux; __dm->replyc = nil;\n", o9_hash("destroy"));
+        print("\t  sendp(ctx->inst->dispatch_chan, __dm); }\n");
+        print("\tchanfree(ctx->replyc); free(ctx);\n");
+        print("}\n");
+        /* per-function spawn-id counter */
+        print("static int o9_spawn_id_%s;\n", c->name);
+        /* the helper: signature from run's params */
+        print("O9Task *o9_spawn_%s(", c->name);
+        for(pn = (rm ? rm->right : nil), pi = 0; pn; pn = pn->next, pi++){
+            if(pi) print(", ");
+            print("%s __a%d", type_storage_for_codegen(pn->typeinfo), pi);
+        }
+        if(np == 0) print("void");
+        print("){\n");
+        print("\tint __id = o9_spawn_id_%s++;\n", c->name);
+        print("\tchar __nm[64]; snprint(__nm, sizeof __nm, \"%s#%%d\", __id);\n", c->name);
+        print("\tO9Task *__task = o9_task_new(__id);\n");
+        /* construct the one-shot instance (mirrors gen_local_new) */
+        print("\t%s_Internal *__inst = emalloc9p(sizeof(%s_Internal));\n", c->name, c->name);
+        print("\tmemset(__inst, 0, sizeof(%s_Internal));\n", c->name);
+        print("\t__inst->dispatch_chan = chancreate(sizeof(void*), 10);\n");
+        print("\t__inst->distance = -1;\n");
+        print("\t__inst->state = o9_state_create_path(o9app_root, \"%s\", __nm, o9_state_cols_%s, %d);\n",
+            c->name, c->name, count_state_cols(c));
+        { char ptr[64]; snprint(ptr, sizeof ptr, "__inst"); gen_init_internal_state(c, ptr); }
+        print("\t__inst->__spawn_index = __id;\n");
+        print("\t__inst->__spawn_state = 1;\t/* running */\n");
+        print("\tproccreate(%s_loop, __inst, 65536);\n", c->name);
+        print("\t%s_record_instance(__nm, __inst);\n", c->name);
+        /* pack args + send run() with a private replyc (non-blocking) */
+        print("\tChannel *__replyc = chancreate(sizeof(void*), 1);\n");
+        if(np > 0){
+            print("\tvlong *__args = malloc(%d*sizeof(vlong));\n", np);
+            for(pn = (rm ? rm->right : nil), pi = 0; pn; pn = pn->next, pi++){
+                if(type_is_class_ref(pn->typeinfo) || type_storage_pointerish(pn->typeinfo))
+                    print("\t__args[%d] = (vlong)(uintptr)__a%d;\n", pi, pi);
+                else
+                    print("\t__args[%d] = (vlong)__a%d;\n", pi, pi);
+            }
+        }
+        print("\t{ O9Msg *__wm = mallocz(sizeof(O9Msg), 1);\n");
+        print("\t  __wm->sel = 0x%lux; __wm->args = %s; __wm->nargs = %d; __wm->replyc = __replyc;\n",
+            o9_hash("run"), np > 0 ? "__args" : "nil", np);
+        print("\t  sendp(__inst->dispatch_chan, __wm); }\n");
+        /* forwarder owns the wait */
+        print("\t{ O9SpawnCtx_%s *__ctx = mallocz(sizeof(O9SpawnCtx_%s), 1);\n", c->name, c->name);
+        print("\t  __ctx->replyc = __replyc; __ctx->task = __task; __ctx->inst = __inst;\n");
+        print("\t  proccreate(o9_spawn_forward_%s, __ctx, 32*1024); }\n", c->name);
+        print("\treturn __task;\n}\n");
+    }
     /* Per-app facade: register this class INTO the shared app server.
      * No Srv/tree/post of its own — those are o9_app_start's job.  The
      * flat tree already exists; the class just registers its handlers and
@@ -5724,6 +5834,11 @@ validate_type(Type *t, int *errs)
                 fprint(2, "o9c: error: line %d: List needs 1 type argument\n", sem_line);
                 (*errs)++;
             }
+        } else if(strcmp(t->name, "Task") == 0){	/* Task<T>: spawn join handle */
+            if(type_list_len(t->args) != 1){
+                fprint(2, "o9c: error: line %d: Task needs 1 type argument\n", sem_line);
+                (*errs)++;
+            }
         } else if(strcmp(t->name, "Dict") == 0){
             if(type_list_len(t->args) != 2){
                 fprint(2, "o9c: error: line %d: Dict needs 2 type arguments\n", sem_line);
@@ -6186,6 +6301,24 @@ annotate_expr_type(Node *e, Node *scope_class)
     case NTry:
         /* try yields the wrapped call's type */
         return set_expr_type(e, annotate_expr_type(e->left, scope_class));
+    case NSpawn:
+        /* spawn f(...) : Task<T> where T is f.run's return type. */
+        {
+            Node *a, *fc, *rm;
+            Type *rt = type_name("int64");	/* default */
+            char *fq = qualify_source_name(current_module, e->name);
+            char *fcn = mangle_source_name(fq);
+            for(a = e->right; a; a = a->next)
+                annotate_expr_type(a, scope_class);
+            fc = find_class(fcn);
+            if(fc != nil)
+                for(rm = fc->left; rm != nil; rm = rm->next)
+                    if(rm->type == NMethod && rm->name != nil && strcmp(rm->name, "run") == 0){
+                        if(rm->typeinfo != nil) rt = rm->typeinfo;
+                        break;
+                    }
+            return set_expr_type(e, type_apply("Task", type_list(rt)));
+        }
     case NIntLit:
         return set_expr_type(e, type_name("int64"));
     case NStringLit:
@@ -6240,6 +6373,10 @@ annotate_expr_type(Node *e, Node *scope_class)
         lt = annotate_expr_type(e->left, scope_class);
         for(a = e->right; a; a = a->next)
             annotate_expr_type(a, scope_class);
+        /* Task<T>.await() : T */
+        if(lt != nil && lt->kind == TyApply && lt->name != nil &&
+           strcmp(lt->name, "Task") == 0 && strcmp(e->name, "await") == 0)
+            return set_expr_type(e, type_list_at(lt->args, 0));
         if(lt != nil && lt->kind == TyName && lt->name != nil &&
            strcmp(lt->name, "Tabula") == 0){
             if(strcmp(e->name, "get") == 0 || strcmp(e->name, "serialize") == 0)
@@ -6864,6 +7001,19 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
             Type *lt = e->left->typeinfo;
             Node *cnode = nil;
             TypedMember tm;
+            /* Task<T>: only await() (no args). */
+            if(lt != nil && lt->kind == TyApply && lt->name != nil &&
+               strcmp(lt->name, "Task") == 0){
+                if(strcmp(e->name, "await") != 0){
+                    fprint(2, "o9c: error: line %d: Task has no method '%s' (only await)\n",
+                        sem_line, e->name);
+                    (*errs)++;
+                } else if(node_list_len(e->right) != 0){
+                    fprint(2, "o9c: error: line %d: Task.await takes no arguments\n", sem_line);
+                    (*errs)++;
+                }
+                break;
+            }
             if(lt != nil && lt->kind == TyName && lt->name != nil &&
                strcmp(lt->name, "Tabula") == 0){
                 Node *a;
