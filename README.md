@@ -37,8 +37,8 @@ func main() {
 ## Supported Types
 
 `int64` `uint64` `int32` `uint32` `int16` `uint16` `int8` `uint8`
-`int` `char` `vlong` `uvlong` `ulong` `ushort` `uchar` `void`
-`bool` `string` `chan`
+`int` `uint` `short` `long` `char` `vlong` `uvlong` `ulong` `ushort`
+`uchar` `intptr` `uintptr` `void` `bool` `string` `chan`
 
 ## Primitives
 
@@ -49,6 +49,8 @@ func main() {
 - **Dot notation** — `c.method(args)`
 - **Object creation** — `Counter c = new Counter(args)`
 - **Old-style C methods** — `func (T *self) name(params) ret { }`
+- **Function tasks** — `function name(args) type { }`, spawned with `spawn name(args)`
+- **Raw Plan 9 C blocks** — `c { ... }` inside `function` bodies only
 - **Destructor** — `~ClassName() { }`
 - **Inheritance** — `Base;` as member
 - **Properties (field-level)** — `prop type name;`

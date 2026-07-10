@@ -1,0 +1,12 @@
+class Bad {
+    method void run() {
+        c {
+            print("bad\n");
+        }
+    }
+}
+
+func main() {
+    Bad b = new Bad();
+    b.run();
+}

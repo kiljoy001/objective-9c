@@ -77,7 +77,8 @@ enum {
     NDelete,
     NTry,
     NDefer,
-    NSpawn
+    NSpawn,
+    NRawC
 };
 
 enum {
@@ -1038,6 +1039,7 @@ type_cast_for_codegen(Type *t)
     if(strcmp(s, "vlong") == 0 || strcmp(s, "uvlong") == 0 ||
        strcmp(s, "long") == 0 || strcmp(s, "ulong") == 0 ||
        strcmp(s, "int") == 0 || strcmp(s, "uint") == 0 ||
+       strcmp(s, "intptr") == 0 || strcmp(s, "uintptr") == 0 ||
        strcmp(s, "short") == 0 || strcmp(s, "ushort") == 0 ||
        strcmp(s, "char") == 0 || strcmp(s, "uchar") == 0)
         return s;
@@ -1284,7 +1286,7 @@ typeinfo_from_legacy(char *t)
 }
 
 %token <node> TIDENT TTYPE TQIDENT TTYPEIDENT TENUMIDENT
-%token <name> TINTLIT TSTRINGLIT TCHARLIT
+%token <name> TINTLIT TSTRINGLIT TCHARLIT TRAWC
 %token TCLASS TINTERFACE TSTRUCT TENUM TMODULE TIMPORT TFUNC TFUNCTION TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TLIST TTASK TNIL TABSTRACT TDELETE TSPAWN
 %token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TOBJECT TTRUE TFALSE TARROW
 %token TPUBLIC TPRIVATE
@@ -1850,6 +1852,7 @@ stmt:
     }
     | TWHILE '(' expr ')' '{' stmt_list '}' { $$ = mk(NWhile, nil, nil, $3, $6); }
     | TFOR '(' for_init TFORSEMI for_cond TFORSEMI for_step ')' '{' stmt_list '}' { $$ = mk(NFor, nil, nil, $3, mk(NFor, nil, nil, $5, $7)); $$->right->next = $10; }
+    | TRAWC { $$ = mk(NRawC, $1, nil, nil, nil); }
     ;
 
 for_init:
@@ -2147,10 +2150,143 @@ lex_getc(void)
 static void
 lex_ungetc(int c)
 {
-	if(npush < 8)
-		pushback[npush++] = c;
-	if(c == '\n')
-		cur_line--;
+    if(npush < 8)
+        pushback[npush++] = c;
+    if(c == '\n')
+        cur_line--;
+}
+
+static void
+raw_append(char **buf, int *len, int *cap, int c)
+{
+    char *nb;
+
+    if(*len + 2 >= *cap){
+        *cap *= 2;
+        nb = realloc(*buf, *cap);
+        if(nb == nil)
+            sysfatal("realloc: raw c block");
+        *buf = nb;
+    }
+    (*buf)[(*len)++] = c;
+    (*buf)[*len] = '\0';
+}
+
+static int
+try_raw_c_block(char **out)
+{
+    int save_pos, save_npush, save_push[8], save_line;
+    int c, depth, mode, esc, len, cap;
+    char *buf;
+
+    save_pos = input_pos;
+    save_npush = npush;
+    memmove(save_push, pushback, sizeof pushback);
+    save_line = cur_line;
+
+    do
+        c = lex_getc();
+    while(c != Beof && isspace(c));
+    if(c != '{'){
+        input_pos = save_pos;
+        npush = save_npush;
+        memmove(pushback, save_push, sizeof pushback);
+        cur_line = save_line;
+        return 0;
+    }
+
+    cap = 256;
+    len = 0;
+    buf = malloc(cap);
+    if(buf == nil)
+        sysfatal("malloc: raw c block");
+    buf[0] = '\0';
+
+    depth = 1;
+    mode = 0;	/* 0 normal, 1 string, 2 char, 3 line comment, 4 block comment */
+    esc = 0;
+    while((c = lex_getc()) != Beof){
+        if(mode == 0){
+            if(c == '"'){
+                mode = 1;
+                raw_append(&buf, &len, &cap, c);
+                continue;
+            }
+            if(c == '\''){
+                mode = 2;
+                raw_append(&buf, &len, &cap, c);
+                continue;
+            }
+            if(c == '/'){
+                int nc = lex_getc();
+                if(nc == '/'){
+                    mode = 3;
+                    raw_append(&buf, &len, &cap, c);
+                    raw_append(&buf, &len, &cap, nc);
+                    continue;
+                }
+                if(nc == '*'){
+                    mode = 4;
+                    raw_append(&buf, &len, &cap, c);
+                    raw_append(&buf, &len, &cap, nc);
+                    continue;
+                }
+                if(nc != Beof)
+                    lex_ungetc(nc);
+                raw_append(&buf, &len, &cap, c);
+                continue;
+            }
+            if(c == '{'){
+                depth++;
+                raw_append(&buf, &len, &cap, c);
+                continue;
+            }
+            if(c == '}'){
+                depth--;
+                if(depth == 0){
+                    *out = buf;
+                    return 1;
+                }
+                raw_append(&buf, &len, &cap, c);
+                continue;
+            }
+            raw_append(&buf, &len, &cap, c);
+            continue;
+        }
+        if(mode == 1 || mode == 2){
+            raw_append(&buf, &len, &cap, c);
+            if(esc){
+                esc = 0;
+                continue;
+            }
+            if(c == '\\'){
+                esc = 1;
+                continue;
+            }
+            if((mode == 1 && c == '"') || (mode == 2 && c == '\''))
+                mode = 0;
+            continue;
+        }
+        if(mode == 3){
+            raw_append(&buf, &len, &cap, c);
+            if(c == '\n')
+                mode = 0;
+            continue;
+        }
+        if(mode == 4){
+            raw_append(&buf, &len, &cap, c);
+            if(c == '*'){
+                int nc = lex_getc();
+                if(nc == '/'){
+                    raw_append(&buf, &len, &cap, nc);
+                    mode = 0;
+                } else if(nc != Beof)
+                    lex_ungetc(nc);
+            }
+        }
+    }
+    *out = buf;
+    return 1;
 }
 
 int
@@ -2334,6 +2470,14 @@ yylex(void)
             }
             lex_ungetc(c);
             buf[i] = '\0';
+
+            if(strcmp(buf, "c") == 0){
+                char *raw;
+                if(try_raw_c_block(&raw)){
+                    yylval.name = raw;
+                    return TRAWC;
+                }
+            }
             
             yylval.node = mk(NIdent, buf, nil, nil, nil);
             if(strchr(buf, '.') != nil){
@@ -2407,7 +2551,12 @@ yylex(void)
             if(strcmp(buf, "void") == 0) return TTYPE;
             if(strcmp(buf, "string") == 0) return TTYPE;
             if(strcmp(buf, "int") == 0) return TTYPE;
+            if(strcmp(buf, "uint") == 0) return TTYPE;
+            if(strcmp(buf, "short") == 0) return TTYPE;
+            if(strcmp(buf, "long") == 0) return TTYPE;
             if(strcmp(buf, "char") == 0) return TTYPE;
+            if(strcmp(buf, "intptr") == 0) return TTYPE;
+            if(strcmp(buf, "uintptr") == 0) return TTYPE;
             if(strcmp(buf, "vlong") == 0) return TTYPE;
             if(strcmp(buf, "uvlong") == 0) return TTYPE;
             if(strcmp(buf, "ulong") == 0) return TTYPE;
@@ -3201,6 +3350,11 @@ gen_stmt(Node *c, Node *s)
         return;
     }
     switch(s->type){
+    case NRawC:
+        print("\t/* raw C begin */\n");
+        print("%s", s->name != nil ? s->name : "");
+        print("\n\t/* raw C end */\n");
+        break;
     case NLocalVar:
         if(is_primitive(s->typename)){
             print("\t%s %s;\n", type_storage_for_codegen(s->typeinfo), s->name);
@@ -7132,6 +7286,12 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
             (*errs)++;
         }
         break;
+    case NRawC:
+        if(scope_class == nil || (scope_class->flags & NFFunction) == 0){
+            fprint(2, "o9c: error: line %d: raw C blocks are only allowed inside function bodies\n", sem_line);
+            (*errs)++;
+        }
+        break;
     case NReturn:
         annotate_expr_type(e, scope_class);
         if(current_return_type != nil &&
@@ -7370,6 +7530,7 @@ node_kind(int type)
     case NPropRead: return "NPropRead";
     case NFuncCall: return "NFuncCall";
     case NSpawn: return "NSpawn";
+    case NRawC: return "NRawC";
     case NFor: return "NFor";
     case NArrayGet: return "NArrayGet";
     case NArraySet: return "NArraySet";

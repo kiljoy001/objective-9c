@@ -287,7 +287,11 @@ your program's assembly, as replayable text.
 
 ## Current sharp edges
 
-- `int64` → `int` narrowing is rejected; keep to `int64`/`string`/`bool`
+- implicit narrowing is rejected; use an explicit Plan 9 C scalar type
+  (`int64`, `uint64`, `int32`, `uint32`, `int16`, `uint16`, `int8`,
+  `uint8`, `int`, `uint`, `short`, `long`, `char`, `uchar`, `ushort`,
+  `ulong`, `vlong`, `uvlong`, `intptr`, `uintptr`) and convert
+  intentionally
 - a *variable* named identically to a declared class parses as the type
 - `replica` doesn't sync state yet; `while`, `if/else if`, `for` exist
   but there's no `switch`; strings returned by methods print with a

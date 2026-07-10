@@ -92,6 +92,7 @@ compile o9c/test/pascal_names.o9 pascal_names
 compile o9c/test/selfcall.o9 selfcall
 compile o9c/test/e2e_text.o9 e2e_text
 compile o9c/test/e2e_delete.o9 e2e_delete
+compile o9c/test/e2e_plan9ctypes.o9 e2e_plan9ctypes
 
 # builtins lower to runtime helpers
 $tool < o9c/test/e2e_text.o9 > $meta >[2] $err || exit builtin-meta
@@ -207,6 +208,11 @@ require 'NSpawn name=w.*type=Task<int64>'
 require 'NMsgSend name=await.*type=int64'
 rm -f $ast
 
+$tool -ast < o9c/test/e2e_rawc_function.o9 > $ast || exit rawc-ast
+require 'NRawC'
+require 'NSpawn name=rawadd.*type=Task<int64>'
+rm -f $ast
+
 require_error o9c/test/typecheck_bad_method_arity.o9 'method ''set'' needs 1 argument'
 require_error o9c/test/typecheck_bad_method_arg.o9 'argument 1 to ''set'' has type string, expected int64'
 require_error o9c/test/typecheck_bad_generic_method_arg.o9 'argument 1 to ''set'' has type int64, expected string'
@@ -262,6 +268,8 @@ require_error_path o9c/test/impdir/usefrom.o9 'from ... import'' is not supporte
 require_error o9c/test/typecheck_bad_super_arity.o9 'calls Animal'
 require_error o9c/test/typecheck_bad_tab_arity.o9 'Tabula.set takes 2 arguments, got 1'
 require_error o9c/test/typecheck_bad_interface_new.o9 'cannot instantiate interface ''Sink'''
+require_error o9c/test/typecheck_bad_rawc_main.o9 'raw C blocks are only allowed inside function bodies'
+require_error o9c/test/typecheck_bad_rawc_method.o9 'raw C blocks are only allowed inside function bodies'
 
 rm -f $ast $err $meta
 echo production_ast_tests: OK

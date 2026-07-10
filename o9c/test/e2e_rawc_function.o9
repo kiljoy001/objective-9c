@@ -1,0 +1,16 @@
+function rawadd(int64 a, int64 b) int64 {
+    int64 out;
+    c {
+        /* braces here must not terminate the raw block: { } */
+        if(a >= 0) {
+            out = a + b + 7;
+        }
+    }
+    return out;
+}
+
+func main() {
+    Task<int64> t = spawn rawadd(10, 20);
+    int64 v = t.await();
+    print("raw ", v, "\n");
+}
