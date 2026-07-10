@@ -63,7 +63,20 @@ while(! test -e $srv){
 	n=`{hoc -e $n+1}
 }
 mount $srv /n/dbg
-cat /n/dbg/state > /tmp/debug_dump
+rm -f /tmp/debug_dump
+n=0
+ready=0
+while(~ $ready 0){
+	cat /n/dbg/state > /tmp/debug_dump
+	if(grep -s reading /tmp/debug_dump)
+		ready=1
+	if not if(~ $n 50)
+		ready=1
+	if not {
+		sleep 0.1
+		n=`{hoc -e $n+1}
+	}
+}
 
 # public field 'reading' present plain
 if(grep -s reading /tmp/debug_dump)

@@ -51,6 +51,7 @@ func main() {
 - **Old-style C methods** — `func (T *self) name(params) ret { }`
 - **Function tasks** — `function name(args) type { }`, spawned with `spawn name(args)`
 - **Raw Plan 9 C blocks** — `c { ... }` inside `function` bodies only
+- **Constrained C deps** — `use { bio }` inside `function` bodies; resolves through built-in deps plus optional project-root `deps.tab`
 - **Destructor** — `~ClassName() { }`
 - **Inheritance** — `Base;` as member
 - **Properties (field-level)** — `prop type name;`
@@ -73,6 +74,36 @@ o9c/o9c < source.o9 > output.c
 `libo9.a` includes the o9 runtime plus the plain-table libtab objects from
 `../9lx/libtab`; generated binaries link `libndb.a` for libtab's ndb tuple
 storage.
+
+Raw C functions may declare constrained C dependencies:
+
+```
+function count(string path) int64 {
+    use { bio }
+    c {
+        Biobuf *b;
+        b = Bopen(path, OREAD);
+        if(b != nil)
+            Bterm(b);
+    }
+    return 0;
+}
+```
+
+`use` names are resolved from the built-in Plan 9 dependency registry and
+then optional `./deps.tab`. Project dependencies must stay under the
+project directory:
+
+```
+name=mycodec
+	header=include/mycodec.h
+	include=include
+	archive=lib/$objtype/libmycodec.a
+	kind=project
+```
+
+Generated C carries `/* o9: include ... */` and `/* o9: archive ... */`
+metadata for mk rules to consume.
 
 ## Architecture
 

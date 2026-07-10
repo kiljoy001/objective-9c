@@ -1,0 +1,4 @@
+name=localdep
+	header=include/localdep.h
+	include=include
+	kind=project

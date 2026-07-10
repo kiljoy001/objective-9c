@@ -1,0 +1,1 @@
+#define O9_LOCALDEP_VALUE 23

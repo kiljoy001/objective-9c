@@ -1,0 +1,14 @@
+class Host {
+    prop int64 payload;
+}
+
+function leak() int64 {
+    return payload;
+}
+
+func main() {
+    Host h = new Host();
+    Task<int64> t = spawn leak();
+    int64 v = t.await();
+    print(v, "\n");
+}

@@ -78,7 +78,8 @@ enum {
     NTry,
     NDefer,
     NSpawn,
-    NRawC
+    NRawC,
+    NUse
 };
 
 enum {
@@ -121,6 +122,7 @@ struct TypedMember {
 typedef struct ClassDef ClassDef;
 typedef struct EnumSym EnumSym;
 typedef struct ObjectSym ObjectSym;
+typedef struct CDep CDep;
 struct ClassDef {
     char *name;
     Node *node;
@@ -153,6 +155,24 @@ struct ObjectSym {
     ObjectSym *next;
 };
 ObjectSym *object_syms;
+
+struct CDep {
+    char *name;
+    char *header;
+    char *include;
+    char *archive;
+    char *source;
+    char *requires;
+    int system;
+    int override;
+    int used;
+    CDep *next;
+    CDep *usednext;
+};
+CDep *cdeps;
+CDep *used_cdeps;
+CDep *used_cdeps_tail;
+char *project_root = ".";
 
 void
 add_class(char *name, Node *n)
@@ -224,6 +244,10 @@ ulong o9_hash(char *str);
 void  add_var_class(char *varname, char *classname);
 int   is_primitive(char *t);
 static void scan_file(char *path);
+static void load_builtin_cdeps(void);
+static void load_project_cdeps(void);
+static void use_cdep(char *name, int line, int *errs);
+static void emit_cdeps(void);
 
 void add_type_sym(char *name, char *typename);
 char* get_type_sym(char *name);
@@ -1287,7 +1311,7 @@ typeinfo_from_legacy(char *t)
 
 %token <node> TIDENT TTYPE TQIDENT TTYPEIDENT TENUMIDENT
 %token <name> TINTLIT TSTRINGLIT TCHARLIT TRAWC
-%token TCLASS TINTERFACE TSTRUCT TENUM TMODULE TIMPORT TFUNC TFUNCTION TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TLIST TTASK TNIL TABSTRACT TDELETE TSPAWN
+%token TCLASS TINTERFACE TSTRUCT TENUM TMODULE TIMPORT TFUNC TFUNCTION TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TLIST TTASK TNIL TABSTRACT TDELETE TSPAWN TUSE
 %token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TOBJECT TTRUE TFALSE TARROW
 %token TPUBLIC TPRIVATE
 %token TTRY TDEFER
@@ -1310,7 +1334,7 @@ typeinfo_from_legacy(char *t)
 %right '!' '~' UMINUS
 %left '.' '['
  
-%type <node> program top_levels top_level class_decl class_head interface_decl interface_head struct_decl struct_head enum_decl enum_vals enum_val module_decl module_head import_decl object_decl member_list member member_body var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename name_ref type_name_ref decl_name generic_name enum_name member_name spawn_name param_list param call_args call_arg func_top_level function_decl for_init for_cond for_step else_clause generic_opt generic_names abstract_opt
+%type <node> program top_levels top_level class_decl class_head interface_decl interface_head struct_decl struct_head enum_decl enum_vals enum_val module_decl module_head import_decl object_decl member_list member member_body var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename name_ref type_name_ref decl_name generic_name enum_name member_name spawn_name dep_name dep_list param_list param call_args call_arg func_top_level function_decl for_init for_cond for_step else_clause generic_opt generic_names abstract_opt
 %type <type> type_expr type_primary
 %type <types> type_args type_args_opt
 
@@ -1358,6 +1382,18 @@ member_name:
 spawn_name:
     TIDENT { $$ = $1; }
     | TTYPEIDENT { $$ = $1; }
+    ;
+
+dep_name:
+    TIDENT { $$ = $1; }
+    | TTYPEIDENT { $$ = $1; }
+    ;
+
+dep_list:
+    /* empty */ { $$ = nil; }
+    | dep_list dep_name { $$ = append_node($1, mk(NIdent, $2->name, nil, nil, nil)); }
+    | dep_list ',' { $$ = $1; }
+    | dep_list ';' { $$ = $1; }
     ;
 
 type_expr:
@@ -1852,6 +1888,7 @@ stmt:
     }
     | TWHILE '(' expr ')' '{' stmt_list '}' { $$ = mk(NWhile, nil, nil, $3, $6); }
     | TFOR '(' for_init TFORSEMI for_cond TFORSEMI for_step ')' '{' stmt_list '}' { $$ = mk(NFor, nil, nil, $3, mk(NFor, nil, nil, $5, $7)); $$->right->next = $10; }
+    | TUSE '{' dep_list '}' { $$ = mk(NUse, nil, nil, $3, nil); }
     | TRAWC { $$ = mk(NRawC, $1, nil, nil, nil); }
     ;
 
@@ -2498,6 +2535,7 @@ yylex(void)
             if(strcmp(buf, "func") == 0) return TFUNC;
             if(strcmp(buf, "function") == 0) return TFUNCTION;
             if(strcmp(buf, "spawn") == 0) return TSPAWN;
+            if(strcmp(buf, "use") == 0) return TUSE;
             if(strcmp(buf, "new") == 0) return TNEW;
             if(strcmp(buf, "near") == 0) return TNEAR;
             if(strcmp(buf, "delete") == 0) return TDELETE;
@@ -2672,10 +2710,7 @@ gen_expr(Node *e)
             print("o9_spawn_%s(", fc);
             for(a = e->right; a; a = a->next){
                 if(a != e->right) print(", ");
-                if(a->typeinfo != nil && (type_is_class_ref(a->typeinfo) || type_storage_pointerish(a->typeinfo))){
-                    print("(vlong)(uintptr)("); gen_expr(a); print(")");
-                } else
-                    gen_expr(a);
+                gen_expr(a);
             }
             print(")");
         }
@@ -3354,6 +3389,8 @@ gen_stmt(Node *c, Node *s)
         print("\t/* raw C begin */\n");
         print("%s", s->name != nil ? s->name : "");
         print("\n\t/* raw C end */\n");
+        break;
+    case NUse:
         break;
     case NLocalVar:
         if(is_primitive(s->typename)){
@@ -5326,6 +5363,7 @@ codegen(Node *root)
 
     print("/* Generated o9 Source */\n");
     print("#include <u.h>\n#include <libc.h>\n#include <thread.h>\n#include <fcall.h>\n#include <9p.h>\n#include <o9.h>\n\n");
+    emit_cdeps();
     print("#ifndef _O9_COMMON_\n#define _O9_COMMON_\n");
     print("#define o9_offsetof(s, m) (long)(&(((s*)0)->m))\n");
     print("typedef struct ArcEntry {\n\tulong id;\n\tlong count;\n} ArcEntry;\n\n");
@@ -6185,7 +6223,8 @@ typed_member_lookup_in(Node *cnode, TypeBind *bindings, char *name, int method, 
             return 1;
         }
         if(!method && (m->type == NProp || m->type == NState ||
-           m->type == NAtomic || m->type == NSecret || m->type == NCap)){
+           m->type == NAtomic || m->type == NStream ||
+           m->type == NSecret || m->type == NCap)){
             if(out != nil){
                 out->node = m;
                 out->owner = cnode;
@@ -6232,7 +6271,8 @@ member_typeinfo(Node *cnode, char *name, int method)
         if(method && m->type == NMethod)
             return decl_typeinfo(m);
         if(!method && (m->type == NProp || m->type == NState ||
-           m->type == NAtomic || m->type == NSecret || m->type == NCap))
+           m->type == NAtomic || m->type == NStream ||
+           m->type == NSecret || m->type == NCap))
             return decl_typeinfo(m);
     }
     return nil;
@@ -6257,7 +6297,8 @@ member_node(Node *cnode, char *name, int method)
         if(method && m->type == NMethod)
             return m;
         if(!method && (m->type == NProp || m->type == NState ||
-           m->type == NAtomic || m->type == NSecret || m->type == NCap))
+           m->type == NAtomic || m->type == NStream ||
+           m->type == NSecret || m->type == NCap))
             return m;
     }
     return nil;
@@ -6921,17 +6962,36 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
          * parent's private via a bare field access (inheritance flattens
          * the struct, so the field is physically reachable — the check
          * must be here). Locals/params and same-class privates are fine. */
-        if(scope_class != nil && e->name != nil && !is_local(e->name)){
-            Type *st = scope_class->typeinfo;
+        if(e->name != nil && get_typeinfo_sym(e->name) == nil){
+            Type *st;
             TypedMember tm;
-            if(st == nil)
-                st = type_from_name(scope_class->qname != nil ? scope_class->qname : scope_class->name);
-            if(typed_member_lookup(st, e->name, 0, &tm) && tm.node != nil &&
-               (tm.node->flags & NFPrivate) && tm.owner != scope_class){
-                fprint(2, "o9c: error: line %d: '%s.%s' is private "
-                    "(a subclass cannot access an inherited private member)\n",
-                    sem_line, tm.owner != nil ? tm.owner->name : "?", e->name);
+            if(scope_class == nil){
+                fprint(2, "o9c: error: line %d: unknown identifier '%s'\n",
+                    sem_line, e->name);
                 (*errs)++;
+            } else {
+                st = scope_class->typeinfo;
+                if(st == nil)
+                    st = type_from_name(scope_class->qname != nil ? scope_class->qname : scope_class->name);
+                if(!typed_member_lookup(st, e->name, 0, &tm)){
+                    if(scope_class->flags & NFFunction)
+                        fprint(2, "o9c: error: line %d: function '%s' cannot resolve '%s' "
+                            "(function bodies do not capture outer variables; pass it as a parameter)\n",
+                            sem_line,
+                            scope_class->qname != nil ? scope_class->qname : scope_class->name,
+                            e->name);
+                    else
+                        fprint(2, "o9c: error: line %d: '%s' has no member '%s'\n",
+                            sem_line,
+                            scope_class->qname != nil ? scope_class->qname : scope_class->name,
+                            e->name);
+                    (*errs)++;
+                } else if(tm.node != nil && (tm.node->flags & NFPrivate) && tm.owner != scope_class){
+                    fprint(2, "o9c: error: line %d: '%s.%s' is private "
+                        "(a subclass cannot access an inherited private member)\n",
+                        sem_line, tm.owner != nil ? tm.owner->name : "?", e->name);
+                    (*errs)++;
+                }
             }
         }
         break;
@@ -7118,8 +7178,15 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
                 fprint(2, "o9c: error: line %d: '%s' is a property, not a method\n", sem_line, e->name);
                 (*errs)++;
             } else if(!ismethod){
-                fprint(2, "o9c: error: line %d: '%s' has no method '%s'\n", sem_line,
-                    scope_class->qname != nil ? scope_class->qname : scope_class->name, e->name);
+                if(scope_class->flags & NFFunction)
+                    fprint(2, "o9c: error: line %d: function '%s' cannot resolve call '%s' "
+                        "(function bodies do not capture outer methods; pass an object handle or value)\n",
+                        sem_line,
+                        scope_class->qname != nil ? scope_class->qname : scope_class->name,
+                        e->name);
+                else
+                    fprint(2, "o9c: error: line %d: '%s' has no method '%s'\n", sem_line,
+                        scope_class->qname != nil ? scope_class->qname : scope_class->name, e->name);
                 (*errs)++;
             } else if(tm.node != nil){
                 tm.node->flags |= NFSelfCalled;	/* emit the o9_self_ wrapper */
@@ -7292,6 +7359,16 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
             (*errs)++;
         }
         break;
+    case NUse:
+        if(scope_class == nil || (scope_class->flags & NFFunction) == 0){
+            fprint(2, "o9c: error: line %d: C dependency use blocks are only allowed inside function bodies\n", sem_line);
+            (*errs)++;
+        } else {
+            Node *d;
+            for(d = e->left; d != nil; d = d->next)
+                use_cdep(d->name, sem_line, errs);
+        }
+        break;
     case NReturn:
         annotate_expr_type(e, scope_class);
         if(current_return_type != nil &&
@@ -7454,6 +7531,10 @@ check_node(Node *n, Node *scope_class, int *errs)
             restore_type_syms(mark);
             continue;
         }
+        if(c->type == NUse){
+            typecheck_expr(c, scope_class, errs);
+            continue;
+        }
         typecheck_expr(c, scope_class, errs);
         check_node(c->left, scope_class, errs);
         check_node(c->right, scope_class, errs);
@@ -7531,6 +7612,7 @@ node_kind(int type)
     case NFuncCall: return "NFuncCall";
     case NSpawn: return "NSpawn";
     case NRawC: return "NRawC";
+    case NUse: return "NUse";
     case NFor: return "NFor";
     case NArrayGet: return "NArrayGet";
     case NArraySet: return "NArraySet";
@@ -7697,6 +7779,402 @@ read_whole_file(char *path, long *len)
     buf[total] = '\0';
     *len = total;
     return buf;
+}
+
+typedef struct CDepSpec CDepSpec;
+struct CDepSpec {
+    char *name;
+    char *header;
+    char *archive;
+    char *requires;
+};
+
+static CDepSpec builtin_cdep_specs[] = {
+    { "bio",     "<bio.h>",      "/$objtype/lib/libbio.a", nil },
+    { "regexp",  "<regexp.h>",   "/$objtype/lib/libregexp.a", nil },
+    { "mp",      "<mp.h>",       "/$objtype/lib/libmp.a", nil },
+    { "sec",     "<libsec.h>",   "/$objtype/lib/libsec.a", nil },
+    { "draw",    "<draw.h>",     "/$objtype/lib/libdraw.a", nil },
+    { "memdraw", "<memdraw.h>",  "/$objtype/lib/libmemdraw.a", nil },
+    { "memlayer","<memlayer.h>", "/$objtype/lib/libmemlayer.a", nil },
+    { "thread",  "<thread.h>",   "/$objtype/lib/libthread.a", nil },
+    { "9p",      "<9p.h>",       "/$objtype/lib/lib9p.a", nil },
+    { "auth",    "<auth.h>",     "/$objtype/lib/libauth.a", nil },
+    { "authsrv", "<authsrv.h>",  "/$objtype/lib/libauthsrv.a", nil },
+    { "venti",   "<venti.h>",    "/$objtype/lib/libventi.a", nil },
+    { "diskfs",  "<diskfs.h>",   "/$objtype/lib/libdiskfs.a", nil },
+    { "plumb",   "<plumb.h>",    "/$objtype/lib/libplumb.a", nil },
+    { "complete","<complete.h>", "/$objtype/lib/libcomplete.a", nil },
+    { "ndb",     "<ndb.h>",      "/$objtype/lib/libndb.a", nil },
+    { "mach",    "<mach.h>",     "/$objtype/lib/libmach.a", nil },
+    { nil, nil, nil, nil }
+};
+
+static char*
+trim_ws(char *s)
+{
+    char *e;
+
+    while(*s != '\0' && isspace((uchar)*s))
+        s++;
+    e = s + strlen(s);
+    while(e > s && isspace((uchar)e[-1]))
+        *--e = '\0';
+    return s;
+}
+
+static char*
+unquote_value(char *s)
+{
+    int n;
+
+    s = trim_ws(s);
+    n = strlen(s);
+    if(n >= 2 && ((s[0] == '"' && s[n-1] == '"') || (s[0] == '\'' && s[n-1] == '\''))){
+        s[n-1] = '\0';
+        return s + 1;
+    }
+    return s;
+}
+
+static int
+safe_dep_name(char *s)
+{
+    char *p;
+
+    if(s == nil || s[0] == '\0' || !(isalpha((uchar)s[0]) || s[0] == '_'))
+        return 0;
+    for(p = s; *p != '\0'; p++)
+        if(!(isalnum((uchar)*p) || *p == '_'))
+            return 0;
+    return 1;
+}
+
+static int
+safe_project_chars(char *s, int allowobj)
+{
+    char *p;
+
+    for(p = s; *p != '\0'; p++){
+        if(isalnum((uchar)*p) || *p == '_' || *p == '.' || *p == '/' || *p == '-')
+            continue;
+        if(*p == '$' && allowobj && strncmp(p, "$objtype", 8) == 0){
+            p += 7;
+            continue;
+        }
+        return 0;
+    }
+    return 1;
+}
+
+static char*
+clean_project_dep_path(char *val, int allowobj, int line, char *field)
+{
+    char clean[1024];
+
+    if(val == nil)
+        return nil;
+    val = unquote_value(val);
+    if(val[0] == '<' || val[0] == '"' || val[0] == '/' ||
+       !safe_project_chars(val, allowobj)){
+        fprint(2, "o9c: error: line %d: deps.tab %s path '%s' is not project-relative\n",
+            line, field, val);
+        semantic_errors++;
+        return nil;
+    }
+    strncpy(clean, val, sizeof clean - 1);
+    clean[sizeof clean - 1] = '\0';
+    if(path_within_subtree(clean) < 0){
+        fprint(2, "o9c: error: line %d: deps.tab %s path '%s' escapes the project root\n",
+            line, field, val);
+        semantic_errors++;
+        return nil;
+    }
+    return strdup(clean);
+}
+
+static CDep*
+find_cdep(char *name)
+{
+    CDep *d;
+
+    for(d = cdeps; d != nil; d = d->next)
+        if(strcmp(d->name, name) == 0)
+            return d;
+    return nil;
+}
+
+static CDep*
+new_cdep(char *name, int system)
+{
+    CDep *d;
+
+    d = mallocz(sizeof *d, 1);
+    if(d == nil)
+        sysfatal("malloc: cdep");
+    d->name = strdup(name);
+    d->system = system;
+    return d;
+}
+
+static void
+add_builtin_cdep(char *name, char *header, char *archive, char *requires)
+{
+    CDep *d;
+
+    d = new_cdep(name, 1);
+    d->header = header != nil ? strdup(header) : nil;
+    d->archive = archive != nil ? strdup(archive) : nil;
+    d->requires = requires != nil ? strdup(requires) : nil;
+    d->next = cdeps;
+    cdeps = d;
+}
+
+static void
+load_builtin_cdeps(void)
+{
+    int i;
+
+    if(cdeps != nil)
+        return;
+    for(i = 0; builtin_cdep_specs[i].name != nil; i++)
+        add_builtin_cdep(builtin_cdep_specs[i].name,
+            builtin_cdep_specs[i].header,
+            builtin_cdep_specs[i].archive,
+            builtin_cdep_specs[i].requires);
+}
+
+static void
+cdep_replace(CDep *old, CDep *n)
+{
+    old->header = n->header;
+    old->include = n->include;
+    old->archive = n->archive;
+    old->source = n->source;
+    old->requires = n->requires;
+    old->system = 0;
+}
+
+static void
+finish_project_cdep(CDep *d, int line)
+{
+    CDep *old;
+
+    if(d == nil)
+        return;
+    if(!safe_dep_name(d->name)){
+        fprint(2, "o9c: error: line %d: deps.tab dependency name '%s' is not a simple identifier\n",
+            line, d->name != nil ? d->name : "");
+        semantic_errors++;
+        return;
+    }
+    if(d->header != nil)
+        d->header = clean_project_dep_path(d->header, 0, line, "header");
+    if(d->include != nil)
+        d->include = clean_project_dep_path(d->include, 0, line, "include");
+    if(d->source != nil)
+        d->source = clean_project_dep_path(d->source, 0, line, "source");
+    if(d->archive != nil)
+        d->archive = clean_project_dep_path(d->archive, 1, line, "archive");
+    if(semantic_errors > 0)
+        return;
+
+    old = find_cdep(d->name);
+    if(old != nil){
+        if(!d->override){
+            fprint(2, "o9c: error: line %d: deps.tab dependency '%s' already exists; set override=true to replace it\n",
+                line, d->name);
+            semantic_errors++;
+            return;
+        }
+        cdep_replace(old, d);
+        return;
+    }
+    d->system = 0;
+    d->next = cdeps;
+    cdeps = d;
+}
+
+static void
+load_project_cdeps(void)
+{
+    char path[1024], linebuf[1024], *buf, *p, *nl, *s, *eq, *key, *val;
+    long len;
+    int line, rowline;
+    CDep *cur;
+
+    snprint(path, sizeof path, "%s/deps.tab", project_root);
+    buf = read_whole_file(path, &len);
+    if(buf == nil)
+        return;
+
+    cur = nil;
+    rowline = 0;
+    line = 0;
+    for(p = buf; p != nil && *p != '\0'; p = (nl != nil ? nl + 1 : nil)){
+        nl = strchr(p, '\n');
+        if(nl != nil)
+            *nl = '\0';
+        line++;
+        strncpy(linebuf, p, sizeof linebuf - 1);
+        linebuf[sizeof linebuf - 1] = '\0';
+        s = trim_ws(linebuf);
+        if(s[0] == '\0' || s[0] == '#')
+            continue;
+        if(s[0] == '/' && s[1] == '/')
+            continue;
+        eq = strchr(s, '=');
+        if(eq == nil){
+            fprint(2, "o9c: error: line %d: deps.tab line needs key=value\n", line);
+            semantic_errors++;
+            continue;
+        }
+        *eq = '\0';
+        key = trim_ws(s);
+        val = unquote_value(eq + 1);
+        if(strcmp(key, "name") == 0){
+            finish_project_cdep(cur, rowline);
+            cur = new_cdep(val, 0);
+            rowline = line;
+            continue;
+        }
+        if(cur == nil){
+            fprint(2, "o9c: error: line %d: deps.tab field '%s' appears before name\n",
+                line, key);
+            semantic_errors++;
+            continue;
+        }
+        if(strcmp(key, "header") == 0)
+            cur->header = strdup(val);
+        else if(strcmp(key, "include") == 0)
+            cur->include = strdup(val);
+        else if(strcmp(key, "archive") == 0)
+            cur->archive = strdup(val);
+        else if(strcmp(key, "source") == 0)
+            cur->source = strdup(val);
+        else if(strcmp(key, "requires") == 0)
+            cur->requires = strdup(val);
+        else if(strcmp(key, "override") == 0)
+            cur->override = (strcmp(val, "true") == 0 || strcmp(val, "1") == 0 || strcmp(val, "yes") == 0);
+        else if(strcmp(key, "kind") == 0){
+            if(strcmp(val, "project") != 0){
+                fprint(2, "o9c: error: line %d: deps.tab kind must be project\n", line);
+                semantic_errors++;
+            }
+        } else {
+            fprint(2, "o9c: error: line %d: deps.tab unknown field '%s'\n", line, key);
+            semantic_errors++;
+        }
+    }
+    finish_project_cdep(cur, rowline);
+    free(buf);
+}
+
+static void
+mark_cdep_used(CDep *d)
+{
+    if(d->used)
+        return;
+    d->used = 1;
+    if(used_cdeps_tail != nil)
+        used_cdeps_tail->usednext = d;
+    else
+        used_cdeps = d;
+    used_cdeps_tail = d;
+}
+
+static void
+use_cdep_inner(char *name, int line, int *errs, int depth)
+{
+    CDep *d;
+    char *reqs, *tok, *p;
+
+    if(name == nil)
+        return;
+    if(depth > 32){
+        fprint(2, "o9c: error: line %d: C dependency '%s' has a recursive requires chain\n",
+            line, name);
+        (*errs)++;
+        return;
+    }
+    d = find_cdep(name);
+    if(d == nil){
+        fprint(2, "o9c: error: line %d: unknown C dependency '%s'\n", line, name);
+        (*errs)++;
+        return;
+    }
+    mark_cdep_used(d);
+    if(d->requires == nil || d->requires[0] == '\0')
+        return;
+    reqs = strdup(d->requires);
+    for(p = reqs; *p != '\0'; p++)
+        if(*p == ',')
+            *p = ' ';
+    for(tok = strtok(reqs, " \t\r\n"); tok != nil; tok = strtok(nil, " \t\r\n"))
+        use_cdep_inner(tok, line, errs, depth + 1);
+    free(reqs);
+}
+
+static void
+use_cdep(char *name, int line, int *errs)
+{
+    use_cdep_inner(name, line, errs, 0);
+}
+
+static char*
+expand_objtype(char *s)
+{
+    char *obj, *p, out[1024];
+    int n;
+
+    if(s == nil)
+        return nil;
+    obj = getenv("objtype");
+    if(obj == nil || obj[0] == '\0')
+        obj = getenv("OBJTYPE");
+    if(obj == nil || obj[0] == '\0')
+        obj = "unknown";
+    out[0] = '\0';
+    n = 0;
+    for(p = s; *p != '\0' && n < sizeof out - 1; p++){
+        if(strncmp(p, "$objtype", 8) == 0){
+            n += snprint(out + n, sizeof out - n, "%s", obj);
+            p += 7;
+        } else
+            out[n++] = *p;
+    }
+    out[n] = '\0';
+    return strdup(out);
+}
+
+static void
+emit_cdeps(void)
+{
+    CDep *d;
+    char *x;
+
+    for(d = used_cdeps; d != nil; d = d->usednext){
+        print("/* o9: dep %s %s */\n", d->system ? "system" : "project", d->name);
+        if(d->include != nil)
+            print("/* o9: include %s */\n", d->include);
+        if(d->source != nil)
+            print("/* o9: source %s */\n", d->source);
+        if(d->archive != nil){
+            x = expand_objtype(d->archive);
+            print("/* o9: archive %s */\n", x);
+            free(x);
+        }
+    }
+    for(d = used_cdeps; d != nil; d = d->usednext){
+        if(d->header == nil)
+            continue;
+        if(d->header[0] == '<' || d->header[0] == '"')
+            print("#include %s\n", d->header);
+        else
+            print("#include \"%s\"\n", d->header);
+    }
+    if(used_cdeps != nil)
+        print("\n");
 }
 
 /* Strip the `func main() { ... }` from imported source (only the root
@@ -7885,6 +8363,11 @@ main(int argc, char **argv)
     }
     input_len = total;
     if(fd != 0) close(fd);
+
+    load_builtin_cdeps();
+    load_project_cdeps();
+    if(semantic_errors > 0)
+        exits("deps");
 
     resolve_imports();	/* splice imported decls into input_buf */
     if(semantic_errors > 0)	/* import errors: stop before parse cascades */

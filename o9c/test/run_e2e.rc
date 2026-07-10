@@ -5,6 +5,14 @@
 tool=./o9c/o9c
 fail=0
 
+fn depincs {
+	awk '/^\/\* o9: include / { print "-I" $4 }' $1
+}
+
+fn deparchs {
+	awk '/^\/\* o9: archive / { print $4 }' $1
+}
+
 fn runcase {
 	name=$1
 	src=o9c/test/$name.o9
@@ -17,9 +25,17 @@ fn runcase {
 	# stale service posts from earlier runs make threadpostmountsrv sysfatal
 	rm -f /srv/E2Counter /srv/Res /srv/Box__int64 /srv/Box__string
 
-	if($tool < $src > $cfile &&
-	   6c -FVw -I. -o $ofile $cfile &&
-	   6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a){
+	if(! $tool < $src > $cfile){
+		echo $name': transpile failed' >[1=2]
+		fail=1
+		rm -f $cfile $ofile $bin $out
+		broke | rc
+		return
+	}
+	incs=`{depincs $cfile}
+	archs=`{deparchs $cfile}
+	if(6c -FVw -I. $incs -o $ofile $cfile &&
+	   6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a $archs){
 		$bin > $out >[2=1]
 		if(! ~ $status ''){
 			echo $name': run failed:' $status >[1=2]
@@ -55,9 +71,17 @@ fn importcase {
 	bin=/tmp/o9_imp.$pid
 	out=/tmp/o9_imp.$pid.out
 	rm -f /srv/o9.*.app
-	if($tool $src > $cfile &&
-	   6c -FVw -I. -o $ofile $cfile &&
-	   6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a){
+	if(! $tool $src > $cfile){
+		echo $name': transpile failed' >[1=2]
+		fail=1
+		rm -f $cfile $ofile $bin $out /srv/o9.*.app
+		broke | rc
+		return
+	}
+	incs=`{depincs $cfile}
+	archs=`{deparchs $cfile}
+	if(6c -FVw -I. $incs -o $ofile $cfile &&
+	   6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a $archs){
 		$bin > $out >[2=1]
 		if(! cmp -s $out $expected){
 			echo $name': output mismatch' >[1=2]
@@ -108,6 +132,7 @@ runcase e2e_widths
 runcase e2e_plan9ctypes
 runcase spawn_task
 runcase e2e_rawc_function
+runcase e2e_rawc_bio
 importcase e2e_import
 runcase e2e_hard_recursion
 runcase e2e_hard_nesttry

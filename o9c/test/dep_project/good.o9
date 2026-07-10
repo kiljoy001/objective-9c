@@ -1,0 +1,14 @@
+function local() int64 {
+    use { localdep }
+
+    int64 n;
+    c {
+        n = O9_LOCALDEP_VALUE;
+    }
+    return n;
+}
+
+func main() {
+    Task<int64> t = spawn local();
+    print("local ", t.await(), "\n");
+}

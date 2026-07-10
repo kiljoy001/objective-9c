@@ -1,6 +1,7 @@
 #!/bin/rc
 
 tool=./o9c/o9c
+root=`{pwd}
 ast=/tmp/o9_ast.out.$pid
 err=/tmp/o9_ast.err.$pid
 meta=/tmp/o9_meta.c.$pid
@@ -79,6 +80,33 @@ fn require_error_path {
 	}
 }
 
+fn require_error_project {
+	dir=$1
+	src=$2
+	pattern=$3
+	@{ cd $dir; $root^/o9c/o9c $src } > $ast >[2] $err
+	grep $"pattern $err > /dev/null
+	if(! ~ $status ''){
+		echo missing expected project error for $dir/$src: $pattern >[1=2]
+		cat $err >[1=2]
+		rm -f $ast $err $meta
+		exit fail
+	}
+}
+
+fn compile_project {
+	dir=$1
+	src=$2
+	name=$3
+	out=/tmp/^$name^.c
+	obj=/tmp/^$name^.6
+	@{ cd $dir; $root^/o9c/o9c $src > $out } >[2] $err || exit 'compile '^$dir^/^$src
+	incs=`{awk '/^\/\* o9: include / { print "-I" $4 }' $out}
+	@{ cd $dir; 9c -I$root -I. $incs $out } || exit '9c '^$out
+	rm -f $obj
+	@{ cd $dir; rm -f $name^.5 $name^.6 $name^.7 $name^.8 $name^.9 $name^.k $name^.q $name^.v }
+}
+
 compile o9c/test/ast_complete.o9 ast_complete
 compile o9c/test/enum_types.o9 enum_types
 compile o9c/test/module_types.o9 module_types
@@ -93,6 +121,7 @@ compile o9c/test/selfcall.o9 selfcall
 compile o9c/test/e2e_text.o9 e2e_text
 compile o9c/test/e2e_delete.o9 e2e_delete
 compile o9c/test/e2e_plan9ctypes.o9 e2e_plan9ctypes
+compile_project o9c/test/dep_project good.o9 dep_project
 
 # builtins lower to runtime helpers
 $tool < o9c/test/e2e_text.o9 > $meta >[2] $err || exit builtin-meta
@@ -213,6 +242,18 @@ require 'NRawC'
 require 'NSpawn name=rawadd.*type=Task<int64>'
 rm -f $ast
 
+$tool < o9c/test/e2e_rawc_bio.o9 > $meta >[2] $err || exit rawc-bio-meta
+require_file 'o9: dep system bio' $meta
+require_file '#include <bio.h>' $meta
+require_file 'o9: archive .*libbio.a' $meta
+rm -f $meta
+
+@{ cd o9c/test/dep_project; $root^/o9c/o9c good.o9 > $meta } >[2] $err || exit dep-project-meta
+require_file 'o9: dep project localdep' $meta
+require_file '#include "include/localdep.h"' $meta
+require_file 'o9: include include' $meta
+rm -f $meta
+
 require_error o9c/test/typecheck_bad_method_arity.o9 'method ''set'' needs 1 argument'
 require_error o9c/test/typecheck_bad_method_arg.o9 'argument 1 to ''set'' has type string, expected int64'
 require_error o9c/test/typecheck_bad_generic_method_arg.o9 'argument 1 to ''set'' has type int64, expected string'
@@ -270,6 +311,11 @@ require_error o9c/test/typecheck_bad_tab_arity.o9 'Tabula.set takes 2 arguments,
 require_error o9c/test/typecheck_bad_interface_new.o9 'cannot instantiate interface ''Sink'''
 require_error o9c/test/typecheck_bad_rawc_main.o9 'raw C blocks are only allowed inside function bodies'
 require_error o9c/test/typecheck_bad_rawc_method.o9 'raw C blocks are only allowed inside function bodies'
+require_error o9c/test/typecheck_bad_use_unknown.o9 'unknown C dependency ''nosuchdep'''
+require_error o9c/test/typecheck_bad_use_main.o9 'C dependency use blocks are only allowed inside function bodies'
+require_error o9c/test/typecheck_bad_function_capture_field.o9 'function ''leak'' cannot resolve ''payload'''
+require_error o9c/test/typecheck_bad_function_capture_method.o9 'function ''leak'' cannot resolve call ''reveal'''
+require_error_project o9c/test/dep_bad bad.o9 'escapes the project root'
 
 rm -f $ast $err $meta
 echo production_ast_tests: OK
