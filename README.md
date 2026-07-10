@@ -105,6 +105,10 @@ name=mycodec
 Generated C carries `/* o9: include ... */` and `/* o9: archive ... */`
 metadata for mk rules to consume.
 
+The built-in registry is mirrored in `o9c/system_deps.tab`. Dependency
+names that are not valid identifiers can be quoted, for example
+`use { "9p" }`.
+
 ## Architecture
 
 Every class becomes a CSP actor (goroutine-like process) with a 9P fileserver

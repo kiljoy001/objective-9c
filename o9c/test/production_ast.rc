@@ -122,6 +122,7 @@ compile o9c/test/e2e_text.o9 e2e_text
 compile o9c/test/e2e_delete.o9 e2e_delete
 compile o9c/test/e2e_plan9ctypes.o9 e2e_plan9ctypes
 compile_project o9c/test/dep_project good.o9 dep_project
+compile_project o9c/test/dep_chain good.o9 dep_chain
 
 # builtins lower to runtime helpers
 $tool < o9c/test/e2e_text.o9 > $meta >[2] $err || exit builtin-meta
@@ -248,10 +249,29 @@ require_file '#include <bio.h>' $meta
 require_file 'o9: archive .*libbio.a' $meta
 rm -f $meta
 
+$tool < o9c/test/e2e_rawc_draw.o9 > $meta >[2] $err || exit rawc-draw-meta
+require_file 'o9: dep system draw' $meta
+require_file '#include <draw.h>' $meta
+require_file 'o9: archive .*libdraw.a' $meta
+rm -f $meta
+
+$tool < o9c/test/meta_rawc_9p.o9 > $meta >[2] $err || exit rawc-9p-meta
+require_file 'o9: dep system 9p' $meta
+require_file '#include <9p.h>' $meta
+require_file 'o9: archive .*lib9p.a' $meta
+rm -f $meta
+
 @{ cd o9c/test/dep_project; $root^/o9c/o9c good.o9 > $meta } >[2] $err || exit dep-project-meta
 require_file 'o9: dep project localdep' $meta
 require_file '#include "include/localdep.h"' $meta
 require_file 'o9: include include' $meta
+rm -f $meta
+
+@{ cd o9c/test/dep_chain; $root^/o9c/o9c good.o9 > $meta } >[2] $err || exit dep-chain-meta
+require_file 'o9: dep project chain' $meta
+require_file 'o9: dep project base' $meta
+require_file '#include "include/chain.h"' $meta
+require_file '#include "include/base.h"' $meta
 rm -f $meta
 
 require_error o9c/test/typecheck_bad_method_arity.o9 'method ''set'' needs 1 argument'
@@ -265,6 +285,7 @@ require_error o9c/test/typecheck_bad_operator_add.o9 'needs numeric operands'
 require_error o9c/test/typecheck_bad_operator_logic.o9 'needs bool operands'
 require_error o9c/test/typecheck_bad_operator_compare.o9 'needs compatible operands'
 require_error o9c/test/typecheck_bad_nil_scalar.o9 'cannot initialize nil to int64'
+require_error o9c/test/typecheck_bad_bool_int.o9 'cannot initialize int64 to bool'
 require_error o9c/test/typecheck_bad_duplicate_enum.o9 'duplicate enum value ''Red'''
 require_error o9c/test/typecheck_bad_duplicate_object.o9 'duplicate object ''primary'''
 require_error o9c/test/typecheck_bad_duplicate_member.o9 'duplicate member ''value'' in ''Counter'''
@@ -316,6 +337,10 @@ require_error o9c/test/typecheck_bad_use_main.o9 'C dependency use blocks are on
 require_error o9c/test/typecheck_bad_function_capture_field.o9 'function ''leak'' cannot resolve ''payload'''
 require_error o9c/test/typecheck_bad_function_capture_method.o9 'function ''leak'' cannot resolve call ''reveal'''
 require_error_project o9c/test/dep_bad bad.o9 'escapes the project root'
+require_error_project o9c/test/dep_bad_abs bad.o9 'is not project-relative'
+require_error_project o9c/test/dep_bad_name bad.o9 'is not a simple identifier'
+require_error_project o9c/test/dep_bad_field bad.o9 'unknown field ''wat'''
+require_error_project o9c/test/dep_bad_override bad.o9 'dependency ''bio'' already exists'
 
 rm -f $ast $err $meta
 echo production_ast_tests: OK

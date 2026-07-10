@@ -1,0 +1,19 @@
+function drawdims() int64 {
+    use { draw }
+
+    int64 out;
+    c {
+        Rectangle r;
+        Point p;
+
+        r = Rect(2, 3, 12, 23);
+        p = Pt(Dx(r), Dy(r));
+        out = p.x + p.y;
+    }
+    return out;
+}
+
+func main() {
+    Task<int64> t = spawn drawdims();
+    print("draw ", t.await(), "\n");
+}

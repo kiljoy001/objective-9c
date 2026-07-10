@@ -1,0 +1,192 @@
+# Built-in 9front dependency registry snapshot.
+# Scouted on amd64 9front from /sys/include and /$objtype/lib.
+
+name=9p
+	header=<9p.h>
+	archive=/$objtype/lib/lib9p.a
+	kind=system
+
+name=String
+	header=<String.h>
+	archive=/$objtype/lib/libString.a
+	kind=system
+
+name=aml
+	header=<aml.h>
+	archive=/$objtype/lib/libaml.a
+	kind=system
+
+name=auth
+	header=<auth.h>
+	archive=/$objtype/lib/libauth.a
+	kind=system
+
+name=authsrv
+	header=<authsrv.h>
+	archive=/$objtype/lib/libauthsrv.a
+	requires=auth sec
+	kind=system
+
+name=avl
+	header=<avl.h>
+	archive=/$objtype/lib/libavl.a
+	kind=system
+
+name=bin
+	header=<bin.h>
+	archive=/$objtype/lib/libbin.a
+	kind=system
+
+name=bio
+	header=<bio.h>
+	archive=/$objtype/lib/libbio.a
+	kind=system
+
+name=complete
+	header=<complete.h>
+	archive=/$objtype/lib/libcomplete.a
+	kind=system
+
+name=control
+	header=<control.h>
+	archive=/$objtype/lib/libcontrol.a
+	kind=system
+
+name=disk
+	header=<disk.h>
+	archive=/$objtype/lib/libdisk.a
+	kind=system
+
+name=draw
+	header=<draw.h>
+	archive=/$objtype/lib/libdraw.a
+	kind=system
+
+name=dtracy
+	header=<dtracy.h>
+	archive=/$objtype/lib/libdtracy.a
+	kind=system
+
+name=fis
+	header=<fis.h>
+	archive=/$objtype/lib/libfis.a
+	kind=system
+
+name=flate
+	header=<flate.h>
+	archive=/$objtype/lib/libflate.a
+	kind=system
+
+name=frame
+	header=<frame.h>
+	archive=/$objtype/lib/libframe.a
+	requires=draw
+	kind=system
+
+name=geometry
+	header=<geometry.h>
+	archive=/$objtype/lib/libgeometry.a
+	kind=system
+
+name=html
+	header=<html.h>
+	archive=/$objtype/lib/libhtml.a
+	kind=system
+
+name=httpd
+	header=<httpd.h>
+	archive=/$objtype/lib/libhttpd.a
+	kind=system
+
+name=ip
+	header=<ip.h>
+	archive=/$objtype/lib/libip.a
+	kind=system
+
+name=json
+	header=<json.h>
+	archive=/$objtype/lib/libjson.a
+	kind=system
+
+name=mach
+	header=<mach.h>
+	archive=/$objtype/lib/libmach.a
+	kind=system
+
+name=memdraw
+	header=<memdraw.h>
+	archive=/$objtype/lib/libmemdraw.a
+	requires=draw
+	kind=system
+
+name=memlayer
+	header=<memlayer.h>
+	archive=/$objtype/lib/libmemlayer.a
+	requires=memdraw draw
+	kind=system
+
+name=mp
+	header=<mp.h>
+	archive=/$objtype/lib/libmp.a
+	kind=system
+
+name=ndb
+	header=<ndb.h>
+	archive=/$objtype/lib/libndb.a
+	kind=system
+
+name=pcm
+	header=<pcm.h>
+	archive=/$objtype/lib/libpcm.a
+	kind=system
+
+name=plumb
+	header=<plumb.h>
+	archive=/$objtype/lib/libplumb.a
+	kind=system
+
+name=regexp
+	header=<regexp.h>
+	archive=/$objtype/lib/libregexp.a
+	kind=system
+
+name=sat
+	header=<sat.h>
+	archive=/$objtype/lib/libsat.a
+	kind=system
+
+name=scribble
+	header=<scribble.h>
+	archive=/$objtype/lib/libscribble.a
+	kind=system
+
+name=sec
+	header=<libsec.h>
+	archive=/$objtype/lib/libsec.a
+	requires=mp
+	kind=system
+
+name=stdio
+	header=<stdio.h>
+	archive=/$objtype/lib/libstdio.a
+	kind=system
+
+name=sunrpc
+	header=<sunrpc.h>
+	archive=/$objtype/lib/libsunrpc.a
+	kind=system
+
+name=thread
+	header=<thread.h>
+	archive=/$objtype/lib/libthread.a
+	kind=system
+
+name=ttf
+	header=<ttf.h>
+	archive=/$objtype/lib/libttf.a
+	kind=system
+
+name=venti
+	header=<venti.h>
+	archive=/$objtype/lib/libventi.a
+	kind=system

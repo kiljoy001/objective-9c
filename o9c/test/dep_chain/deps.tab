@@ -1,0 +1,10 @@
+name=base
+	header=include/base.h
+	include=include
+	kind=project
+
+name=chain
+	header=include/chain.h
+	include=include
+	requires=base
+	kind=project

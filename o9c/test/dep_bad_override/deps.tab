@@ -1,0 +1,4 @@
+name=bio
+	header=include/bio.h
+	include=include
+	kind=project

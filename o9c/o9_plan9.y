@@ -1387,6 +1387,7 @@ spawn_name:
 dep_name:
     TIDENT { $$ = $1; }
     | TTYPEIDENT { $$ = $1; }
+    | TSTRINGLIT { $$ = mk(NIdent, $1, nil, nil, nil); }
     ;
 
 dep_list:
@@ -7790,23 +7791,43 @@ struct CDepSpec {
 };
 
 static CDepSpec builtin_cdep_specs[] = {
-    { "bio",     "<bio.h>",      "/$objtype/lib/libbio.a", nil },
-    { "regexp",  "<regexp.h>",   "/$objtype/lib/libregexp.a", nil },
-    { "mp",      "<mp.h>",       "/$objtype/lib/libmp.a", nil },
-    { "sec",     "<libsec.h>",   "/$objtype/lib/libsec.a", nil },
-    { "draw",    "<draw.h>",     "/$objtype/lib/libdraw.a", nil },
-    { "memdraw", "<memdraw.h>",  "/$objtype/lib/libmemdraw.a", nil },
-    { "memlayer","<memlayer.h>", "/$objtype/lib/libmemlayer.a", nil },
-    { "thread",  "<thread.h>",   "/$objtype/lib/libthread.a", nil },
-    { "9p",      "<9p.h>",       "/$objtype/lib/lib9p.a", nil },
-    { "auth",    "<auth.h>",     "/$objtype/lib/libauth.a", nil },
-    { "authsrv", "<authsrv.h>",  "/$objtype/lib/libauthsrv.a", nil },
-    { "venti",   "<venti.h>",    "/$objtype/lib/libventi.a", nil },
-    { "diskfs",  "<diskfs.h>",   "/$objtype/lib/libdiskfs.a", nil },
-    { "plumb",   "<plumb.h>",    "/$objtype/lib/libplumb.a", nil },
-    { "complete","<complete.h>", "/$objtype/lib/libcomplete.a", nil },
-    { "ndb",     "<ndb.h>",      "/$objtype/lib/libndb.a", nil },
-    { "mach",    "<mach.h>",     "/$objtype/lib/libmach.a", nil },
+    { "9p",       "<9p.h>",       "/$objtype/lib/lib9p.a", nil },
+    { "String",   "<String.h>",   "/$objtype/lib/libString.a", nil },
+    { "aml",      "<aml.h>",      "/$objtype/lib/libaml.a", nil },
+    { "auth",     "<auth.h>",     "/$objtype/lib/libauth.a", nil },
+    { "authsrv",  "<authsrv.h>",  "/$objtype/lib/libauthsrv.a", "auth sec" },
+    { "avl",      "<avl.h>",      "/$objtype/lib/libavl.a", nil },
+    { "bin",      "<bin.h>",      "/$objtype/lib/libbin.a", nil },
+    { "bio",      "<bio.h>",      "/$objtype/lib/libbio.a", nil },
+    { "complete", "<complete.h>", "/$objtype/lib/libcomplete.a", nil },
+    { "control",  "<control.h>",  "/$objtype/lib/libcontrol.a", nil },
+    { "disk",     "<disk.h>",     "/$objtype/lib/libdisk.a", nil },
+    { "draw",     "<draw.h>",     "/$objtype/lib/libdraw.a", nil },
+    { "dtracy",   "<dtracy.h>",   "/$objtype/lib/libdtracy.a", nil },
+    { "fis",      "<fis.h>",      "/$objtype/lib/libfis.a", nil },
+    { "flate",    "<flate.h>",    "/$objtype/lib/libflate.a", nil },
+    { "frame",    "<frame.h>",    "/$objtype/lib/libframe.a", "draw" },
+    { "geometry", "<geometry.h>", "/$objtype/lib/libgeometry.a", nil },
+    { "html",     "<html.h>",     "/$objtype/lib/libhtml.a", nil },
+    { "httpd",    "<httpd.h>",    "/$objtype/lib/libhttpd.a", nil },
+    { "ip",       "<ip.h>",       "/$objtype/lib/libip.a", nil },
+    { "json",     "<json.h>",     "/$objtype/lib/libjson.a", nil },
+    { "mach",     "<mach.h>",     "/$objtype/lib/libmach.a", nil },
+    { "memdraw",  "<memdraw.h>",  "/$objtype/lib/libmemdraw.a", "draw" },
+    { "memlayer", "<memlayer.h>", "/$objtype/lib/libmemlayer.a", "memdraw draw" },
+    { "mp",       "<mp.h>",       "/$objtype/lib/libmp.a", nil },
+    { "ndb",      "<ndb.h>",      "/$objtype/lib/libndb.a", nil },
+    { "pcm",      "<pcm.h>",      "/$objtype/lib/libpcm.a", nil },
+    { "plumb",    "<plumb.h>",    "/$objtype/lib/libplumb.a", nil },
+    { "regexp",   "<regexp.h>",   "/$objtype/lib/libregexp.a", nil },
+    { "sat",      "<sat.h>",      "/$objtype/lib/libsat.a", nil },
+    { "scribble", "<scribble.h>", "/$objtype/lib/libscribble.a", nil },
+    { "sec",      "<libsec.h>",   "/$objtype/lib/libsec.a", "mp" },
+    { "stdio",    "<stdio.h>",    "/$objtype/lib/libstdio.a", nil },
+    { "sunrpc",   "<sunrpc.h>",   "/$objtype/lib/libsunrpc.a", nil },
+    { "thread",   "<thread.h>",   "/$objtype/lib/libthread.a", nil },
+    { "ttf",      "<ttf.h>",      "/$objtype/lib/libttf.a", nil },
+    { "venti",    "<venti.h>",    "/$objtype/lib/libventi.a", nil },
     { nil, nil, nil, nil }
 };
 

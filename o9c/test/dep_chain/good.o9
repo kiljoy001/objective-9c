@@ -1,0 +1,14 @@
+function chain() int64 {
+    use { chain }
+
+    int64 n;
+    c {
+        n = O9_BASE_VALUE + O9_CHAIN_VALUE;
+    }
+    return n;
+}
+
+func main() {
+    Task<int64> t = spawn chain();
+    print("chain ", t.await(), "\n");
+}

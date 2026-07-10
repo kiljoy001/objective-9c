@@ -1,0 +1,9 @@
+function bad() int64 {
+    use { bio }
+    return 0;
+}
+
+func main() {
+    Task<int64> t = spawn bad();
+    print(t.await(), "\n");
+}

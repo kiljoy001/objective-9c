@@ -1,0 +1,9 @@
+function depcheck() int64 {
+    use { "9p" }
+    return 0;
+}
+
+func main() {
+    Task<int64> t = spawn depcheck();
+    print(t.await(), "\n");
+}

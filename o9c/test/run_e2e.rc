@@ -133,6 +133,8 @@ runcase e2e_plan9ctypes
 runcase spawn_task
 runcase e2e_rawc_function
 runcase e2e_rawc_bio
+runcase e2e_rawc_draw
+runcase e2e_rawc_ctypes
 importcase e2e_import
 runcase e2e_hard_recursion
 runcase e2e_hard_nesttry
