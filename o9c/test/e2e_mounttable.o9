@@ -1,25 +1,24 @@
-// MountTable - local namespace control from an inert Tabula.
+// MountTable - typed namespace syscall parameters stored as Tabula data.
 func main() {
-    Tabula spec = new Tabula("mounts", "kind,source,target,flags,mode,aname");
-    spec.write("root", "kind", "dir");
-    spec.write("root", "target", ".");
-    spec.write("tmp", "kind", "bind");
-    spec.write("tmp", "source", "/tmp");
-    spec.write("tmp", "target", "tmp");
-    spec.write("tmp", "flags", "repl,create");
-
-    MountTable mt = new MountTable(spec);
+    MountTable mt = new MountTable();
+    print("schema ", mt.schema(), "\n");
+    print("dir ", mt.dir("cache", 493), "\n");
+    print("bind ", mt.bind("/tmp", "tmp", 0), "\n");
     print("root ", mt.allowRoot("/tmp/o9_mounttable_root"), "\n");
     print("valid ", mt.validate(), "\n");
     writefile("/tmp/o9_mounttable_probe", "ok");
     print("apply ", mt.apply(), "\n");
     print(readfile("/tmp/o9_mounttable_root/tmp/o9_mounttable_probe"), "\n");
 
-    Tabula bad = new Tabula("mounts", "kind,source,target,flags,mode,aname");
-    bad.write("bad", "kind", "bind");
-    bad.write("bad", "source", "/tmp");
-    bad.write("bad", "target", "../escape");
-    MountTable bm = new MountTable(bad);
-    bm.allowRoot("/tmp/o9_mounttable_root");
-    print("bad ", bm.validate(), "\n");
+    Tabula binds = mt.query("call", "bind");
+    print("q ", binds.first(), " ", binds.get("old"), " ", binds.get("new"), "\n");
+
+    writefile("/tmp/o9_mounttable_spec.tab", mt.read());
+    MountTable copy = new MountTable("/tmp/o9_mounttable_spec.tab");
+    copy.allowRoot("/tmp/o9_mounttable_root2");
+    print("copy ", copy.apply(), "\n");
+    print(readfile("/tmp/o9_mounttable_root2/tmp/o9_mounttable_probe"), "\n");
+
+    MountTable bad = new MountTable();
+    print("bad ", bad.bind("/tmp", "../escape", 0), "\n");
 }

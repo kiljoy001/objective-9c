@@ -1,1 +1,1 @@
-func main() { MountTable m = new MountTable(); }
+func main() { MountTable m = new MountTable("a", "b"); }

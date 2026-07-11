@@ -1,4 +1,4 @@
 func main() {
     MountTable m = new MountTable();
-    m.allowRoot(1);
+    m.write("x", "call", "bind");
 }

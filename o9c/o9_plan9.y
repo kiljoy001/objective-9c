@@ -2909,6 +2909,18 @@ gen_expr(Node *e)
                strcmp(lt->name, "MountTable") == 0){
                 char *fn = nil;
                 if(strcmp(e->name, "allowRoot") == 0) fn = "o9_mount_table_allow_root";
+                else if(strcmp(e->name, "dir") == 0) fn = "o9_mount_table_dir";
+                else if(strcmp(e->name, "bind") == 0) fn = "o9_mount_table_bind";
+                else if(strcmp(e->name, "mountsrv") == 0) fn = "o9_mount_table_mountsrv";
+                else if(strcmp(e->name, "schema") == 0) fn = "o9_mount_table_schema";
+                else if(strcmp(e->name, "has") == 0) fn = "o9_mount_table_has";
+                else if(strcmp(e->name, "get") == 0) fn = "o9_mount_table_get";
+                else if(strcmp(e->name, "first") == 0) fn = "o9_mount_table_first";
+                else if(strcmp(e->name, "next") == 0) fn = "o9_mount_table_next";
+                else if(strcmp(e->name, "read") == 0) fn = "o9_mount_table_read";
+                else if(strcmp(e->name, "serialize") == 0) fn = "o9_mount_table_serialize";
+                else if(strcmp(e->name, "query") == 0) fn = "o9_mount_table_query";
+                else if(strcmp(e->name, "flush") == 0) fn = "o9_mount_table_flush";
                 else if(strcmp(e->name, "validate") == 0) fn = "o9_mount_table_validate";
                 else if(strcmp(e->name, "apply") == 0) fn = "o9_mount_table_apply";
                 else if(strcmp(e->name, "close") == 0) fn = "o9_mount_table_close";
@@ -6786,6 +6798,13 @@ annotate_expr_type(Node *e, Node *scope_class)
         }
         if(lt != nil && lt->kind == TyName && lt->name != nil &&
            strcmp(lt->name, "MountTable") == 0){
+            if(strcmp(e->name, "schema") == 0 ||
+               strcmp(e->name, "get") == 0 ||
+               strcmp(e->name, "read") == 0 ||
+               strcmp(e->name, "serialize") == 0)
+                return set_expr_type(e, type_name("string"));
+            if(strcmp(e->name, "query") == 0)
+                return set_expr_type(e, type_name("Tabula"));
             if(strcmp(e->name, "close") == 0)
                 return set_expr_type(e, type_name("void"));
             return set_expr_type(e, type_name("int64"));
@@ -7243,17 +7262,19 @@ typecheck_mount_table_new(Node *e, Node *scope_class, int *errs)
             sem_line);
         (*errs)++;
     }
-    if(got != 1){
-        fprint(2, "o9c: error: line %d: MountTable constructor takes 1 Tabula argument, got %d\n",
+    if(got != 0 && got != 1){
+        fprint(2, "o9c: error: line %d: MountTable constructor takes 0 arguments for a new table or 1 path argument, got %d\n",
             sem_line, got);
         (*errs)++;
         return;
     }
-    typecheck_expr(e->right, scope_class, errs);
-    if(!type_assignable_semantic(type_name("Tabula"), e->right->typeinfo)){
-        fprint(2, "o9c: error: line %d: MountTable constructor argument must be Tabula\n",
-            sem_line);
-        (*errs)++;
+    if(got == 1){
+        typecheck_expr(e->right, scope_class, errs);
+        if(!type_assignable_semantic(type_name("string"), e->right->typeinfo)){
+            fprint(2, "o9c: error: line %d: MountTable constructor path must be string\n",
+                sem_line);
+            (*errs)++;
+        }
     }
 }
 
@@ -7599,13 +7620,26 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
                strcmp(lt->name, "MountTable") == 0){
                 Node *a;
                 int want = -1, got = node_list_len(e->right);
+                int stringargs = 0, intarg = -1;
                 if(strcmp(e->name, "allowRoot") == 0) want = 1;
+                else if(strcmp(e->name, "dir") == 0){ want = 2; stringargs = 1; intarg = 1; }
+                else if(strcmp(e->name, "bind") == 0){ want = 3; stringargs = 2; intarg = 2; }
+                else if(strcmp(e->name, "mountsrv") == 0){ want = 4; stringargs = 2; intarg = 2; }
+                else if(strcmp(e->name, "schema") == 0) want = 0;
+                else if(strcmp(e->name, "has") == 0) want = 1;
+                else if(strcmp(e->name, "get") == 0) want = 1;
+                else if(strcmp(e->name, "first") == 0) want = 0;
+                else if(strcmp(e->name, "next") == 0) want = 0;
+                else if(strcmp(e->name, "read") == 0) want = 0;
+                else if(strcmp(e->name, "serialize") == 0) want = 0;
+                else if(strcmp(e->name, "query") == 0) want = 2;
+                else if(strcmp(e->name, "flush") == 0) want = 0;
                 else if(strcmp(e->name, "validate") == 0) want = 0;
                 else if(strcmp(e->name, "apply") == 0) want = 0;
                 else if(strcmp(e->name, "close") == 0) want = 0;
                 if(want < 0){
                     fprint(2, "o9c: error: line %d: MountTable has no method '%s' "
-                        "(allowRoot/validate/apply/close)\n", sem_line, e->name);
+                        "(dir/bind/mountsrv/allowRoot/read/query/flush/validate/apply/close)\n", sem_line, e->name);
                     (*errs)++;
                 } else if(got != want){
                     fprint(2, "o9c: error: line %d: MountTable.%s takes %d argument%s, got %d\n",
@@ -7613,10 +7647,31 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
                     (*errs)++;
                 }
                 for(a = e->right; a != nil; a = a->next){
+                    int pi = 0;
+                    Node *b;
+                    for(b = e->right; b != nil && b != a; b = b->next)
+                        pi++;
                     typecheck_expr(a, scope_class, errs);
-                    if(strcmp(e->name, "allowRoot") == 0 && got == want &&
+                    if(got != want)
+                        continue;
+                    if((strcmp(e->name, "allowRoot") == 0 ||
+                        strcmp(e->name, "has") == 0 ||
+                        strcmp(e->name, "get") == 0 ||
+                        strcmp(e->name, "query") == 0 ||
+                        pi < stringargs) &&
                        !type_assignable_semantic(type_name("string"), a->typeinfo)){
-                        fprint(2, "o9c: error: line %d: MountTable.allowRoot argument must be string\n",
+                        fprint(2, "o9c: error: line %d: MountTable.%s argument %d must be string\n",
+                            sem_line, e->name, pi + 1);
+                        (*errs)++;
+                    }
+                    if(pi == intarg && !type_assignable_semantic(type_name("int64"), a->typeinfo)){
+                        fprint(2, "o9c: error: line %d: MountTable.%s argument %d must be int64\n",
+                            sem_line, e->name, pi + 1);
+                        (*errs)++;
+                    }
+                    if(strcmp(e->name, "mountsrv") == 0 && pi == 3 &&
+                       !type_assignable_semantic(type_name("string"), a->typeinfo)){
+                        fprint(2, "o9c: error: line %d: MountTable.mountsrv argument 4 must be string\n",
                             sem_line);
                         (*errs)++;
                     }

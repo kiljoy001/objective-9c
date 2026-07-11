@@ -64,11 +64,12 @@ o9_ns_recipe (namespace-as-serializable-data), the served-tree
 createfile-into-stable-parent pattern (exports/, clone sessions), MREPL/
 MBEFORE.
 
-NEW SURFACE: `MountTable` is the authority-bearing interpreter for
-`schema=mounts` Tabulae.  A mount Tabula is inert data; `MountTable`
-validates policy (`allowRoot`) and applies local `dir`/`bind`/`mountsrv`
-rows to the current process namespace.  This is namespace control for
-application setup/isolation, not object composition.
+NEW SURFACE: `MountTable` is the authority-bearing, Tabula-backed object
+for `schema=mounts` data.  Users do not hand-write mount cells; typed
+methods (`dir`, `bind`, `mountsrv`) store syscall-shaped parameters, and
+`MountTable` validates policy (`allowRoot`) before applying them to the
+current process namespace.  This is namespace control for application
+setup/isolation, not object composition.
 
 `replace`/`union` MIGHT survive — not to bind objects, but to compose
 OUTPUT REGIONS (union several produced trees at a path; replace a region).
@@ -127,7 +128,8 @@ mounted as parts.
    the abandoned jumble model, binding /obj/ paths the flat facade never
    creates. Retired like cap.
 3. DONE: first `MountTable` surface for local namespace setup
-   (`dir`/`bind`/`mountsrv`, root-confined targets).
+   (`dir`/`bind`/`mountsrv`, root-confined targets, syscall-shaped
+   Tabula storage).
 4. Design the produce-into-namespace surface (generalize exports/) from
    the open questions above, with the output-integrity goals as the
    security spec.
@@ -135,8 +137,8 @@ mounted as parts.
    client mounts and reads the produced shape — plus the output-integrity
    adversarial tests.
 
-Current implemented pieces: link is removed, and `MountTable` can apply
-root-confined local namespace setup from `schema=mounts` Tabulae.  The
-remaining work relates to the app-facade (the shipped shape), exports
-(the first produce-into-namespace instance), and sessions (per-caller
-produced file sets).
+Current implemented pieces: link is removed, and `MountTable` can build,
+transport, validate, and apply root-confined local namespace setup from
+`schema=mounts` Tabulae.  The remaining work relates to the app-facade
+(the shipped shape), exports (the first produce-into-namespace instance),
+and sessions (per-caller produced file sets).

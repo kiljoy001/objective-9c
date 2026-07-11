@@ -1,5 +1,11 @@
+schema mounts
+dir 0
+bind 0
 root 0
 valid 0
 apply 0
+ok
+q 1 /tmp tmp
+copy 0
 ok
 bad -1

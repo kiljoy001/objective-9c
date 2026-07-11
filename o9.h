@@ -292,8 +292,20 @@ extern void      o9_tab_close(O9Tabula *t);
 
 /* MountTable - trusted local interpreter for schema=mounts Tabulae. */
 typedef struct O9MountTable O9MountTable;
-extern O9MountTable* o9_mount_table_new(O9Tabula *spec);
+extern O9MountTable* o9_mount_table_new(O9String *path);
 extern int           o9_mount_table_allow_root(O9MountTable *m, O9String *root);
+extern int           o9_mount_table_dir(O9MountTable *m, O9String *new, vlong mode);
+extern int           o9_mount_table_bind(O9MountTable *m, O9String *old, O9String *new, vlong flag);
+extern int           o9_mount_table_mountsrv(O9MountTable *m, O9String *fdsrc, O9String *old, vlong flag, O9String *aname);
+extern O9String*     o9_mount_table_schema(O9MountTable *m);
+extern int           o9_mount_table_has(O9MountTable *m, O9String *col);
+extern O9String*     o9_mount_table_get(O9MountTable *m, O9String *col);
+extern int           o9_mount_table_first(O9MountTable *m);
+extern int           o9_mount_table_next(O9MountTable *m);
+extern O9String*     o9_mount_table_read(O9MountTable *m);
+extern O9String*     o9_mount_table_serialize(O9MountTable *m);
+extern O9Tabula*     o9_mount_table_query(O9MountTable *m, O9String *col, O9String *val);
+extern int           o9_mount_table_flush(O9MountTable *m);
 extern int           o9_mount_table_validate(O9MountTable *m);
 extern int           o9_mount_table_apply(O9MountTable *m);
 extern void          o9_mount_table_close(O9MountTable *m);
