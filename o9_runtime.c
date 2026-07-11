@@ -1459,8 +1459,9 @@ o9_state_serialize(O9State *s, char *out, int nout)
  *
  * A Tabula is a thin wrapper: a Tab plus a "current row" cursor for the
  * add/set build style and an iterator for reading.  o9 exposes it with
- * method syntax (t.add(key); t.set(col, val); t.get(col); t.next()).
- * Every value in/out is a string — the o9 boundary is text.
+ * method syntax (t.write(id, col, val); t.query(col, val); t.read();
+ * t.flush()) while keeping the lower-level add/set/get/first/next calls
+ * available. Every value in/out is a string — the o9 boundary is text.
  */
 struct O9Tabula {
 	Tab *tab;
@@ -1468,6 +1469,39 @@ struct O9Tabula {
 	TabIter *it;	/* active read iterator */
 	char *path;	/* nominal path (where a flush would write) */
 };
+
+static int
+o9_tab_has_col(O9Tabula *t, char *col)
+{
+	int i, n;
+	const char *name;
+
+	if(t == nil || t->tab == nil || col == nil)
+		return 0;
+	n = tab_ncolumns(t->tab);
+	for(i = 0; i < n; i++){
+		name = tab_colname(t->tab, i);
+		if(name != nil && strcmp(name, col) == 0)
+			return 1;
+	}
+	return 0;
+}
+
+static TabRow*
+o9_tab_find_row(O9Tabula *t, char *col, char *val)
+{
+	TabIter *it;
+	TabRow *r;
+
+	if(t == nil || t->tab == nil || col == nil || val == nil)
+		return nil;
+	it = tab_search(t->tab, col, val);
+	if(it == nil)
+		return nil;
+	r = tab_iter_next(it);
+	tab_iter_close(it);
+	return r;
+}
 
 /* new_tab(name, "col1,col2,...") — create an in-memory Tabula with the
  * given comma-separated columns (plain text cells).  nil on failure. */
@@ -1578,6 +1612,60 @@ o9_tab_add(O9Tabula *t, O9String *key)
 	return ok;
 }
 
+/* t.write(id, col, val) — update an existing id row or create it.
+ * The id is the row identity; writing the id column itself is rejected
+ * unless the value matches the row id. */
+int
+o9_tab_write(O9Tabula *t, O9String *id, O9String *col, O9String *val)
+{
+	TabRow *r;
+	char *cid, *ccol, *cval;
+	const char *head;
+	int rv;
+
+	if(t == nil || t->tab == nil || id == nil || col == nil || val == nil)
+		return -1;
+	cid = o9_string_cstr(id);
+	ccol = o9_string_cstr(col);
+	cval = o9_string_cstr(val);
+	if(cid == nil || ccol == nil || cval == nil){
+		free(cid);
+		free(ccol);
+		free(cval);
+		return -1;
+	}
+	if(cid[0] == '\0' || !o9_tab_has_col(t, ccol)){
+		free(cid);
+		free(ccol);
+		free(cval);
+		return -1;
+	}
+	head = tab_colname(t->tab, 0);
+	if(head == nil)
+		head = "id";
+	if(strcmp(ccol, head) == 0 && strcmp(cid, cval) != 0){
+		free(cid);
+		free(ccol);
+		free(cval);
+		return -1;
+	}
+	r = o9_tab_find_row(t, (char*)head, cid);
+	if(r == nil)
+		r = tab_add_row(t->tab, head, cid);
+	if(r == nil){
+		free(cid);
+		free(ccol);
+		free(cval);
+		return -1;
+	}
+	rv = strcmp(ccol, head) == 0 ? 0 : tab_set(t->tab, r, ccol, cval);
+	t->cur = r;
+	free(cid);
+	free(ccol);
+	free(cval);
+	return rv;
+}
+
 /* t.set(col, val) — set a cell on the current row. */
 int
 o9_tab_set(O9Tabula *t, O9String *col, O9String *val)
@@ -1651,10 +1739,10 @@ o9_tab_next(O9Tabula *t)
 	return 1;
 }
 
-/* t.serialize() — the whole tab as text bytes (malloc'd; caller frees).
- * This is the on-the-wire / exportable form. */
+/* t.read()/t.serialize() — the whole tab as text bytes. This is the
+ * on-the-wire / exportable form. */
 O9String*
-o9_tab_serialize(O9Tabula *t)
+o9_tab_read(O9Tabula *t)
 {
 	char *buf;
 	int n;
@@ -1666,6 +1754,118 @@ o9_tab_serialize(O9Tabula *t)
 	return o9_string_take(buf);
 }
 
+O9String*
+o9_tab_serialize(O9Tabula *t)
+{
+	return o9_tab_read(t);
+}
+
+/* t.query(col, val) — return a new Tabula containing rows where
+ * col == val.  This is a direct wrapper over libtab's tab_search. */
+O9Tabula*
+o9_tab_query(O9Tabula *t, O9String *col, O9String *val)
+{
+	O9Tabula *out;
+	TabColSpec *spec;
+	TabIter *it;
+	TabRow *r, *nr;
+	char *ccol, *cval;
+	const char *schema, *head, *hv, *cv;
+	int i, n;
+
+	if(t == nil || t->tab == nil || col == nil || val == nil)
+		return nil;
+	ccol = o9_string_cstr(col);
+	cval = o9_string_cstr(val);
+	if(ccol == nil || cval == nil){
+		free(ccol);
+		free(cval);
+		return nil;
+	}
+	if(!o9_tab_has_col(t, ccol)){
+		free(ccol);
+		free(cval);
+		return nil;
+	}
+	n = tab_ncolumns(t->tab);
+	if(n <= 0){
+		free(ccol);
+		free(cval);
+		return nil;
+	}
+	spec = mallocz(n * sizeof *spec, 1);
+	if(spec == nil){
+		free(ccol);
+		free(cval);
+		return nil;
+	}
+	for(i = 0; i < n; i++){
+		spec[i].name = tab_colname(t->tab, i);
+		spec[i].type = tab_coltype(t->tab, i);
+		spec[i].algo = tab_col_attr(t->tab, spec[i].name, "algo");
+		spec[i].signer = tab_col_attr(t->tab, spec[i].name, "signer");
+	}
+	out = mallocz(sizeof *out, 1);
+	if(out == nil){
+		free(spec);
+		free(ccol);
+		free(cval);
+		return nil;
+	}
+	schema = tab_schema_name(t->tab);
+	if(schema == nil)
+		schema = "tab";
+	out->path = smprint("%s.query.tab", schema);
+	if(out->path == nil){
+		free(out);
+		free(spec);
+		free(ccol);
+		free(cval);
+		return nil;
+	}
+	out->tab = tab_create(out->path, schema, spec, n);
+	free(spec);
+	if(out->tab == nil){
+		free(out->path);
+		free(out);
+		free(ccol);
+		free(cval);
+		return nil;
+	}
+	head = tab_colname(t->tab, 0);
+	if(head == nil)
+		head = "id";
+	it = tab_search(t->tab, ccol, cval);
+	if(it != nil){
+		while((r = tab_iter_next(it)) != nil){
+			hv = tab_get(r, head);
+			if(hv == nil)
+				hv = "";
+			nr = tab_add_row(out->tab, head, hv);
+			if(nr == nil)
+				continue;
+			for(i = 1; i < n; i++){
+				cv = tab_get(r, tab_colname(t->tab, i));
+				if(cv != nil)
+					tab_set(out->tab, nr, tab_colname(t->tab, i), cv);
+			}
+		}
+		tab_iter_close(it);
+	}
+	free(ccol);
+	free(cval);
+	return out;
+}
+
+/* t.flush() — persist the in-memory Tabula to its backing path. */
+int
+o9_tab_flush(O9Tabula *t)
+{
+	if(t == nil || t->tab == nil)
+		return -1;
+	return tab_commit(t->tab);
+}
+
 void
 o9_tab_close(O9Tabula *t)
 {
@@ -1673,8 +1873,12 @@ o9_tab_close(O9Tabula *t)
 		return;
 	if(t->it != nil)
 		tab_iter_close(t->it);
-	if(t->tab != nil)
+	if(t->tab != nil){
+		/* o9 Tabula persistence is explicit: write/query mutate memory,
+		 * flush persists, and close discards unflushed changes. */
+		o9_tab_discard(t->tab);
 		tab_close(t->tab);
+	}
 	free(t->path);
 	free(t);
 }

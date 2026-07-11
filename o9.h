@@ -277,11 +277,15 @@ typedef struct O9Tabula O9Tabula;
 extern O9Tabula* o9_tab_new(O9String *name, O9String *cols);	/* cols = "a,b,c" */
 extern O9Tabula* o9_tab_open(O9String *path);
 extern int       o9_tab_add(O9Tabula *t, O9String *key);	/* append row, becomes current */
+extern int       o9_tab_write(O9Tabula *t, O9String *id, O9String *col, O9String *val);
 extern int       o9_tab_set(O9Tabula *t, O9String *col, O9String *val);
 extern O9String* o9_tab_get(O9Tabula *t, O9String *col);
 extern int       o9_tab_first(O9Tabula *t);	/* start iteration; 1 if a row */
 extern int       o9_tab_next(O9Tabula *t);	/* advance; 1 if a row, 0 at end */
+extern O9String* o9_tab_read(O9Tabula *t);	/* whole tab as text */
 extern O9String* o9_tab_serialize(O9Tabula *t);	/* whole tab as text */
+extern O9Tabula* o9_tab_query(O9Tabula *t, O9String *col, O9String *val);
+extern int       o9_tab_flush(O9Tabula *t);
 extern void      o9_tab_close(O9Tabula *t);
 
 /* Task<T> — a one-shot spawn join handle (channel-backed; the numbered

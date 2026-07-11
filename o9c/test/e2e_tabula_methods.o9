@@ -1,0 +1,24 @@
+// Tabula document API: write/query/read/flush.
+func main() {
+    Tabula t = new_tab("orders", "item,qty,status");
+    t.write("a", "item", "widget");
+    t.write("a", "qty", "5");
+    t.write("a", "status", "paid");
+    t.write("b", "item", "gadget");
+    t.write("b", "qty", "3");
+    t.write("b", "status", "open");
+
+    Tabula paid = t.query("status", "paid");
+    print("paid ", paid.first(), " ", paid.get("item"), " ", paid.get("qty"), "\n");
+    print("readcmp ", cmp(t.read(), t.serialize()), "\n");
+    print("bad ", t.write("c", "missing", "x"), "\n");
+
+    writefile("/tmp/o9_tabula_methods.tab", t.read());
+    Tabula disk = open_tab("/tmp/o9_tabula_methods.tab");
+    disk.write("b", "qty", "4");
+    disk.flush();
+
+    Tabula back = open_tab("/tmp/o9_tabula_methods.tab");
+    Tabula one = back.query("id", "b");
+    print("disk ", one.first(), " ", one.get("item"), " ", one.get("qty"), "\n");
+}

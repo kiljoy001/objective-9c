@@ -2854,11 +2854,15 @@ gen_expr(Node *e)
                strcmp(lt->name, "Tabula") == 0){
                 char *fn = nil;
                 if(strcmp(e->name, "add") == 0) fn = "o9_tab_add";
+                else if(strcmp(e->name, "write") == 0) fn = "o9_tab_write";
                 else if(strcmp(e->name, "set") == 0) fn = "o9_tab_set";
                 else if(strcmp(e->name, "get") == 0) fn = "o9_tab_get";
                 else if(strcmp(e->name, "first") == 0) fn = "o9_tab_first";
                 else if(strcmp(e->name, "next") == 0) fn = "o9_tab_next";
+                else if(strcmp(e->name, "read") == 0) fn = "o9_tab_read";
                 else if(strcmp(e->name, "serialize") == 0) fn = "o9_tab_serialize";
+                else if(strcmp(e->name, "query") == 0) fn = "o9_tab_query";
+                else if(strcmp(e->name, "flush") == 0) fn = "o9_tab_flush";
                 else if(strcmp(e->name, "close") == 0) fn = "o9_tab_close";
                 if(fn != nil){
                     Node *a;
@@ -6720,11 +6724,15 @@ annotate_expr_type(Node *e, Node *scope_class)
             return set_expr_type(e, type_list_at(lt->args, 0));
         if(lt != nil && lt->kind == TyName && lt->name != nil &&
            strcmp(lt->name, "Tabula") == 0){
-            if(strcmp(e->name, "get") == 0 || strcmp(e->name, "serialize") == 0)
+            if(strcmp(e->name, "get") == 0 ||
+               strcmp(e->name, "read") == 0 ||
+               strcmp(e->name, "serialize") == 0)
                 return set_expr_type(e, type_name("string"));
+            if(strcmp(e->name, "query") == 0)
+                return set_expr_type(e, type_name("Tabula"));
             if(strcmp(e->name, "close") == 0)
                 return set_expr_type(e, type_name("void"));
-            /* add/set/first/next return int64 (status / row-present) */
+            /* add/write/set/first/next/flush return int64 (status / row-present) */
             return set_expr_type(e, type_name("int64"));
         }
         if(type_is_collection(lt, "List")){
@@ -7418,23 +7426,34 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
                 Node *a;
                 int want = -1, got = node_list_len(e->right);
                 if(strcmp(e->name, "add") == 0) want = 1;
+                else if(strcmp(e->name, "write") == 0) want = 3;
                 else if(strcmp(e->name, "set") == 0) want = 2;
                 else if(strcmp(e->name, "get") == 0) want = 1;
                 else if(strcmp(e->name, "first") == 0) want = 0;
                 else if(strcmp(e->name, "next") == 0) want = 0;
+                else if(strcmp(e->name, "read") == 0) want = 0;
                 else if(strcmp(e->name, "serialize") == 0) want = 0;
+                else if(strcmp(e->name, "query") == 0) want = 2;
+                else if(strcmp(e->name, "flush") == 0) want = 0;
                 else if(strcmp(e->name, "close") == 0) want = 0;
                 if(want < 0){
                     fprint(2, "o9c: error: line %d: Tabula has no method '%s' "
-                        "(add/set/get/first/next/serialize/close)\n", sem_line, e->name);
+                        "(add/write/set/get/first/next/read/serialize/query/flush/close)\n", sem_line, e->name);
                     (*errs)++;
                 } else if(got != want){
                     fprint(2, "o9c: error: line %d: Tabula.%s takes %d argument%s, got %d\n",
                         sem_line, e->name, want, want == 1 ? "" : "s", got);
                     (*errs)++;
                 }
-                for(a = e->right; a != nil; a = a->next)
+                for(a = e->right; a != nil; a = a->next){
                     typecheck_expr(a, scope_class, errs);
+                    if(want > 0 && got == want &&
+                       !type_assignable_semantic(type_name("string"), a->typeinfo)){
+                        fprint(2, "o9c: error: line %d: Tabula.%s arguments must be string\n",
+                            sem_line, e->name);
+                        (*errs)++;
+                    }
+                }
                 break;
             }
             if(type_is_collection(lt, "List")){

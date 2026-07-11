@@ -160,6 +160,7 @@ runcase e2e_twoclass
 runcase e2e_state
 runcase e2e_error
 runcase e2e_tabula
+runcase e2e_tabula_methods
 runcase e2e_for
 runcase e2e_chan
 runcase e2e_stream

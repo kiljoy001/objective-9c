@@ -31,6 +31,53 @@ serialized, wire, and on-disk forms are identical text.  This is the
 Plan 9 "everything is a cat-able file" thesis finally reaching
 *structured* data, on the same terms as unstructured IO.
 
+## Shape and API
+
+A `.tab` file is one semantic collection.  The first entry is the schema
+for the whole file; every following entry is one record in that schema.
+The record type is not repeated per entry.
+
+```text
+schema=orders
+	col=id
+	col=item
+	col=qty
+	col=status
+
+id=a
+	item=widget
+	qty=5
+	status=paid
+
+id=b
+	item=gadget
+	qty=3
+	status=open
+```
+
+The language-level object is `Tabula`.  Its document API is deliberately
+small:
+
+```o9
+Tabula t = new_tab("orders", "item,qty,status")
+t.write("a", "item", "widget")
+t.write("a", "qty", "5")
+
+Tabula paid = t.query("status", "paid")
+string text = t.read()
+t.flush()
+```
+
+- `write(id, col, value)` mutates the in-memory document, creating the
+  `id` record when needed.
+- `query(col, value)` is a direct wrapper over libtab column/value
+  search and returns another `Tabula` with the same schema.
+- `read()` returns the complete serialized text form.
+- `flush()` persists the current in-memory document to its backing path.
+
+Persistence is explicit at the o9 level.  Closing a `Tabula` discards
+unflushed changes; `flush()` is the disk boundary.
+
 ## The one law: inert on arrival
 
 A Tabula that crosses the network is **read like any file**.  It is not
