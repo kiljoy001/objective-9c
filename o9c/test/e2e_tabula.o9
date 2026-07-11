@@ -1,7 +1,7 @@
 // Tabula — the first-class table type. Create, fill with rows, iterate,
 // read cells, serialize. Backed by libtab; every value is text.
 func main() {
-    Tabula t = new_tab("orders", "item,qty");
+    Tabula t = new Tabula("orders", "item,qty");
     t.add("a");
     t.set("item", "widget");
     t.set("qty", "5");

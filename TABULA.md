@@ -59,7 +59,7 @@ The language-level object is `Tabula`.  Its document API is deliberately
 small:
 
 ```o9
-Tabula t = new_tab("orders", "item,qty,status")
+Tabula t = new Tabula("orders", "item,qty,status")
 string schema = t.schema()
 int64 has_status = t.has("status")
 t.write("a", "item", "widget")

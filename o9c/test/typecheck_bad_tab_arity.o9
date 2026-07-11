@@ -1,1 +1,1 @@
-func main() { Tabula t = new_tab("x", "a,b"); t.set("only-one"); }
+func main() { Tabula t = new Tabula("x", "a,b"); t.set("only-one"); }

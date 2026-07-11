@@ -352,9 +352,6 @@ static Builtin builtins[] = {
     {"writefile", "o9_writefile", 2, "int64",  {"string", "string"}},
     {"readline",  "o9_readline",  0, "string", {nil, nil}},
     {"serve",     "o9_serve",     0, "void",   {nil, nil}},
-    /* Tabula constructors: new_tab(name, "cols") / open_tab(path) */
-    {"new_tab",   "o9_tab_new",   2, "Tabula", {"string", "string"}},
-    {"open_tab",  "o9_tab_open",  1, "Tabula", {"string", nil}},
     /* export(name, tab): publish a Tabula into the served-tree exports/
      * dir (mutable app file tree) — reachable through the mount. */
     {"export",    "o9_export_tab",2, "void",   {"string", "Tabula"}},
@@ -2790,6 +2787,26 @@ gen_expr(Node *e)
         break;
     case NEnumVal:
         print("%s", e->name);
+        break;
+    case NClass:
+        if(e->typeinfo != nil && e->typeinfo->kind == TyName &&
+           e->typeinfo->name != nil && strcmp(e->typeinfo->name, "Tabula") == 0){
+            int argc = node_list_len(e->right);
+            if(argc == 1){
+                print("o9_tab_open(");
+                gen_expr(e->right);
+                print(")");
+            } else if(argc == 2){
+                print("o9_tab_new(");
+                gen_expr(e->right);
+                print(", ");
+                gen_expr(e->right->next);
+                print(")");
+            } else
+                print("nil /* invalid Tabula constructor */");
+            break;
+        }
+        print("0 /* unsupported new expression: %s */", e->name != nil ? e->name : "?");
         break;
     case NSelfCall:
         {
@@ -7131,6 +7148,45 @@ check_inheritance_contract(Node *cnode, int *errs)
     }
 }
 
+static void typecheck_expr(Node *e, Node *scope_class, int *errs);
+
+static int
+is_tabula_new(Node *e)
+{
+    return e != nil && e->type == NClass &&
+        e->typeinfo != nil && e->typeinfo->kind == TyName &&
+        e->typeinfo->name != nil && strcmp(e->typeinfo->name, "Tabula") == 0;
+}
+
+static void
+typecheck_tabula_new(Node *e, Node *scope_class, int *errs)
+{
+    Node *a;
+    int got;
+
+    if(!is_tabula_new(e))
+        return;
+    got = node_list_len(e->right);
+    if(e->typename != nil && strcmp(e->typename, "same") != 0){
+        fprint(2, "o9c: error: line %d: Tabula does not support near/far construction\n",
+            sem_line);
+        (*errs)++;
+    }
+    if(got != 1 && got != 2){
+        fprint(2, "o9c: error: line %d: Tabula constructor takes 1 path argument or 2 schema arguments, got %d\n",
+            sem_line, got);
+        (*errs)++;
+    }
+    for(a = e->right; a != nil; a = a->next){
+        typecheck_expr(a, scope_class, errs);
+        if(!type_assignable_semantic(type_name("string"), a->typeinfo)){
+            fprint(2, "o9c: error: line %d: Tabula constructor arguments must be string\n",
+                sem_line);
+            (*errs)++;
+        }
+    }
+}
+
 static void
 typecheck_expr(Node *e, Node *scope_class, int *errs)
 {
@@ -7203,6 +7259,10 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
         break;
     case NClass:
         validate_type(e->typeinfo, errs);
+        if(is_tabula_new(e)){
+            typecheck_tabula_new(e, scope_class, errs);
+            break;
+        }
         {
             Node *d = type_decl_node(e->typeinfo);
             if(d != nil){
@@ -7646,6 +7706,8 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
         add_decl_type_sym(e);
         annotate_expr_type(e->left, scope_class);
         if(e->left != nil && e->left->type == NClass){
+            if(is_tabula_new(e->left))
+                typecheck_tabula_new(e->left, scope_class, errs);
             Node *d = type_decl_node(e->left->typeinfo);
             if(d != nil){
                 if(d->type == NInterface){

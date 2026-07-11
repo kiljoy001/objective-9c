@@ -1503,8 +1503,8 @@ o9_tab_find_row(O9Tabula *t, char *col, char *val)
 	return r;
 }
 
-/* new_tab(name, "col1,col2,...") — create an in-memory Tabula with the
- * given comma-separated columns (plain text cells).  nil on failure. */
+/* Runtime backing for `new Tabula(name, "col1,col2,...")`: create an
+ * in-memory Tabula with the given comma-separated columns. nil on failure. */
 O9Tabula*
 o9_tab_new(O9String *name, O9String *cols)
 {
@@ -1563,7 +1563,7 @@ o9_tab_new(O9String *name, O9String *cols)
 	return t;
 }
 
-/* open_tab(path) — read an existing .tab file into a Tabula. */
+/* Runtime backing for `new Tabula(path)`: read an existing .tab file. */
 O9Tabula*
 o9_tab_open(O9String *path)
 {
