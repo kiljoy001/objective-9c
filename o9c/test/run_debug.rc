@@ -100,6 +100,17 @@ if(grep -s token__blob /tmp/debug_dump){
 if not
 	fail_msg 'debug: secret blob missing in dump'
 
+# private object/method metadata snapshots are debug-only read views
+if(grep -s 'schema=o9objects' /tmp/debug_dump)
+	ok_msg 'debug on: object store snapshot present OK'
+if not
+	fail_msg 'debug: object store snapshot missing'
+
+if(grep -s 'schema=o9methods' /tmp/debug_dump && grep -s 'method=get' /tmp/debug_dump)
+	ok_msg 'debug on: method store snapshot present OK'
+if not
+	fail_msg 'debug: method store snapshot missing'
+
 rm -f /tmp/debug_dump
 cleanup
 

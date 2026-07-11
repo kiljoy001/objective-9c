@@ -1,0 +1,15 @@
+import "string.o9";
+
+func main() {
+    String s = new String("  Hello Plan 9  ");
+    print("len ", s.length(), "\n");
+    print("trim ", s.trim(), "\n");
+    print("slice ", s.slice(2, 5), "\n");
+    print("contains ", s.contains("Plan"), " ", s.contains("front"), "\n");
+    print("prefix ", s.startsWith("  He"), " suffix ", s.endsWith("9  "), "\n");
+    print("case ", s.lower(), " | ", s.upper(), "\n");
+    print("eq ", s.equals("  Hello Plan 9  "), " cmp ", s.compare("zz"), "\n");
+    print("cat ", s.concat("!"), "\n");
+    s.set("");
+    print("empty ", s.empty(), "\n");
+}

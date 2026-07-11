@@ -67,6 +67,7 @@ tab-test:V:	libo9.a
 RUNTIME_OBJ=\
 	o9_dispatch.$O\
 	o9_runtime.$O\
+	o9_tab_discard.$O\
 	o9_crypto.$O\
 	monocypher.$O\
 
@@ -87,6 +88,9 @@ o9_dispatch.$O:	o9_dispatch.s
 
 o9_runtime.$O:	o9_runtime.c o9.h
 	$CC -I$LIBTABDIR o9_runtime.c
+
+o9_tab_discard.$O:	o9_tab_discard.c
+	$CC -I$LIBTABDIR o9_tab_discard.c
 
 o9_crypto.$O:	o9_crypto.c o9.h monocypher.h
 	$CC o9_crypto.c
@@ -130,6 +134,7 @@ install:V: o9c libo9.a
 	cp o9c/o9c /bin/o9c
 	cp o9_dispatch.s /sys/src/cmd/o9_dispatch.s
 	cp o9_runtime.c /sys/src/cmd/o9_runtime.c
+	cp o9_tab_discard.c /sys/src/cmd/o9_tab_discard.c
 	cp o9.h /sys/include/o9.h
 	cp libo9.a /$objtype/lib/libo9.a
 	@ echo ''

@@ -1,0 +1,137 @@
+function StringIndexOfRaw(string s, string needle) int64 {
+    int64 pos;
+
+    c {
+        pos = o9_string_indexof(s, needle);
+    }
+    return pos;
+}
+
+function StringStartsWithRaw(string s, string prefix) int64 {
+    int64 ok;
+
+    c {
+        ok = o9_string_startswith(s, prefix);
+    }
+    return ok;
+}
+
+function StringEndsWithRaw(string s, string suffix) int64 {
+    int64 ok;
+
+    c {
+        ok = o9_string_endswith(s, suffix);
+    }
+    return ok;
+}
+
+function StringSliceRaw(string s, int64 start, int64 count) string {
+    string out;
+
+    c {
+        out = o9_string_slice(s, start, count);
+    }
+    return out;
+}
+
+function StringTrimRaw(string s) string {
+    string out;
+
+    c {
+        out = o9_string_trim(s);
+    }
+    return out;
+}
+
+function StringLowerRaw(string s) string {
+    string out;
+
+    c {
+        out = o9_string_lower(s);
+    }
+    return out;
+}
+
+function StringUpperRaw(string s) string {
+    string out;
+
+    c {
+        out = o9_string_upper(s);
+    }
+    return out;
+}
+
+class String {
+    prop string value;
+
+    method String(string s) {
+        value = s;
+    }
+
+    method void set(string s) {
+        value = s;
+    }
+
+    method string get() {
+        return value;
+    }
+
+    method int64 length() {
+        return len(value);
+    }
+
+    method bool empty() {
+        return len(value) == 0;
+    }
+
+    method int64 compare(string other) {
+        return cmp(value, other);
+    }
+
+    method bool equals(string other) {
+        return cmp(value, other) == 0;
+    }
+
+    method string concat(string suffix) {
+        return cat(value, suffix);
+    }
+
+    method int64 indexOf(string needle) {
+        Task<int64> t = spawn StringIndexOfRaw(value, needle);
+        return t.await();
+    }
+
+    method bool contains(string needle) {
+        return indexOf(needle) >= 0;
+    }
+
+    method bool startsWith(string prefix) {
+        Task<int64> t = spawn StringStartsWithRaw(value, prefix);
+        return t.await() == 1;
+    }
+
+    method bool endsWith(string suffix) {
+        Task<int64> t = spawn StringEndsWithRaw(value, suffix);
+        return t.await() == 1;
+    }
+
+    method string slice(int64 start, int64 count) {
+        Task<string> t = spawn StringSliceRaw(value, start, count);
+        return t.await();
+    }
+
+    method string trim() {
+        Task<string> t = spawn StringTrimRaw(value);
+        return t.await();
+    }
+
+    method string lower() {
+        Task<string> t = spawn StringLowerRaw(value);
+        return t.await();
+    }
+
+    method string upper() {
+        Task<string> t = spawn StringUpperRaw(value);
+        return t.await();
+    }
+}

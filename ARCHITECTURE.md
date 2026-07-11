@@ -83,17 +83,29 @@ handle to its oid; the far side re-resolves in its own ring.
 
 ## The Data Plane (libtab)
 
-- **O9ObjectStore** (`state/<app>.objects.tab`): oid, type, class,
+- **O9ObjectStore**: private in-memory libtab carrying oid, type, class,
   status (declared|live), addr+gen, ns, path, owner. `new` writes live
-  rows; `object` declarations sit at declared.
-- **O9MethodStore** (`state/<app>.methods.tab`): class, method, selector,
-  arity, signature, thunk addr+gen(pid). Registered at startup (inherited
-  methods flattened), backs the dispatch cache, served as each class's
-  `methods` file.
+  rows; `object` declarations sit at declared. It is not mounted as a
+  writable `.tab` file.
+- **O9MethodStore**: private in-memory libtab carrying class, method,
+  selector, arity, signature, thunk addr+gen(pid). Registered at startup
+  (inherited methods flattened), backs the dispatch cache, served as each
+  class's read-only `methods` file.
 - Per-instance field state persisted through `O9State`.
 
 Rule shared by all tables: identity columns are portable truth; `addr`
 is a per-process hint that dies with its generation.
+
+Object and method tabs are authority-bearing runtime metadata, not public
+data transport. They normally stay in memory only. Any persisted copy is a
+debug snapshot and must be read-only/non-authoritative; external mutation
+must go through the app facade (`ctl`/methods), never by editing metadata
+files.
+
+`O9DEBUG` connects those private tables to the existing debug inspector:
+reading the app's `state` file emits read-only method/object snapshots
+alongside live instance state. With `O9DEBUG` unset, the inspector remains
+gated.
 
 ## The Process Model (planned: phases below)
 

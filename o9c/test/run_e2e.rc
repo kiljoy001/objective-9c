@@ -99,6 +99,43 @@ fn importcase {
 	broke | rc
 }
 
+fn stdlibcase {
+	name=$1
+	src=stdlib/$name.o9
+	expected=stdlib/$name.expected
+	cfile=/tmp/o9_stdlib_$name.$pid.c
+	ofile=/tmp/o9_stdlib_$name.$pid.6
+	bin=/tmp/o9_stdlib_$name.$pid
+	out=/tmp/o9_stdlib_$name.$pid.out
+	rm -f /srv/o9.*.app
+	if(! $tool $src > $cfile){
+		echo $name': transpile failed' >[1=2]
+		fail=1
+		rm -f $cfile $ofile $bin $out /srv/o9.*.app
+		broke | rc
+		return
+	}
+	incs=`{depincs $cfile}
+	archs=`{deparchs $cfile}
+	if(6c -FVw -I. $incs -o $ofile $cfile &&
+	   6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a $archs){
+		$bin > $out >[2=1]
+		if(! cmp -s $out $expected){
+			echo $name': output mismatch' >[1=2]
+			cat $expected $out >[1=2]
+			fail=1
+		}
+		if not
+			echo $name: OK
+	}
+	if not{
+		echo $name': build failed' >[1=2]
+		fail=1
+	}
+	rm -f $cfile $ofile $bin $out /srv/o9.*.app
+	broke | rc
+}
+
 if(! test -e $tool){
 	echo missing $tool >[1=2]
 	exit missing
@@ -136,6 +173,7 @@ runcase e2e_rawc_bio
 runcase e2e_rawc_draw
 runcase e2e_rawc_ctypes
 importcase e2e_import
+stdlibcase e2e_string
 runcase e2e_hard_recursion
 runcase e2e_hard_nesttry
 runcase e2e_hard_defer

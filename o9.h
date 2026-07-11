@@ -89,6 +89,34 @@ extern ulong o9_hash(char *s);
 extern void  o9_set_call_err(char *e);
 extern char* o9_get_call_err(void);
 
+/* O9String — immutable language-level string.
+ *
+ * Source-level `string` lowers to O9String*.  The backing data is kept
+ * NUL-terminated for Plan 9 C interop, but len is authoritative.
+ */
+typedef struct O9String O9String;
+struct O9String {
+    char *data;
+    vlong len;
+    long ref;
+};
+
+extern O9String* o9_string_new(char *data, vlong len);
+extern O9String* o9_string_from_c(char *s);
+extern O9String* o9_string_take(char *s);
+extern O9String* o9_string_retain(O9String *s);
+extern void      o9_string_release(O9String *s);
+extern char*     o9_string_data(O9String *s);
+extern vlong     o9_string_len(O9String *s);
+extern char*     o9_string_cstr(O9String *s);
+extern vlong     o9_string_indexof(O9String *s, O9String *needle);
+extern vlong     o9_string_startswith(O9String *s, O9String *prefix);
+extern vlong     o9_string_endswith(O9String *s, O9String *suffix);
+extern O9String* o9_string_slice(O9String *s, vlong start, vlong count);
+extern O9String* o9_string_trim(O9String *s);
+extern O9String* o9_string_lower(O9String *s);
+extern O9String* o9_string_upper(O9String *s);
+
 /* Array operations — line-based dynamic arrays (one vlong per line) */
 extern vlong  o9_array_get(char *data, vlong idx);
 extern void   o9_array_set(char **data, vlong idx, vlong val);
@@ -111,7 +139,7 @@ extern void   o9_slice_free(O9Slice *s);
 
 /* Dict operations — chained hash table, serialized as "key:value\n" */
 typedef struct O9DictEntry {
-	char *key;
+	O9String *key;
 	void *val;		/* generic carrier */
 	struct O9DictEntry *next;
 } O9DictEntry;
@@ -123,16 +151,21 @@ typedef struct {
 extern void*  o9_dict_get(O9Dict *d, char *key);
 extern void   o9_dict_set(O9Dict *d, char *key, void *val);
 extern int    o9_dict_has(O9Dict *d, char *key);
+extern void*  o9_dict_gets(O9Dict *d, O9String *key);
+extern void   o9_dict_sets(O9Dict *d, O9String *key, void *val);
+extern int    o9_dict_hass(O9Dict *d, O9String *key);
 extern char*  o9_dict_serialize(O9Dict *d);
 extern void   o9_dict_deserialize(O9Dict *d, char *buf);
 extern void   o9_dict_init(O9Dict *d);
 extern void   o9_dict_free(O9Dict *d);
 
-/* Object ledger backed by libtab.
+/* Object ledger backed by a private in-memory libtab.
  *
  * The ledger stores stable object identity and location metadata.  The
  * address column is an in-process cache hint, not portable authority; pair it
- * with the generation column before trusting a local pointer.
+ * with the generation column before trusting a local pointer.  Persistence is
+ * debug-only: generated apps expose sanitized read-only views, not the backing
+ * table as a writable file.
  */
 typedef struct O9ObjectStore O9ObjectStore;
 
@@ -149,6 +182,7 @@ extern int            o9_object_register_local(O9ObjectStore *s, char *oid,
 extern int            o9_object_set_value(O9ObjectStore *s, char *oid, char *value);
 extern int            o9_object_set_state(O9ObjectStore *s, char *oid, char *state);
 extern char*          o9_object_get(O9ObjectStore *s, char *oid, char *col);
+extern int            o9_object_store_serialize(O9ObjectStore *s, char *out, int nout);
 extern void*          o9_object_addr(O9ObjectStore *s, char *oid, vlong gen);
 extern vlong          o9_object_generation(O9ObjectStore *s, char *oid);
 
@@ -168,8 +202,8 @@ extern int  o9_registry_start(void);
 extern int  o9_registry_register(char *oid, char *class, void *chan, void *addr);
 extern int  o9_registry_lookup(char *oid, O9Handle *out);
 extern int  o9_registry_unregister(char *oid);
-extern int  o9_lookup_client(void *client, char *oid, int size);
-extern char* o9_send(void *client, char *line);
+extern int  o9_lookup_client(void *client, O9String *oid, int size);
+extern O9String* o9_send(void *client, O9String *line);
 
 /* Namespace assembly: recipe mirroring + object binds */
 extern void o9_ns_recipe(char *root, char *app, char *line);
@@ -185,34 +219,34 @@ extern int  o9_crypto_keypair(char *pub, char *sec);
 extern int  o9_crypto_sign(char *sechex, uchar *msg, long nmsg, char *sig);
 extern int  o9_crypto_verify(char *pubhex, uchar *msg, long nmsg, char *sighex);
 extern int  o9_crypto_hash(uchar *msg, long nmsg, char *out);
-/* Language builtins over the above: strings in, malloc'd hex out */
-extern char*  o9_keygen(void);
-extern char*  o9_pubkey(char *sec);
-extern char*  o9_sign(char *sec, char *msg);
-extern vlong  o9_verify(char *pub, char *msg, char *sig);
-extern char*  o9_digest(char *msg);
-extern char*  o9_mac(char *key, char *msg);
-extern char*  o9_passkey(char *pass, char *salt);
-extern char*  o9_encrypt(char *key, char *msg);
-extern char*  o9_decrypt(char *key, char *blob);
-extern char*  o9_xpubkey(char *sec);
-extern char*  o9_exchange(char *sec, char *pub);
+/* Language builtins over the above: O9String in, O9String out. */
+extern O9String* o9_keygen(void);
+extern O9String* o9_pubkey(O9String *sec);
+extern O9String* o9_sign(O9String *sec, O9String *msg);
+extern vlong     o9_verify(O9String *pub, O9String *msg, O9String *sig);
+extern O9String* o9_digest(O9String *msg);
+extern O9String* o9_mac(O9String *key, O9String *msg);
+extern O9String* o9_passkey(O9String *pass, O9String *salt);
+extern O9String* o9_encrypt(O9String *key, O9String *msg);
+extern O9String* o9_decrypt(O9String *key, O9String *blob);
+extern O9String* o9_xpubkey(O9String *sec);
+extern O9String* o9_exchange(O9String *sec, O9String *pub);
 
 /* Text/Fs/IO builtins (len/cmp/cat/readfile/writefile/readline) */
-extern vlong  o9_str_len(char *s);
-extern vlong  o9_str_cmp(char *a, char *b);
-extern char*  o9_str_cat(char *a, char *b);
-extern char*  o9_readfile(char *path);
-extern vlong  o9_writefile(char *path, char *s);
-extern char*  o9_readline(void);
+extern vlong     o9_str_len(O9String *s);
+extern vlong     o9_str_cmp(O9String *a, O9String *b);
+extern O9String* o9_str_cat(O9String *a, O9String *b);
+extern O9String* o9_readfile(O9String *path);
+extern vlong     o9_writefile(O9String *path, O9String *s);
+extern O9String* o9_readline(void);
 extern void   o9_serve(void);	/* block forever, yielding, so the app keeps serving */
 
-/* Method table backed by libtab — dispatch source of truth.
+/* Method table backed by a private in-memory libtab — dispatch source of truth.
  *
  * One store per process; class servers register their methods (including
- * flattened inherited ones) at startup.  Persisted columns are stable
- * identity (class, method, selector, arity, signature); the thunk address
- * is process-local and only trusted while gen == getpid().
+ * flattened inherited ones) at startup.  Identity columns can be exposed as
+ * read-only status data; the thunk address is process-local and only trusted
+ * while gen == getpid().
  */
 typedef struct O9MethodStore O9MethodStore;
 
@@ -223,6 +257,7 @@ extern int            o9_method_register(char *class, char *method, ulong sel,
                            int argc, char *ret, char *sig, void *thunk);
 extern void*          o9_method_thunk(char *class, ulong sel);
 extern int            o9_method_serialize(char *class, char *buf, int nbuf);
+extern int            o9_method_store_serialize(char *buf, int nbuf);
 
 /* Class state ledger backed by libtab. */
 typedef struct O9State O9State;
@@ -239,14 +274,14 @@ extern int      o9_state_serialize(O9State *s, char *out, int nout);	/* debug: d
 
 /* Tabula — the language-level table type, over libtab. Text in/out. */
 typedef struct O9Tabula O9Tabula;
-extern O9Tabula* o9_tab_new(char *name, char *cols);	/* cols = "a,b,c" */
-extern O9Tabula* o9_tab_open(char *path);
-extern int       o9_tab_add(O9Tabula *t, char *key);	/* append row, becomes current */
-extern int       o9_tab_set(O9Tabula *t, char *col, char *val);
-extern char*     o9_tab_get(O9Tabula *t, char *col);
+extern O9Tabula* o9_tab_new(O9String *name, O9String *cols);	/* cols = "a,b,c" */
+extern O9Tabula* o9_tab_open(O9String *path);
+extern int       o9_tab_add(O9Tabula *t, O9String *key);	/* append row, becomes current */
+extern int       o9_tab_set(O9Tabula *t, O9String *col, O9String *val);
+extern O9String* o9_tab_get(O9Tabula *t, O9String *col);
 extern int       o9_tab_first(O9Tabula *t);	/* start iteration; 1 if a row */
 extern int       o9_tab_next(O9Tabula *t);	/* advance; 1 if a row, 0 at end */
-extern char*     o9_tab_serialize(O9Tabula *t);	/* whole tab as text (malloc'd) */
+extern O9String* o9_tab_serialize(O9Tabula *t);	/* whole tab as text */
 extern void      o9_tab_close(O9Tabula *t);
 
 /* Task<T> — a one-shot spawn join handle (channel-backed; the numbered

@@ -127,14 +127,14 @@ needs to exist first.
 
 - **B. ~~One `kind`-keyed ledger per app.~~  Abandoned (July 2026).**
   A unified store requires a query filter to answer "what methods does
-  this class have?" — a separate `methods.tab` answers that by existing.
-  One file, one purpose is the honest Plan 9 design.  What actually lives
-  on disk per app is already clean and separate:
-    - `<app>.methods.tab` — method registrations
-    - `<app>.objects.tab` — object inventory / node table
+  this class have?" — a separate in-memory method table answers that
+  directly.  One purpose per table is still the honest Plan 9 design, but
+  authority-bearing metadata is no longer a public writable file:
+    - method table — private in-memory registrations
+    - object table — private in-memory object inventory / node table
     - `<class>.<inst>.tab` — per-instance field state (`state` keyword)
     - `exports/<name>.tab` — published Tabulae (written by `export()`)
-  These are the four stores.  Keep them separate.  Roadmap order
+  Persisted method/object copies are debug snapshots only.  Roadmap order
   collapses to **A (done) → C → D**.
 
 - **C. ~~Reference graph.~~  Abandoned (July 2026) — wrong in principle.**

@@ -269,13 +269,14 @@ Across machines it's the same, plus one import
 Object state is in memory, not on disk (persistence is an explicit act,
 not a side effect). By default it's private — the app exposes behavior,
 not its guts. Set `O9DEBUG` before launching and the `state` file dumps
-every live object's fields: public plain, private as `debug:<field>`,
-`secret` fields still sealed. Off by default, encapsulation is preserved:
+read-only method/object metadata snapshots plus every live object's fields:
+public plain, private as `debug:<field>`, `secret` fields still sealed.
+Off by default, encapsulation is preserved:
 
 ```rc
 O9DEBUG=1 /tmp/myapp &
 mount /srv/o9.Counter.Counter.app /mnt/o9
-cat /mnt/o9/state                    # live object state (debug only)
+cat /mnt/o9/state                    # metadata + live state (debug only)
 ```
 
 ## 8. Composition

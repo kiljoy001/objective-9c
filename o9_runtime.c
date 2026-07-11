@@ -9,6 +9,29 @@
  * header split is packaging, not a privacy boundary); we use it to write
  * an in-memory state tab to a program-chosen path on explicit flush. */
 extern char *tab_serialize(Tab *t, int *outlen);
+extern void o9_tab_discard(Tab *t);
+
+static int
+o9_tab_serialize_into(Tab *tab, char *out, int nout)
+{
+	char *buf;
+	int n;
+
+	if(out == nil || nout <= 0)
+		return 0;
+	out[0] = '\0';
+	if(tab == nil)
+		return 0;
+	buf = tab_serialize(tab, &n);
+	if(buf == nil)
+		return 0;
+	if(n >= nout)
+		n = nout - 1;
+	memmove(out, buf, n);
+	out[n] = '\0';
+	free(buf);
+	return n;
+}
 
 /* 9P encoding helpers — little-endian */
 #define PUT2(p, v) do{ (p)[0]=(v)&0xff; (p)[1]=((v)>>8)&0xff; }while(0)
@@ -187,36 +210,6 @@ static char *o9_object_cols[] = {
 	"flags",
 };
 
-static int
-o9_tab_has_col(Tab *tab, char *name)
-{
-	int i, n;
-	const char *col;
-
-	if(tab == nil || name == nil)
-		return 0;
-	n = tab_ncolumns(tab);
-	for(i = 0; i < n; i++){
-		col = tab_colname(tab, i);
-		if(col != nil && strcmp(col, name) == 0)
-			return 1;
-	}
-	return 0;
-}
-
-static int
-o9_object_schema_matches(Tab *tab)
-{
-	int i;
-
-	if(tab == nil)
-		return 0;
-	for(i = 0; i < nelem(o9_object_cols); i++)
-		if(!o9_tab_has_col(tab, o9_object_cols[i]))
-			return 0;
-	return 1;
-}
-
 static TabRow*
 o9_object_find_row(O9ObjectStore *s, char *oid)
 {
@@ -309,40 +302,29 @@ o9_object_store_create(char *path)
 		free(s);
 		return nil;
 	}
-	s->tab = tab_open(s->path);
-	if(s->tab != nil && !o9_object_schema_matches(s->tab)){
-		tab_close(s->tab);
-		s->tab = nil;
-		remove(s->path);
-	}
-	if(s->tab == nil){
-		memset(spec, 0, sizeof spec);
-		for(i = 0; i < nelem(o9_object_cols); i++)
-			spec[i].name = o9_object_cols[i];
-		s->tab = tab_create(s->path, "o9objects", spec, nelem(spec));
-	}
+	memset(spec, 0, sizeof spec);
+	for(i = 0; i < nelem(o9_object_cols); i++)
+		spec[i].name = o9_object_cols[i];
+	s->tab = tab_create(s->path, "o9objects", spec, nelem(spec));
 	if(s->tab == nil){
 		free(s->path);
 		free(s);
 		return nil;
 	}
-	tab_commit(s->tab);
 	return s;
 }
 
 O9ObjectStore*
 o9_object_store_create_path(char *root, char *app)
 {
-	char dir[256], path[256];
+	char path[256];
 
 	if(root == nil || root[0] == '\0')
 		return nil;
 	if(app == nil || app[0] == '\0')
 		app = "app";
-	o9_ns_ensure_app(root);
-	snprint(dir, sizeof dir, "%s/state", root);
-	o9_ns_ensure_dir(dir);
-	snprint(path, sizeof path, "%s/%s.objects.tab", dir, app);
+	USED(root);
+	snprint(path, sizeof path, "/dev/null/o9.%s.objects.tab", app);
 	return o9_object_store_create(path);
 }
 
@@ -351,6 +333,7 @@ o9_object_store_close(O9ObjectStore *s)
 {
 	if(s == nil)
 		return;
+	o9_tab_discard(s->tab);
 	tab_close(s->tab);
 	free(s->path);
 	free(s);
@@ -386,7 +369,7 @@ o9_object_record(O9ObjectStore *s, char *oid, char *typename, char *class,
 	snprint(buf, sizeof buf, "%lld", gen);
 	if(o9_object_set_col(s, row, "gen", buf) < 0)
 		return -1;
-	return tab_commit(s->tab);
+	return 0;
 }
 
 int
@@ -414,7 +397,7 @@ o9_object_set_value(O9ObjectStore *s, char *oid, char *value)
 		return -1;
 	if(o9_object_set_col(s, row, "value", value) < 0)
 		return -1;
-	return tab_commit(s->tab);
+	return 0;
 }
 
 /* Reap tombstone: libtab is append-only, so a reaped object marks its
@@ -431,7 +414,7 @@ o9_object_set_state(O9ObjectStore *s, char *oid, char *state)
 		return -1;
 	if(o9_object_set_col(s, row, "state", state) < 0)
 		return -1;
-	return tab_commit(s->tab);
+	return 0;
 }
 
 char*
@@ -449,6 +432,14 @@ o9_object_get(O9ObjectStore *s, char *oid, char *col)
 	if(v == nil)
 		return nil;
 	return (char *)v;
+}
+
+int
+o9_object_store_serialize(O9ObjectStore *s, char *out, int nout)
+{
+	if(s == nil)
+		return o9_tab_serialize_into(nil, out, nout);
+	return o9_tab_serialize_into(s->tab, out, nout);
 }
 
 vlong
@@ -612,23 +603,33 @@ o9_registry_unregister(char *oid)
 /* lookup(oid) builtin: resolve a handle through the rings — registry
  * first (in-process fast form), /srv client init as fallback. */
 int
-o9_lookup_client(void *client, char *oid, int size)
+o9_lookup_client(void *client, O9String *oid, int size)
 {
 	o9_Object *obj = client;
 	O9Handle h;
+	char *name;
 
 	if(client == nil || oid == nil || size < sizeof(o9_Object))
 		return -1;
-	if(o9_registry_lookup(oid, &h) == 0){
+	name = o9_string_cstr(oid);
+	if(name == nil)
+		return -1;
+	if(o9_registry_lookup(name, &h) == 0){
 		memset(client, 0, size);
 		obj->dispatch_chan = h.chan;
 		obj->shm_base = h.addr;
 		obj->distance = -1;
 		obj->fd = -1;
-		strncpy(obj->srvname, oid, sizeof obj->srvname - 1);
+		strncpy(obj->srvname, name, sizeof obj->srvname - 1);
+		free(name);
 		return 0;
 	}
-	return o9_init_client(client, oid, size);
+	if(o9_init_client(client, name, size) < 0){
+		free(name);
+		return -1;
+	}
+	free(name);
+	return 0;
 }
 
 /* Namespace recipe: assembly as data.  Every mount/bind the process
@@ -674,44 +675,276 @@ o9_ns_bind_obj(char *mount, char *root, char *inst)
 	return bind(src, dst, MREPL);
 }
 
-/* Text/Fs/IO builtins — lowered from len/cmp/cat/readfile/writefile/readline.
- * Strings returned here are malloc'd and, for now, live until process exit
- * (no lifecycle yet). */
+/* O9String / Text / Fs / IO builtins.  Source-level `string` lowers to
+ * O9String*.  The payload is immutable and length-carrying; data is also
+ * NUL-terminated so Plan 9 C APIs can be called through explicit helpers. */
 
-vlong
-o9_str_len(char *s)
+O9String*
+o9_string_new(char *data, vlong len)
+{
+	O9String *s;
+
+	if(len < 0)
+		len = data != nil ? strlen(data) : 0;
+	s = mallocz(sizeof *s, 1);
+	if(s == nil)
+		return nil;
+	s->data = malloc(len + 1);
+	if(s->data == nil){
+		free(s);
+		return nil;
+	}
+	if(data != nil && len > 0)
+		memmove(s->data, data, len);
+	s->data[len] = '\0';
+	s->len = len;
+	s->ref = 1;
+	return s;
+}
+
+O9String*
+o9_string_from_c(char *s)
+{
+	return o9_string_new(s, s != nil ? strlen(s) : 0);
+}
+
+O9String*
+o9_string_take(char *s)
+{
+	O9String *os;
+
+	if(s == nil)
+		return nil;
+	os = mallocz(sizeof *os, 1);
+	if(os == nil){
+		free(s);
+		return nil;
+	}
+	os->data = s;
+	os->len = strlen(s);
+	os->ref = 1;
+	return os;
+}
+
+O9String*
+o9_string_retain(O9String *s)
+{
+	if(s != nil)
+		o9_atomic_inc(&s->ref);
+	return s;
+}
+
+void
+o9_string_release(O9String *s)
 {
 	if(s == nil)
-		return 0;
-	return strlen(s);
+		return;
+	if(o9_atomic_dec(&s->ref) == 0){
+		free(s->data);
+		free(s);
+	}
+}
+
+char*
+o9_string_data(O9String *s)
+{
+	return s != nil && s->data != nil ? s->data : "";
 }
 
 vlong
-o9_str_cmp(char *a, char *b)
+o9_string_len(O9String *s)
 {
-	if(a == nil) a = "";
-	if(b == nil) b = "";
-	return strcmp(a, b);
+	return s != nil ? s->len : 0;
 }
 
 char*
-o9_str_cat(char *a, char *b)
+o9_string_cstr(O9String *s)
 {
-	if(a == nil) a = "";
-	if(b == nil) b = "";
-	return smprint("%s%s", a, b);
+	char *p;
+	vlong n;
+
+	n = o9_string_len(s);
+	p = malloc(n + 1);
+	if(p == nil)
+		return nil;
+	if(n > 0)
+		memmove(p, o9_string_data(s), n);
+	p[n] = '\0';
+	return p;
 }
 
-char*
-o9_readfile(char *path)
+vlong
+o9_str_len(O9String *s)
+{
+	return o9_string_len(s);
+}
+
+vlong
+o9_str_cmp(O9String *a, O9String *b)
+{
+	char *ap, *bp;
+	vlong an, bn, n;
+	int c;
+
+	ap = o9_string_data(a);
+	bp = o9_string_data(b);
+	an = o9_string_len(a);
+	bn = o9_string_len(b);
+	n = an < bn ? an : bn;
+	c = n > 0 ? memcmp(ap, bp, n) : 0;
+	if(c < 0)
+		return -1;
+	if(c > 0)
+		return 1;
+	if(an < bn)
+		return -1;
+	if(an > bn)
+		return 1;
+	return 0;
+}
+
+O9String*
+o9_str_cat(O9String *a, O9String *b)
+{
+	O9String *out;
+	vlong an, bn;
+
+	an = o9_string_len(a);
+	bn = o9_string_len(b);
+	out = o9_string_new(nil, an + bn);
+	if(out == nil)
+		return nil;
+	if(an > 0)
+		memmove(out->data, o9_string_data(a), an);
+	if(bn > 0)
+		memmove(out->data + an, o9_string_data(b), bn);
+	out->data[an + bn] = '\0';
+	return out;
+}
+
+vlong
+o9_string_indexof(O9String *s, O9String *needle)
+{
+	char *sp, *np;
+	vlong sn, nn, i;
+
+	sp = o9_string_data(s);
+	np = o9_string_data(needle);
+	sn = o9_string_len(s);
+	nn = o9_string_len(needle);
+	if(nn == 0)
+		return 0;
+	if(nn > sn)
+		return -1;
+	for(i = 0; i <= sn - nn; i++)
+		if(memcmp(sp + i, np, nn) == 0)
+			return i;
+	return -1;
+}
+
+vlong
+o9_string_startswith(O9String *s, O9String *prefix)
+{
+	vlong sn, pn;
+
+	sn = o9_string_len(s);
+	pn = o9_string_len(prefix);
+	return pn <= sn && memcmp(o9_string_data(s), o9_string_data(prefix), pn) == 0;
+}
+
+vlong
+o9_string_endswith(O9String *s, O9String *suffix)
+{
+	vlong sn, xn;
+
+	sn = o9_string_len(s);
+	xn = o9_string_len(suffix);
+	return xn <= sn && memcmp(o9_string_data(s) + sn - xn, o9_string_data(suffix), xn) == 0;
+}
+
+O9String*
+o9_string_slice(O9String *s, vlong start, vlong count)
+{
+	vlong n;
+
+	n = o9_string_len(s);
+	if(start < 0)
+		start = 0;
+	if(start > n)
+		start = n;
+	if(count < 0)
+		count = 0;
+	if(start + count > n)
+		count = n - start;
+	return o9_string_new(o9_string_data(s) + start, count);
+}
+
+O9String*
+o9_string_trim(O9String *s)
+{
+	char *p;
+	vlong a, b;
+
+	p = o9_string_data(s);
+	a = 0;
+	b = o9_string_len(s);
+	while(a < b && (p[a] == ' ' || p[a] == '\t' || p[a] == '\n' || p[a] == '\r'))
+		a++;
+	while(b > a && (p[b-1] == ' ' || p[b-1] == '\t' || p[b-1] == '\n' || p[b-1] == '\r'))
+		b--;
+	return o9_string_new(p + a, b - a);
+}
+
+O9String*
+o9_string_lower(O9String *s)
+{
+	O9String *out;
+	char *p;
+	vlong i, n;
+
+	n = o9_string_len(s);
+	p = o9_string_data(s);
+	out = o9_string_new(nil, n);
+	if(out == nil)
+		return nil;
+	for(i = 0; i < n; i++)
+		out->data[i] = p[i] >= 'A' && p[i] <= 'Z' ? p[i] + ('a' - 'A') : p[i];
+	out->data[n] = '\0';
+	return out;
+}
+
+O9String*
+o9_string_upper(O9String *s)
+{
+	O9String *out;
+	char *p;
+	vlong i, n;
+
+	n = o9_string_len(s);
+	p = o9_string_data(s);
+	out = o9_string_new(nil, n);
+	if(out == nil)
+		return nil;
+	for(i = 0; i < n; i++)
+		out->data[i] = p[i] >= 'a' && p[i] <= 'z' ? p[i] - ('a' - 'A') : p[i];
+	out->data[n] = '\0';
+	return out;
+}
+
+O9String*
+o9_readfile(O9String *path)
 {
 	int fd;
 	long n, total, cap;
-	char *buf, *nb;
+	char *buf, *nb, *p;
 
 	if(path == nil)
 		return nil;
-	fd = open(path, OREAD);
+	p = o9_string_cstr(path);
+	if(p == nil)
+		return nil;
+	fd = open(p, OREAD);
+	free(p);
 	if(fd < 0)
 		return nil;
 	cap = 8192;
@@ -733,22 +966,27 @@ o9_readfile(char *path)
 	}
 	close(fd);
 	buf[total] = '\0';
-	return buf;
+	return o9_string_take(buf);
 }
 
 vlong
-o9_writefile(char *path, char *s)
+o9_writefile(O9String *path, O9String *s)
 {
 	int fd;
-	long n;
+	char *p;
+	vlong n;
 
 	if(path == nil || s == nil)
 		return -1;
-	fd = create(path, OWRITE, 0644);
+	p = o9_string_cstr(path);
+	if(p == nil)
+		return -1;
+	fd = create(p, OWRITE, 0644);
+	free(p);
 	if(fd < 0)
 		return -1;
-	n = strlen(s);
-	if(write(fd, s, n) != n){
+	n = o9_string_len(s);
+	if(write(fd, o9_string_data(s), n) != n){
 		close(fd);
 		return -1;
 	}
@@ -756,7 +994,7 @@ o9_writefile(char *path, char *s)
 	return 0;
 }
 
-char*
+O9String*
 o9_readline(void)
 {
 	char buf[4096];
@@ -776,7 +1014,7 @@ o9_readline(void)
 		buf[i++] = c;
 	}
 	buf[i] = '\0';
-	return strdup(buf);
+	return o9_string_new(buf, i);
 }
 
 /* Block the calling thread forever, yielding the CPU, so a posted 9P
@@ -800,13 +1038,12 @@ o9_serve(void)
 	USED(v);
 }
 
-/* Method table backed by libtab — the dispatch source of truth.
+/* Method table backed by an in-memory libtab — the dispatch source of truth.
  *
  * One store per process: every generated class server registers its methods
- * (including flattened inherited ones) at startup.  The persisted columns
- * are stable identity (class, method, selector, signature); the thunk
- * address is an in-process cache hint guarded by gen == getpid(), so rows
- * left by an earlier run are never trusted as pointers. */
+ * (including flattened inherited ones) at startup.  Identity columns are
+ * stable enough to expose as read-only status data; thunk addresses are
+ * in-process cache hints guarded by gen == getpid(). */
 
 struct O9MethodStore {
 	Tab *tab;
@@ -838,7 +1075,7 @@ o9_method_store_init(char *root, char *app)
 {
 	O9MethodStore *s;
 	TabColSpec spec[nelem(o9_method_cols)];
-	char dir[256], path[256];
+	char path[256];
 	int i;
 
 	if(o9_methods != nil)
@@ -847,10 +1084,8 @@ o9_method_store_init(char *root, char *app)
 		return -1;
 	if(app == nil || app[0] == '\0')
 		app = "app";
-	o9_ns_ensure_app(root);
-	snprint(dir, sizeof dir, "%s/state", root);
-	o9_ns_ensure_dir(dir);
-	snprint(path, sizeof path, "%s/%s.methods.tab", dir, app);
+	USED(root);
+	snprint(path, sizeof path, "/dev/null/o9.%s.methods.tab", app);
 
 	s = mallocz(sizeof *s, 1);
 	if(s == nil)
@@ -860,24 +1095,15 @@ o9_method_store_init(char *root, char *app)
 		free(s);
 		return -1;
 	}
-	s->tab = tab_open(s->path);
-	if(s->tab != nil && !o9_tab_has_col(s->tab, "key")){
-		tab_close(s->tab);
-		s->tab = nil;
-		remove(s->path);
-	}
-	if(s->tab == nil){
-		memset(spec, 0, sizeof spec);
-		for(i = 0; i < nelem(o9_method_cols); i++)
-			spec[i].name = o9_method_cols[i];
-		s->tab = tab_create(s->path, "o9methods", spec, nelem(spec));
-	}
+	memset(spec, 0, sizeof spec);
+	for(i = 0; i < nelem(o9_method_cols); i++)
+		spec[i].name = o9_method_cols[i];
+	s->tab = tab_create(s->path, "o9methods", spec, nelem(spec));
 	if(s->tab == nil){
 		free(s->path);
 		free(s);
 		return -1;
 	}
-	tab_commit(s->tab);
 	o9_methods = s;
 	return 0;
 }
@@ -887,6 +1113,7 @@ o9_method_store_close(void)
 {
 	if(o9_methods == nil)
 		return;
+	o9_tab_discard(o9_methods->tab);
 	tab_close(o9_methods->tab);
 	free(o9_methods->path);
 	free(o9_methods);
@@ -943,7 +1170,7 @@ o9_method_register(char *class, char *method, ulong sel, int argc,
 	snprint(buf, sizeof buf, "%ld", (long)getpid());
 	if(tab_set(o9_methods->tab, row, "gen", buf) < 0)
 		return -1;
-	return tab_commit(o9_methods->tab);
+	return 0;
 }
 
 void*
@@ -994,6 +1221,14 @@ o9_method_serialize(char *class, char *buf, int nbuf)
 	}
 	tab_iter_close(it);
 	return p - buf;
+}
+
+int
+o9_method_store_serialize(char *buf, int nbuf)
+{
+	if(o9_methods == nil)
+		return o9_tab_serialize_into(nil, buf, nbuf);
+	return o9_tab_serialize_into(o9_methods->tab, buf, nbuf);
 }
 
 struct O9State {
@@ -1215,23 +1450,9 @@ o9_state_set_int(O9State *s, char *col, vlong value)
 int
 o9_state_serialize(O9State *s, char *out, int nout)
 {
-	char *buf;
-	int n;
-
-	if(out == nil || nout <= 0)
-		return 0;
-	out[0] = '\0';
 	if(s == nil || s->tab == nil)
-		return 0;
-	buf = tab_serialize(s->tab, &n);
-	if(buf == nil)
-		return 0;
-	if(n >= nout)
-		n = nout - 1;
-	memmove(out, buf, n);
-	out[n] = '\0';
-	free(buf);
-	return n;
+		return o9_tab_serialize_into(nil, out, nout);
+	return o9_tab_serialize_into(s->tab, out, nout);
 }
 
 /* ---- Tabula: the language-level table type, over libtab ----
@@ -1251,25 +1472,32 @@ struct O9Tabula {
 /* new_tab(name, "col1,col2,...") — create an in-memory Tabula with the
  * given comma-separated columns (plain text cells).  nil on failure. */
 O9Tabula*
-o9_tab_new(char *name, char *cols)
+o9_tab_new(O9String *name, O9String *cols)
 {
 	O9Tabula *t;
 	TabColSpec spec[64];
-	char buf[512], *p, *q;
+	char buf[512], *p, *q, *cname, *ccols;
 	int n;
 
-	if(name == nil || name[0] == '\0')
-		name = "tab";
+	cname = o9_string_cstr(name);
+	ccols = o9_string_cstr(cols);
+	if(cname == nil || cname[0] == '\0'){
+		free(cname);
+		cname = strdup("tab");
+	}
 	t = mallocz(sizeof *t, 1);
-	if(t == nil)
+	if(t == nil){
+		free(cname);
+		free(ccols);
 		return nil;
+	}
 	/* column 0 is always "id" — the row head attr tab_add_row keys on,
 	 * matching the state-tab schema.  User columns follow. */
 	memset(&spec[0], 0, sizeof spec[0]);
 	spec[0].name = "id";
 	n = 1;
-	if(cols != nil && cols[0] != '\0'){
-		strncpy(buf, cols, sizeof buf - 1);
+	if(ccols != nil && ccols[0] != '\0'){
+		strncpy(buf, ccols, sizeof buf - 1);
 		buf[sizeof buf - 1] = '\0';
 		p = buf;
 		while(p != nil && *p != '\0' && n < nelem(spec)){
@@ -1287,10 +1515,12 @@ o9_tab_new(char *name, char *cols)
 	/* nominal path — never written unless the program flushes it */
 	{
 		char pbuf[128];
-		snprint(pbuf, sizeof pbuf, "%s.tab", name);
+		snprint(pbuf, sizeof pbuf, "%s.tab", cname);
 		t->path = strdup(pbuf);
 	}
-	t->tab = tab_create(t->path, name, spec, n);
+	t->tab = tab_create(t->path, cname, spec, n);
+	free(cname);
+	free(ccols);
 	if(t->tab == nil){
 		free(t->path);
 		free(t);
@@ -1301,56 +1531,90 @@ o9_tab_new(char *name, char *cols)
 
 /* open_tab(path) — read an existing .tab file into a Tabula. */
 O9Tabula*
-o9_tab_open(char *path)
+o9_tab_open(O9String *path)
 {
 	O9Tabula *t;
+	char *cpath;
 
-	if(path == nil || path[0] == '\0')
+	if(path == nil)
 		return nil;
-	t = mallocz(sizeof *t, 1);
-	if(t == nil)
-		return nil;
-	t->tab = tab_open(path);
-	if(t->tab == nil){
-		free(t);
+	cpath = o9_string_cstr(path);
+	if(cpath == nil || cpath[0] == '\0'){
+		free(cpath);
 		return nil;
 	}
-	t->path = strdup(path);
+	t = mallocz(sizeof *t, 1);
+	if(t == nil){
+		free(cpath);
+		return nil;
+	}
+	t->tab = tab_open(cpath);
+	if(t->tab == nil){
+		free(t);
+		free(cpath);
+		return nil;
+	}
+	t->path = strdup(cpath);
+	free(cpath);
 	return t;
 }
 
 /* t.add(key) — append a row keyed by "id"=key; it becomes the current
  * row for subsequent set().  Returns 0 / -1. */
 int
-o9_tab_add(O9Tabula *t, char *key)
+o9_tab_add(O9Tabula *t, O9String *key)
 {
+	char *ckey;
+	int ok;
+
 	if(t == nil || t->tab == nil || key == nil)
 		return -1;
-	t->cur = tab_add_row(t->tab, "id", key);
-	return t->cur != nil ? 0 : -1;
+	ckey = o9_string_cstr(key);
+	if(ckey == nil)
+		return -1;
+	t->cur = tab_add_row(t->tab, "id", ckey);
+	ok = t->cur != nil ? 0 : -1;
+	free(ckey);
+	return ok;
 }
 
 /* t.set(col, val) — set a cell on the current row. */
 int
-o9_tab_set(O9Tabula *t, char *col, char *val)
+o9_tab_set(O9Tabula *t, O9String *col, O9String *val)
 {
+	char *ccol, *cval;
+	int r;
+
 	if(t == nil || t->tab == nil || t->cur == nil || col == nil)
 		return -1;
-	if(val == nil)
-		val = "";
-	return tab_set(t->tab, t->cur, col, val);
+	ccol = o9_string_cstr(col);
+	cval = o9_string_cstr(val);
+	if(ccol == nil || cval == nil){
+		free(ccol);
+		free(cval);
+		return -1;
+	}
+	r = tab_set(t->tab, t->cur, ccol, cval);
+	free(ccol);
+	free(cval);
+	return r;
 }
 
 /* t.get(col) — read a cell from the current row (empty string if none). */
-char*
-o9_tab_get(O9Tabula *t, char *col)
+O9String*
+o9_tab_get(O9Tabula *t, O9String *col)
 {
 	const char *v;
+	char *ccol;
 
 	if(t == nil || t->cur == nil || col == nil)
-		return "";
-	v = tab_get(t->cur, col);
-	return v != nil ? (char*)v : "";
+		return o9_string_from_c("");
+	ccol = o9_string_cstr(col);
+	if(ccol == nil)
+		return o9_string_from_c("");
+	v = tab_get(t->cur, ccol);
+	free(ccol);
+	return o9_string_from_c(v != nil ? (char*)v : "");
 }
 
 /* t.first() — start iteration; sets current row to the first, or nil.
@@ -1389,13 +1653,17 @@ o9_tab_next(O9Tabula *t)
 
 /* t.serialize() — the whole tab as text bytes (malloc'd; caller frees).
  * This is the on-the-wire / exportable form. */
-char*
+O9String*
 o9_tab_serialize(O9Tabula *t)
 {
+	char *buf;
 	int n;
 	if(t == nil || t->tab == nil)
-		return strdup("");
-	return tab_serialize(t->tab, &n);
+		return o9_string_from_c("");
+	buf = tab_serialize(t->tab, &n);
+	if(buf == nil)
+		return o9_string_from_c("");
+	return o9_string_take(buf);
 }
 
 void
@@ -1946,30 +2214,35 @@ o9_method_ret_type(char *method)
  * handles get the raw line written to ctl and the data file read back
  * verbatim; in-process handles parse it into the same selector+frame
  * the compiled call sites use. */
-char*
-o9_send(void *client, char *line)
+O9String*
+o9_send(void *client, O9String *line)
 {
 	o9_Object *obj = client;
 	char buf[1024], data[8192];
-	char *f[16], *v, *ret;
+	char *f[16], *v, *ret, *cline;
 	vlong args[8], rv;
 	int nf, i, nargs;
 
 	if(client == nil || line == nil)
 		return nil;
+	cline = o9_string_cstr(line);
+	if(cline == nil)
+		return nil;
 	if(obj->dispatch_chan == nil && obj->fd >= 0){
 		/* far: text in, text out, exactly the shell's path */
-		strncpy(buf, line, sizeof buf - 1);
+		strncpy(buf, cline, sizeof buf - 1);
 		buf[sizeof buf - 1] = '\0';
+		free(cline);
 		if(o9_remote_ctl_data(obj, buf, data, sizeof data) < 0)
 			return nil;
-		return strdup(data);
+		return o9_string_from_c(data);
 	}
-	strncpy(buf, line, sizeof buf - 1);
+	strncpy(buf, cline, sizeof buf - 1);
 	buf[sizeof buf - 1] = '\0';
+	free(cline);
 	nf = tokenize(buf, f, nelem(f));
 	if(nf < 3 || strcmp(f[0], "method") != 0)
-		return smprint("error: send wants 'method <inst> <name> [argN=v ...]'");
+		return o9_string_take(smprint("error: send wants 'method <inst> <name> [argN=v ...]'"));
 	nargs = 0;
 	for(i = 3; i < nf && nargs < nelem(args); i++){
 		v = strchr(f[i], '=');
@@ -1979,12 +2252,12 @@ o9_send(void *client, char *line)
 	rv = (vlong)(uintptr)obj9_msgSendN(obj, f[2], o9_hash(f[2]),
 		nargs > 0 ? args : nil, nargs);
 	ret = o9_method_ret_type(f[2]);
-	if(ret != nil && (strcmp(ret, "string") == 0 || strcmp(ret, "char*") == 0)){
+	if(ret != nil && (strcmp(ret, "string") == 0 || strcmp(ret, "O9String*") == 0)){
 		if(rv == 0)
-			return strdup("");
-		return strdup((char*)(uintptr)rv);
+			return o9_string_from_c("");
+		return o9_string_retain((O9String*)(uintptr)rv);
 	}
-	return smprint("%lld", rv);
+	return o9_string_take(smprint("%lld", rv));
 }
 
 /*
@@ -2297,7 +2570,7 @@ o9_dict_free(O9Dict *d)
 	for(i = 0; i < 64; i++){
 		for(e = d->buckets[i]; e; e = next){
 			next = e->next;
-			free(e->key);
+			o9_string_release(e->key);
 			/* Note: generic val is NOT freed, caller must manage if it's a pointer */
 			free(e);
 		}
@@ -2305,25 +2578,44 @@ o9_dict_free(O9Dict *d)
 }
 
 static ulong
-o9_dict_hash(char *s)
+o9_dict_hash_bytes(char *s, vlong n)
 {
 	ulong h = 5381;
-	int c;
-	while((c = *s++))
-		h = ((h << 5) + h) + c;
+	vlong i;
+
+	if(s == nil)
+		return 0;
+	for(i = 0; i < n; i++)
+		h = ((h << 5) + h) + (uchar)s[i];
 	return h & 63;
+}
+
+static ulong
+o9_dict_hashs(O9String *s)
+{
+	return o9_dict_hash_bytes(o9_string_data(s), o9_string_len(s));
+}
+
+static int
+o9_dict_keyeq(O9String *a, O9String *b)
+{
+	vlong n;
+
+	n = o9_string_len(a);
+	return n == o9_string_len(b) &&
+		memcmp(o9_string_data(a), o9_string_data(b), n) == 0;
 }
 
 /*
  * o9_dict_get — get value for key. Returns nil if not found.
  */
 void*
-o9_dict_get(O9Dict *d, char *key)
+o9_dict_gets(O9Dict *d, O9String *key)
 {
 	O9DictEntry *e;
 	if(d == nil || key == nil) return nil;
-	for(e = d->buckets[o9_dict_hash(key)]; e; e = e->next)
-		if(strcmp(e->key, key) == 0)
+	for(e = d->buckets[o9_dict_hashs(key)]; e; e = e->next)
+		if(o9_dict_keyeq(e->key, key))
 			return e->val;
 	return nil;
 }
@@ -2332,20 +2624,20 @@ o9_dict_get(O9Dict *d, char *key)
  * o9_dict_set — set key=val, replacing existing if present.
  */
 void
-o9_dict_set(O9Dict *d, char *key, void *val)
+o9_dict_sets(O9Dict *d, O9String *key, void *val)
 {
 	ulong h;
 	O9DictEntry *e;
 	if(d == nil || key == nil) return;
-	h = o9_dict_hash(key);
+	h = o9_dict_hashs(key);
 	for(e = d->buckets[h]; e; e = e->next){
-		if(strcmp(e->key, key) == 0){
+		if(o9_dict_keyeq(e->key, key)){
 			e->val = val;
 			return;
 		}
 	}
 	e = mallocz(sizeof(O9DictEntry), 1);
-	e->key = strdup(key);
+	e->key = o9_string_retain(key);
 	e->val = val;
 	e->next = d->buckets[h];
 	d->buckets[h] = e;
@@ -2355,13 +2647,55 @@ o9_dict_set(O9Dict *d, char *key, void *val)
  * o9_dict_has — check if key exists.
  */
 int
-o9_dict_has(O9Dict *d, char *key)
+o9_dict_hass(O9Dict *d, O9String *key)
 {
 	O9DictEntry *e;
 	if(d == nil || key == nil) return 0;
-	for(e = d->buckets[o9_dict_hash(key)]; e; e = e->next)
-		if(strcmp(e->key, key) == 0) return 1;
+	for(e = d->buckets[o9_dict_hashs(key)]; e; e = e->next)
+		if(o9_dict_keyeq(e->key, key)) return 1;
 	return 0;
+}
+
+void*
+o9_dict_get(O9Dict *d, char *key)
+{
+	O9String tmp;
+
+	if(key == nil)
+		return nil;
+	memset(&tmp, 0, sizeof tmp);
+	tmp.data = key;
+	tmp.len = strlen(key);
+	tmp.ref = 1;
+	return o9_dict_gets(d, &tmp);
+}
+
+void
+o9_dict_set(O9Dict *d, char *key, void *val)
+{
+	O9String *tmp;
+
+	if(key == nil)
+		return;
+	tmp = o9_string_from_c(key);
+	if(tmp == nil)
+		return;
+	o9_dict_sets(d, tmp, val);
+	o9_string_release(tmp);
+}
+
+int
+o9_dict_has(O9Dict *d, char *key)
+{
+	O9String tmp;
+
+	if(key == nil)
+		return 0;
+	memset(&tmp, 0, sizeof tmp);
+	tmp.data = key;
+	tmp.len = strlen(key);
+	tmp.ref = 1;
+	return o9_dict_hass(d, &tmp);
 }
 
 /*
@@ -2398,13 +2732,13 @@ o9_dict_serialize(O9Dict *d)
 	len = 1;
 	for(i = 0; i < 64; i++)
 		for(e = d->buckets[i]; e; e = e->next)
-			len += strlen(e->key) + 1 + strlen(e->val) + 1;
+			len += o9_string_len(e->key) + 1 + strlen(e->val) + 1;
 	buf = mallocz(len, 1);
 	p = buf;
 	for(i = 0; i < 64; i++){
 		for(e = d->buckets[i]; e; e = e->next){
-			memmove(p, e->key, strlen(e->key));
-			p += strlen(e->key);
+			memmove(p, o9_string_data(e->key), o9_string_len(e->key));
+			p += o9_string_len(e->key);
 			*p++ = ':';
 			memmove(p, e->val, strlen(e->val));
 			p += strlen(e->val);

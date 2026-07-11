@@ -1,0 +1,9 @@
+len 16
+trim Hello Plan 9
+slice Hello
+contains 1 0
+prefix 1 suffix 1
+case   hello plan 9   |   HELLO PLAN 9  
+eq 1 cmp -1
+cat   Hello Plan 9  !
+empty 1

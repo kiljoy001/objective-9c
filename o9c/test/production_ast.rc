@@ -190,6 +190,10 @@ require_file '"ctl", "o9", 0666' $meta
 require_file '"data", "o9", 0444' $meta
 require_file '"status", "o9", 0444' $meta
 require_file '"methods", "o9", 0444' $meta
+require_file 'objectstore private' $meta
+reject_file 'objectstore .*objects.tab' $meta
+require_file 'o9_method_store_serialize' $meta
+require_file 'o9_object_store_serialize' $meta
 reject_file '"type", nil, 0444' $meta
 reject_file '"typename", nil, 0444' $meta
 reject_file '"cache", nil, 0444' $meta

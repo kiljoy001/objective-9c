@@ -1049,6 +1049,8 @@ type_fmt_for_codegen(Type *t)
     return "%lld";
 }
 
+static int storage_is_o9string(char *s);
+
 static char*
 type_cast_for_codegen(Type *t)
 {
@@ -1058,8 +1060,8 @@ type_cast_for_codegen(Type *t)
     if(t == nil)
         return "vlong";
     s = type_storage_for_codegen(t);
-    if(strcmp(s, "char*") == 0)
-        return "char*";
+    if(strcmp(s, "char*") == 0 || storage_is_o9string(s))
+        return s;
     if(strcmp(s, "vlong") == 0 || strcmp(s, "uvlong") == 0 ||
        strcmp(s, "long") == 0 || strcmp(s, "ulong") == 0 ||
        strcmp(s, "int") == 0 || strcmp(s, "uint") == 0 ||
@@ -1084,6 +1086,18 @@ static int
 type_is_void(Type *t)
 {
     return t != nil && t->kind == TyName && strcmp(t->name, "void") == 0;
+}
+
+static int
+type_is_string(Type *t)
+{
+    return t != nil && t->kind == TyName && strcmp(t->name, "string") == 0;
+}
+
+static int
+storage_is_o9string(char *s)
+{
+    return s != nil && strcmp(s, "O9String*") == 0;
 }
 
 static int
@@ -1131,6 +1145,7 @@ c_type_fmt(char *t)
     if(strcmp(t, "char") == 0) return "%d";
     if(strcmp(t, "uchar") == 0) return "%ud";
     if(strcmp(t, "char*") == 0) return "%s";
+    if(strcmp(t, "O9String*") == 0) return "%p";
     return type_fmt_for_codegen(typeinfo_from_legacy(t));
 }
 
@@ -1138,7 +1153,7 @@ char*
 type_cast(char *t)
 {
     if(t == nil) return "vlong";
-    if(strcmp(t, "char*") == 0) return "char*";
+    if(strcmp(t, "char*") == 0 || strcmp(t, "O9String*") == 0) return t;
     if(strcmp(t, "vlong") == 0 || strcmp(t, "uvlong") == 0 ||
        strcmp(t, "long") == 0 || strcmp(t, "ulong") == 0 ||
        strcmp(t, "int") == 0 || strcmp(t, "uint") == 0 ||
@@ -2626,7 +2641,8 @@ char *local_vars[128];
 int num_locals = 0;
 int in_class_context = 1;		/* 0 when generating top-level main() */
 int in_method_body = 0;		/* 1 when generating inside a method impl */
-static int msg_depth;		/* lexical nesting depth of NMsgSend packing */
+enum { O9_MSG_FRAMES = 64 };
+static int msg_frame_next;		/* compiler-assigned NMsgSend frames per statement */
 int has_return = 0;			/* 1 when a return statement was emitted */
 int try_seen = 0;			/* 1 when a try expr needs the done: label */
 Node *defer_list = nil;			/* deferred calls for the current method (LIFO) */
@@ -2634,6 +2650,20 @@ Node *cur_class;			/* current class being codegen'd, for type lookups */
 int in_constructor_body = 0;		/* 1 while typechecking a constructor body */
 char *ctor_class_name = nil;		/* the class whose ctor body is being checked */
 int new_tmp_id = 0;
+
+static void
+msg_frame_reset(void)
+{
+    msg_frame_next = 0;
+}
+
+static int
+msg_frame_alloc(void)
+{
+    if(msg_frame_next >= O9_MSG_FRAMES)
+        sysfatal("too many method-send expressions in one statement");
+    return msg_frame_next++;
+}
 
 /* Variable-to-class symbol table */
 typedef struct VarClass VarClass;
@@ -2688,6 +2718,22 @@ is_local(char *name)
 
 void gen_expr(Node *e);
 
+static void
+gen_c_string_literal(char *text)
+{
+    char *s;
+
+    print("\"");
+    for(s = text; s != nil && *s; s++){
+        if(*s == '\n') print("\\n");
+        else if(*s == '\t') print("\\t");
+        else if(*s == '\\') print("\\\\");
+        else if(*s == '"') print("\\\"");
+        else print("%c", *s);
+    }
+    print("\"");
+}
+
 void
 gen_expr(Node *e)
 {
@@ -2729,17 +2775,9 @@ gen_expr(Node *e)
         break;
     case NStringLit:
         {
-            /* Re-escape special chars for C output */
-            char *s;
-            print("\"");
-            for(s = e->name; *s; s++){
-                if(*s == '\n') print("\\n");
-                else if(*s == '\t') print("\\t");
-                else if(*s == '\\') print("\\\\");
-                else if(*s == '"') print("\\\"");
-                else print("%c", *s);
-            }
-            print("\"");
+            print("o9_string_new(");
+            gen_c_string_literal(e->name);
+            print(", %d)", strlen(e->name));
         }
         break;
     case NCharLit:
@@ -2776,7 +2814,7 @@ gen_expr(Node *e)
                             /* dispatch expressions are vlong at the C level
                              * (frame slot); the method's o9 type is string,
                              * so re-pointer it for the builtin's prototype */
-                            print("(char*)(uintptr)(");
+                            print("(O9String*)(uintptr)(");
                             gen_expr(a);
                             print(")");
                         } else
@@ -2851,20 +2889,29 @@ gen_expr(Node *e)
             }
             if(type_is_collection(lt, "Dict")){
                 if(strcmp(e->name, "Has") == 0){
-                    print("o9_dict_has(&"); gen_expr(e->left); print(", "); gen_expr(e->right); print(")");
+                    print("o9_dict_hass(&"); gen_expr(e->left); print(", "); gen_expr(e->right); print(")");
                     break;
                 }
             }
         }
         /* c.method(args...) -> try o9_dispatch_call (asm), fallback to obj9_msgSend (CSP/9P) */
         {
+            char *retst = nil;
+            int retptr = 0;
             int nargs = 0, d;
             Node *a;
             for(a = e->right; a; a = a->next) nargs++;
-            /* Each lexical nesting level packs into its own frame so nested
-             * calls like a.set(b.get()) cannot clobber each other's args. */
-            d = msg_depth++;
-            if(d > 7) d = 7;
+            if(e->typeinfo != nil){
+                retst = type_storage_for_codegen(e->typeinfo);
+                retptr = storage_pointerish(retst);
+            }
+            if(retptr)
+                print("(%s)(uintptr)(", retst);
+            /* Every method send in a source statement gets a compiler-owned
+             * frame.  C does not guarantee sibling argument evaluation order,
+             * so depth alone is not enough: f(a.get(), b.get()) must not
+             * reuse __o9fr[0] for both calls. */
+            d = msg_frame_alloc();
             /* Pack: frame[0]=shm_base (for ctrl thunk), frame[1..N]=real args */
             print("(__o9fr[%d][0]=", d);
             {
@@ -2940,7 +2987,8 @@ gen_expr(Node *e)
                 gen_expr(e->left);
                 print(", \"%s\", 0x%lux, __o9fr[%d]+1, %d))", e->name, o9_hash(e->name), d, nargs);
             }
-            msg_depth--;
+            if(retptr)
+                print(")");
         }
         break;
     case NPropRead:
@@ -2954,7 +3002,8 @@ gen_expr(Node *e)
                         print("((%s_Internal*)((%s_Client*)&", cn, cn);
                         gen_expr(e->left);
                         print(")->shm_base)->%s", e->name);
-                    } else if(strcmp(t, "char*") == 0 || strcmp(t, "O9Dict") == 0 || strcmp(t, "O9Slice") == 0){
+                    } else if(strcmp(t, "char*") == 0 || storage_is_o9string(t) ||
+                              strcmp(t, "O9Dict") == 0 || strcmp(t, "O9Slice") == 0){
                         print("((%s_Internal*)((%s_Client*)&", cn, cn);
                         gen_expr(e->left);
                         print(")->shm_base)->%s", e->name);
@@ -3048,13 +3097,17 @@ gen_expr(Node *e)
                 print("\"\"");
             } else if(a->type == NStringLit && a->next == nil && strchr(a->name, '%') == nil){
                 /* Single verb-free literal — use as format directly */
-                gen_expr(a);
+                gen_c_string_literal(a->name);
             } else if(a->type == NStringLit && a->next != nil && strchr(a->name, '%') != nil){
                 /* Explicit format string with value args: pass through */
-                gen_expr(a);
+                gen_c_string_literal(a->name);
                 for(a = a->next; a; a = a->next){
                     print(", ");
-                    gen_expr(a);
+                    if(type_is_string(a->typeinfo)){
+                        print("o9_string_data("); gen_expr(a); print(")");
+                    } else {
+                        gen_expr(a);
+                    }
                 }
             } else {
                 /* Auto-format: splice literals into the format, print
@@ -3073,7 +3126,7 @@ gen_expr(Node *e)
                             else if(*p == '"') print("\\\"");
                             else print("%c", *p);
                         }
-                    } else if(strcmp(type_storage_for_codegen(a2->typeinfo), "char*") == 0)
+                    } else if(type_is_string(a2->typeinfo))
                         print("%%s");
                     else
                         print("%%lld");
@@ -3083,8 +3136,8 @@ gen_expr(Node *e)
                     if(a2->type == NStringLit)
                         continue;
                     print(", ");
-                    if(strcmp(type_storage_for_codegen(a2->typeinfo), "char*") == 0){
-                        gen_expr(a2);
+                    if(type_is_string(a2->typeinfo)){
+                        print("o9_string_data("); gen_expr(a2); print(")");
                     } else {
                         print("(vlong)(");
                         gen_expr(a2);
@@ -3114,10 +3167,10 @@ gen_expr(Node *e)
                 print("(*(%s*)o9_slice_get(&", type_storage_for_codegen(et)); gen_expr(e->left); print(", "); gen_expr(e->right); print("))");
             } else if(type_is_collection(lt, "Dict")){
                 Type *vt = type_list_at(lt->args, 1);
-                print("((%s)o9_dict_get(&", type_storage_for_codegen(vt)); gen_expr(e->left); print(", "); gen_expr(e->right); print("))");
+                print("((%s)o9_dict_gets(&", type_storage_for_codegen(vt)); gen_expr(e->left); print(", "); gen_expr(e->right); print("))");
             } else if(e->right && e->right->type == NStringLit){
                 /* Legacy dict access fallback */
-                print("o9_dict_get(&"); gen_expr(e->left); print(", "); gen_expr(e->right); print(")");
+                print("o9_dict_gets(&"); gen_expr(e->left); print(", "); gen_expr(e->right); print(")");
             } else {
                 print("o9_array_get("); gen_expr(e->left); print(", "); gen_expr(e->right); print(")");
             }
@@ -3177,9 +3230,9 @@ gen_assign_new_to(char *varname, char *target, int is_field, char *lhs_type, Nod
         print("\tmemset(&%s, 0, sizeof(%s_Client));\n", target, lhs_type);
         print("\tmemset(&%s, 0, sizeof(o9_AsmTable));\n", tbl);
         print("\t%s.table = &%s;\n", target, tbl);
-        print("\t{\n\t\tchar __addr[128];\n\t\tsnprint(__addr, sizeof __addr, ");
+        print("\t{\n\t\tchar __addr[128]; char *__addrp;\n\t\t__addrp = o9_string_cstr(");
         gen_expr(first_arg);
-        print(");\n\t\to9_connect(&%s, __addr, \"%s\", %d);\n", target, cn, dval);
+        print(");\n\t\tif(__addrp != nil){ snprint(__addr, sizeof __addr, \"%%s\", __addrp); free(__addrp); o9_connect(&%s, __addr, \"%s\", %d); }\n", target, cn, dval);
         print("\t\t%s.distance = %d;\n", target, dval);
         if(rest > 0){
             ai = 0;
@@ -3325,6 +3378,7 @@ gen_stmt(Node *c, Node *s)
 {
     Node *n;
     if(s == nil) return;
+    msg_frame_reset();
     /* fail("msg"): set the method's error and jump to the exit.  Reuses
      * the same done: mechanism as return — errors are values, no
      * unwinding.  Only meaningful inside a method body. */
@@ -3332,15 +3386,21 @@ gen_stmt(Node *c, Node *s)
         if(in_method_body){
             has_return = 1;	/* ensure the done: label is emitted */
             print("\t__o9r->err = ");
-            if(s->right != nil)
+            if(s->right != nil){
+                print("o9_string_data(");
                 gen_expr(s->right);
-            else
+                print(")");
+            } else
                 print("\"failed\"");
             print(";\n\tgoto done;\n");
         } else {
             /* outside a method: emit as a diagnostic + return */
             print("\tfprint(2, \"fail: %%s\\n\", ");
-            if(s->right != nil) gen_expr(s->right); else print("\"failed\"");
+            if(s->right != nil){
+                print("o9_string_data(");
+                gen_expr(s->right);
+                print(")");
+            } else print("\"failed\"");
             print(");\n");
         }
         return;
@@ -3448,11 +3508,11 @@ gen_stmt(Node *c, Node *s)
                     /* First constructor arg is the address */
                     print("\t{\n");
                     if(first_arg){
-                        print("\t\tchar __addr[128];\n");
-                        print("\t\tsnprint(__addr, sizeof __addr, ");
+                        print("\t\tchar __addr[128]; char *__addrp;\n");
+                        print("\t\t__addrp = o9_string_cstr(");
                         gen_expr(first_arg);
                         print(");\n");
-                        print("\t\to9_connect(&%s, __addr, \"%s\", %d);\n", s->name, cn, dval);
+                        print("\t\tif(__addrp != nil){ snprint(__addr, sizeof __addr, \"%%s\", __addrp); free(__addrp); o9_connect(&%s, __addr, \"%s\", %d); }\n", s->name, cn, dval);
                     }
                     print("\t\t%s.distance = %d;\n", s->name, dval);
                     /* Send constructor args (skip address, send rest) */
@@ -3462,7 +3522,10 @@ gen_stmt(Node *c, Node *s)
                         print("\t\tvlong __args_%s[%d];\n", s->name, rest);
                         for(ca = first_arg->next; ca; ca = ca->next){
                             print("\t\t__args_%s[%d] = ", s->name, ai);
-                            gen_expr(ca);
+                            if(type_storage_pointerish(ca->typeinfo)){
+                                print("(vlong)(uintptr)("); gen_expr(ca); print(")");
+                            } else
+                                gen_expr(ca);
                             print(";\n");
                             ai++;
                         }
@@ -3548,10 +3611,10 @@ gen_stmt(Node *c, Node *s)
                 gen_expr(s->left->left); print(", "); gen_expr(s->left->right); print(", &__v); }\n");
                 break;
             } else if(type_is_collection(lt, "Dict")){
-                print("\to9_dict_set(&"); gen_expr(s->left->left); print(", "); gen_expr(s->left->right); print(", (void*)("); gen_expr(s->right); print("));\n");
+                print("\to9_dict_sets(&"); gen_expr(s->left->left); print(", "); gen_expr(s->left->right); print(", (void*)("); gen_expr(s->right); print("));\n");
                 break;
             } else if(s->left->right && s->left->right->type == NStringLit){
-                print("\to9_dict_set(&");
+                print("\to9_dict_sets(&");
                 gen_expr(s->left->left); print(", "); gen_expr(s->left->right); print(", "); gen_expr(s->right);
                 print(");\n");
             } else {
@@ -3932,6 +3995,9 @@ gen_state_store_typed(char *stateexpr, char *fieldexpr, char *name, Type *type)
     } else if(strcmp(t, "char*") == 0){
         print("\to9_state_set(%s, \"%s\", %s ? %s : \"\");\n",
             stateexpr, name, fieldexpr, fieldexpr);
+    } else if(storage_is_o9string(t)){
+        print("\to9_state_set(%s, \"%s\", o9_string_data(%s));\n",
+            stateexpr, name, fieldexpr);
     } else if((d = type_decl_node(type)) != nil && (d->type == NStruct || d->type == NClass || d->type == NInterface)){
         /* Complex in-memory values stay in the hot struct for now. */
     } else {
@@ -4302,7 +4368,9 @@ gen_prop_handlers(Node *c)
                 print("\t\tchar *__s = o9_dict_serialize(&s->%s); snprint(buf, sizeof buf, \"%%s\", __s); readstr(r, buf); free(__s);\n", m->name);
             } else {
                 print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
-                if(strcmp(c_type_fmt(t), "%s") == 0){
+                if(storage_is_o9string(t)){
+                    print("\t\treadstr(r, o9_string_data(s->%s));\n", m->name);
+                } else if(strcmp(c_type_fmt(t), "%s") == 0){
                     /* String property */
                     print("\t\treadstr(r, s->%s ? s->%s : \"\");\n", m->name, m->name);
                 } else if(type_decl_node(m->typeinfo) != nil && type_decl_node(m->typeinfo)->type == NStruct) {
@@ -4335,7 +4403,10 @@ gen_write_handlers(Node *c)
                 print("\t\to9_dict_deserialize(&s->%s, r->ifcall.data);\n", m->name);
             } else {
                 print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
-                if(strcmp(c_type_fmt(t), "%s") == 0){
+                if(storage_is_o9string(t)){
+                    print("\t\to9_string_release(s->%s);\n", m->name);
+                    print("\t\ts->%s = o9_string_new(r->ifcall.data, r->ifcall.count);\n", m->name);
+                } else if(strcmp(c_type_fmt(t), "%s") == 0){
                     /* String property */
                     print("\t\tfree(s->%s);\n", m->name);
                     print("\t\ts->%s = strdup(r->ifcall.data);\n", m->name);
@@ -4416,7 +4487,9 @@ void gen_cleanup_props(Node *c, char *childname) {
         }
         if(m->type == NProp || m->type == NState) {
             char *t = type_storage_for_codegen(m->typeinfo);
-            if(strcmp(t, "char*") == 0) {
+            if(storage_is_o9string(t)) {
+                print("\to9_string_release(((%s_Internal*)self)->%s);\n", childname, m->name);
+            } else if(strcmp(t, "char*") == 0) {
                 print("\tfree(((%s_Internal*)self)->%s);\n", childname, m->name);
             } else if(strcmp(t, "O9Dict") == 0) {
                 print("\to9_dict_free(&((%s_Internal*)self)->%s);\n", childname, m->name);
@@ -4478,7 +4551,7 @@ gen_class_server(Node *c)
             }
             print("static void o9_impl_%s_%s(%s_Internal *self, O9Msg *msg) {\n", c->name, m->name, c->name);
             print("\tO9Reply *__o9r = mallocz(sizeof(O9Reply), 1);\n");
-            print("\tvlong __o9fr[8][12];\n\tUSED(__o9fr);\n");
+            print("\tvlong __o9fr[%d][12];\n\tUSED(__o9fr);\n", O9_MSG_FRAMES);
             /* Unpack params from msg->args (packed as vlong array for now) */
             {
                 Node *p;
@@ -4513,6 +4586,7 @@ gen_class_server(Node *c)
             {
                 Node *dn;
                 for(dn = defer_list; dn != nil; dn = dn->next){
+                    msg_frame_reset();
                     print("\t"); gen_expr(dn->left); print(";\n");
                 }
                 defer_list = nil;
@@ -4598,7 +4672,7 @@ gen_class_server(Node *c)
             num_locals = 0;
             mark_locals(m->left);
             print("static void o9_destruct_%s(%s_Internal *self) {\n", c->name, c->name);
-            print("\tvlong __o9fr[8][12];\n\tUSED(__o9fr);\n");
+            print("\tvlong __o9fr[%d][12];\n\tUSED(__o9fr);\n", O9_MSG_FRAMES);
             for(s = m->left; s; s = s->next) gen_stmt(c, s);
             print("}\n\n");
         }
@@ -4672,6 +4746,9 @@ gen_class_server(Node *c)
     print("\tint i, w = 0, n;\n");
     print("\tif(out == nil || nout <= 0) return 0;\n");
     print("\tout[0] = '\\0';\n");
+    print("\tn = snprint(out+w, nout-w, \"objects:\\n\"); w += n;\n");
+    print("\tn = o9_object_store_serialize(o9_objects_%s, out+w, nout-w); w += n;\n", c->name);
+    print("\tif(w < nout-1){ out[w++] = '\\n'; out[w] = '\\0'; }\n");
     print("\tfor(i = 0; i < %s_ninstances && w < nout-1; i++){\n", c->name);
     print("\t\tn = snprint(out+w, nout-w, \"%%s:\\n\", %s_instances[i].name); w += n;\n", c->name);
     print("\t\tn = o9_state_serialize(%s_instances[i].inst->state, out+w, nout-w); w += n;\n", c->name);
@@ -4745,7 +4822,7 @@ gen_class_server(Node *c)
     print("\t\tp += snprint(p, sizeof statusbuf - (p-statusbuf), \"qname %s\\n\");\n", c->qname != nil ? c->qname : c->name);
     print("\t\tp += snprint(p, sizeof statusbuf - (p-statusbuf), \"cname %s\\n\");\n", c->cname != nil ? c->cname : c->name);
     print("\t\tp += snprint(p, sizeof statusbuf - (p-statusbuf), \"root %%s\\nmount %%s\\nsrv %%s\\n\", o9_app_root_%s, o9_mount_%s, o9_srv_%s);\n", c->name, c->name, c->name);
-    print("\t\tp += snprint(p, sizeof statusbuf - (p-statusbuf), \"objectstore %%s/state/%%s.objects.tab\\n\", o9_app_root_%s, o9_app_root_%s[0] ? o9_app_root_%s + strlen(\"/mnt/o9/\") : \"app\");\n", c->name, c->name, c->name);
+    print("\t\tp += snprint(p, sizeof statusbuf - (p-statusbuf), \"objectstore private\\n\");\n");
     print("\t\tp += snprint(p, sizeof statusbuf - (p-statusbuf), \"instances\");\n");
     print("\t\tfor(i = 0; i < %s_ninstances; i++) p += snprint(p, sizeof statusbuf - (p-statusbuf), \" %%s\", %s_instances[i].name);\n", c->name, c->name);
     print("\t\tp += snprint(p, sizeof statusbuf - (p-statusbuf), \"\\n\");\n");
@@ -4781,7 +4858,9 @@ gen_class_server(Node *c)
             print("\t\tif(__o9rep->err != nil)\n");
             print("\t\t\tsnprint(buf, sizeof buf, \"error: %%s\\n\", __o9rep->err);\n");
             print("\t\telse\n");
-            if(strcmp(fmt, "%s") == 0){
+            if(type_is_string(m->typeinfo)){
+                print("\t\tsnprint(buf, sizeof buf, \"%%s\\n\", o9_string_data((O9String*)__o9rep->ret));\n");
+            } else if(strcmp(fmt, "%s") == 0){
                 print("\t\tsnprint(buf, sizeof buf, \"%%s\\n\", (char*) __o9rep->ret);\n");
             } else {
                 print("\t\tsnprint(buf, sizeof buf, \"%s\\n\", (%s)__o9rep->ret);\n", fmt, cast);
@@ -4811,6 +4890,10 @@ gen_class_server(Node *c)
                 /* Dict property: serialize */
                 print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
                 print("\t\tchar *__s = o9_dict_serialize(&inst->%s); snprint(buf, sizeof buf, \"%%s\", __s); readstr(r, buf); free(__s); respond(r, nil); return;\n\t}\n", m->name);
+            } else if(storage_is_o9string(t)) {
+                print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
+                print("\t\tsnprint(buf, sizeof buf, \"%%s\\n\", o9_string_data(inst->%s));\n", m->name);
+                print("\t\treadstr(r, buf); respond(r, nil); return;\n\t}\n");
             } else if(strcmp(fmt, "%s") == 0) {
                 print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
                 print("\t\tsnprint(buf, sizeof buf, \"%%s\\n\", inst->%s ? inst->%s : \"\");\n", m->name, m->name);
@@ -4900,7 +4983,7 @@ gen_class_server(Node *c)
                     if(type_is_class_ref(p->typeinfo)){
                         print("\t\t\t\t{ o9app_put_status(r, \"error: %s: object-handle args not callable over ctl\\n\"); o9app_put_result(r, \"\"); respond(r, nil); return; }\n", m->name);
                     } else if(strcmp(pt, "string") == 0){
-                        print("\t\t\t\t__wargs[%d] = (vlong)(uintptr)v;\n", pi);
+                        print("\t\t\t\t__wargs[%d] = (vlong)(uintptr)o9_string_from_c(v);\n", pi);
                     } else if(strcmp(pt, "Tabula") == 0){
                         print("\t\t\t\t{ o9app_put_status(r, \"error: %s: Tabula args not callable over ctl\\n\"); o9app_put_result(r, \"\"); respond(r, nil); return; }\n", m->name);
                     } else {
@@ -4933,7 +5016,9 @@ gen_class_server(Node *c)
                 char *fmt = type_fmt_for_codegen(m->typeinfo);
                 char *cast = type_cast_for_codegen(m->typeinfo);
                 print("\t\t\t\t\t{ char __rb[4096];\n");
-                if(strcmp(fmt, "%s") == 0)
+                if(type_is_string(m->typeinfo))
+                    print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%s\\n\", o9_string_data((O9String*)__o9rep->ret));\n");
+                else if(strcmp(fmt, "%s") == 0)
                     print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%s\\n\", (char*)__o9rep->ret);\n");
                 else
                     print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%s\\n\", (%s)__o9rep->ret);\n", fmt, cast);
@@ -4963,7 +5048,10 @@ gen_class_server(Node *c)
             print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
             if(np > 0){
                 print("\t\tvlong __wargs[%d] = {0};\n", np);
-                print("\t\t__wargs[0] = strtoll(r->ifcall.data, nil, 0);\n");
+                if(m->right != nil && type_is_string(m->right->typeinfo))
+                    print("\t\t__wargs[0] = (vlong)(uintptr)o9_string_new(r->ifcall.data, r->ifcall.count);\n");
+                else
+                    print("\t\t__wargs[0] = strtoll(r->ifcall.data, nil, 0);\n");
             }
             /* Direct channel send — inst is the Internal struct with dispatch_chan */
             {
@@ -4999,6 +5087,16 @@ gen_class_server(Node *c)
                 /* Dict property: deserialize */
                 print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
                 print("\t\to9_dict_deserialize(&inst->%s, r->ifcall.data);\n", m->name);
+                {
+                    char field[128];
+                    snprint(field, sizeof field, "inst->%s", m->name);
+                    gen_state_store_typed("inst->state", field, m->name, m->typeinfo);
+                }
+                print("\t\tr->ofcall.count = r->ifcall.count;\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
+            } else if(storage_is_o9string(t)) {
+                print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
+                print("\t\to9_string_release(inst->%s);\n", m->name);
+                print("\t\tinst->%s = o9_string_new(r->ifcall.data, r->ifcall.count);\n", m->name);
                 {
                     char field[128];
                     snprint(field, sizeof field, "inst->%s", m->name);
@@ -5614,15 +5712,21 @@ codegen(Node *root)
     print("\t\t}\n");
     print("\t\treadstr(r, buf); respond(r, nil); return;\n\t}\n");
     /* state: DEBUG-only inspector.  Off by default (encapsulation);
-     * O9DEBUG dumps every live object's serialized state tab. */
+     * O9DEBUG dumps read-only metadata snapshots plus live state tabs. */
     print("\tif(strcmp(name, \"state\") == 0){\n");
     print("\t\tif(!o9app_debug){ readstr(r, \"debug disabled (set O9DEBUG)\\n\"); respond(r, nil); return; }\n");
+    print("\t\t{ char *__dbuf = mallocz(32768, 1); char *__dp;\n");
+    print("\t\tif(__dbuf == nil){ respond(r, \"no memory\"); return; }\n");
+    print("\t\t__dp = __dbuf;\n");
+    print("\t\t__dp += snprint(__dp, 32768-(__dp-__dbuf), \"# methods\\n\");\n");
+    print("\t\t__dp += o9_method_store_serialize(__dp, (int)(32768-(__dp-__dbuf)));\n");
+    print("\t\t__dp += snprint(__dp, 32768-(__dp-__dbuf), \"\\n\");\n");
     print("\t\tfor(i = 0; i < o9app_nclasses; i++){\n");
     print("\t\t\tif(o9app_classes[i].dumpstate == nil) continue;\n");
-    print("\t\t\tp += snprint(p, sizeof buf-(p-buf), \"# %%s\\n\", o9app_classes[i].name);\n");
-    print("\t\t\tp += o9app_classes[i].dumpstate(p, (int)(sizeof buf-(p-buf)));\n");
+    print("\t\t\t__dp += snprint(__dp, 32768-(__dp-__dbuf), \"# %%s\\n\", o9app_classes[i].name);\n");
+    print("\t\t\t__dp += o9app_classes[i].dumpstate(__dp, (int)(32768-(__dp-__dbuf)));\n");
     print("\t\t}\n");
-    print("\t\treadstr(r, buf); respond(r, nil); return;\n\t}\n");
+    print("\t\treadstr(r, __dbuf); free(__dbuf); respond(r, nil); return; }\n\t}\n");
     print("\trespond(r, \"not found\");\n}\n");
     print("static void o9app_root_write(Req *r){\n");
     print("#ifdef __GNUC__\n\tchar *name = r->fid->file->dir.name;\n#else\n\tchar *name = r->fid->file->name;\n#endif\n");
@@ -5660,20 +5764,25 @@ codegen(Node *root)
      * runtime.  A single createfile into the stable exports parent (the
      * safe pattern); the serialized bytes go in the child File's aux.  If
      * a file of that name exists, its bytes are replaced (re-export). */
-    print("void o9_export_tab(char *name, O9Tabula *t){\n");
-    print("\tFile *f; O9Export *ex; char *bytes;\n");
+    print("void o9_export_tab(O9String *name, O9Tabula *t){\n");
+    print("\tFile *f; O9Export *ex; O9String *bytes; char *cname, *cbytes;\n");
     print("\tif(o9app_exports_dir == nil || name == nil || t == nil) return;\n");
+    print("\tcname = o9_string_cstr(name);\n");
+    print("\tif(cname == nil) return;\n");
     print("\tbytes = o9_tab_serialize(t);\n");
-    print("\tf = createfile(o9app_exports_dir, name, \"o9\", 0444, nil);\n");
+    print("\tcbytes = o9_string_cstr(bytes);\n");
+    print("\tif(cbytes == nil){ free(cname); o9_string_release(bytes); return; }\n");
+    print("\tf = createfile(o9app_exports_dir, cname, \"o9\", 0444, nil);\n");
     print("\tif(f == nil){\t/* exists: replace its bytes */\n");
-    print("\t\tf = walkfile(o9app_exports_dir, name);\n");
-    print("\t\tif(f == nil){ free(bytes); return; }\n");
+    print("\t\tf = walkfile(o9app_exports_dir, cname);\n");
+    print("\t\tif(f == nil){ free(cname); free(cbytes); o9_string_release(bytes); return; }\n");
     print("\t}\n");
     print("\tex = f->aux;\n");
     print("\tif(ex == nil){ ex = mallocz(sizeof *ex, 1); ex->tag = O9AUX_EXPORT; f->aux = ex; }\n");
     print("\tfree(ex->data);\n");
-    print("\tex->data = bytes; ex->ndata = bytes != nil ? strlen(bytes) : 0;\n");
+    print("\tex->data = cbytes; ex->ndata = bytes != nil ? o9_string_len(bytes) : 0;\n");
     print("\tf->length = ex->ndata;\n");
+    print("\tfree(cname); o9_string_release(bytes);\n");
     print("}\n\n");
 
     /* 1. Emit headers for ALL known classes/interfaces (local and imported) */
@@ -5742,7 +5851,7 @@ codegen(Node *root)
 
     print("int mainstacksize = 65536;\n\n");
     print("void\nthreadmain(int argc, char **argv)\n{\n");
-    print("\tvlong __o9fr[8][12];\n");
+    print("\tvlong __o9fr[%d][12];\n", O9_MSG_FRAMES);
     print("\tUSED(argc); USED(argv); USED(__o9fr);\n");
     /* Per-app namespace isolation MUST happen here — the very first thing
      * in threadmain, BEFORE o9_registry_start or any proccreate. Forking
@@ -6414,6 +6523,21 @@ type_mismatch_error(char *what, Type *target, Type *actual, int *errs)
     as = actual != nil ? type_render(actual) : "<unknown>";
     fprint(2, "o9c: error: line %d: cannot %s %s to %s\n", sem_line, what, as, ts);
     (*errs)++;
+}
+
+static void
+check_index_key(Node *e, int *errs)
+{
+    Type *lt, *kt;
+
+    if(e == nil || e->type != NArrayGet || e->left == nil || e->right == nil)
+        return;
+    lt = e->left->typeinfo;
+    if(type_is_collection(lt, "Dict")){
+        kt = type_list_at(lt->args, 0);
+        if(!type_assignable_semantic(kt, e->right->typeinfo))
+            type_mismatch_error("index", kt, e->right->typeinfo, errs);
+    }
 }
 
 static char*
@@ -7342,8 +7466,13 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
             }
         }
         break;
+    case NArrayGet:
+        annotate_expr_type(e, scope_class);
+        check_index_key(e, errs);
+        break;
     case NAssign:
         annotate_expr_type(e, scope_class);
+        check_index_key(e->left, errs);
         if(e->left != nil && e->right != nil &&
            !type_assignable_semantic(e->left->typeinfo, e->right->typeinfo))
             type_mismatch_error("assign", e->left->typeinfo, e->right->typeinfo, errs);

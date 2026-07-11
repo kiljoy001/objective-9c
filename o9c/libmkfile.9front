@@ -6,6 +6,7 @@ TARG=libo9.a
 OFILES=\
 	o9_dispatch.$O\
 	o9_runtime.$O\
+	o9_tab_discard.$O\
 	libtab_tab_error.$O\
 	libtab_tab_create.$O\
 	libtab_tab_row.$O\
@@ -20,6 +21,9 @@ LIBTABDIR=../9lx/libtab
 
 o9_runtime.$O:	o9_runtime.c o9.h
 	$CC -I$LIBTABDIR o9_runtime.c
+
+o9_tab_discard.$O:	o9_tab_discard.c
+	$CC -I$LIBTABDIR o9_tab_discard.c
 
 libtab_tab_error.$O:	$LIBTABDIR/tab_error.c $LIBTABDIR/libtab.h $LIBTABDIR/tab_internal.h
 	$CC -I$LIBTABDIR -o $target $LIBTABDIR/tab_error.c

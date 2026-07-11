@@ -174,7 +174,7 @@ o9_crypto_hash(uchar *msg, long nmsg, char *out)
  */
 
 /* keygen() -> 64-hex seed; the seed IS the persistent secret. */
-char*
+O9String*
 o9_keygen(void)
 {
 	uchar seed[32];
@@ -189,17 +189,19 @@ o9_keygen(void)
 	}
 	tohex(seed, 32, sec);
 	crypto_wipe(seed, sizeof seed);
-	return sec;
+	return o9_string_take(sec);
 }
 
 /* pubkey(sec) -> 64-hex Ed25519 public key derived from the seed. */
-char*
-o9_pubkey(char *sec)
+O9String*
+o9_pubkey(O9String *sec)
 {
 	uchar seed[32], sk[64], pk[32];
 	char *pub;
+	char *csec;
 
-	if(sec == nil || fromhex(sec, seed, 32) != 32)
+	csec = o9_string_data(sec);
+	if(sec == nil || fromhex(csec, seed, 32) != 32)
 		return nil;
 	pub = malloc(65);
 	if(pub == nil)
@@ -207,94 +209,110 @@ o9_pubkey(char *sec)
 	crypto_eddsa_key_pair(sk, pk, seed);	/* wipes seed itself */
 	tohex(pk, 32, pub);
 	crypto_wipe(sk, sizeof sk);
-	return pub;
+	return o9_string_take(pub);
 }
 
 /* sign(sec, msg) -> 128-hex Ed25519 signature over the string msg. */
-char*
-o9_sign(char *sec, char *msg)
+O9String*
+o9_sign(O9String *sec, O9String *msg)
 {
 	char *sig;
+	char *csec, *cmsg;
 
 	if(sec == nil || msg == nil)
 		return nil;
+	csec = o9_string_data(sec);
+	cmsg = o9_string_data(msg);
 	sig = malloc(129);
 	if(sig == nil)
 		return nil;
-	if(o9_crypto_sign(sec, (uchar*)msg, strlen(msg), sig) < 0){
+	if(o9_crypto_sign(csec, (uchar*)cmsg, o9_string_len(msg), sig) < 0){
 		free(sig);
 		return nil;
 	}
-	return sig;
+	return o9_string_take(sig);
 }
 
 /* verify(pub, msg, sig) -> 1 valid, 0 invalid, -1 malformed input. */
 vlong
-o9_verify(char *pub, char *msg, char *sig)
+o9_verify(O9String *pub, O9String *msg, O9String *sig)
 {
+	char *cpub, *cmsg, *csig;
+
 	if(pub == nil || msg == nil || sig == nil)
 		return -1;
-	return o9_crypto_verify(pub, (uchar*)msg, strlen(msg), sig);
+	cpub = o9_string_data(pub);
+	cmsg = o9_string_data(msg);
+	csig = o9_string_data(sig);
+	return o9_crypto_verify(cpub, (uchar*)cmsg, o9_string_len(msg), csig);
 }
 
 /* hash(msg) -> 64-hex BLAKE2b-256 of the string msg.  (Named o9_digest:
  * o9_hash is the runtime's selector hash in o9_runtime.c.) */
-char*
-o9_digest(char *msg)
+O9String*
+o9_digest(O9String *msg)
 {
 	char *out;
+	char *cmsg;
 
 	if(msg == nil)
 		return nil;
+	cmsg = o9_string_data(msg);
 	out = malloc(65);
 	if(out == nil)
 		return nil;
-	if(o9_crypto_hash((uchar*)msg, strlen(msg), out) < 0){
+	if(o9_crypto_hash((uchar*)cmsg, o9_string_len(msg), out) < 0){
 		free(out);
 		return nil;
 	}
-	return out;
+	return o9_string_take(out);
 }
 
 /* mac(key, msg) -> 64-hex keyed BLAKE2b-256; symmetric attestation.
  * key is 64 hex chars (32 bytes) — any keygen() output works. */
-char*
-o9_mac(char *keyhex, char *msg)
+O9String*
+o9_mac(O9String *keyhex, O9String *msg)
 {
 	uchar key[32], h[32];
 	char *out;
+	char *ckey, *cmsg;
 
 	if(keyhex == nil || msg == nil)
 		return nil;
-	if(fromhex(keyhex, key, 32) != 32)
+	ckey = o9_string_data(keyhex);
+	cmsg = o9_string_data(msg);
+	if(fromhex(ckey, key, 32) != 32)
 		return nil;
 	out = malloc(65);
 	if(out == nil){
 		crypto_wipe(key, sizeof key);
 		return nil;
 	}
-	crypto_blake2b_keyed(h, sizeof h, key, sizeof key, (uchar*)msg, strlen(msg));
+	crypto_blake2b_keyed(h, sizeof h, key, sizeof key, (uchar*)cmsg, o9_string_len(msg));
 	crypto_wipe(key, sizeof key);
 	tohex(h, 32, out);
-	return out;
+	return o9_string_take(out);
 }
 
 /* encrypt(key, msg) -> hex(nonce[24] || mac[16] || ciphertext), one
  * self-contained blob.  XChaCha20-Poly1305; the nonce is drawn fresh
  * from the system RNG on every call and carried in the blob, so key
  * reuse is safe and there is no nonce argument to get wrong. */
-char*
-o9_encrypt(char *keyhex, char *msg)
+O9String*
+o9_encrypt(O9String *keyhex, O9String *msg)
 {
 	uchar key[32], nonce[24], mac[16], *ct;
 	char *out;
 	long n;
+	char *ckey, *cmsg;
 
 	if(keyhex == nil || msg == nil)
 		return nil;
-	if(fromhex(keyhex, key, 32) != 32)
+	ckey = o9_string_data(keyhex);
+	cmsg = o9_string_data(msg);
+	if(fromhex(ckey, key, 32) != 32)
 		return nil;
-	n = strlen(msg);
+	n = o9_string_len(msg);
 	ct = malloc(n == 0 ? 1 : n);
 	out = malloc(2*(24 + 16 + n) + 1);
 	if(ct == nil || out == nil || o9_randbytes(nonce, sizeof nonce) < 0){
@@ -303,35 +321,38 @@ o9_encrypt(char *keyhex, char *msg)
 		crypto_wipe(key, sizeof key);
 		return nil;
 	}
-	crypto_aead_lock(ct, mac, key, nonce, nil, 0, (uchar*)msg, (size_t)n);
+	crypto_aead_lock(ct, mac, key, nonce, nil, 0, (uchar*)cmsg, (size_t)n);
 	crypto_wipe(key, sizeof key);
 	tohex(nonce, 24, out);
 	tohex(mac, 16, out + 48);
 	tohex(ct, n, out + 80);
 	free(ct);
-	return out;
+	return o9_string_take(out);
 }
 
 /* decrypt(key, blob) -> plaintext string, or nil if the key is wrong
  * or the blob was tampered with (Poly1305 authentication fails). */
-char*
-o9_decrypt(char *keyhex, char *blob)
+O9String*
+o9_decrypt(O9String *keyhex, O9String *blob)
 {
 	uchar key[32], nonce[24], mac[16], *buf;
 	char *pt;
 	long nb, n;
+	char *ckey, *cblob;
 
 	if(keyhex == nil || blob == nil)
 		return nil;
-	nb = strlen(blob);
+	ckey = o9_string_data(keyhex);
+	cblob = o9_string_data(blob);
+	nb = o9_string_len(blob);
 	if(nb % 2 != 0 || nb/2 < 24 + 16)
 		return nil;
 	n = nb/2;
-	if(fromhex(keyhex, key, 32) != 32)
+	if(fromhex(ckey, key, 32) != 32)
 		return nil;
 	buf = malloc(n);
 	pt = malloc(n - 40 + 1);
-	if(buf == nil || pt == nil || fromhex(blob, buf, n) != n){
+	if(buf == nil || pt == nil || fromhex(cblob, buf, n) != n){
 		free(buf);
 		free(pt);
 		crypto_wipe(key, sizeof key);
@@ -348,7 +369,7 @@ o9_decrypt(char *keyhex, char *blob)
 	crypto_wipe(key, sizeof key);
 	free(buf);
 	pt[n - 40] = '\0';
-	return pt;
+	return o9_string_take(pt);
 }
 
 /* passkey(password, salt) -> 64-hex key via Argon2id, ready to feed
@@ -358,25 +379,28 @@ o9_decrypt(char *keyhex, char *blob)
  * libtab's default (64 MiB, 3 passes, 1 lane; tab_hashed.c), so
  * password hardness is uniform across the stack.  Salt is per-secret
  * context, 8 bytes minimum (argon2 requirement). */
-char*
-o9_passkey(char *pass, char *salt)
+O9String*
+o9_passkey(O9String *pass, O9String *salt)
 {
 	crypto_argon2_config cfg;
 	crypto_argon2_inputs in;
 	uchar h[32];
 	char *out;
 	void *work;
+	char *cpass, *csalt;
 
-	if(pass == nil || salt == nil || strlen(salt) < 8)
+	if(pass == nil || salt == nil || o9_string_len(salt) < 8)
 		return nil;
+	cpass = o9_string_data(pass);
+	csalt = o9_string_data(salt);
 	cfg.algorithm = CRYPTO_ARGON2_ID;
 	cfg.nb_blocks = 65536;	/* 64 MiB: libtab's Argon2dDefMlog2 */
 	cfg.nb_passes = 3;
 	cfg.nb_lanes = 1;
-	in.pass = (uchar*)pass;
-	in.pass_size = strlen(pass);
-	in.salt = (uchar*)salt;
-	in.salt_size = strlen(salt);
+	in.pass = (uchar*)cpass;
+	in.pass_size = o9_string_len(pass);
+	in.salt = (uchar*)csalt;
+	in.salt_size = o9_string_len(salt);
 	work = malloc((ulong)cfg.nb_blocks * 1024);
 	if(work == nil)
 		return nil;
@@ -390,19 +414,21 @@ o9_passkey(char *pass, char *salt)
 	free(work);
 	tohex(h, 32, out);
 	crypto_wipe(h, sizeof h);
-	return out;
+	return o9_string_take(out);
 }
 
 /* xpubkey(sec) -> 64-hex X25519 public key; sec is any keygen() seed.
  * X25519 keys are separate from Ed25519 ones — don't reuse a signing
  * seed for exchange. */
-char*
-o9_xpubkey(char *sec)
+O9String*
+o9_xpubkey(O9String *sec)
 {
 	uchar sk[32], pk[32];
 	char *pub;
+	char *csec;
 
-	if(sec == nil || fromhex(sec, sk, 32) != 32)
+	csec = o9_string_data(sec);
+	if(sec == nil || fromhex(csec, sk, 32) != 32)
 		return nil;
 	pub = malloc(65);
 	if(pub == nil){
@@ -412,23 +438,26 @@ o9_xpubkey(char *sec)
 	crypto_x25519_public_key(pk, sk);
 	crypto_wipe(sk, sizeof sk);
 	tohex(pk, 32, pub);
-	return pub;
+	return o9_string_take(pub);
 }
 
 /* exchange(mysec, theirpub) -> 64-hex shared key: BLAKE2b-256 of the
  * raw X25519 secret, ready to feed encrypt/mac directly.  Both sides
  * agree: exchange(a, xpubkey(b)) == exchange(b, xpubkey(a)).  Returns
  * nil if the peer key is low-order (raw shared secret all zero). */
-char*
-o9_exchange(char *sec, char *pub)
+O9String*
+o9_exchange(O9String *sec, O9String *pub)
 {
 	uchar sk[32], pk[32], raw[32], h[32];
 	char *out;
 	int i, z;
+	char *csec, *cpub;
 
 	if(sec == nil || pub == nil)
 		return nil;
-	if(fromhex(sec, sk, 32) != 32 || fromhex(pub, pk, 32) != 32)
+	csec = o9_string_data(sec);
+	cpub = o9_string_data(pub);
+	if(fromhex(csec, sk, 32) != 32 || fromhex(cpub, pk, 32) != 32)
 		return nil;
 	crypto_x25519(raw, sk, pk);
 	crypto_wipe(sk, sizeof sk);
@@ -445,5 +474,5 @@ o9_exchange(char *sec, char *pub)
 	crypto_blake2b(h, sizeof h, raw, sizeof raw);
 	crypto_wipe(raw, sizeof raw);
 	tohex(h, 32, out);
-	return out;
+	return o9_string_take(out);
 }
