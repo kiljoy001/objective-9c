@@ -1593,6 +1593,35 @@ o9_tab_open(O9String *path)
 	return t;
 }
 
+/* t.schema() — return the schema name carried by the Tabula. */
+O9String*
+o9_tab_schema(O9Tabula *t)
+{
+	const char *s;
+
+	if(t == nil || t->tab == nil)
+		return o9_string_from_c("");
+	s = tab_schema_name(t->tab);
+	return o9_string_from_c(s != nil ? (char*)s : "");
+}
+
+/* t.has(col) — true when col is present in the schema. */
+int
+o9_tab_has(O9Tabula *t, O9String *col)
+{
+	char *ccol;
+	int ok;
+
+	if(t == nil || t->tab == nil || col == nil)
+		return 0;
+	ccol = o9_string_cstr(col);
+	if(ccol == nil)
+		return 0;
+	ok = o9_tab_has_col(t, ccol);
+	free(ccol);
+	return ok;
+}
+
 /* t.add(key) — append a row keyed by "id"=key; it becomes the current
  * row for subsequent set().  Returns 0 / -1. */
 int

@@ -8,6 +8,7 @@ func main() {
     t.write("b", "qty", "3");
     t.write("b", "status", "open");
 
+    print("schema ", t.schema(), " has ", t.has("status"), " missing ", t.has("missing"), "\n");
     Tabula paid = t.query("status", "paid");
     print("paid ", paid.first(), " ", paid.get("item"), " ", paid.get("qty"), "\n");
     print("readcmp ", cmp(t.read(), t.serialize()), "\n");

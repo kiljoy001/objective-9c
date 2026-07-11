@@ -276,6 +276,8 @@ extern int      o9_state_serialize(O9State *s, char *out, int nout);	/* debug: d
 typedef struct O9Tabula O9Tabula;
 extern O9Tabula* o9_tab_new(O9String *name, O9String *cols);	/* cols = "a,b,c" */
 extern O9Tabula* o9_tab_open(O9String *path);
+extern O9String* o9_tab_schema(O9Tabula *t);
+extern int       o9_tab_has(O9Tabula *t, O9String *col);
 extern int       o9_tab_add(O9Tabula *t, O9String *key);	/* append row, becomes current */
 extern int       o9_tab_write(O9Tabula *t, O9String *id, O9String *col, O9String *val);
 extern int       o9_tab_set(O9Tabula *t, O9String *col, O9String *val);

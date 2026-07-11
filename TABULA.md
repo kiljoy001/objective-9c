@@ -60,6 +60,8 @@ small:
 
 ```o9
 Tabula t = new_tab("orders", "item,qty,status")
+string schema = t.schema()
+int64 has_status = t.has("status")
 t.write("a", "item", "widget")
 t.write("a", "qty", "5")
 
@@ -72,6 +74,9 @@ t.flush()
   `id` record when needed.
 - `query(col, value)` is a direct wrapper over libtab column/value
   search and returns another `Tabula` with the same schema.
+- `schema()` returns the semantic collection name from the file's
+  `schema=` entry.
+- `has(col)` reports whether a column is declared in the schema.
 - `read()` returns the complete serialized text form.
 - `flush()` persists the current in-memory document to its backing path.
 

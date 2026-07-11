@@ -23,6 +23,20 @@ threadmain(int, char**)
 	o9_string_release(ob);
 	if(t == nil)
 		sysfatal("new");
+	os = o9_tab_schema(t);
+	s = o9_string_cstr(os);
+	o9_string_release(os);
+	if(s == nil || strcmp(s, "orders") != 0)
+		sysfatal("schema");
+	free(s);
+	oa = o9_string_from_c("qty");
+	if(o9_tab_has(t, oa) != 1)
+		sysfatal("has qty");
+	o9_string_release(oa);
+	oa = o9_string_from_c("missing");
+	if(o9_tab_has(t, oa) != 0)
+		sysfatal("has missing");
+	o9_string_release(oa);
 	oa = o9_string_from_c("a");
 	ob = o9_string_from_c("item");
 	oc = o9_string_from_c("widget");
