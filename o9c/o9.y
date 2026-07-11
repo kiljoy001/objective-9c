@@ -967,6 +967,8 @@ type_storage_for_codegen(Type *t)
             return "Channel*";
         if(strcmp(t->name, "Tabula") == 0)
             return "O9Tabula*";	/* a handle, not an embedded value */
+        if(strcmp(t->name, "MountTable") == 0)
+            return "O9MountTable*";	/* namespace policy/apply handle */
         p = type_builtin_plan9(t->name);
         if(p != nil)
             return p;
@@ -1185,6 +1187,7 @@ is_primitive(char *t)
     if(strcmp(t, "uchar") == 0) return 1;
     if(strcmp(t, "void") == 0) return 1;
     if(strcmp(t, "Tabula") == 0) return 1;	/* handle type, primitive-like decl */
+    if(strcmp(t, "MountTable") == 0) return 1;	/* handle type, primitive-like decl */
     if(find_class(t) && find_class(t)->type == NEnum) return 1;
     if(find_class(t) && find_class(t)->type == NStruct) return 1;
     return 0;
@@ -2806,6 +2809,16 @@ gen_expr(Node *e)
                 print("nil /* invalid Tabula constructor */");
             break;
         }
+        if(e->typeinfo != nil && e->typeinfo->kind == TyName &&
+           e->typeinfo->name != nil && strcmp(e->typeinfo->name, "MountTable") == 0){
+            print("o9_mount_table_new(");
+            if(e->right != nil)
+                gen_expr(e->right);
+            else
+                print("nil");
+            print(")");
+            break;
+        }
         print("0 /* unsupported new expression: %s */", e->name != nil ? e->name : "?");
         break;
     case NSelfCall:
@@ -2883,6 +2896,22 @@ gen_expr(Node *e)
                 else if(strcmp(e->name, "query") == 0) fn = "o9_tab_query";
                 else if(strcmp(e->name, "flush") == 0) fn = "o9_tab_flush";
                 else if(strcmp(e->name, "close") == 0) fn = "o9_tab_close";
+                if(fn != nil){
+                    Node *a;
+                    print("%s(", fn);
+                    gen_expr(e->left);
+                    for(a = e->right; a != nil; a = a->next){ print(", "); gen_expr(a); }
+                    print(")");
+                    break;
+                }
+            }
+            if(lt != nil && lt->kind == TyName && lt->name != nil &&
+               strcmp(lt->name, "MountTable") == 0){
+                char *fn = nil;
+                if(strcmp(e->name, "allowRoot") == 0) fn = "o9_mount_table_allow_root";
+                else if(strcmp(e->name, "validate") == 0) fn = "o9_mount_table_validate";
+                else if(strcmp(e->name, "apply") == 0) fn = "o9_mount_table_apply";
+                else if(strcmp(e->name, "close") == 0) fn = "o9_mount_table_close";
                 if(fn != nil){
                     Node *a;
                     print("%s(", fn);
@@ -6755,6 +6784,12 @@ annotate_expr_type(Node *e, Node *scope_class)
             /* has/add/write/set/first/next/flush return int64 (status / row-present) */
             return set_expr_type(e, type_name("int64"));
         }
+        if(lt != nil && lt->kind == TyName && lt->name != nil &&
+           strcmp(lt->name, "MountTable") == 0){
+            if(strcmp(e->name, "close") == 0)
+                return set_expr_type(e, type_name("void"));
+            return set_expr_type(e, type_name("int64"));
+        }
         if(type_is_collection(lt, "List")){
             if(strcmp(e->name, "Length") == 0)
                 return set_expr_type(e, type_name("int64"));
@@ -7158,6 +7193,14 @@ is_tabula_new(Node *e)
         e->typeinfo->name != nil && strcmp(e->typeinfo->name, "Tabula") == 0;
 }
 
+static int
+is_mount_table_new(Node *e)
+{
+    return e != nil && e->type == NClass &&
+        e->typeinfo != nil && e->typeinfo->kind == TyName &&
+        e->typeinfo->name != nil && strcmp(e->typeinfo->name, "MountTable") == 0;
+}
+
 static void
 typecheck_tabula_new(Node *e, Node *scope_class, int *errs)
 {
@@ -7184,6 +7227,33 @@ typecheck_tabula_new(Node *e, Node *scope_class, int *errs)
                 sem_line);
             (*errs)++;
         }
+    }
+}
+
+static void
+typecheck_mount_table_new(Node *e, Node *scope_class, int *errs)
+{
+    int got;
+
+    if(!is_mount_table_new(e))
+        return;
+    got = node_list_len(e->right);
+    if(e->typename != nil && strcmp(e->typename, "same") != 0){
+        fprint(2, "o9c: error: line %d: MountTable does not support near/far construction\n",
+            sem_line);
+        (*errs)++;
+    }
+    if(got != 1){
+        fprint(2, "o9c: error: line %d: MountTable constructor takes 1 Tabula argument, got %d\n",
+            sem_line, got);
+        (*errs)++;
+        return;
+    }
+    typecheck_expr(e->right, scope_class, errs);
+    if(!type_assignable_semantic(type_name("Tabula"), e->right->typeinfo)){
+        fprint(2, "o9c: error: line %d: MountTable constructor argument must be Tabula\n",
+            sem_line);
+        (*errs)++;
     }
 }
 
@@ -7261,6 +7331,10 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
         validate_type(e->typeinfo, errs);
         if(is_tabula_new(e)){
             typecheck_tabula_new(e, scope_class, errs);
+            break;
+        }
+        if(is_mount_table_new(e)){
+            typecheck_mount_table_new(e, scope_class, errs);
             break;
         }
         {
@@ -7521,6 +7595,34 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
                 }
                 break;
             }
+            if(lt != nil && lt->kind == TyName && lt->name != nil &&
+               strcmp(lt->name, "MountTable") == 0){
+                Node *a;
+                int want = -1, got = node_list_len(e->right);
+                if(strcmp(e->name, "allowRoot") == 0) want = 1;
+                else if(strcmp(e->name, "validate") == 0) want = 0;
+                else if(strcmp(e->name, "apply") == 0) want = 0;
+                else if(strcmp(e->name, "close") == 0) want = 0;
+                if(want < 0){
+                    fprint(2, "o9c: error: line %d: MountTable has no method '%s' "
+                        "(allowRoot/validate/apply/close)\n", sem_line, e->name);
+                    (*errs)++;
+                } else if(got != want){
+                    fprint(2, "o9c: error: line %d: MountTable.%s takes %d argument%s, got %d\n",
+                        sem_line, e->name, want, want == 1 ? "" : "s", got);
+                    (*errs)++;
+                }
+                for(a = e->right; a != nil; a = a->next){
+                    typecheck_expr(a, scope_class, errs);
+                    if(strcmp(e->name, "allowRoot") == 0 && got == want &&
+                       !type_assignable_semantic(type_name("string"), a->typeinfo)){
+                        fprint(2, "o9c: error: line %d: MountTable.allowRoot argument must be string\n",
+                            sem_line);
+                        (*errs)++;
+                    }
+                }
+                break;
+            }
             if(type_is_collection(lt, "List")){
                 if(strcmp(e->name, "Add") != 0 && strcmp(e->name, "Length") != 0){
                     fprint(2, "o9c: error: line %d: List has no method '%s'\n", sem_line, e->name);
@@ -7708,6 +7810,8 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
         if(e->left != nil && e->left->type == NClass){
             if(is_tabula_new(e->left))
                 typecheck_tabula_new(e->left, scope_class, errs);
+            if(is_mount_table_new(e->left))
+                typecheck_mount_table_new(e->left, scope_class, errs);
             Node *d = type_decl_node(e->left->typeinfo);
             if(d != nil){
                 if(d->type == NInterface){

@@ -1912,6 +1912,315 @@ o9_tab_close(O9Tabula *t)
 	free(t);
 }
 
+/* ---- MountTable: trusted local interpreter for schema=mounts Tabulae ----
+ *
+ * A mount table is data until a local program chooses to apply it.  The
+ * first cut intentionally supports local namespace assembly only:
+ *   kind=dir      target=<relative path under allowed root>
+ *   kind=bind     source=<absolute path or #device> target=<relative path>
+ *   kind=mountsrv source=/srv/name target=<relative path> [aname=...]
+ *
+ * Remote dial mounts should be added only behind explicit policy. */
+struct O9MountTable {
+	O9Tabula *spec;
+	char *root;
+};
+
+static int
+o9_mt_bad_text(char *s)
+{
+	uchar *p;
+
+	if(s == nil || s[0] == '\0')
+		return 1;
+	for(p = (uchar*)s; *p != 0; p++)
+		if(*p < 0x20 || *p == 0x7f)
+			return 1;
+	return 0;
+}
+
+static int
+o9_mt_has_dotdot(char *s)
+{
+	char *p;
+	int atseg;
+
+	if(s == nil)
+		return 1;
+	atseg = 1;
+	for(p = s; ; p++){
+		if(atseg && p[0] == '.' && p[1] == '.' &&
+		   (p[2] == '/' || p[2] == '\0'))
+			return 1;
+		if(*p == '\0')
+			break;
+		atseg = *p == '/';
+	}
+	return 0;
+}
+
+static int
+o9_mt_target_ok(char *target)
+{
+	if(o9_mt_bad_text(target))
+		return 0;
+	if(target[0] == '/')
+		return 0;
+	if(strcmp(target, ".") == 0)
+		return 1;
+	return !o9_mt_has_dotdot(target);
+}
+
+static int
+o9_mt_source_ok(char *source)
+{
+	if(o9_mt_bad_text(source))
+		return 0;
+	if(source[0] != '/' && source[0] != '#')
+		return 0;
+	return !o9_mt_has_dotdot(source);
+}
+
+static int
+o9_mt_srv_source_ok(char *source)
+{
+	if(!o9_mt_source_ok(source))
+		return 0;
+	return strncmp(source, "/srv/", 5) == 0;
+}
+
+static int
+o9_mt_join(char *out, int nout, char *root, char *target)
+{
+	if(out == nil || nout <= 0 || root == nil || target == nil)
+		return -1;
+	if(!o9_mt_target_ok(target))
+		return -1;
+	if(strcmp(target, ".") == 0)
+		snprint(out, nout, "%s", root);
+	else
+		snprint(out, nout, "%s/%s", root, target);
+	return 0;
+}
+
+static int
+o9_mt_ensure_dir_p(char *path)
+{
+	char buf[512], *p;
+
+	if(o9_mt_bad_text(path))
+		return -1;
+	snprint(buf, sizeof buf, "%s", path);
+	for(p = buf + 1; *p != '\0'; p++){
+		if(*p != '/')
+			continue;
+		*p = '\0';
+		if(o9_ns_ensure_dir(buf) < 0)
+			return -1;
+		*p = '/';
+	}
+	return o9_ns_ensure_dir(buf);
+}
+
+static int
+o9_mt_parse_flags(char *s, int *out)
+{
+	char *tmp, *f[8];
+	int nf, i, flags, base;
+
+	if(out == nil)
+		return -1;
+	if(s == nil || s[0] == '\0'){
+		*out = MREPL;
+		return 0;
+	}
+	tmp = strdup(s);
+	if(tmp == nil)
+		return -1;
+	nf = getfields(tmp, f, nelem(f), 1, ", ");
+	flags = 0;
+	base = 0;
+	for(i = 0; i < nf; i++){
+		if(f[i][0] == '\0')
+			continue;
+		if(strcmp(f[i], "repl") == 0){
+			if(base){ free(tmp); return -1; }
+			flags |= MREPL;
+			base = 1;
+		}else if(strcmp(f[i], "before") == 0){
+			if(base){ free(tmp); return -1; }
+			flags |= MBEFORE;
+			base = 1;
+		}else if(strcmp(f[i], "after") == 0){
+			if(base){ free(tmp); return -1; }
+			flags |= MAFTER;
+			base = 1;
+		}else if(strcmp(f[i], "create") == 0)
+			flags |= MCREATE;
+		else{
+			free(tmp);
+			return -1;
+		}
+	}
+	free(tmp);
+	if(!base)
+		flags |= MREPL;
+	*out = flags;
+	return 0;
+}
+
+O9MountTable*
+o9_mount_table_new(O9Tabula *spec)
+{
+	O9MountTable *m;
+
+	if(spec == nil)
+		return nil;
+	m = mallocz(sizeof *m, 1);
+	if(m == nil)
+		return nil;
+	m->spec = spec;
+	return m;
+}
+
+int
+o9_mount_table_allow_root(O9MountTable *m, O9String *root)
+{
+	char *r;
+
+	if(m == nil || root == nil)
+		return -1;
+	r = o9_string_cstr(root);
+	if(r == nil)
+		return -1;
+	if(r[0] != '/' || o9_mt_has_dotdot(r) || o9_mt_bad_text(r)){
+		free(r);
+		return -1;
+	}
+	if(o9_mt_ensure_dir_p(r) < 0){
+		free(r);
+		return -1;
+	}
+	free(m->root);
+	m->root = r;
+	return 0;
+}
+
+int
+o9_mount_table_validate(O9MountTable *m)
+{
+	TabIter *it;
+	TabRow *r;
+	const char *schema, *kind, *source, *target, *flags;
+	int f;
+
+	if(m == nil || m->spec == nil || m->spec->tab == nil || m->root == nil)
+		return -1;
+	schema = tab_schema_name(m->spec->tab);
+	if(schema == nil || strcmp(schema, "mounts") != 0)
+		return -1;
+	if(!o9_tab_has_col(m->spec, "kind") ||
+	   !o9_tab_has_col(m->spec, "target"))
+		return -1;
+	it = tab_iter(m->spec->tab);
+	if(it == nil)
+		return -1;
+	while((r = tab_iter_next(it)) != nil){
+		kind = tab_get(r, "kind");
+		source = tab_get(r, "source");
+		target = tab_get(r, "target");
+		flags = tab_get(r, "flags");
+		if(kind == nil || target == nil || !o9_mt_target_ok((char*)target))
+			goto bad;
+		if(flags != nil && o9_mt_parse_flags((char*)flags, &f) < 0)
+			goto bad;
+		if(strcmp(kind, "dir") == 0)
+			continue;
+		if(strcmp(kind, "bind") == 0){
+			if(!o9_mt_source_ok((char*)source))
+				goto bad;
+			continue;
+		}
+		if(strcmp(kind, "mountsrv") == 0){
+			if(!o9_mt_srv_source_ok((char*)source))
+				goto bad;
+			continue;
+		}
+		goto bad;
+	}
+	tab_iter_close(it);
+	return 0;
+bad:
+	tab_iter_close(it);
+	return -1;
+}
+
+int
+o9_mount_table_apply(O9MountTable *m)
+{
+	TabIter *it;
+	TabRow *r;
+	const char *kind, *source, *target, *flags, *aname;
+	char dst[512];
+	int f, fd, rv;
+
+	if(o9_mount_table_validate(m) < 0)
+		return -1;
+	if(o9_mt_ensure_dir_p(m->root) < 0)
+		return -1;
+	it = tab_iter(m->spec->tab);
+	if(it == nil)
+		return -1;
+	while((r = tab_iter_next(it)) != nil){
+		kind = tab_get(r, "kind");
+		source = tab_get(r, "source");
+		target = tab_get(r, "target");
+		flags = tab_get(r, "flags");
+		aname = tab_get(r, "aname");
+		if(o9_mt_join(dst, sizeof dst, m->root, (char*)target) < 0)
+			goto bad;
+		if(o9_mt_parse_flags((char*)flags, &f) < 0)
+			goto bad;
+		if(strcmp(kind, "dir") == 0){
+			if(o9_mt_ensure_dir_p(dst) < 0)
+				goto bad;
+			continue;
+		}
+		if(o9_mt_ensure_dir_p(dst) < 0)
+			goto bad;
+		if(strcmp(kind, "bind") == 0){
+			if(bind((char*)source, dst, f) < 0)
+				goto bad;
+			continue;
+		}
+		if(strcmp(kind, "mountsrv") == 0){
+			fd = open((char*)source, ORDWR);
+			if(fd < 0)
+				goto bad;
+			rv = mount(fd, -1, dst, f, aname != nil ? (char*)aname : "");
+			close(fd);
+			if(rv < 0)
+				goto bad;
+			continue;
+		}
+		goto bad;
+	}
+	tab_iter_close(it);
+	return 0;
+bad:
+	tab_iter_close(it);
+	return -1;
+}
+
+void
+o9_mount_table_close(O9MountTable *m)
+{
+	if(m == nil)
+		return;
+	free(m->root);
+	free(m);
+}
+
 /* ---- Task<T>: a one-shot spawn JOIN HANDLE (see CONCURRENCY.md) ----
  *
  * spawn f(args) returns a Task<T>. Internally channel-backed (the

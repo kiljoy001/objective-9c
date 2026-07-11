@@ -1,0 +1,25 @@
+// MountTable - local namespace control from an inert Tabula.
+func main() {
+    Tabula spec = new Tabula("mounts", "kind,source,target,flags,mode,aname");
+    spec.write("root", "kind", "dir");
+    spec.write("root", "target", ".");
+    spec.write("tmp", "kind", "bind");
+    spec.write("tmp", "source", "/tmp");
+    spec.write("tmp", "target", "tmp");
+    spec.write("tmp", "flags", "repl,create");
+
+    MountTable mt = new MountTable(spec);
+    print("root ", mt.allowRoot("/tmp/o9_mounttable_root"), "\n");
+    print("valid ", mt.validate(), "\n");
+    writefile("/tmp/o9_mounttable_probe", "ok");
+    print("apply ", mt.apply(), "\n");
+    print(readfile("/tmp/o9_mounttable_root/tmp/o9_mounttable_probe"), "\n");
+
+    Tabula bad = new Tabula("mounts", "kind,source,target,flags,mode,aname");
+    bad.write("bad", "kind", "bind");
+    bad.write("bad", "source", "/tmp");
+    bad.write("bad", "target", "../escape");
+    MountTable bm = new MountTable(bad);
+    bm.allowRoot("/tmp/o9_mounttable_root");
+    print("bad ", bm.validate(), "\n");
+}

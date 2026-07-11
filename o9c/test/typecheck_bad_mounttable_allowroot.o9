@@ -1,0 +1,5 @@
+func main() {
+    Tabula t = new Tabula("mounts", "kind,target");
+    MountTable m = new MountTable(t);
+    m.allowRoot(1);
+}

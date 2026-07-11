@@ -64,6 +64,12 @@ o9_ns_recipe (namespace-as-serializable-data), the served-tree
 createfile-into-stable-parent pattern (exports/, clone sessions), MREPL/
 MBEFORE.
 
+NEW SURFACE: `MountTable` is the authority-bearing interpreter for
+`schema=mounts` Tabulae.  A mount Tabula is inert data; `MountTable`
+validates policy (`allowRoot`) and applies local `dir`/`bind`/`mountsrv`
+rows to the current process namespace.  This is namespace control for
+application setup/isolation, not object composition.
+
 `replace`/`union` MIGHT survive — not to bind objects, but to compose
 OUTPUT REGIONS (union several produced trees at a path; replace a region).
 Decide when the produce-into-namespace surface is designed.
@@ -120,13 +126,17 @@ mounted as parts.
    gone. Why keep a keyword whose only behavior is to error? It composed
    the abandoned jumble model, binding /obj/ paths the flat facade never
    creates. Retired like cap.
-3. Design the produce-into-namespace surface (generalize exports/) from
+3. DONE: first `MountTable` surface for local namespace setup
+   (`dir`/`bind`/`mountsrv`, root-confined targets).
+4. Design the produce-into-namespace surface (generalize exports/) from
    the open questions above, with the output-integrity goals as the
    security spec.
-4. Build it; tests: an app produces a tree of files into a namespace, a
+5. Build it; tests: an app produces a tree of files into a namespace, a
    client mounts and reads the produced shape — plus the output-integrity
    adversarial tests.
 
-Nothing built yet except the link fail-closed. Relates to the app-facade
-(the shipped shape), exports (the first produce-into-namespace instance),
-and sessions (per-caller produced file sets).
+Current implemented pieces: link is removed, and `MountTable` can apply
+root-confined local namespace setup from `schema=mounts` Tabulae.  The
+remaining work relates to the app-facade (the shipped shape), exports
+(the first produce-into-namespace instance), and sessions (per-caller
+produced file sets).

@@ -290,6 +290,14 @@ extern O9Tabula* o9_tab_query(O9Tabula *t, O9String *col, O9String *val);
 extern int       o9_tab_flush(O9Tabula *t);
 extern void      o9_tab_close(O9Tabula *t);
 
+/* MountTable - trusted local interpreter for schema=mounts Tabulae. */
+typedef struct O9MountTable O9MountTable;
+extern O9MountTable* o9_mount_table_new(O9Tabula *spec);
+extern int           o9_mount_table_allow_root(O9MountTable *m, O9String *root);
+extern int           o9_mount_table_validate(O9MountTable *m);
+extern int           o9_mount_table_apply(O9MountTable *m);
+extern void          o9_mount_table_close(O9MountTable *m);
+
 /* Task<T> — a one-shot spawn join handle (channel-backed; the numbered
  * channel is internal). spawn returns it; t.await() joins. */
 typedef struct O9Task O9Task;
