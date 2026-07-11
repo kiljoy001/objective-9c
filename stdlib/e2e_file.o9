@@ -1,0 +1,14 @@
+import "file.o9";
+
+func main() {
+    File f = new File("/tmp/o9_stdlib_file.txt");
+    f.remove();
+    print("exists0 ", f.exists(), "\n");
+    print("write ", f.write("abc"), "\n");
+    print("append ", f.append("de"), "\n");
+    print("exists1 ", f.exists(), "\n");
+    print("size ", f.size(), "\n");
+    print("read ", f.read(), "\n");
+    print("remove ", f.remove(), "\n");
+    print("exists2 ", f.exists(), "\n");
+}

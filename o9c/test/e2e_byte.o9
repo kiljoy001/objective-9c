@@ -1,0 +1,27 @@
+class ByteBox {
+    prop byte value;
+
+    method ByteBox(byte b) {
+        value = b;
+    }
+
+    method byte get() {
+        return value;
+    }
+
+    method void set(byte b) {
+        value = b;
+    }
+
+    method int64 widened() {
+        return value + 1;
+    }
+}
+
+func main() {
+    ByteBox b = new ByteBox(65);
+    print("byte ", b.get(), "\n");
+    print("wide ", b.widened(), "\n");
+    b.set(255);
+    print("max ", b.get(), "\n");
+}

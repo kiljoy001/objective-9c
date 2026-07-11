@@ -1,0 +1,33 @@
+class BoolBox {
+    prop bool a;
+    prop bool b;
+
+    method BoolBox(bool x, bool y) {
+        a = x;
+        b = y;
+    }
+
+    method bool both() {
+        return a && b;
+    }
+
+    method bool either() {
+        return a || b;
+    }
+
+    method bool flipped() {
+        return !b;
+    }
+
+    method bool compare(int64 x, int64 y) {
+        return x < y;
+    }
+}
+
+func main() {
+    BoolBox t = new BoolBox(true, false);
+    print("both ", t.both(), "\n");
+    print("either ", t.either(), "\n");
+    print("flipped ", t.flipped(), "\n");
+    print("compare ", t.compare(3, 9), "\n");
+}

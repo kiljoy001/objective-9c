@@ -1,0 +1,62 @@
+function BufferAppendByteRaw(string data, byte b) string {
+    string out;
+
+    c {
+        vlong n;
+
+        n = o9_string_len(data);
+        out = o9_string_new(nil, n + 1);
+        if(out != nil){
+            if(n > 0)
+                memmove(o9_string_data(out), o9_string_data(data), n);
+            o9_string_data(out)[n] = (uchar)b;
+        }
+    }
+    return out;
+}
+
+function BufferByteAtRaw(string data, int64 index) byte {
+    byte out;
+
+    c {
+        if(data == nil || index < 0 || index >= o9_string_len(data))
+            out = 0;
+        else
+            out = (uchar)o9_string_data(data)[index];
+    }
+    return out;
+}
+
+class Buffer {
+    prop string bytes;
+
+    method Buffer(string initial) {
+        bytes = initial;
+    }
+
+    method void clear() {
+        bytes = "";
+    }
+
+    method void append(string s) {
+        bytes = cat(bytes, s);
+    }
+
+    method void appendByte(byte b) {
+        Task<string> t = spawn BufferAppendByteRaw(bytes, b);
+        bytes = t.await();
+    }
+
+    method byte byteAt(int64 index) {
+        Task<byte> t = spawn BufferByteAtRaw(bytes, index);
+        return t.await();
+    }
+
+    method int64 length() {
+        return len(bytes);
+    }
+
+    method string text() {
+        return bytes;
+    }
+}

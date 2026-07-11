@@ -1176,6 +1176,7 @@ is_primitive(char *t)
     if(strcmp(t, "uint16") == 0) return 1;
     if(strcmp(t, "int8") == 0) return 1;
     if(strcmp(t, "uint8") == 0) return 1;
+    if(strcmp(t, "byte") == 0) return 1;
     if(strcmp(t, "bool") == 0) return 1;
     if(strcmp(t, "string") == 0) return 1;
     if(strcmp(t, "int") == 0) return 1;
@@ -2602,6 +2603,7 @@ yylex(void)
             if(strcmp(buf, "uint16") == 0) return TTYPE;
             if(strcmp(buf, "int8") == 0) return TTYPE;
             if(strcmp(buf, "uint8") == 0) return TTYPE;
+            if(strcmp(buf, "byte") == 0) return TTYPE;
             if(strcmp(buf, "void") == 0) return TTYPE;
             if(strcmp(buf, "string") == 0) return TTYPE;
             if(strcmp(buf, "int") == 0) return TTYPE;
@@ -5544,7 +5546,14 @@ codegen(Node *root)
     /* aux tag: both O9Export and O9Session live in File->aux; the first
      * field discriminates them (destroyfid only has the Fid). */
     print("enum { O9AUX_EXPORT = 1, O9AUX_SESSION = 2 };\n");
-    print("struct O9Export { int tag; char *data; int ndata; };\n\n");
+    print("struct O9Export { int tag; QLock lock; char *data; int ndata; };\n\n");
+    print("static int o9app_export_name_ok(char *s){\n");
+    print("\tuchar *p;\n");
+    print("\tif(s == nil || s[0] == '\\0' || strcmp(s, \".\") == 0 || strcmp(s, \"..\") == 0) return 0;\n");
+    print("\tfor(p = (uchar*)s; *p != '\\0'; p++)\n");
+    print("\t\tif(*p < ' ' || *p == 0177 || *p == '/') return 0;\n");
+    print("\treturn 1;\n");
+    print("}\n\n");
 
     /* exports/ is a served-tree DIRECTORY (part of the application file
      * tree, reachable through the mount) — NOT an on-disk directory.
@@ -5687,9 +5696,11 @@ codegen(Node *root)
     print("\tif(r->fid->file->aux != nil && *(int*)r->fid->file->aux == O9AUX_EXPORT){\n");
     print("\t\tO9Export *__ex = r->fid->file->aux;\n");
     print("\t\tvlong __off = r->ifcall.offset; long __cnt = r->ifcall.count;\n");
-    print("\t\tif(__off >= __ex->ndata){ r->ofcall.count = 0; respond(r, nil); return; }\n");
+    print("\t\tqlock(&__ex->lock);\n");
+    print("\t\tif(__off >= __ex->ndata){ qunlock(&__ex->lock); r->ofcall.count = 0; respond(r, nil); return; }\n");
     print("\t\tif(__off + __cnt > __ex->ndata) __cnt = __ex->ndata - __off;\n");
     print("\t\tmemmove(r->ofcall.data, __ex->data + __off, __cnt);\n");
+    print("\t\tqunlock(&__ex->lock);\n");
     print("\t\tr->ofcall.count = __cnt; respond(r, nil); return;\n\t}\n");
     /* Root data: only the root-ctl (fire-and-forget/debug) reply. */
     print("\tif(strcmp(name, \"data\") == 0){ readstr(r, o9app_lastdata); respond(r, nil); return; }\n");
@@ -5765,10 +5776,11 @@ codegen(Node *root)
      * safe pattern); the serialized bytes go in the child File's aux.  If
      * a file of that name exists, its bytes are replaced (re-export). */
     print("void o9_export_tab(O9String *name, O9Tabula *t){\n");
-    print("\tFile *f; O9Export *ex; O9String *bytes; char *cname, *cbytes;\n");
+    print("\tFile *f; O9Export *ex; O9String *bytes; char *cname, *cbytes, *old;\n");
     print("\tif(o9app_exports_dir == nil || name == nil || t == nil) return;\n");
     print("\tcname = o9_string_cstr(name);\n");
     print("\tif(cname == nil) return;\n");
+    print("\tif(!o9app_export_name_ok(cname)){ free(cname); return; }\n");
     print("\tbytes = o9_tab_serialize(t);\n");
     print("\tcbytes = o9_string_cstr(bytes);\n");
     print("\tif(cbytes == nil){ free(cname); o9_string_release(bytes); return; }\n");
@@ -5778,10 +5790,14 @@ codegen(Node *root)
     print("\t\tif(f == nil){ free(cname); free(cbytes); o9_string_release(bytes); return; }\n");
     print("\t}\n");
     print("\tex = f->aux;\n");
-    print("\tif(ex == nil){ ex = mallocz(sizeof *ex, 1); ex->tag = O9AUX_EXPORT; f->aux = ex; }\n");
-    print("\tfree(ex->data);\n");
+    print("\tif(ex != nil && ex->tag != O9AUX_EXPORT){ free(cname); free(cbytes); o9_string_release(bytes); return; }\n");
+    print("\tif(ex == nil){ ex = mallocz(sizeof *ex, 1); if(ex == nil){ free(cname); free(cbytes); o9_string_release(bytes); return; } ex->tag = O9AUX_EXPORT; f->aux = ex; }\n");
+    print("\tqlock(&ex->lock);\n");
+    print("\told = ex->data;\n");
     print("\tex->data = cbytes; ex->ndata = bytes != nil ? o9_string_len(bytes) : 0;\n");
     print("\tf->length = ex->ndata;\n");
+    print("\tqunlock(&ex->lock);\n");
+    print("\tfree(old);\n");
     print("\tfree(cname); o9_string_release(bytes);\n");
     print("}\n\n");
 
@@ -6946,6 +6962,31 @@ require_contract_methods_bound(Node *owner, Node *contract, TypeBind *bindings, 
     depth--;
 }
 
+static int
+member_has_generated_storage(Node *m)
+{
+    return m != nil && (m->type == NProp || m->type == NState ||
+        m->type == NAtomic || m->type == NStream ||
+        m->type == NSecret || m->type == NCap);
+}
+
+static int
+generated_internal_field_name(char *name)
+{
+    static char *names[] = {
+        "ledger", "ref", "distance", "state", "data", "error",
+        "oid", "objdir", "dispatch_chan", nil
+    };
+    int i;
+
+    if(name == nil)
+        return 0;
+    for(i = 0; names[i] != nil; i++)
+        if(strcmp(name, names[i]) == 0)
+            return 1;
+    return 0;
+}
+
 static void
 check_local_member_conflicts(Node *cnode, int *errs)
 {
@@ -6956,6 +6997,13 @@ check_local_member_conflicts(Node *cnode, int *errs)
     for(a = cnode->left; a; a = a->next){
         if(a->name == nil || a->type == NInherit || a->type == NDestructor)
             continue;
+        if(member_has_generated_storage(a) && generated_internal_field_name(a->name)){
+            if(a->line > 0)
+                sem_line = a->line;
+            fprint(2, "o9c: error: line %d: field name '%s' is reserved by generated runtime storage in '%s'\n",
+                sem_line, a->name, cnode->name);
+            (*errs)++;
+        }
         for(b = a->next; b; b = b->next){
             if(b->name != nil && b->type != NInherit && b->type != NDestructor && strcmp(a->name, b->name) == 0){
                 if(b->line > 0)

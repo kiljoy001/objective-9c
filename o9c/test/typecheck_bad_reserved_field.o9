@@ -1,0 +1,6 @@
+class Bad {
+    prop string data;
+}
+
+func main() {
+}

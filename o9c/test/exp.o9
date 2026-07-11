@@ -3,7 +3,14 @@ func main() {
     t.add("a");
     t.set("item", "widget");
     t.set("qty", "5");
-    export("orders", t);
+    export("", t);
+    export(".", t);
+    export("..", t);
+    export("../escape.tab", t);
+    export("bad/name.tab", t);
+    export("orders.tab", t);
+    t.set("qty", "8");
+    export("orders.tab", t);
     print("exported\n");
     serve();
 }

@@ -1,0 +1,10 @@
+import "time.o9";
+
+func main() {
+    Time t = new Time();
+    int64 now = t.now();
+    int64 ns = t.nsec();
+    print("now ", now > 0, "\n");
+    print("nsec ", ns > 0, "\n");
+    print("sleep ", t.sleep(1), "\n");
+}

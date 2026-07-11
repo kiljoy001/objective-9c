@@ -1,0 +1,122 @@
+function FileAppendRaw(string path, string data) int64 {
+    int64 out;
+
+    c {
+        char *cpath;
+        int fd;
+        vlong n;
+
+        out = -1;
+        cpath = o9_string_cstr(path);
+        if(cpath != nil){
+            fd = open(cpath, OWRITE);
+            if(fd < 0)
+                fd = create(cpath, OWRITE, 0644);
+            else
+                seek(fd, 0, 2);
+            free(cpath);
+            if(fd >= 0){
+                n = o9_string_len(data);
+                if(write(fd, o9_string_data(data), n) == n)
+                    out = n;
+                close(fd);
+            }
+        }
+    }
+    return out;
+}
+
+function FileExistsRaw(string path) int64 {
+    int64 out;
+
+    c {
+        char *cpath;
+        int fd;
+
+        out = 0;
+        cpath = o9_string_cstr(path);
+        if(cpath != nil){
+            fd = open(cpath, OREAD);
+            if(fd >= 0){
+                out = 1;
+                close(fd);
+            }
+            free(cpath);
+        }
+    }
+    return out;
+}
+
+function FileSizeRaw(string path) int64 {
+    int64 out;
+
+    c {
+        char *cpath;
+        Dir *d;
+
+        out = -1;
+        cpath = o9_string_cstr(path);
+        if(cpath != nil){
+            d = dirstat(cpath);
+            if(d != nil){
+                out = d->length;
+                free(d);
+            }
+            free(cpath);
+        }
+    }
+    return out;
+}
+
+function FileRemoveRaw(string path) int64 {
+    int64 out;
+
+    c {
+        char *cpath;
+
+        out = 0;
+        cpath = o9_string_cstr(path);
+        if(cpath != nil){
+            if(remove(cpath) == 0)
+                out = 1;
+            free(cpath);
+        }
+    }
+    return out;
+}
+
+class File {
+    prop string path;
+
+    method File(string p) {
+        path = p;
+    }
+
+    method string read() {
+        return readfile(path);
+    }
+
+    method int64 write(string data) {
+        return writefile(path, data);
+    }
+
+    method int64 append(string data) {
+        Task<int64> t = spawn FileAppendRaw(path, data);
+        return t.await();
+    }
+
+    method bool exists() {
+        Task<int64> t = spawn FileExistsRaw(path);
+        return t.await() == 1;
+    }
+
+    method int64 size() {
+        Task<int64> t = spawn FileSizeRaw(path);
+        return t.await();
+    }
+
+    method bool remove() {
+        Task<int64> t = spawn FileRemoveRaw(path);
+        return t.await() == 1;
+    }
+}

@@ -1,0 +1,44 @@
+function TimeNowRaw() int64 {
+    int64 out;
+
+    c {
+        out = time(0);
+    }
+    return out;
+}
+
+function TimeNsecRaw() int64 {
+    int64 out;
+
+    c {
+        out = nsec();
+    }
+    return out;
+}
+
+function TimeSleepRaw(int64 ms) int64 {
+    int64 out;
+
+    c {
+        sleep(ms);
+        out = ms;
+    }
+    return out;
+}
+
+class Time {
+    method int64 now() {
+        Task<int64> t = spawn TimeNowRaw();
+        return t.await();
+    }
+
+    method int64 nsec() {
+        Task<int64> t = spawn TimeNsecRaw();
+        return t.await();
+    }
+
+    method int64 sleep(int64 ms) {
+        Task<int64> t = spawn TimeSleepRaw(ms);
+        return t.await();
+    }
+}

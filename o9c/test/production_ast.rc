@@ -293,6 +293,7 @@ require_error o9c/test/typecheck_bad_bool_int.o9 'cannot initialize int64 to boo
 require_error o9c/test/typecheck_bad_duplicate_enum.o9 'duplicate enum value ''Red'''
 require_error o9c/test/typecheck_bad_duplicate_object.o9 'duplicate object ''primary'''
 require_error o9c/test/typecheck_bad_duplicate_member.o9 'duplicate member ''value'' in ''Counter'''
+require_error o9c/test/typecheck_bad_reserved_field.o9 'field name ''data'' is reserved'
 require_error o9c/test/typecheck_bad_generic_arity.o9 'generic type ''Box<int64,string>'' needs 1 argument'
 require_error o9c/test/typecheck_bad_generic_unknown.o9 'line 2: syntax error near ''Box'''
 require_error o9c/test/typecheck_bad_type_not_generic.o9 'type ''Counter<int64>'' is not generic'

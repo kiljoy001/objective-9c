@@ -21,6 +21,7 @@ static Builtin builtins[] = {
 	{ "uint16", "ushort", "scalar", "%ud", "0" },
 	{ "int8", "char", "scalar", "%d", "0" },
 	{ "uint8", "uchar", "scalar", "%ud", "0" },
+	{ "byte", "uchar", "scalar", "%ud", "0" },
 	{ "void", "void", "none", "", "" },
 	{ "string", "O9String*", "pointer", "%p", "nil" },
 	{ "int", "int", "scalar", "%d", "0" },

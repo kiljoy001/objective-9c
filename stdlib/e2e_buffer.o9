@@ -1,0 +1,13 @@
+import "buffer.o9";
+
+func main() {
+    Buffer b = new Buffer("ab");
+    byte c = 67;
+    b.appendByte(c);
+    b.append("d");
+    print("buf ", b.text(), "\n");
+    print("len ", b.length(), "\n");
+    print("at ", b.byteAt(2), " ", b.byteAt(99), "\n");
+    b.clear();
+    print("clear ", b.length(), "\n");
+}

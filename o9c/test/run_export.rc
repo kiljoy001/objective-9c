@@ -12,8 +12,14 @@ tool=./o9c/o9c
 app=o9exptest
 src=o9c/test/exp.o9
 cfile=/tmp/o9exp.$pid.c
+ofile=/tmp/o9exp.$pid.6
 bin=/tmp/o9exp.$pid
 log=/tmp/o9exp.$pid.log
+cons_src=/tmp/o9exp_cons.$pid.o9
+cons_c=/tmp/o9exp_cons.$pid.c
+cons_o=/tmp/o9exp_cons.$pid.6
+cons_bin=/tmp/o9exp_cons.$pid
+cons_out=/tmp/o9exp_cons.$pid.out
 mtpt=/n/o9exp.$pid
 srvglob=/srv/o9.$app.$app.app
 
@@ -21,7 +27,7 @@ fn cleanup {
 	unmount $mtpt >[2]/dev/null
 	kill o9exp.$pid >[2]/dev/null
 	# only our own post — never a blanket /srv/o9.*.app wipe
-	rm -f $srvglob $cfile $bin $log
+	rm -f $srvglob $cfile $ofile $bin $log $cons_src $cons_c $cons_o $cons_bin $cons_out
 }
 
 fail=0
@@ -38,8 +44,8 @@ if(! test -e libo9.a){ echo missing libo9.a >[1=2]; exit missing }
 rm -f $srvglob
 # build
 if(! $tool $src > $cfile){ echo 'export: FAIL: transpile' >[1=2]; exit fail }
-if(! 6c -FVw -I. -o /tmp/o9exp.$pid.6 $cfile){ echo 'export: FAIL: 6c' >[1=2]; exit fail }
-if(! 6l -o $bin /tmp/o9exp.$pid.6 libo9.a /$objtype/lib/libndb.a){ echo 'export: FAIL: 6l' >[1=2]; exit fail }
+if(! 6c -FVw -I. -o $ofile $cfile){ echo 'export: FAIL: 6c' >[1=2]; exit fail }
+if(! 6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a){ echo 'export: FAIL: 6l' >[1=2]; exit fail }
 
 # run with our unique app name; watchdog kills it if it hangs
 $bin $app > $log >[2=1] &
@@ -66,17 +72,67 @@ if(! mount -c $srvglob $mtpt){
 	exit fail
 }
 
-# assertion 1: exports/orders exists
-if(! test -e $mtpt/exports/orders){
-	echo 'export: FAIL: exports/orders not present' >[1=2]
+# assertion 1: exports/orders.tab exists
+if(! test -e $mtpt/exports/orders.tab){
+	echo 'export: FAIL: exports/orders.tab not present' >[1=2]
 	ls -l $mtpt/exports >[1=2]
-	checkfail x 'missing exports/orders'
+	checkfail x 'missing exports/orders.tab'
 }
-# assertion 2: contents contain the row data we set (widget, qty 5)
-if(test -e $mtpt/exports/orders){
-	got=`{cat $mtpt/exports/orders}
+# assertion 2: contents contain the re-exported row data (widget, qty 8)
+if(test -e $mtpt/exports/orders.tab){
+	got=`{cat $mtpt/exports/orders.tab}
 	echo $"got | grep -s widget    ; checkfail $status 'orders missing "widget"'
-	echo $"got | grep -s '5'        ; checkfail $status 'orders missing qty 5'
+	echo $"got | grep -s '8'        ; checkfail $status 'orders missing re-exported qty 8'
+}
+
+# assertion 3: exported files are read-only
+@{ echo should-fail > $mtpt/exports/orders.tab } >[2]/dev/null
+if(~ $status ''){
+	echo 'export: FAIL: exported file accepted write' >[1=2]
+	fail=1
+}
+
+# assertion 4: unsafe export names did not escape or create nested files
+if(test -e $mtpt/escape.tab){
+	echo 'export: FAIL: ../escape.tab escaped exports' >[1=2]
+	fail=1
+}
+if(test -e $mtpt/exports/bad){
+	echo 'export: FAIL: bad/name.tab created nested export' >[1=2]
+	fail=1
+}
+
+# assertion 5: a consumer can import the mounted .tab through open_tab()
+{
+	echo 'func main() {'
+	echo '    Tabula t = open_tab("'$mtpt'/exports/orders.tab");'
+	echo '    print("first ", t.first(), "\n");'
+	echo '    print(t.get("item"), " ", t.get("qty"), "\n");'
+	echo '}'
+} > $cons_src
+if(! $tool $cons_src > $cons_c){
+	echo 'export: FAIL: consumer transpile' >[1=2]
+	fail=1
+}
+if(~ $fail 0 && ! 6c -FVw -I. -o $cons_o $cons_c){
+	echo 'export: FAIL: consumer 6c' >[1=2]
+	fail=1
+}
+if(~ $fail 0 && ! 6l -o $cons_bin $cons_o libo9.a /$objtype/lib/libndb.a){
+	echo 'export: FAIL: consumer 6l' >[1=2]
+	fail=1
+}
+if(~ $fail 0){
+	$cons_bin > $cons_out >[2=1]
+	if(! ~ $status ''){
+		echo 'export: FAIL: consumer run' >[1=2]
+		cat $cons_out >[1=2]
+		fail=1
+	}
+	if not{
+		grep -s 'first 1' $cons_out; checkfail $status 'consumer did not read first row'
+		grep -s 'widget 8' $cons_out; checkfail $status 'consumer did not read re-exported row'
+	}
 }
 
 kill $p $guard >[2]/dev/null
