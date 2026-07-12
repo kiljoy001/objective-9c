@@ -1,0 +1,7 @@
+argc 1 arg0 1
+pid 1 user 1
+set 1 1 hello
+unset 0 []
+cwd 1 chdir 1
+run ran
+fail 1

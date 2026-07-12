@@ -62,6 +62,9 @@ Implemented modules:
 - `Buffer` - mutable byte/text builder over `Bytes`.
 - `File` - Plan 9 file read/write/append/stat/dir helpers.
 - `Path` - Plan 9 path cleaning, join, base, dir, and extension helpers.
+- `IOBuffer` / `Reader` / `Writer` / `Appender` - buffered file IO over `Biobuf`.
+- `Process` / `Env` - process args, user/pid, command execution, cwd, and env vars.
+- `NetConn` / `NetListener` / `Factotum` / `NetToken` / `RemoteIdentity` / `KnownRemotes` - Plan 9 dial/listen fd wrappers, native factotum secret access, portable sealed capability tokens, and SSH-style TOFU identity pinning.
 - `Tabula` - built-in libtab-backed structured data object with `write`,
   `query`, `read`, and `flush`.
 

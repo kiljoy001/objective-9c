@@ -1,0 +1,225 @@
+function ProcessArgcRaw() int64 {
+    int64 out;
+    c {
+        out = o9_process_argc();
+    }
+    return out;
+}
+
+function ProcessArgRaw(int64 index) string {
+    string out;
+    c {
+        out = o9_process_arg(index);
+    }
+    return out;
+}
+
+function ProcessPidRaw() int64 {
+    int64 out;
+    c {
+        out = getpid();
+    }
+    return out;
+}
+
+function ProcessUserRaw() string {
+    string out;
+    c {
+        char *u;
+
+        u = getuser();
+        out = o9_string_from_c(u != nil ? u : "");
+    }
+    return out;
+}
+
+function ProcessRunRaw(string command) int64 {
+    int64 out;
+    c {
+        char *cmd;
+        int pid;
+        Waitmsg *w;
+
+        out = -1;
+        cmd = o9_string_cstr(command);
+        if(cmd != nil){
+            pid = rfork(RFPROC|RFFDG|RFNOTEG);
+            if(pid == 0){
+                execl("/bin/rc", "rc", "-c", cmd, nil);
+                exits("exec");
+            }
+            if(pid > 0){
+                for(;;){
+                    w = wait();
+                    if(w == nil)
+                        break;
+                    if(w->pid == pid){
+                        out = (w->msg == nil || w->msg[0] == '\0') ? 0 : 1;
+                        free(w);
+                        break;
+                    }
+                    free(w);
+                }
+            }
+            free(cmd);
+        }
+    }
+    return out;
+}
+
+function EnvGetRaw(string name) string {
+    string out;
+    c {
+        char *n, *v;
+
+        out = o9_string_new("", 0);
+        n = o9_string_cstr(name);
+        if(n != nil){
+            v = getenv(n);
+            if(v != nil){
+                out = o9_string_from_c(v);
+                free(v);
+            }
+            free(n);
+        }
+    }
+    return out;
+}
+
+function EnvExistsRaw(string name) int64 {
+    int64 out;
+    c {
+        char *n, *v;
+
+        out = 0;
+        n = o9_string_cstr(name);
+        if(n != nil){
+            v = getenv(n);
+            if(v != nil){
+                out = 1;
+                free(v);
+            }
+            free(n);
+        }
+    }
+    return out;
+}
+
+function EnvSetRaw(string name, string value) int64 {
+    int64 out;
+    c {
+        char *n, *v;
+
+        out = -1;
+        n = o9_string_cstr(name);
+        v = o9_string_cstr(value);
+        if(n != nil && v != nil && n[0] != '\0' && strchr(n, '/') == nil)
+            out = putenv(n, v);
+        free(n);
+        free(v);
+    }
+    return out;
+}
+
+function EnvUnsetRaw(string name) int64 {
+    int64 out;
+    c {
+        char *n;
+        char path[256];
+
+        out = -1;
+        n = o9_string_cstr(name);
+        if(n != nil && n[0] != '\0' && strchr(n, '/') == nil){
+            snprint(path, sizeof path, "/env/%s", n);
+            out = remove(path);
+        }
+        free(n);
+    }
+    return out;
+}
+
+function EnvCwdRaw() string {
+    string out;
+    c {
+        char buf[512];
+
+        if(getwd(buf, sizeof buf) != nil)
+            out = o9_string_from_c(buf);
+        else
+            out = o9_string_new("", 0);
+    }
+    return out;
+}
+
+function EnvChdirRaw(string path) int64 {
+    int64 out;
+    c {
+        char *p;
+
+        out = -1;
+        p = o9_string_cstr(path);
+        if(p != nil)
+            out = chdir(p);
+        free(p);
+    }
+    return out;
+}
+
+class Process {
+    method int64 pid() {
+        Task<int64> t = spawn ProcessPidRaw();
+        return t.await();
+    }
+
+    method string user() {
+        Task<string> t = spawn ProcessUserRaw();
+        return t.await();
+    }
+
+    method int64 argc() {
+        Task<int64> t = spawn ProcessArgcRaw();
+        return t.await();
+    }
+
+    method string arg(int64 index) {
+        Task<string> t = spawn ProcessArgRaw(index);
+        return t.await();
+    }
+
+    method int64 run(string command) {
+        Task<int64> t = spawn ProcessRunRaw(command);
+        return t.await();
+    }
+}
+
+class Env {
+    method string get(string name) {
+        Task<string> t = spawn EnvGetRaw(name);
+        return t.await();
+    }
+
+    method bool exists(string name) {
+        Task<int64> t = spawn EnvExistsRaw(name);
+        return t.await() == 1;
+    }
+
+    method bool set(string name, string value) {
+        Task<int64> t = spawn EnvSetRaw(name, value);
+        return t.await() == 0;
+    }
+
+    method bool unset(string name) {
+        Task<int64> t = spawn EnvUnsetRaw(name);
+        return t.await() == 0;
+    }
+
+    method string cwd() {
+        Task<string> t = spawn EnvCwdRaw();
+        return t.await();
+    }
+
+    method bool chdir(string path) {
+        Task<int64> t = spawn EnvChdirRaw(path);
+        return t.await() == 0;
+    }
+}

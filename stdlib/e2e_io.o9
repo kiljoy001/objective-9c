@@ -1,0 +1,26 @@
+import "io.o9";
+
+main {
+    string in = "/tmp/o9_stdlib_io_in";
+    string out = "/tmp/o9_stdlib_io_out";
+    writefile(in, "alpha\nbeta\nZ");
+
+    Reader r = new Reader(in);
+    print("all ", r.readAll(), "\n");
+    print("line1 ", r.readLine(), " ", r.position(), "\n");
+    print("line2 ", r.readLine(), " ", r.position(), "\n");
+    print("byte ", r.readByte(), " ", r.position(), " ", r.eof(), "\n");
+    r.reset();
+    print("first ", r.readByte(), " ", r.position(), "\n");
+
+    Writer w = new Writer(out);
+    Bytes b = new Bytes("two");
+    print("write ", w.write("one"), " ", w.writeByte(10), " ", w.writeBytes(b), " ", w.flush(), "\n");
+    print("out ", readfile(out), "\n");
+    w.close();
+    print("closed ", w.write("x"), "\n");
+
+    Appender a = new Appender(out);
+    print("append ", a.write("!"), " ", readfile(out), "\n");
+    a.close();
+}

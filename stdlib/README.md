@@ -9,7 +9,10 @@ Import modules by filename:
 ```o9
 import "bytes.o9";
 import "file.o9";
+import "io.o9";
+import "net.o9";
 import "path.o9";
+import "process.o9";
 ```
 
 ## Bytes
@@ -139,6 +142,243 @@ Methods:
 - `ext() string`
 - `join(string child) string`
 - `append(string child)`
+
+## IO
+
+`io.o9` provides buffered file IO over Plan 9 `Biobuf`.
+
+```o9
+import "io.o9";
+
+main {
+    Writer w = new Writer("/tmp/o9-note");
+    w.write("alpha\n");
+    w.writeByte(66);
+    w.close();
+
+    Reader r = new Reader("/tmp/o9-note");
+    print(r.readLine(), " ", r.readByte(), "\n");
+}
+```
+
+`IOBuffer` methods:
+
+- `IOBuffer(string path)`
+- `file() string`
+- `position() int64`
+- `seek(int64 pos)`
+- `reset()`
+- `appendWrites()`
+- `truncate() int64`
+- `readAll() string`
+- `eof() bool`
+- `readLine() string`
+- `readByte() byte`
+- `write(string data) int64`
+- `writeBytes(Bytes data) int64`
+- `writeByte(byte b) int64`
+- `flush() int64`
+- `close()`
+
+`Reader`, `Writer`, and `Appender` are narrower wrappers over the same raw
+helpers. They avoid exposing file descriptors or raw `Biobuf*` pointers.
+
+## Process And Env
+
+`process.o9` exposes process metadata, shell command execution, cwd, and
+environment variables.
+
+```o9
+import "process.o9";
+
+main {
+    Process p = new Process();
+    Env e = new Env();
+
+    print(p.argc(), " ", p.user(), "\n");
+    e.set("o9_mode", "dev");
+    p.run("echo ok >/tmp/o9-process");
+}
+```
+
+`Process` methods:
+
+- `pid() int64`
+- `user() string`
+- `argc() int64`
+- `arg(int64 index) string`
+- `run(string command) int64`
+
+`Env` methods:
+
+- `get(string name) string`
+- `exists(string name) bool`
+- `set(string name, string value) bool`
+- `unset(string name) bool`
+- `cwd() string`
+- `chdir(string path) bool`
+
+`run` executes through `/bin/rc -c`; return `0` means the command exited cleanly.
+
+## Net
+
+`net.o9` wraps Plan 9 `dial`, `announce`, `listen`, `accept`, `read`, `write`,
+and `close`.
+
+```o9
+import "net.o9";
+
+main {
+    NetConn c = new NetConn("tcp!example.com!80");
+    if(c.dial()) {
+        c.write("GET / HTTP/1.0\r\n\r\n");
+        print(c.read(512));
+        c.close();
+    }
+}
+```
+
+`NetConn` methods:
+
+- `NetConn(string address)`
+- `endpoint() string`
+- `dial() bool`
+- `isOpen() bool`
+- `read(int64 max) string`
+- `write(string data) int64`
+- `close() bool`
+
+`NetListener` methods:
+
+- `NetListener(string address)`
+- `listen() bool`
+- `dir() string`
+- `local() string`
+- `accept() bool`
+- `read(int64 max) string`
+- `write(string data) int64`
+- `closeAccepted() bool`
+- `close() bool`
+
+`Factotum` is the default Plan 9 secret boundary. Use it when both ends are
+Plan 9/9front and the app should rely on the native auth agent instead of
+storing private key material in `.tab` files.
+
+```o9
+import "net.o9";
+
+main {
+    Factotum f = new Factotum();
+    if(f.available()) {
+        print("native secrets available\n");
+    }
+}
+```
+
+Methods:
+
+- `Factotum()`
+- `useMount(string path)`
+- `path() string`
+- `available() bool`
+- `keys() string`
+- `has(string query) bool`
+- `ctl(string command) bool`
+- `addKey(string spec) bool`
+- `delKey(string query) bool`
+
+`addKey` writes `key <spec>` to factotum's `ctl` file; `delKey` writes
+`delkey <query>`. The object does not expose private key bytes. It only checks
+and controls the native auth agent.
+
+`NetToken` is the portable fallback for capability-style authorization strings,
+mainly for Unix interop or exported `.tab` workflows where factotum is not
+available. It stores the signing key as a `secret string`, so the object state
+contains only sealed text. Issuing or verifying requires the caller to supply
+the unlock key:
+
+```o9
+string unlock = passkey("operator passphrase", "my.app.net.unlock.v1");
+string signing = passkey("signing seed", "my.app.net.signing.v1");
+
+NetToken nt = new NetToken(unlock, signing);
+string tok = nt.issue(unlock, "tcp!host!svc");
+print(nt.verify(unlock, "tcp!host!svc", tok), "\n");
+```
+
+Methods:
+
+- `NetToken(string unlock, string signingKey)`
+- `issue(string unlock, string subject) string`
+- `verify(string unlock, string subject, string token) bool`
+
+For Plan 9-to-Plan 9 secure connections, the intended policy is:
+
+- use `Factotum` for private secrets and authentication material;
+- use `RemoteIdentity`/`KnownRemotes` for public identity pinning;
+- use `NetToken` only when the app needs a portable text capability outside
+  factotum.
+
+`RemoteIdentity` and `KnownRemotes` implement SSH-style trust on first use.
+The first public identity seen for a host is pinned in a local `.tab`; later
+connections must match that fingerprint. A changed key fails until code calls
+`replace` explicitly.
+
+Remote identity files are public data, not secret material:
+
+```text
+remote_identity
+    id=server
+    host=tcp!host!svc
+    algo=x25519
+    pub=<public-key>
+    fingerprint=<hash(host:algo:pub)>
+```
+
+Known remotes are local pinned state:
+
+```text
+known_remote
+    id=tcp!host!svc
+    algo=x25519
+    pub=<public-key>
+    fingerprint=<pinned-fingerprint>
+```
+
+Example:
+
+```o9
+RemoteIdentity id = new RemoteIdentity("/mnt/remote/exports/identity.tab");
+KnownRemotes known = new KnownRemotes("/lib/o9/known-remotes.tab");
+
+if(known.verifyOrPin("tcp!host!svc", id)) {
+    print("identity ok\n");
+}
+```
+
+`RemoteIdentity` methods:
+
+- `RemoteIdentity(string path)`
+- `set(string host, string algo, string pub)`
+- `load(string path) bool`
+- `write(string path) bool`
+- `valid() bool`
+- `host() string`
+- `algo() string`
+- `pub() string`
+- `fingerprint() string`
+
+`KnownRemotes` methods:
+
+- `KnownRemotes(string path)`
+- `ensure() bool`
+- `known(string host) bool`
+- `fingerprint(string host) string`
+- `verify(string host, RemoteIdentity id) bool`
+- `pin(string host, RemoteIdentity id) bool`
+- `verifyOrPin(string host, RemoteIdentity id) bool`
+- `replace(string host, RemoteIdentity id) bool`
+- `read() string`
 
 ## Tabula
 

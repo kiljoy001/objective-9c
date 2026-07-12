@@ -1,0 +1,474 @@
+import "bytes.o9";
+
+function IOReadAllRaw(string path) string {
+    use { bio }
+
+    string out;
+    c {
+        Biobuf *b;
+        char *cpath, *buf, *nb;
+        long n, total, cap;
+
+        out = o9_string_new("", 0);
+        cpath = o9_string_cstr(path);
+        b = cpath != nil ? Bopen(cpath, OREAD) : nil;
+        free(cpath);
+        if(b != nil){
+            cap = 8192;
+            total = 0;
+            buf = malloc(cap);
+            if(buf != nil){
+                while((n = Bread(b, buf + total, cap - total)) > 0){
+                    total += n;
+                    if(total >= cap){
+                        cap *= 2;
+                        nb = realloc(buf, cap);
+                        if(nb == nil)
+                            break;
+                        buf = nb;
+                    }
+                }
+                out = o9_string_new(buf, total);
+                free(buf);
+            }
+            Bterm(b);
+        }
+    }
+    return out;
+}
+
+function IOReadLineRaw(string path, int64 offset) string {
+    use { bio }
+
+    string out;
+    c {
+        Biobuf *b;
+        char *cpath, *buf, *nb;
+        long total, cap;
+        int ch;
+
+        out = o9_string_new("", 0);
+        cpath = o9_string_cstr(path);
+        b = cpath != nil ? Bopen(cpath, OREAD) : nil;
+        free(cpath);
+        if(b != nil){
+            if(offset < 0)
+                offset = 0;
+            Bseek(b, offset, 0);
+            cap = 128;
+            total = 0;
+            buf = malloc(cap);
+            if(buf != nil){
+                while((ch = Bgetc(b)) >= 0){
+                    if(ch == '\n')
+                        break;
+                    if(total >= cap){
+                        cap *= 2;
+                        nb = realloc(buf, cap);
+                        if(nb == nil)
+                            break;
+                        buf = nb;
+                    }
+                    buf[total++] = ch;
+                }
+                out = o9_string_new(buf, total);
+                free(buf);
+            }
+            Bterm(b);
+        }
+    }
+    return out;
+}
+
+function IOLineNextRaw(string path, int64 offset) int64 {
+    use { bio }
+
+    int64 out;
+    c {
+        Biobuf *b;
+        char *cpath;
+        int ch;
+
+        out = offset;
+        cpath = o9_string_cstr(path);
+        b = cpath != nil ? Bopen(cpath, OREAD) : nil;
+        free(cpath);
+        if(b != nil){
+            if(offset < 0)
+                offset = 0;
+            Bseek(b, offset, 0);
+            while((ch = Bgetc(b)) >= 0){
+                out++;
+                if(ch == '\n')
+                    break;
+            }
+            Bterm(b);
+        }
+    }
+    return out;
+}
+
+function IOHasByteRaw(string path, int64 offset) int64 {
+    use { bio }
+
+    int64 out;
+    c {
+        Biobuf *b;
+        char *cpath;
+        int ch;
+
+        out = 0;
+        cpath = o9_string_cstr(path);
+        b = cpath != nil ? Bopen(cpath, OREAD) : nil;
+        free(cpath);
+        if(b != nil){
+            if(offset < 0)
+                offset = 0;
+            Bseek(b, offset, 0);
+            ch = Bgetc(b);
+            if(ch >= 0)
+                out = 1;
+            Bterm(b);
+        }
+    }
+    return out;
+}
+
+function IOReadByteRaw(string path, int64 offset) byte {
+    use { bio }
+
+    byte out;
+    c {
+        Biobuf *b;
+        char *cpath;
+        int ch;
+
+        out = 0;
+        cpath = o9_string_cstr(path);
+        b = cpath != nil ? Bopen(cpath, OREAD) : nil;
+        free(cpath);
+        if(b != nil){
+            if(offset < 0)
+                offset = 0;
+            Bseek(b, offset, 0);
+            ch = Bgetc(b);
+            if(ch >= 0)
+                out = (uchar)ch;
+            Bterm(b);
+        }
+    }
+    return out;
+}
+
+function IOWriteRaw(string path, string data, int64 mode) int64 {
+    use { bio }
+
+    int64 out;
+    c {
+        Biobuf *b;
+        char *cpath;
+        int fd;
+        vlong n;
+
+        out = -1;
+        cpath = o9_string_cstr(path);
+        if(cpath != nil){
+            if(mode == 0)
+                fd = create(cpath, OWRITE, 0644);
+            else {
+                fd = open(cpath, OWRITE);
+                if(fd < 0)
+                    fd = create(cpath, OWRITE, 0644);
+                else
+                    seek(fd, 0, 2);
+            }
+            free(cpath);
+            if(fd >= 0){
+                b = Bfdopen(fd, OWRITE);
+                if(b != nil){
+                    n = o9_string_len(data);
+                    if(Bwrite(b, o9_string_data(data), n) == n && Bflush(b) >= 0)
+                        out = n;
+                    Bterm(b);
+                } else
+                    close(fd);
+            }
+        }
+    }
+    return out;
+}
+
+function IOTruncateRaw(string path) int64 {
+    int64 out;
+    c {
+        char *cpath;
+        int fd;
+
+        out = -1;
+        cpath = o9_string_cstr(path);
+        if(cpath != nil){
+            fd = create(cpath, OWRITE, 0644);
+            free(cpath);
+            if(fd >= 0){
+                close(fd);
+                out = 0;
+            }
+        }
+    }
+    return out;
+}
+
+function IOByteStringRaw(byte b) string {
+    string out;
+    c {
+        uchar c;
+
+        c = (uchar)b;
+        out = o9_string_new((char*)&c, 1);
+    }
+    return out;
+}
+
+class IOBuffer {
+    private string path;
+    private int64 offset;
+    private int64 appendMode;
+    private int64 writeStarted;
+    private int64 closed;
+
+    method IOBuffer(string p) {
+        path = p;
+        offset = 0;
+        appendMode = 1;
+        writeStarted = 0;
+        closed = 0;
+    }
+
+    method string file() {
+        return path;
+    }
+
+    method int64 position() {
+        return offset;
+    }
+
+    method void seek(int64 pos) {
+        if(pos < 0) {
+            offset = 0;
+        } else {
+            offset = pos;
+        }
+    }
+
+    method void reset() {
+        offset = 0;
+    }
+
+    method void appendWrites() {
+        appendMode = 1;
+    }
+
+    method int64 truncate() {
+        Task<int64> t = spawn IOTruncateRaw(path);
+        appendMode = 0;
+        writeStarted = 0;
+        return t.await();
+    }
+
+    method string readAll() {
+        Task<string> t = spawn IOReadAllRaw(path);
+        return t.await();
+    }
+
+    method bool eof() {
+        Task<int64> t = spawn IOHasByteRaw(path, offset);
+        return t.await() == 0;
+    }
+
+    method string readLine() {
+        Task<string> t = spawn IOReadLineRaw(path, offset);
+        string line = t.await();
+        Task<int64> n = spawn IOLineNextRaw(path, offset);
+        offset = n.await();
+        return line;
+    }
+
+    method byte readByte() {
+        Task<byte> t = spawn IOReadByteRaw(path, offset);
+        byte b = t.await();
+        Task<int64> h = spawn IOHasByteRaw(path, offset);
+        if(h.await() == 1) {
+            offset = offset + 1;
+        }
+        return b;
+    }
+
+    method int64 write(string data) {
+        int64 mode = 1;
+        if(closed == 1) {
+            return -1;
+        }
+        if(writeStarted == 0 && appendMode == 0) {
+            mode = 0;
+        }
+        Task<int64> t = spawn IOWriteRaw(path, data, mode);
+        writeStarted = 1;
+        return t.await();
+    }
+
+    method int64 writeBytes(Bytes data) {
+        return write(data.text());
+    }
+
+    method int64 writeByte(byte b) {
+        Task<string> t = spawn IOByteStringRaw(b);
+        return write(t.await());
+    }
+
+    method int64 flush() {
+        return 0;
+    }
+
+    method void close() {
+        closed = 1;
+    }
+}
+
+class Reader {
+    private string path;
+    private int64 offset;
+    private int64 closed;
+
+    method Reader(string p) {
+        path = p;
+        offset = 0;
+        closed = 0;
+    }
+
+    method string readAll() {
+        Task<string> t = spawn IOReadAllRaw(path);
+        return t.await();
+    }
+
+    method string readLine() {
+        Task<string> t = spawn IOReadLineRaw(path, offset);
+        string line = t.await();
+        Task<int64> n = spawn IOLineNextRaw(path, offset);
+        offset = n.await();
+        return line;
+    }
+
+    method byte readByte() {
+        Task<byte> t = spawn IOReadByteRaw(path, offset);
+        byte b = t.await();
+        Task<int64> h = spawn IOHasByteRaw(path, offset);
+        if(h.await() == 1) {
+            offset = offset + 1;
+        }
+        return b;
+    }
+
+    method bool eof() {
+        Task<int64> t = spawn IOHasByteRaw(path, offset);
+        return t.await() == 0;
+    }
+
+    method void seek(int64 pos) {
+        if(pos < 0) {
+            offset = 0;
+        } else {
+            offset = pos;
+        }
+    }
+
+    method void reset() {
+        offset = 0;
+    }
+
+    method int64 position() {
+        return offset;
+    }
+
+    method void close() {
+        closed = 1;
+    }
+}
+
+class Writer {
+    private string path;
+    private int64 writeStarted;
+    private int64 closed;
+
+    method Writer(string p) {
+        path = p;
+        writeStarted = 0;
+        closed = 0;
+        Task<int64> t = spawn IOTruncateRaw(path);
+        t.await();
+    }
+
+    method int64 write(string data) {
+        int64 mode = 1;
+        if(closed == 1) {
+            return -1;
+        }
+        if(writeStarted == 0) {
+            mode = 0;
+        }
+        Task<int64> t = spawn IOWriteRaw(path, data, mode);
+        writeStarted = 1;
+        return t.await();
+    }
+
+    method int64 writeBytes(Bytes data) {
+        return write(data.text());
+    }
+
+    method int64 writeByte(byte b) {
+        Task<string> t = spawn IOByteStringRaw(b);
+        return write(t.await());
+    }
+
+    method int64 flush() {
+        return 0;
+    }
+
+    method void close() {
+        closed = 1;
+    }
+}
+
+class Appender {
+    private string path;
+    private int64 closed;
+
+    method Appender(string p) {
+        path = p;
+        closed = 0;
+    }
+
+    method int64 write(string data) {
+        if(closed == 1) {
+            return -1;
+        }
+        Task<int64> t = spawn IOWriteRaw(path, data, 1);
+        return t.await();
+    }
+
+    method int64 writeBytes(Bytes data) {
+        return write(data.text());
+    }
+
+    method int64 writeByte(byte b) {
+        Task<string> t = spawn IOByteStringRaw(b);
+        return write(t.await());
+    }
+
+    method int64 flush() {
+        return 0;
+    }
+
+    method void close() {
+        closed = 1;
+    }
+}

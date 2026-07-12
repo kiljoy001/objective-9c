@@ -246,6 +246,12 @@ extern vlong     o9_writefile(O9String *path, O9String *s);
 extern O9String* o9_readline(void);
 extern void   o9_serve(void);	/* block forever, yielding, so the app keeps serving */
 
+/* Process argv snapshot. Generated threadmain calls o9_process_set_args
+ * before user main so stdlib/process.o9 can expose argc/arg safely. */
+extern void      o9_process_set_args(int argc, char **argv);
+extern vlong     o9_process_argc(void);
+extern O9String* o9_process_arg(vlong index);
+
 /* Method table backed by a private in-memory libtab — dispatch source of truth.
  *
  * One store per process; class servers register their methods (including

@@ -1036,6 +1036,45 @@ o9_readline(void)
 	return o9_string_new(buf, i);
 }
 
+static int o9_argc;
+static char **o9_argv;
+
+void
+o9_process_set_args(int argc, char **argv)
+{
+	int i;
+
+	if(o9_argv != nil){
+		for(i = 0; i < o9_argc; i++)
+			free(o9_argv[i]);
+		free(o9_argv);
+		o9_argv = nil;
+		o9_argc = 0;
+	}
+	if(argc <= 0 || argv == nil)
+		return;
+	o9_argv = malloc(argc * sizeof(char*));
+	if(o9_argv == nil)
+		return;
+	for(i = 0; i < argc; i++)
+		o9_argv[i] = argv[i] != nil ? strdup(argv[i]) : strdup("");
+	o9_argc = argc;
+}
+
+vlong
+o9_process_argc(void)
+{
+	return o9_argc;
+}
+
+O9String*
+o9_process_arg(vlong index)
+{
+	if(index < 0 || index >= o9_argc || o9_argv == nil)
+		return o9_string_new("", 0);
+	return o9_string_from_c(o9_argv[index]);
+}
+
 /* Block the calling thread forever, yielding the CPU, so a posted 9P
  * server keeps serving.  Unlike `while(true){}` (which spins and starves
  * the server proc under the cooperative thread scheduler), this receives

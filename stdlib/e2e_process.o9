@@ -1,0 +1,19 @@
+import "process.o9";
+
+main {
+    Process p = new Process();
+    Env e = new Env();
+
+    print("argc ", p.argc(), " arg0 ", len(p.arg(0)) > 0, "\n");
+    print("pid ", p.pid() > 0, " user ", len(p.user()) > 0, "\n");
+
+    e.unset("o9_env_test");
+    print("set ", e.set("o9_env_test", "hello"), " ", e.exists("o9_env_test"), " ", e.get("o9_env_test"), "\n");
+    e.unset("o9_env_test");
+    print("unset ", e.exists("o9_env_test"), " [", e.get("o9_env_test"), "]\n");
+    print("cwd ", len(e.cwd()) > 0, " chdir ", e.chdir(e.cwd()), "\n");
+
+    p.run("echo ran >/tmp/o9_process_run");
+    print("run ", readfile("/tmp/o9_process_run"));
+    print("fail ", p.run("exit fail"), "\n");
+}

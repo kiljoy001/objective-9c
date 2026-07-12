@@ -1,0 +1,14 @@
+dial 1 1
+read abc
+close 1 0
+bad 0
+listen 0 dir [] local []
+factotum 1
+token 1 0 0
+ident 1 1
+load 1 0
+known0 0
+pin 1 1
+verify 1
+changed 0
+replace 1 1 0

@@ -117,6 +117,13 @@ The first concrete stdlib layer is now object-first:
 - `stdlib/buffer.o9`: `Buffer`, a mutable byte/text builder over `Bytes`.
 - `stdlib/file.o9`: `File`, common Plan 9 file, stat, directory, and byte helpers.
 - `stdlib/path.o9`: `Path`, Plan 9 path cleaning and decomposition helpers.
+- `stdlib/io.o9`: `IOBuffer`, `Reader`, `Writer`, and `Appender` over Plan 9 `Biobuf`.
+- `stdlib/process.o9`: `Process` and `Env` over Plan 9 argv/env/cwd/rfork/exec/wait.
+- `stdlib/net.o9`: `NetConn`, `NetListener`, `Factotum`, `NetToken`,
+  `RemoteIdentity`, and `KnownRemotes`; fd tokens stay private, Plan 9 secrets
+  live in factotum by default, portable exported authority can still use
+  sealed/MACed capability tokens, and remote public identity is pinned with
+  SSH-style TOFU.
 - `Tabula`: built into the runtime because it wraps libtab directly; its public
   API is `write`, `query`, `read`, `flush`, iteration, and cell access.
 

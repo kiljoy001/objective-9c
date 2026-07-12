@@ -1,0 +1,633 @@
+function NetDialRaw(string address) string {
+    string out;
+    c {
+        char *addr;
+        char buf[32];
+        int fd;
+
+        out = o9_string_new("", 0);
+        addr = o9_string_cstr(address);
+        if(addr != nil){
+            if(addr[0] == '/')
+                fd = open(addr, ORDWR);
+            else
+                fd = dial(addr, nil, nil, nil);
+            if(fd >= 0){
+                snprint(buf, sizeof buf, "%d", fd);
+                out = o9_string_from_c(buf);
+            }
+            free(addr);
+        }
+    }
+    return out;
+}
+
+function NetAnnounceRaw(string address) string {
+    string out;
+    c {
+        char *addr;
+        char dir[128];
+        char buf[192];
+        int fd;
+
+        out = o9_string_new("", 0);
+        addr = o9_string_cstr(address);
+        if(addr != nil){
+            fd = announce(addr, dir);
+            if(fd >= 0){
+                snprint(buf, sizeof buf, "%d\n%s", fd, dir);
+                out = o9_string_from_c(buf);
+            }
+            free(addr);
+        }
+    }
+    return out;
+}
+
+function NetTokenDirRaw(string token) string {
+    string out;
+    c {
+        char *tok, *p;
+
+        out = o9_string_new("", 0);
+        tok = o9_string_cstr(token);
+        if(tok != nil){
+            p = strchr(tok, '\n');
+            if(p != nil)
+                out = o9_string_from_c(p + 1);
+            free(tok);
+        }
+    }
+    return out;
+}
+
+function NetAcceptRaw(string token) string {
+    string out;
+    c {
+        char *tok, *p, *dir;
+        char ldir[128];
+        char buf[32];
+        int lfd, dfd;
+
+        out = o9_string_new("", 0);
+        tok = o9_string_cstr(token);
+        if(tok != nil){
+            p = strchr(tok, '\n');
+            if(p != nil){
+                dir = p + 1;
+                lfd = listen(dir, ldir);
+                if(lfd >= 0){
+                    dfd = accept(lfd, ldir);
+                    close(lfd);
+                    if(dfd >= 0){
+                        snprint(buf, sizeof buf, "%d", dfd);
+                        out = o9_string_from_c(buf);
+                    }
+                }
+            }
+            free(tok);
+        }
+    }
+    return out;
+}
+
+function NetLocalRaw(string token) string {
+    string out;
+    c {
+        char *tok, *p, path[192], buf[256];
+        int fd, n;
+
+        out = o9_string_new("", 0);
+        tok = o9_string_cstr(token);
+        if(tok != nil){
+            p = strchr(tok, '\n');
+            if(p != nil){
+                snprint(path, sizeof path, "%s/local", p + 1);
+                fd = open(path, OREAD);
+                if(fd >= 0){
+                    n = read(fd, buf, sizeof buf - 1);
+                    close(fd);
+                    if(n > 0){
+                        while(n > 0 && (buf[n-1] == '\n' || buf[n-1] == '\r'))
+                            n--;
+                        buf[n] = '\0';
+                        out = o9_string_new(buf, n);
+                    }
+                }
+            }
+            free(tok);
+        }
+    }
+    return out;
+}
+
+function NetReadRaw(string token, int64 max) string {
+    string out;
+    c {
+        char *tok, *buf;
+        int fd, n;
+
+        out = o9_string_new("", 0);
+        tok = o9_string_cstr(token);
+        if(tok != nil){
+            fd = atoi(tok);
+            if(max < 0)
+                max = 0;
+            if(max > 65536)
+                max = 65536;
+            buf = malloc(max > 0 ? max : 1);
+            if(buf != nil){
+                n = read(fd, buf, max);
+                if(n > 0)
+                    out = o9_string_new(buf, n);
+                free(buf);
+            }
+            free(tok);
+        }
+    }
+    return out;
+}
+
+function NetWriteRaw(string token, string data) int64 {
+    int64 out;
+    c {
+        char *tok;
+        int fd;
+        vlong n;
+
+        out = -1;
+        tok = o9_string_cstr(token);
+        if(tok != nil){
+            fd = atoi(tok);
+            n = o9_string_len(data);
+            if(write(fd, o9_string_data(data), n) == n)
+                out = n;
+            free(tok);
+        }
+    }
+    return out;
+}
+
+function NetCloseRaw(string token) int64 {
+    int64 out;
+    c {
+        char *tok;
+        int fd;
+
+        out = -1;
+        tok = o9_string_cstr(token);
+        if(tok != nil && tok[0] != '\0'){
+            fd = atoi(tok);
+            out = close(fd);
+            free(tok);
+        }
+    }
+    return out;
+}
+
+function FactotumAvailableRaw(string mount) int64 {
+    int64 out;
+    c {
+        char *m;
+        char path[256];
+        int fd;
+
+        out = 0;
+        m = o9_string_cstr(mount);
+        if(m != nil && m[0] != '\0'){
+            snprint(path, sizeof path, "%s/rpc", m);
+            fd = open(path, ORDWR);
+            if(fd < 0){
+                snprint(path, sizeof path, "%s/ctl", m);
+                fd = open(path, OREAD);
+            }
+            if(fd >= 0){
+                close(fd);
+                out = 1;
+            }
+            free(m);
+        }
+    }
+    return out;
+}
+
+function FactotumCtlRaw(string mount) string {
+    string out;
+    c {
+        char *m;
+        char path[256];
+        char buf[8192];
+        int fd, n;
+
+        out = o9_string_new("", 0);
+        m = o9_string_cstr(mount);
+        if(m != nil && m[0] != '\0'){
+            snprint(path, sizeof path, "%s/ctl", m);
+            fd = open(path, OREAD);
+            if(fd >= 0){
+                n = read(fd, buf, sizeof buf - 1);
+                close(fd);
+                if(n > 0){
+                    buf[n] = '\0';
+                    out = o9_string_new(buf, n);
+                }
+            }
+            free(m);
+        }
+    }
+    return out;
+}
+
+function FactotumWriteCtlRaw(string mount, string command) int64 {
+    int64 out;
+    c {
+        char *m, *cmd;
+        char path[256];
+        int fd;
+        long n;
+
+        out = 0;
+        m = o9_string_cstr(mount);
+        cmd = o9_string_cstr(command);
+        if(m != nil && cmd != nil && m[0] != '\0' && cmd[0] != '\0' && strchr(cmd, '\n') == nil){
+            snprint(path, sizeof path, "%s/ctl", m);
+            fd = open(path, OWRITE);
+            if(fd >= 0){
+                n = strlen(cmd);
+                if(write(fd, cmd, n) == n && write(fd, "\n", 1) == 1)
+                    out = 1;
+                close(fd);
+            }
+        }
+        if(m != nil)
+            free(m);
+        if(cmd != nil)
+            free(cmd);
+    }
+    return out;
+}
+
+function FactotumHasRaw(string mount, string query) int64 {
+    int64 out;
+    c {
+        char *m, *q;
+        char path[256];
+        char buf[8192];
+        int fd, n;
+
+        out = 0;
+        m = o9_string_cstr(mount);
+        q = o9_string_cstr(query);
+        if(m != nil && q != nil && m[0] != '\0' && q[0] != '\0'){
+            snprint(path, sizeof path, "%s/ctl", m);
+            fd = open(path, OREAD);
+            if(fd >= 0){
+                n = read(fd, buf, sizeof buf - 1);
+                close(fd);
+                if(n > 0){
+                    buf[n] = '\0';
+                    if(strstr(buf, q) != nil)
+                        out = 1;
+                }
+            }
+        }
+        if(m != nil)
+            free(m);
+        if(q != nil)
+            free(q);
+    }
+    return out;
+}
+
+class NetConn {
+    private string address;
+    private string token;
+
+    method NetConn(string addr) {
+        address = addr;
+        token = "";
+    }
+
+    method string endpoint() {
+        return address;
+    }
+
+    method bool dial() {
+        Task<string> t = spawn NetDialRaw(address);
+        token = t.await();
+        return len(token) > 0;
+    }
+
+    method bool isOpen() {
+        return len(token) > 0;
+    }
+
+    method string read(int64 max) {
+        Task<string> t = spawn NetReadRaw(token, max);
+        return t.await();
+    }
+
+    method int64 write(string data) {
+        Task<int64> t = spawn NetWriteRaw(token, data);
+        return t.await();
+    }
+
+    method bool close() {
+        Task<int64> t = spawn NetCloseRaw(token);
+        token = "";
+        return t.await() == 0;
+    }
+}
+
+class NetListener {
+    private string address;
+    private string token;
+    private string accepted;
+
+    method NetListener(string addr) {
+        address = addr;
+        token = "";
+        accepted = "";
+    }
+
+    method bool listen() {
+        Task<string> t = spawn NetAnnounceRaw(address);
+        token = t.await();
+        return len(token) > 0;
+    }
+
+    method string dir() {
+        Task<string> t = spawn NetTokenDirRaw(token);
+        return t.await();
+    }
+
+    method string local() {
+        Task<string> t = spawn NetLocalRaw(token);
+        return t.await();
+    }
+
+    method bool accept() {
+        Task<string> t = spawn NetAcceptRaw(token);
+        accepted = t.await();
+        return len(accepted) > 0;
+    }
+
+    method string read(int64 max) {
+        Task<string> t = spawn NetReadRaw(accepted, max);
+        return t.await();
+    }
+
+    method int64 write(string data) {
+        Task<int64> t = spawn NetWriteRaw(accepted, data);
+        return t.await();
+    }
+
+    method bool closeAccepted() {
+        Task<int64> t = spawn NetCloseRaw(accepted);
+        accepted = "";
+        return t.await() == 0;
+    }
+
+    method bool close() {
+        Task<int64> t = spawn NetCloseRaw(token);
+        token = "";
+        return t.await() == 0;
+    }
+}
+
+class Factotum {
+    private string mount;
+
+    method Factotum() {
+        mount = "/mnt/factotum";
+    }
+
+    method void useMount(string path) {
+        mount = path;
+    }
+
+    method string path() {
+        return mount;
+    }
+
+    method bool available() {
+        Task<int64> t = spawn FactotumAvailableRaw(mount);
+        return t.await() == 1;
+    }
+
+    method string keys() {
+        Task<string> t = spawn FactotumCtlRaw(mount);
+        return t.await();
+    }
+
+    method bool has(string query) {
+        Task<int64> t = spawn FactotumHasRaw(mount, query);
+        return t.await() == 1;
+    }
+
+    method bool ctl(string command) {
+        Task<int64> t = spawn FactotumWriteCtlRaw(mount, command);
+        return t.await() == 1;
+    }
+
+    method bool addKey(string spec) {
+        return ctl(cat("key ", spec));
+    }
+
+    method bool delKey(string query) {
+        return ctl(cat("delkey ", query));
+    }
+}
+
+class NetToken {
+    secret string signingKey;
+
+    method NetToken(string unlock, string key) {
+        seal_signingKey(unlock, key);
+    }
+
+    method string issue(string unlock, string subject) {
+        string key = open_signingKey(unlock);
+        if(len(key) == 0) {
+            return "";
+        }
+        return cat(cat(subject, ":"), mac(key, subject));
+    }
+
+    method bool verify(string unlock, string subject, string token) {
+        string expected = issue(unlock, subject);
+        if(len(expected) == 0) {
+            return false;
+        }
+        return cmp(token, expected) == 0;
+    }
+}
+
+class RemoteIdentity {
+    private string ident;
+    private string hostValue;
+    private string algoValue;
+    private string pubValue;
+    private string fingerprintValue;
+
+    method RemoteIdentity(string path) {
+        ident = "server";
+        hostValue = "";
+        algoValue = "";
+        pubValue = "";
+        fingerprintValue = "";
+        if(len(path) > 0) {
+            load(path);
+        }
+    }
+
+    method string compute(string host, string algo, string pub) {
+        return hash(cat(cat(cat(cat(host, ":"), algo), ":"), pub));
+    }
+
+    method void set(string host, string algo, string pub) {
+        ident = "server";
+        hostValue = host;
+        algoValue = algo;
+        pubValue = pub;
+        fingerprintValue = compute(host, algo, pub);
+    }
+
+    method bool load(string path) {
+        Tabula t = new Tabula(path);
+        Tabula q = t.query("id", "server");
+        if(q.first() == 0) {
+            return false;
+        }
+        ident = "server";
+        hostValue = q.get("host");
+        algoValue = q.get("algo");
+        pubValue = q.get("pub");
+        fingerprintValue = q.get("fingerprint");
+        if(len(fingerprintValue) == 0) {
+            fingerprintValue = compute(hostValue, algoValue, pubValue);
+        }
+        return valid();
+    }
+
+    method bool write(string path) {
+        if(!valid()) {
+            return false;
+        }
+        Tabula t = new Tabula("remote_identity", "host,algo,pub,fingerprint");
+        t.write(ident, "host", hostValue);
+        t.write(ident, "algo", algoValue);
+        t.write(ident, "pub", pubValue);
+        t.write(ident, "fingerprint", fingerprintValue);
+        return writefile(path, t.read()) == 0;
+    }
+
+    method bool valid() {
+        return len(hostValue) > 0 && len(algoValue) > 0 && len(pubValue) > 0 && len(fingerprintValue) > 0;
+    }
+
+    method string host() {
+        return hostValue;
+    }
+
+    method string algo() {
+        return algoValue;
+    }
+
+    method string pub() {
+        return pubValue;
+    }
+
+    method string fingerprint() {
+        return fingerprintValue;
+    }
+}
+
+class KnownRemotes {
+    private string path;
+
+    method KnownRemotes(string p) {
+        path = p;
+        ensure();
+    }
+
+    method bool ensure() {
+        if(len(readfile(path)) > 0) {
+            return true;
+        }
+        Tabula t = new Tabula("known_remote", "algo,pub,fingerprint");
+        return writefile(path, t.read()) == 0;
+    }
+
+    method bool known(string host) {
+        ensure();
+        Tabula t = new Tabula(path);
+        Tabula q = t.query("id", host);
+        return q.first() == 1;
+    }
+
+    method string fingerprint(string host) {
+        ensure();
+        Tabula t = new Tabula(path);
+        Tabula q = t.query("id", host);
+        if(q.first() == 0) {
+            return "";
+        }
+        return q.get("fingerprint");
+    }
+
+    private method bool verifyFingerprint(string host, string fp) {
+        if(!known(host)) {
+            return false;
+        }
+        return cmp(fingerprint(host), fp) == 0;
+    }
+
+    private method bool storeFields(string host, string algo, string pub, string fp) {
+        if(len(host) == 0 || len(algo) == 0 || len(pub) == 0 || len(fp) == 0) {
+            return false;
+        }
+        ensure();
+        Tabula t = new Tabula(path);
+        t.write(host, "algo", algo);
+        t.write(host, "pub", pub);
+        t.write(host, "fingerprint", fp);
+        return t.flush() == 0;
+    }
+
+    method bool verify(string host, RemoteIdentity id) {
+        return verifyFingerprint(host, id.fingerprint());
+    }
+
+    method bool pin(string host, RemoteIdentity id) {
+        if(known(host) || !id.valid()) {
+            return false;
+        }
+        return storeFields(host, id.algo(), id.pub(), id.fingerprint());
+    }
+
+    method bool verifyOrPin(string host, RemoteIdentity id) {
+        string algo = id.algo();
+        string pub = id.pub();
+        string fp = id.fingerprint();
+        if(!id.valid()) {
+            return false;
+        }
+        if(known(host)) {
+            return verifyFingerprint(host, fp);
+        }
+        return storeFields(host, algo, pub, fp);
+    }
+
+    method bool replace(string host, RemoteIdentity id) {
+        if(!id.valid()) {
+            return false;
+        }
+        return storeFields(host, id.algo(), id.pub(), id.fingerprint());
+    }
+
+    method string read() {
+        ensure();
+        return readfile(path);
+    }
+}

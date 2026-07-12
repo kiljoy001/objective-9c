@@ -184,6 +184,9 @@ stdlibcase e2e_buffer
 stdlibcase e2e_file
 stdlibcase e2e_path
 stdlibcase e2e_time
+stdlibcase e2e_io
+stdlibcase e2e_process
+stdlibcase e2e_net
 runcase e2e_hard_recursion
 runcase e2e_hard_nesttry
 runcase e2e_hard_defer

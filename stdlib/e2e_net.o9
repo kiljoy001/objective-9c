@@ -1,0 +1,44 @@
+import "net.o9";
+
+main {
+    writefile("/tmp/o9_net_file", "abcdef");
+
+    NetConn c = new NetConn("/tmp/o9_net_file");
+    print("dial ", c.dial(), " ", c.isOpen(), "\n");
+    print("read ", c.read(3), "\n");
+    print("close ", c.close(), " ", c.isOpen(), "\n");
+
+    NetConn bad = new NetConn("/tmp/o9_net_missing");
+    print("bad ", bad.dial(), "\n");
+
+    NetListener l = new NetListener("badnet!x!y");
+    print("listen ", l.listen(), " dir [", l.dir(), "] local [", l.local(), "]\n");
+
+    Factotum ft = new Factotum();
+    print("factotum ", ft.available(), "\n");
+
+    string unlock = passkey("unlock", "net.token.unlock.v1");
+    string wrong = passkey("wrong", "net.token.unlock.v1");
+    string signing = passkey("signer", "net.token.signing.v1");
+    NetToken nt = new NetToken(unlock, signing);
+    string tok = nt.issue(unlock, "tcp!example!9fs");
+    print("token ", nt.verify(unlock, "tcp!example!9fs", tok), " ", nt.verify(wrong, "tcp!example!9fs", tok), " ", nt.verify(unlock, "tcp!other!9fs", tok), "\n");
+
+    RemoteIdentity id = new RemoteIdentity("");
+    id.set("tcp!example!9fs", "x25519", "pub-a");
+    print("ident ", id.valid(), " ", len(id.fingerprint()) > 0, "\n");
+    id.write("/tmp/o9_remote_identity.tab");
+    RemoteIdentity loaded = new RemoteIdentity("/tmp/o9_remote_identity.tab");
+    print("load ", loaded.valid(), " ", cmp(id.fingerprint(), loaded.fingerprint()), "\n");
+
+    writefile("/tmp/o9_known_remotes.tab", "");
+    KnownRemotes known = new KnownRemotes("/tmp/o9_known_remotes.tab");
+    print("known0 ", known.known("tcp!example!9fs"), "\n");
+    print("pin ", known.verifyOrPin("tcp!example!9fs", loaded), " ", known.known("tcp!example!9fs"), "\n");
+    print("verify ", known.verifyOrPin("tcp!example!9fs", loaded), "\n");
+
+    RemoteIdentity changed = new RemoteIdentity("");
+    changed.set("tcp!example!9fs", "x25519", "pub-b");
+    print("changed ", known.verifyOrPin("tcp!example!9fs", changed), "\n");
+    print("replace ", known.replace("tcp!example!9fs", changed), " ", known.verify("tcp!example!9fs", changed), " ", known.verify("tcp!example!9fs", loaded), "\n");
+}

@@ -6006,6 +6006,7 @@ codegen(Node *root)
     print("void\nthreadmain(int argc, char **argv)\n{\n");
     print("\tvlong __o9fr[%d][12];\n", O9_MSG_FRAMES);
     print("\tUSED(argc); USED(argv); USED(__o9fr);\n");
+    print("\to9_process_set_args(argc, argv);\n");
     /* Per-app namespace isolation MUST happen here — the very first thing
      * in threadmain, BEFORE o9_registry_start or any proccreate. Forking
      * the namespace group after procs exist disturbs the thread library's
