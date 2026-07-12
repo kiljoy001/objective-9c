@@ -8,7 +8,7 @@ class Counter {
     }
 }
 
-func main() {
+main {
     Counter c = new Counter(0);
     c.inc(42);
     int64 x = c.val;

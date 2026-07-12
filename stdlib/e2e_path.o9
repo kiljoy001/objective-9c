@@ -1,0 +1,15 @@
+import "path.o9";
+
+main {
+    Path p = new Path("/tmp//a/../b/file.txt");
+    print("clean ", p.clean(), "\n");
+    print("base ", p.base(), "\n");
+    print("dir ", p.dir(), "\n");
+    print("ext ", p.ext(), "\n");
+    print("join ", p.join("../c/./note.md"), "\n");
+    p.normalize();
+    p.append("../x.bin");
+    print("mut ", p.text(), " ", p.base(), " ", p.ext(), "\n");
+    p.set("plain");
+    print("plain ", p.dir(), " ", p.base(), " [", p.ext(), "]\n");
+}

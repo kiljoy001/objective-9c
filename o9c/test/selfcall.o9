@@ -11,7 +11,7 @@ class Doubler {
     method int64 quad() { return twice() + twice(); }
 }
 
-func main() {
+main {
     Doubler d = new Doubler();
     int64 q = d.quad();
     print("q ", q);

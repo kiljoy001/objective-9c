@@ -8,7 +8,7 @@ class Counter {
     method void copyfrom(Counter other) { val = other.get(); }
     method int64 sumwith(Counter other) { return val + other.get(); }
 }
-func main() {
+main {
     Counter a = new Counter();
     Counter b = new Counter();
     a.set(42);

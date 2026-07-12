@@ -3,7 +3,7 @@ struct Point {
     int64 y;
 }
 
-func main() {
+main {
     List<int64> numbers;
     numbers.Add(10);
     numbers.Add(20);

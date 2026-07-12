@@ -23,7 +23,7 @@ module App {
 		}
 	}
 
-	func main() {
+	main {
 		Worker w = new Worker();
 		w.put(7);
 	}

@@ -1,5 +1,5 @@
 /* Test: local array var in func main */
-func main() {
+main {
     string items;
     items = nil;
     items[0] = 10;

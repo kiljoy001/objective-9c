@@ -1,8 +1,14 @@
 exists0 0
 write 0
 append 2
+bytes 6162636465
+appendb 2
 exists1 1
-size 5
-read abcde
+size 7
+read abcdexy
 remove 1
 exists2 0
+mkdir 1 1
+list a
+rma 1
+rmd 1

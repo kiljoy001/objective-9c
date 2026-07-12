@@ -6,7 +6,7 @@ class Pipe {
     method void put(int64 v) { c -> v; }
     method int64 take() { int64 x; x = <- c; return x; }
 }
-func main() {
+main {
     Pipe p = new Pipe();
     // Go-style: send several, receive in order (buffered channel)
     p.put(10);

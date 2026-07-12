@@ -4,7 +4,7 @@ class Counter {
     method void inc(int64 n) { val = val + n; }
 }
 
-func main() {
+main {
     Counter c;
     c = new Counter();
     

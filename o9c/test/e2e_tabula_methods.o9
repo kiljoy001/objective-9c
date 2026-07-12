@@ -1,5 +1,5 @@
 // Tabula document API: write/query/read/flush.
-func main() {
+main {
     Tabula t = new Tabula("orders", "item,qty,status");
     t.write("a", "item", "widget");
     t.write("a", "qty", "5");

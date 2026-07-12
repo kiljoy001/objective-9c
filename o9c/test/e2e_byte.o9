@@ -18,7 +18,7 @@ class ByteBox {
     }
 }
 
-func main() {
+main {
     ByteBox b = new ByteBox(65);
     print("byte ", b.get(), "\n");
     print("wide ", b.widened(), "\n");

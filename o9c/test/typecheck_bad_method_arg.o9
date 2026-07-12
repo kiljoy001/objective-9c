@@ -3,7 +3,7 @@ class Counter {
     }
 }
 
-func main() {
+main {
     Counter c = new Counter();
     c.set("bad");
 }

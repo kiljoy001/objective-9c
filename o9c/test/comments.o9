@@ -3,7 +3,7 @@ class CommentTest {
     int64 val; // Inline comment
     /* Block comment
        across multiple lines */
-    func (CommentTest *c) run() void {
+    method void run() {
         val = 10;
         val = val % 3; // Modulo
     }

@@ -9,7 +9,7 @@ function rawadd(int64 a, int64 b) int64 {
     return out;
 }
 
-func main() {
+main {
     Task<int64> t = spawn rawadd(10, 20);
     int64 v = t.await();
     print("raw ", v, "\n");

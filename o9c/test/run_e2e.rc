@@ -166,10 +166,11 @@ runcase e2e_for
 runcase e2e_chan
 runcase e2e_stream
 runcase e2e_module
-runcase e2e_atomic
 runcase e2e_widths
 runcase e2e_bool
 runcase e2e_byte
+runcase e2e_array_index
+runcase e2e_hash_collision
 runcase e2e_plan9ctypes
 runcase spawn_task
 runcase e2e_rawc_function
@@ -178,8 +179,10 @@ runcase e2e_rawc_draw
 runcase e2e_rawc_ctypes
 importcase e2e_import
 stdlibcase e2e_string
+stdlibcase e2e_bytes
 stdlibcase e2e_buffer
 stdlibcase e2e_file
+stdlibcase e2e_path
 stdlibcase e2e_time
 runcase e2e_hard_recursion
 runcase e2e_hard_nesttry

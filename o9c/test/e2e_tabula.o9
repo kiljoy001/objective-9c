@@ -1,6 +1,6 @@
 // Tabula — the first-class table type. Create, fill with rows, iterate,
 // read cells, serialize. Backed by libtab; every value is text.
-func main() {
+main {
     Tabula t = new Tabula("orders", "item,qty");
     t.add("a");
     t.set("item", "widget");

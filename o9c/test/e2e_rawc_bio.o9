@@ -22,7 +22,7 @@ function countbytes(string path) int64 {
     return n;
 }
 
-func main() {
+main {
     writefile("/tmp/o9_rawc_bio.txt", "abcde");
     Task<int64> t = spawn countbytes("/tmp/o9_rawc_bio.txt");
     print("bio ", t.await(), "\n");

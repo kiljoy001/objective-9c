@@ -1,2 +1,2 @@
 import "../../../etc/passwd.o9";
-func main() { print("nope\n"); }
+main { print("nope\n"); }

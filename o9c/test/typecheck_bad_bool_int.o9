@@ -1,4 +1,4 @@
-func main() {
+main {
     bool b = 1;
     print(b, "\n");
 }

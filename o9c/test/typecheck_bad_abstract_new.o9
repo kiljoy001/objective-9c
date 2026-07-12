@@ -2,6 +2,6 @@ abstract class Base {
 	abstract method int64 id();
 }
 
-func main() {
+main {
 	Base b = new Base();
 }

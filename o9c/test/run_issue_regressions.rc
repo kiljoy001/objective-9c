@@ -1,0 +1,126 @@
+#!/bin/rc
+# Real 9front regressions for the former Python issue probes.
+
+tool=./o9c/o9c
+fail=0
+app=o9remote
+srv=/srv/o9.^$app^.^$app^.app
+server=/tmp/o9remote_srv.$pid
+client=/tmp/o9remote_client.$pid
+
+fn cleanup {
+	if(! ~ $spid '')
+		@{echo kill > /proc/$spid/note} >[2]/dev/null
+	kill o9remote_srv.$pid | rc >[2]/dev/null
+	kill o9remote_client.$pid | rc >[2]/dev/null
+	rm -f $srv $server $client /tmp/o9issue_*.$pid.^*
+	broke | rc
+}
+
+fn failmsg {
+	echo $* >[1=2]
+	fail=1
+}
+
+fn buildc {
+	name=$1
+	src=$2
+	out=/tmp/o9issue_^$name^.$pid
+	if(! 6c -FVw -I. -o $out^.6 $src){
+		failmsg $name': 6c failed'
+		return
+	}
+	if(! 6l -o $out $out^.6 libo9.a /$objtype/lib/libndb.a){
+		failmsg $name': 6l failed'
+		return
+	}
+	$out
+	if(! ~ $status '')
+		failmsg $name': run failed'
+}
+
+fn require_generated {
+	pattern=$1
+	file=$2
+	msg=$3
+	grep -s $"pattern $file
+	if(! ~ $status '')
+		failmsg $msg
+}
+
+if(! test -e $tool){
+	echo missing $tool >[1=2]
+	exit missing
+}
+if(! test -e libo9.a){
+	echo missing libo9.a >[1=2]
+	exit missing
+}
+
+buildc registry o9c/test/runtime_registry_test.c
+buildc rpcsplit o9c/test/runtime_9p_rpc_test.c
+
+# Stream cleanup: this is a generated-code contract for leak-prone queued
+# boxes, compiled by o9c on 9front instead of Python string probing.
+if(! $tool < o9c/test/e2e_stream.o9 > /tmp/o9issue_stream.$pid.c){
+	failmsg 'stream cleanup: transpile failed'
+}
+if not{
+	require_generated 'nbrecvp' /tmp/o9issue_stream.$pid.c 'stream cleanup: missing drain'
+	require_generated 'free\(__box\)' /tmp/o9issue_stream.$pid.c 'stream cleanup: missing box free'
+	require_generated 'chanfree' /tmp/o9issue_stream.$pid.c 'stream cleanup: missing chanfree'
+}
+
+# Type compatibility: there should be one semantic assignability path, not
+# the old char* compatibility checker.
+grep -s 'is_type_compatible' o9c/o9.y
+if(~ $status '')
+	failmsg 'type contract: stale is_type_compatible checker exists'
+
+# 9front shared-memory tier: Linux may fall back, but the target path must
+# still use segattach.
+grep -s 'segattach' o9_runtime.c
+if(! ~ $status '')
+	failmsg 'shm contract: missing segattach path'
+
+# Raw runtime 9P client: start a generated server, then share one connected
+# remote handle across two procs. This exercises dynamic fids + fd locking.
+if(! $tool o9c/test/remote9p_app.o9 > /tmp/o9issue_remote.$pid.c){
+	failmsg 'remote9p app: transpile failed'
+}
+if not if(! 6c -FVw -I. -o /tmp/o9issue_remote.$pid.6 /tmp/o9issue_remote.$pid.c){
+	failmsg 'remote9p app: 6c failed'
+}
+if not if(! 6l -o $server /tmp/o9issue_remote.$pid.6 libo9.a /$objtype/lib/libndb.a){
+	failmsg 'remote9p app: 6l failed'
+}
+
+if(~ $fail 0){
+	rm -f $srv
+	$server $app &
+	spid=$apid
+	i=0
+	while(! test -e $srv && test $i -lt 12){
+		sleep 1
+		i=`{hoc -e $i+1}
+	}
+	if(! test -e $srv)
+		failmsg 'remote9p app: no /srv post'
+	if not{
+		if(! 6c -FVw -I. -o $client^.6 o9c/test/runtime_remote9p_test.c)
+			failmsg 'remote9p client: 6c failed'
+		if not if(! 6l -o $client $client^.6 libo9.a /$objtype/lib/libndb.a)
+			failmsg 'remote9p client: 6l failed'
+		if not{
+			$client $srv
+			if(! ~ $status '')
+				failmsg 'remote9p client: run failed'
+		}
+	}
+}
+
+cleanup
+
+if(! ~ $fail 0)
+	exit fail
+echo issue_regressions: OK

@@ -1,6 +1,6 @@
 class Counter {
     int64 val;
-    func (Counter *c) inc() void {
+    method void inc() {
         val = val;
     }
 }

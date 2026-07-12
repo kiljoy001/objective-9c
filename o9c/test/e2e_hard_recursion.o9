@@ -11,7 +11,7 @@ class Math {
         return fib(n - 1) + fib(n - 2);  // double recursion
     }
 }
-func main() {
+main {
     Math m = new Math();
     print("fact5 ", m.fact(5), "\n");    // 120
     print("fib10 ", m.fib(10), "\n");    // 55

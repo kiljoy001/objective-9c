@@ -1,0 +1,16 @@
+class Counter {
+    prop int64 value;
+}
+
+function bad() int64 {
+    int64 n;
+    c {
+        Counter_Internal *p;
+        p = nil;
+        n = 0;
+    }
+    return n;
+}
+
+main {
+}

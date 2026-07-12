@@ -1,6 +1,6 @@
 class Parent {
     int64 val;
-    func (Parent *p) set() void {
+    method void set() {
         val = val;
     }
 }
@@ -8,7 +8,7 @@ class Parent {
 class Child {
     Parent;
     int64 extra;
-    func (Child *c) set_extra() void {
+    method void set_extra() {
         extra = extra;
     }
     ~Child() {

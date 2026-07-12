@@ -7,7 +7,7 @@ class Circle {
     prop int64 r;
 }
 
-func main() {
+main {
     List<Shape> shapes;
     Circle c;
     c = new Circle();

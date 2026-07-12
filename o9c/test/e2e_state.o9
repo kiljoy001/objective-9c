@@ -22,7 +22,7 @@ class Sensor {
     }
     method int64 get() { return reading; }
 }
-func main() {
+main {
     Sensor s = new Sensor(42);
     s.update(7);
     print("reading ", s.get(), "\n");

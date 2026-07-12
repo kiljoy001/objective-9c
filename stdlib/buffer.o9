@@ -1,62 +1,49 @@
-function BufferAppendByteRaw(string data, byte b) string {
-    string out;
-
-    c {
-        vlong n;
-
-        n = o9_string_len(data);
-        out = o9_string_new(nil, n + 1);
-        if(out != nil){
-            if(n > 0)
-                memmove(o9_string_data(out), o9_string_data(data), n);
-            o9_string_data(out)[n] = (uchar)b;
-        }
-    }
-    return out;
-}
-
-function BufferByteAtRaw(string data, int64 index) byte {
-    byte out;
-
-    c {
-        if(data == nil || index < 0 || index >= o9_string_len(data))
-            out = 0;
-        else
-            out = (uchar)o9_string_data(data)[index];
-    }
-    return out;
-}
+import "bytes.o9";
 
 class Buffer {
-    prop string bytes;
+    Bytes bytes;
 
     method Buffer(string initial) {
-        bytes = initial;
+        bytes = new Bytes(initial);
     }
 
     method void clear() {
-        bytes = "";
+        bytes.clear();
+    }
+
+    method bool empty() {
+        return bytes.empty();
     }
 
     method void append(string s) {
-        bytes = cat(bytes, s);
+        bytes.appendString(s);
     }
 
     method void appendByte(byte b) {
-        Task<string> t = spawn BufferAppendByteRaw(bytes, b);
-        bytes = t.await();
+        bytes.append(b);
+    }
+
+    method void setByte(int64 index, byte b) {
+        bytes.set(index, b);
     }
 
     method byte byteAt(int64 index) {
-        Task<byte> t = spawn BufferByteAtRaw(bytes, index);
-        return t.await();
+        return bytes.get(index);
     }
 
     method int64 length() {
-        return len(bytes);
+        return bytes.length();
+    }
+
+    method string slice(int64 start, int64 count) {
+        return bytes.slice(start, count);
+    }
+
+    method string hex() {
+        return bytes.hex();
     }
 
     method string text() {
-        return bytes;
+        return bytes.text();
     }
 }

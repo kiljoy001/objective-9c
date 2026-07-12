@@ -9,7 +9,7 @@ class A {
 class B { A; method int64 who() { return 2; } }   // overrides who
 class C { B; method int64 vc() { return va() + 100; } }  // calls inherited va
 class D { C; method int64 who() { return 4; } }   // overrides again
-func main() {
+main {
     D d = new D(7);
     print("va ", d.va(), "\n");       // 7  (inherited 3 levels up)
     print("vc ", d.vc(), "\n");       // 107 (C method calling A method)

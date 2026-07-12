@@ -7,7 +7,7 @@ class Window {
     prop Point p;
 }
 
-func main() {
+main {
     Point pt;
     pt.x = 10;
     pt.y = 20;

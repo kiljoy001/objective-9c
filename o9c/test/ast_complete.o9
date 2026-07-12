@@ -28,7 +28,7 @@ module App {
     object Counter primary;
     object Box<int64> boxed;
 
-    func main() {
+    main {
         App.Color c = App.Green;
         Counter counter = new Counter();
         counter.inc(1);

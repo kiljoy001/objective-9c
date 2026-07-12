@@ -25,7 +25,7 @@ class Cat {
     }
     method int64 getLives() { return lives; }
 }
-func main() {
+main {
     Cat c = new Cat(7, 4, 9);
     print("species ", c.getSpecies(), "\n");   // 7  (Animal's field, 2 levels up)
     print("legs ", c.getLegs(), "\n");          // 4  (Mammal's field)

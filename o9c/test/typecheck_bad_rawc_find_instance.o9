@@ -1,0 +1,16 @@
+class Counter {
+    prop int64 value;
+}
+
+function bad() int64 {
+    int64 n;
+    c {
+        void *p;
+        p = Counter_find_instance("c");
+        n = 0;
+    }
+    return n;
+}
+
+main {
+}

@@ -3,7 +3,7 @@ function depcheck() int64 {
     return 0;
 }
 
-func main() {
+main {
     Task<int64> t = spawn depcheck();
     print(t.await(), "\n");
 }

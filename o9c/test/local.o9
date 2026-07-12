@@ -1,7 +1,7 @@
 class LocalTest {
     int64 val;
 
-    func (LocalTest *l) run() void {
+    method void run() {
         int64 temp = 10;
         int64 temp2;
         temp2 = 5;

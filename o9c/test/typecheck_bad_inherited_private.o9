@@ -6,7 +6,7 @@ class Derived {
     Base;
     method int64 leak() { return hidden; }
 }
-func main() {
+main {
     Derived d = new Derived();
     d.seed();
     print("leak ", d.leak(), "\n");

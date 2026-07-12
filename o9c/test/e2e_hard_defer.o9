@@ -14,7 +14,7 @@ class Trace {
         return n;
     }
 }
-func main() {
+main {
     Trace t = new Trace();
     t.three();                          // expect: mark 3, mark 2, mark 1
     print("---\n");

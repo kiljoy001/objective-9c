@@ -1,2 +1,2 @@
 from "lib.o9" import Greeter;
-func main() { print("nope\n"); }
+main { print("nope\n"); }

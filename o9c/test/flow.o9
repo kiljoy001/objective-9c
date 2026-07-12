@@ -1,7 +1,7 @@
 class FlowTest {
     int64 val;
     chan events;
-    func (FlowTest *f) run() void {
+    method void run() {
         val = 0;
         while(val < 10) {
             if(val == 5) {

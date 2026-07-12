@@ -36,6 +36,7 @@ o9_tab_serialize_into(Tab *tab, char *out, int nout)
 /* 9P encoding helpers — little-endian */
 #define PUT2(p, v) do{ (p)[0]=(v)&0xff; (p)[1]=((v)>>8)&0xff; }while(0)
 #define PUT4(p, v) do{ (p)[0]=(v)&0xff; (p)[1]=((v)>>8)&0xff; (p)[2]=((v)>>16)&0xff; (p)[3]=((v)>>24)&0xff; }while(0)
+#define GET4(p) ((u32int)(p)[0] | ((u32int)(p)[1]<<8) | ((u32int)(p)[2]<<16) | ((u32int)(p)[3]<<24))
 #define NOFID 0xFFFFFFFFu
 
 /*
@@ -477,6 +478,8 @@ typedef struct O9RegReq O9RegReq;
 struct O9RegReq {
 	int op;
 	O9Handle h;
+	O9Handle result;
+	int ok;
 	Channel *replyc;	/* carries O9Handle* into caller storage, or nil */
 };
 
@@ -488,7 +491,8 @@ static void
 o9_registry_proc(void *v)
 {
 	O9RegReq *r;
-	O9Handle *found;
+	O9Handle *found, *freep;
+	vlong oldgen;
 	int i;
 
 	USED(v);
@@ -497,30 +501,43 @@ o9_registry_proc(void *v)
 		if(r == nil)
 			continue;
 		found = nil;
+		freep = nil;
 		for(i = 0; i < o9_reg_n; i++)
 			if(strcmp(o9_reg_tab[i].oid, r->h.oid) == 0){
 				found = &o9_reg_tab[i];
 				break;
-			}
+			}else if(freep == nil && o9_reg_tab[i].chan == nil)
+				freep = &o9_reg_tab[i];
 		switch(r->op){
 		case O9RegRegister:
 			if(found == nil && o9_reg_n < nelem(o9_reg_tab))
 				found = &o9_reg_tab[o9_reg_n++];
+			else if(found == nil)
+				found = freep;
 			if(found != nil){
+				oldgen = found->gen;
 				*found = r->h;
-				found->gen++;
+				found->gen = oldgen + 1;
+				r->result = *found;
+				r->ok = 1;
 			}
 			break;
 		case O9RegLookup:
+			if(found != nil && found->chan != nil){
+				r->result = *found;
+				r->ok = 1;
+			}
 			break;
 		case O9RegUnregister:
 			if(found != nil){
-				*found = o9_reg_tab[--o9_reg_n];
+				found->class[0] = '\0';
+				found->chan = nil;
+				found->addr = nil;
 				found = nil;
 			}
 			break;
 		}
-		sendp(r->replyc, found);
+		sendp(r->replyc, r->ok ? &r->result : nil);
 	}
 }
 
@@ -621,6 +638,8 @@ o9_lookup_client(void *client, O9String *oid, int size)
 		obj->distance = -1;
 		obj->fd = -1;
 		strncpy(obj->srvname, name, sizeof obj->srvname - 1);
+		strncpy(obj->oid, name, sizeof obj->oid - 1);
+		obj->gen = h.gen;
 		free(name);
 		return 0;
 	}
@@ -2754,22 +2773,166 @@ o9_cache_fill(void *client, ulong hash, int is_ctrl)
 }
 
 static int
+o9_write_full(int fd, uchar *buf, int nbuf)
+{
+	int n, off;
+
+	off = 0;
+	while(off < nbuf){
+		n = write(fd, buf + off, nbuf - off);
+		if(n <= 0)
+			return -1;
+		off += n;
+	}
+	return 0;
+}
+
+static int
+o9_drain(int fd, int nleft)
+{
+	uchar tmp[512];
+	int n, want;
+
+	while(nleft > 0){
+		want = nleft < sizeof tmp ? nleft : sizeof tmp;
+		n = read(fd, tmp, want);
+		if(n <= 0)
+			return -1;
+		nleft -= n;
+	}
+	return 0;
+}
+
+static int
 o9_9p_rpc(int fd, uchar *tx, int ntx, uchar *rx, int nrx, int want)
 {
-	int n;
+	u32int size;
+	int n, r;
 
 	if(fd < 0 || tx == nil || rx == nil)
 		return -1;
-	if(write(fd, tx, ntx) != ntx)
+	if(o9_write_full(fd, tx, ntx) < 0)
 		return -1;
 	n = read(fd, rx, nrx);
+	if(n <= 0)
+		return -1;
+	while(n < 4){
+		r = read(fd, rx + n, nrx - n);
+		if(r <= 0)
+			return -1;
+		n += r;
+	}
+	size = GET4(rx);
+	if(size < 5)
+		return -1;
+	if(size > (u32int)nrx){
+		while(n < nrx){
+			r = read(fd, rx + n, nrx - n);
+			if(r <= 0)
+				return -1;
+			n += r;
+		}
+		o9_drain(fd, size - nrx);
+		return -1;
+	}
+	while(n < (int)size){
+		r = read(fd, rx + n, size - n);
+		if(r <= 0)
+			return -1;
+		n += r;
+	}
 	if(n < 5)
 		return -1;
 	if(rx[4] == 107)	/* Rerror */
 		return -1;
 	if(want != 0 && rx[4] != want)
 		return -1;
-	return n;
+	return size;
+}
+
+typedef struct O9SplitRpc O9SplitRpc;
+struct O9SplitRpc {
+	int fd;
+	Channel *done;
+};
+
+static void
+o9_split_rpc_server(void *v)
+{
+	O9SplitRpc *s;
+	uchar req[64], resp[32];
+	int n;
+
+	s = v;
+	n = read(s->fd, req, sizeof req);
+	if(n <= 0){
+		sendul(s->done, 1);
+		close(s->fd);
+		free(s);
+		return;
+	}
+
+	PUT4(resp, 19);
+	resp[4] = 101;		/* Rversion */
+	resp[5] = req[5];
+	resp[6] = req[6];
+	PUT4(resp+7, 4096);
+	PUT2(resp+11, 6);
+	memmove(resp+13, "9P2000", 6);
+
+	/* Split across the 4-byte size header and body. */
+	if(write(s->fd, resp, 2) != 2 ||
+	   (sleep(5), write(s->fd, resp+2, 1) != 1) ||
+	   (sleep(5), write(s->fd, resp+3, 16) != 16))
+		sendul(s->done, 1);
+	else
+		sendul(s->done, 0);
+	close(s->fd);
+	free(s);
+}
+
+int
+o9_selftest_9p_rpc_split(void)
+{
+	O9SplitRpc *s;
+	Channel *done;
+	uchar tx[32], rx[32];
+	int p[2], n, bad;
+
+	if(pipe(p) < 0)
+		return -1;
+	done = chancreate(sizeof(ulong), 1);
+	if(done == nil){
+		close(p[0]);
+		close(p[1]);
+		return -1;
+	}
+	s = mallocz(sizeof *s, 1);
+	if(s == nil){
+		chanfree(done);
+		close(p[0]);
+		close(p[1]);
+		return -1;
+	}
+	s->fd = p[1];
+	s->done = done;
+	proccreate(o9_split_rpc_server, s, 8192);
+
+	PUT4(tx, 19);
+	tx[4] = 100;		/* Tversion */
+	tx[5] = 0;
+	tx[6] = 0;
+	PUT4(tx+7, 4096);
+	PUT2(tx+11, 6);
+	memmove(tx+13, "9P2000", 6);
+
+	n = o9_9p_rpc(p[0], tx, 19, rx, sizeof rx, 101);
+	close(p[0]);
+	bad = recvul(done);
+	chanfree(done);
+	if(bad != 0 || n != 19 || rx[4] != 101 || GET4(rx+7) != 4096)
+		return -1;
+	return 0;
 }
 
 static int
@@ -2883,32 +3046,46 @@ o9_9p_read_all(int fd, u32int fid, char *buf, int nbuf)
 static int
 o9_remote_ctl_data(o9_Object *obj, char *cmd, char *data, int ndata)
 {
-	enum { Rootfid = 1, Ctlfid = 2, Datafid = 3 };
+	static QLock lock;
+	static u32int nextfid = 10;
+	enum { Rootfid = 1 };
+	u32int ctlfid, datafid;
+	int rv, havectl, havedata;
 
 	if(obj == nil || obj->fd < 0 || cmd == nil)
 		return -1;
-	if(o9_9p_walk1(obj->fd, Rootfid, Ctlfid, "ctl") < 0)
-		return -1;
-	if(o9_9p_open(obj->fd, Ctlfid, OWRITE) < 0)
-		goto failctl;
-	if(o9_9p_write_all(obj->fd, Ctlfid, cmd) < 0)
-		goto failctl;
-	o9_9p_clunk(obj->fd, Ctlfid);
-	if(o9_9p_walk1(obj->fd, Rootfid, Datafid, "data") < 0)
-		return -1;
-	if(o9_9p_open(obj->fd, Datafid, OREAD) < 0)
-		goto faildata;
-	if(o9_9p_read_all(obj->fd, Datafid, data, ndata) < 0)
-		goto faildata;
-	o9_9p_clunk(obj->fd, Datafid);
-	return 0;
-
-faildata:
-	o9_9p_clunk(obj->fd, Datafid);
-	return -1;
-failctl:
-	o9_9p_clunk(obj->fd, Ctlfid);
-	return -1;
+	if(data != nil && ndata > 0)
+		data[0] = '\0';
+	qlock(&lock);
+	if(nextfid > 0xfffffff0U)
+		nextfid = 10;
+	ctlfid = nextfid++;
+	datafid = nextfid++;
+	rv = -1;
+	havectl = 0;
+	havedata = 0;
+	if(o9_9p_walk1(obj->fd, Rootfid, ctlfid, "ctl") < 0)
+		goto out;
+	havectl = 1;
+	if(o9_9p_open(obj->fd, ctlfid, OWRITE) < 0)
+		goto out;
+	if(o9_9p_write_all(obj->fd, ctlfid, cmd) < 0)
+		goto out;
+	if(o9_9p_walk1(obj->fd, Rootfid, datafid, "data") < 0)
+		goto out;
+	havedata = 1;
+	if(o9_9p_open(obj->fd, datafid, OREAD) < 0)
+		goto out;
+	if(o9_9p_read_all(obj->fd, datafid, data, ndata) < 0)
+		goto out;
+	rv = 0;
+out:
+	if(havectl)
+		o9_9p_clunk(obj->fd, ctlfid);
+	if(havedata)
+		o9_9p_clunk(obj->fd, datafid);
+	qunlock(&lock);
+	return rv;
 }
 
 static void
@@ -2958,12 +3135,21 @@ void*
 obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int nargs)
 {
     o9_Object *obj = receiver;
+    O9Handle h;
     O9Msg *m;
     O9Reply *r;
     void *ret;
     char cmd[1024], data[8192];
 
     if(obj->dispatch_chan != nil){
+        if(obj->oid[0] != '\0' && obj->gen != 0){
+            if(o9_registry_lookup(obj->oid, &h) < 0 ||
+               h.gen != obj->gen || h.chan != obj->dispatch_chan){
+                werrstr("stale object handle");
+                o9_set_call_err("stale object handle");
+                return nil;
+            }
+        }
         m = mallocz(sizeof(O9Msg), 1);
         m->sel = selector;
         m->args = args;
@@ -3143,9 +3329,9 @@ int
 o9_connect(void *client, char *addr, char *srvname, int distance)
 {
 	o9_Object *obj = client;
-	char buf[256], dialaddr[256];
-	uchar rbuf[256];
-	int fd, n, msize;
+	char dialaddr[256], uname[64], *u;
+	uchar buf[256], rbuf[256], *p;
+	int fd, n, msize, ulen, alen;
 
 	if(addr == nil) return -1;
 
@@ -3159,10 +3345,12 @@ o9_connect(void *client, char *addr, char *srvname, int distance)
 		snprint(dialaddr, sizeof dialaddr, "tcp!%s", addr);	/* far = TCP */
 	}
 
-	fd = dial(dialaddr, nil, nil, nil);
+	if(addr[0] == '/')
+		fd = open(dialaddr, ORDWR);
+	else
+		fd = dial(dialaddr, nil, nil, nil);
 	if(fd < 0) return -1;
 
-	strncpy(buf, dialaddr, sizeof(buf)-1);
 	obj->fd = fd;
 	if(srvname)
 		strncpy(obj->srvname, srvname, sizeof(obj->srvname)-1);
@@ -3177,11 +3365,8 @@ o9_connect(void *client, char *addr, char *srvname, int distance)
 	buf[11] = n; buf[12] = 0; /* string len */
 	memmove(buf+13, "9P2000", n);
 	PUT4(buf, 13+n);
-	write(fd, buf, 13+n);
-
-	/* Rversion */
-	n = read(fd, rbuf, sizeof(rbuf));
-	if(n < 7) goto fail;
+	if(o9_9p_rpc(fd, buf, 13+n, rbuf, sizeof rbuf, 101) < 0)
+		goto fail;
 
 	/* Tattach root fid 1. */
 	PUT4(buf, 0); /* len */
@@ -3189,21 +3374,28 @@ o9_connect(void *client, char *addr, char *srvname, int distance)
 	buf[5] = 0; buf[6] = 0; /* tag */
 	PUT4(buf+7, 1); /* fid */
 	PUT4(buf+11, NOFID); /* afid */
-	PUT2(buf+15, 1); /* uname len */
-	buf[17] = 'S'; /* uname placeholder */
-	PUT2(buf+18, 1); /* aname len */
-	buf[20] = '/';
-	PUT4(buf, 21);
-	write(fd, buf, 21);
-
-	/* Rattach */
-	n = read(fd, rbuf, sizeof(rbuf));
-	if(n < 7) goto fail;
+	u = getuser();
+	if(u == nil || u[0] == '\0')
+		u = "none";
+	snprint(uname, sizeof uname, "%s", u);
+	ulen = strlen(uname);
+	alen = 1;
+	p = buf + 15;
+	PUT2(p, ulen);
+	p += 2;
+	memmove(p, uname, ulen);
+	p += ulen;
+	PUT2(p, alen);
+	p += 2;
+	*p++ = '/';
+	PUT4(buf, p - buf);
+	if(o9_9p_rpc(fd, buf, p - buf, rbuf, sizeof rbuf, 105) < 0)
+		goto fail;
 
 	obj->shm_base = nil;
 	obj->table = nil;
 	obj->dispatch_chan = nil;
-	obj->distance = 0; /* remote */
+	obj->distance = distance;
 	return 0;
 
 fail:
@@ -3367,6 +3559,40 @@ o9_slice_set(O9Slice *s, vlong idx, void *val)
 {
 	if(idx < 0 || idx >= s->len) return;
 	memmove((char*)s->data + (idx * s->elemsize), val, s->elemsize);
+}
+
+/*
+ * o9_slice_setgrow — set element at idx, growing and zero-filling gaps.
+ * This backs fixed-looking TyArray syntax (`a[2] = 9`) while keeping the
+ * storage representation the same O(1) slice used by List<T>.
+ */
+void
+o9_slice_setgrow(O9Slice *s, vlong idx, void *val)
+{
+	vlong oldcap, newcap;
+	void *ndata;
+
+	if(s == nil || val == nil || idx < 0 || s->elemsize <= 0)
+		return;
+	if(idx >= s->cap){
+		oldcap = s->cap;
+		newcap = oldcap > 0 ? oldcap : 8;
+		while(idx >= newcap)
+			newcap *= 2;
+		ndata = realloc(s->data, newcap * s->elemsize);
+		if(ndata == nil)
+			return;
+		s->data = ndata;
+		memset((char*)s->data + oldcap * s->elemsize, 0,
+			(newcap - oldcap) * s->elemsize);
+		s->cap = newcap;
+	}
+	if(idx >= s->len){
+		memset((char*)s->data + s->len * s->elemsize, 0,
+			(idx + 1 - s->len) * s->elemsize);
+		s->len = idx + 1;
+	}
+	memmove((char*)s->data + idx * s->elemsize, val, s->elemsize);
 }
 
 /*

@@ -13,7 +13,6 @@ enum {
     NClass,
     NProp,
     NState,
-    NAtomic,
     NStream,
     NSecret,
     NCap,
@@ -87,7 +86,8 @@ enum {
     NFMethodDecl = 1<<1,
     NFSelfCalled = 1<<2,
     NFPrivate = 1<<3,	/* class-scoped; not reachable through the app facade */
-    NFFunction = 1<<4	/* a synthesized function-class (fixed spawn template) */
+    NFFunction = 1<<4,	/* a synthesized function-class (fixed spawn template) */
+    NFMain = 1<<5	/* reserved top-level program bootstrap block */
 };
 
 struct Node {
@@ -253,7 +253,6 @@ void add_type_sym(char *name, char *typename);
 char* get_type_sym(char *name);
 void clear_type_syms(void);
 int is_subclass(char *sub, char *parent);
-int is_type_compatible(char *target, char *actual);
 
 typedef struct TypeSym TypeSym;
 struct TypeSym {
@@ -411,14 +410,6 @@ method_owner(Node *c, char *name)
     }
     depth--;
     return r;
-}
-
-int is_type_compatible(char *target, char *actual) {
-    if(target == nil || actual == nil) return 0;
-    if(strcmp(target, actual) == 0) return 1;
-    if(strcmp(target, "vlong") == 0 && (strcmp(actual, "int64") == 0 || strncmp(actual, "List:", 5) == 0)) return 1;
-    if(is_subclass(actual, target)) return 1;
-    return 0;
 }
 
 char* get_method_type(Node *c, char *name) {
@@ -1082,6 +1073,18 @@ type_is_collection(Type *t, char *name)
 }
 
 static int
+type_is_array(Type *t)
+{
+    return t != nil && t->kind == TyArray;
+}
+
+static Type*
+type_array_elem(Type *t)
+{
+    return type_is_array(t) ? t->base : nil;
+}
+
+static int
 type_is_void(Type *t)
 {
     return t != nil && t->kind == TyName && strcmp(t->name, "void") == 0;
@@ -1165,7 +1168,11 @@ type_cast(char *t)
 int
 is_primitive(char *t)
 {
+    int len;
+
     if(t == nil) return 1;
+    len = strlen(t);
+    if(len > 2 && strcmp(t + len - 2, "[]") == 0) return 1;
     if(strncmp(t, "Dict:", 5) == 0 || strncmp(t, "List:", 5) == 0) return 1;
     if(strcmp(t, "int64") == 0) return 1;
     if(strcmp(t, "uint64") == 0) return 1;
@@ -1206,7 +1213,7 @@ get_sym_type(Node *c, char *name)
                 if(t && strcmp(t, "vlong") != 0) return t;
             }
         }
-        if((m->type == NProp || m->type == NAtomic || m->type == NState) && m->name && strcmp(m->name, name) == 0){
+        if((m->type == NProp || m->type == NState) && m->name && strcmp(m->name, name) == 0){
             return type_storage_for_codegen(m->typeinfo);
         }
     }
@@ -1227,7 +1234,7 @@ get_sym_decl_type(Node *c, char *name)
             if(t != nil)
                 return t;
         }
-        if((m->type == NProp || m->type == NAtomic || m->type == NState) && m->name && strcmp(m->name, name) == 0)
+        if((m->type == NProp || m->type == NState) && m->name && strcmp(m->name, name) == 0)
             return m->typename;
     }
     return nil;
@@ -1327,7 +1334,7 @@ typeinfo_from_legacy(char *t)
 
 %token <node> TIDENT TTYPE TQIDENT TTYPEIDENT TENUMIDENT
 %token <name> TINTLIT TSTRINGLIT TCHARLIT TRAWC
-%token TCLASS TINTERFACE TSTRUCT TENUM TMODULE TIMPORT TFUNC TFUNCTION TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TLIST TTASK TNIL TABSTRACT TDELETE TSPAWN TUSE
+%token TCLASS TINTERFACE TSTRUCT TENUM TMODULE TIMPORT TFUNC TFUNCTION TMAIN TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TLIST TTASK TNIL TABSTRACT TDELETE TSPAWN TUSE
 %token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TOBJECT TTRUE TFALSE TARROW
 %token TPUBLIC TPRIVATE
 %token TTRY TDEFER
@@ -1350,7 +1357,7 @@ typeinfo_from_legacy(char *t)
 %right '!' '~' UMINUS
 %left '.' '['
  
-%type <node> program top_levels top_level class_decl class_head interface_decl interface_head struct_decl struct_head enum_decl enum_vals enum_val module_decl module_head import_decl object_decl member_list member member_body var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename name_ref type_name_ref decl_name generic_name enum_name member_name spawn_name dep_name dep_list param_list param call_args call_arg func_top_level function_decl for_init for_cond for_step else_clause generic_opt generic_names abstract_opt
+%type <node> program top_levels top_level class_decl class_head interface_decl interface_head struct_decl struct_head enum_decl enum_vals enum_val module_decl module_head import_decl object_decl member_list member member_body var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename name_ref type_name_ref decl_name generic_name enum_name member_name spawn_name dep_name dep_list param_list param call_args call_arg main_decl func_top_level function_decl for_init for_cond for_step else_clause generic_opt generic_names abstract_opt
 %type <type> type_expr type_primary
 %type <types> type_args type_args_opt
 
@@ -1467,6 +1474,7 @@ top_level:
     | module_decl
     | import_decl
     | object_decl
+    | main_decl
     | func_top_level
     | function_decl
     ;
@@ -1515,6 +1523,14 @@ object_decl:
         $$ = mk_typed(NObject, name, $2, nil, nil);
         set_node_names($$, source, name);
         add_object_sym($$);
+    }
+    ;
+
+main_decl:
+    TMAIN '{' stmt_list '}'
+    {
+        $$ = mk(NMethod, "main", "void", $3, nil);
+        $$->flags |= NFMain;
     }
     ;
 
@@ -1716,7 +1732,14 @@ prop_decl:
 atomic_decl:
     TATOMIC typename member_name ';'
     {
-        $$ = mk_typed(NAtomic, $3->name, $2, nil, nil);
+        /* `atomic` is not a user-facing field type. The runtime uses
+         * 9front atomics internally for ARC/tasks/counters, but language
+         * concurrency is actors, spawn/Task, streams, and 9P sessions. */
+        fprint(2, "o9c: error: 'atomic' is not a language keyword. "
+            "Use object dispatch/streams/spawn for concurrency; low-level "
+            "atomics are internal runtime machinery or raw C in a function.\n");
+        semantic_errors++;
+        $$ = mk_typed(NProp, $3->name, $2, nil, nil);
     }
     ;
 
@@ -2551,6 +2574,7 @@ yylex(void)
             if(strcmp(buf, "import") == 0) return TIMPORT;
             if(strcmp(buf, "func") == 0) return TFUNC;
             if(strcmp(buf, "function") == 0) return TFUNCTION;
+            if(strcmp(buf, "main") == 0) return TMAIN;
             if(strcmp(buf, "spawn") == 0) return TSPAWN;
             if(strcmp(buf, "use") == 0) return TUSE;
             if(strcmp(buf, "new") == 0) return TNEW;
@@ -3231,6 +3255,9 @@ gen_expr(Node *e)
             if(type_is_collection(lt, "List")){
                 Type *et = type_list_at(lt->args, 0);
                 print("(*(%s*)o9_slice_get(&", type_storage_for_codegen(et)); gen_expr(e->left); print(", "); gen_expr(e->right); print("))");
+            } else if(type_is_array(lt)){
+                Type *et = type_array_elem(lt);
+                print("(*(%s*)o9_slice_get(&", type_storage_for_codegen(et)); gen_expr(e->left); print(", "); gen_expr(e->right); print("))");
             } else if(type_is_collection(lt, "Dict")){
                 Type *vt = type_list_at(lt->args, 1);
                 print("((%s)o9_dict_gets(&", type_storage_for_codegen(vt)); gen_expr(e->left); print(", "); gen_expr(e->right); print("))");
@@ -3520,9 +3547,16 @@ gen_stmt(Node *c, Node *s)
     case NUse:
         break;
     case NLocalVar:
-        if(is_primitive(s->typename)){
+        if(is_primitive(s->typename) || type_is_array(s->typeinfo)){
             print("\t%s %s;\n", type_storage_for_codegen(s->typeinfo), s->name);
-            if(type_is_collection(s->typeinfo, "List")){
+            if(type_is_array(s->typeinfo)){
+                print("\to9_slice_init(&%s, sizeof(%s));\n", s->name,
+                    type_storage_for_codegen(type_array_elem(s->typeinfo)));
+                if(s->left){
+                    print("\t%s = ", s->name); gen_expr(s->left); print(";\n");
+                    if(is_try(s->left)) gen_try_check();
+                }
+            } else if(type_is_collection(s->typeinfo, "List")){
                 print("\to9_slice_init(&%s, sizeof(%s));\n", s->name,
                     type_storage_for_codegen(type_list_at(s->typeinfo->args, 0)));
             } else if(type_is_collection(s->typeinfo, "Dict")){
@@ -3638,9 +3672,10 @@ gen_stmt(Node *c, Node *s)
         break;
     case NDelete:
         /* Run the destructor synchronously (actor replies after
-         * teardown, then exits), then neutralize the client handle. */
-        print("\tobj9_msgSendN(&%s, nil, 0x%lux, nil, 0);\n", s->name, o9_hash("destroy"));
+         * teardown, then exits). Unregister first so new lookups cannot
+         * acquire a handle while the actor is draining its destroy. */
         print("\to9_registry_unregister(\"%s\");\n", s->name);
+        print("\tobj9_msgSendN(&%s, nil, 0x%lux, nil, 0);\n", s->name, o9_hash("destroy"));
         print("\tmemset(&%s, 0, sizeof %s);\n", s->name, s->name);
         print("\t%s.fd = -1;\n", s->name);
         break;
@@ -3673,6 +3708,17 @@ gen_stmt(Node *c, Node *s)
                     print("\t{ %s __v; memmove(&__v, &", st); gen_expr(s->right); print(", sizeof(%s)); o9_slice_set(&", st);
                 } else {
                     print("\t{ %s __v = ", st); gen_expr(s->right); print("; o9_slice_set(&");
+                }
+                gen_expr(s->left->left); print(", "); gen_expr(s->left->right); print(", &__v); }\n");
+                break;
+            } else if(type_is_array(lt)){
+                Type *et = type_array_elem(lt);
+                Type *rt = s->right != nil ? s->right->typeinfo : nil;
+                char *st = type_storage_for_codegen(et);
+                if(type_is_class_ref(et) && type_is_class_ref(rt)){
+                    print("\t{ %s __v; memmove(&__v, &", st); gen_expr(s->right); print(", sizeof(%s)); o9_slice_setgrow(&", st);
+                } else {
+                    print("\t{ %s __v = ", st); gen_expr(s->right); print("; o9_slice_setgrow(&");
                 }
                 gen_expr(s->left->left); print(", "); gen_expr(s->left->right); print(", &__v); }\n");
                 break;
@@ -3813,15 +3859,12 @@ gen_stmt(Node *c, Node *s)
         if(in_class_context && c != nil && s->left != nil && s->left->type == NIdent &&
            s->left->name != nil && !is_local(s->left->name)){
             int mt = member_exists(c, s->left->name);
-            if(mt == NProp || mt == NState || mt == NAtomic){
+            if(mt == NProp || mt == NState){
                 Node *fieldnode = member_node(c, s->left->name, 0);
                 Type *ft = decl_typeinfo(fieldnode);
                 char *t = type_storage_for_codegen(ft);
                 Node *d = type_decl_node(ft);
                 char field[128];
-                /* atomic field: guard the read-modify-write with its QLock */
-                if(mt == NAtomic)
-                    print("\tqlock(&self->__lock_%s);\n", s->left->name);
                 if(strcmp(t, "char*") == 0){
                     print("\tfree(self->%s);\n", s->left->name);
                     print("\tself->%s = strdup(", s->left->name);
@@ -3840,8 +3883,6 @@ gen_stmt(Node *c, Node *s)
                     gen_expr(s->right);
                     print(");\n");
                 }
-                if(mt == NAtomic)
-                    print("\tqunlock(&self->__lock_%s);\n", s->left->name);
                 snprint(field, sizeof field, "self->%s", s->left->name);
                 gen_state_store_flagged("self->state", field, s->left->name, ft, fieldnode ? fieldnode->flags : 0);
                 break;
@@ -3977,8 +4018,8 @@ gen_class_header(Node *c)
     if(c == nil) return;
     print("/* Generated Client Header for %s %s */\n", c->type == NInterface ? "interface" : "class", c->name);
     print("#ifndef _O9_GEN_%s_H_\n#define _O9_GEN_%s_H_\n\n", c->name, c->name);
-    print("typedef struct %s_AsmTable {\n\tvoid *data_cache[64];\n\tvoid (*ctrl_cache[64])(void*);\n} %s_AsmTable;\n\n", c->name, c->name);
-    print("typedef struct %s_Client {\n\tint fd;\n\tvoid *shm_base;\n\to9_AsmTable *table;\n\tlong ref;\t/* ARC Counter */\n\tvoid *dispatch_chan;\n\tint distance;\t/* -1=same, 0=near/IL, 1=far/TCP */\n\tchar srvname[64];\n\tchar cachepath[128];\n", c->name);
+    print("typedef o9_AsmTable %s_AsmTable;\n\n", c->name);
+    print("typedef struct %s_Client {\n\tint fd;\n\tvoid *shm_base;\n\to9_AsmTable *table;\n\tlong ref;\t/* ARC Counter */\n\tvoid *dispatch_chan;\n\tint distance;\t/* -1=same, 0=near/IL, 1=far/TCP */\n\tchar srvname[64];\n\tchar cachepath[128];\n\tchar oid[64];\n\tvlong gen;\n", c->name);
     print("} %s_Client;\n\n#endif\n\n", c->name);
 }
 
@@ -3992,14 +4033,8 @@ gen_internal_fields(Node *c)
             p = find_class(m->name);
             if(p) gen_internal_fields(p);
         }
-        if(m->type == NProp || m->type == NState || m->type == NAtomic)
+        if(m->type == NProp || m->type == NState)
             print("\t%s %s;\n", type_storage_for_codegen(m->typeinfo), m->name);
-        if(m->type == NAtomic)	/* companion QLock guarding atomic access.
-             * QLock (not Lock): a spinlock in the cooperative CSP
-             * scheduler would let a waiter busy-spin without ever yielding
-             * to the holder — deadlock. QLock sleeps the waiter and is
-             * safe to hold across a blocking RHS. */
-            print("\tQLock __lock_%s;\n", m->name);
         if(m->type == NStream)
             print("\tChannel *%s;\n", m->name);
     }
@@ -4017,7 +4052,7 @@ count_state_cols(Node *c)
             if(p) n += count_state_cols(p);
         }
         /* class-typed fields are live handles, not persistable state */
-        if((m->type == NProp || m->type == NState || m->type == NAtomic) &&
+        if((m->type == NProp || m->type == NState) &&
            !type_is_class_ref(m->typeinfo))
             n++;
     }
@@ -4034,7 +4069,7 @@ gen_state_col_names(Node *c)
             p = find_class(m->name);
             if(p) gen_state_col_names(p);
         }
-        if((m->type == NProp || m->type == NState || m->type == NAtomic) &&
+        if((m->type == NProp || m->type == NState) &&
            !type_is_class_ref(m->typeinfo)){
             if(m->flags & NFPrivate)
                 print("\"debug:%s\", ", m->name);
@@ -4195,7 +4230,7 @@ gen_init_internal_state(Node *c, char *ptr)
             print("\t%s->%s = chancreate(sizeof(void*), 8);\n", ptr, m->name);
             continue;
         }
-        if(m->type == NProp || m->type == NState || m->type == NAtomic){
+        if(m->type == NProp || m->type == NState){
             Node *d = type_decl_node(m->typeinfo);
             if(type_is_class_ref(m->typeinfo)){
                 /* class-typed field: a live handle (embedded Client), not
@@ -4205,6 +4240,9 @@ gen_init_internal_state(Node *c, char *ptr)
             }
             if(type_is_collection(m->typeinfo, "Dict"))
                 print("\to9_dict_init(&%s->%s);\n", ptr, m->name);
+            else if(type_is_array(m->typeinfo))
+                print("\to9_slice_init(&%s->%s, sizeof(%s));\n", ptr, m->name,
+                    type_storage_for_codegen(type_array_elem(m->typeinfo)));
             else if(d != nil && d->type == NStruct)
                 print("\tmemset(&%s->%s, 0, sizeof(%s));\n", ptr, m->name, type_storage_for_codegen(m->typeinfo));
             else
@@ -4302,7 +4340,6 @@ metadata_member_kind(Node *m)
     switch(m->type){
     case NProp: return "field";
     case NState: return "state";
-    case NAtomic: return "atomic";
     case NSecret: return "secret";
     case NCap: return "cap";
     }
@@ -4358,7 +4395,7 @@ gen_type_metadata_entries_buf(Node *c, char *bufname)
                 gen_type_metadata_entries_buf(p, bufname);
             continue;
         }
-        if(m->type == NProp || m->type == NState || m->type == NAtomic ||
+        if(m->type == NProp || m->type == NState ||
            m->type == NSecret || m->type == NCap){
             /* private field: not part of the facade-reachable status
              * surface (#7). */
@@ -4432,6 +4469,9 @@ gen_prop_handlers(Node *c)
                 /* Dict property: serialize to buf */
                 print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
                 print("\t\tchar *__s = o9_dict_serialize(&s->%s); snprint(buf, sizeof buf, \"%%s\", __s); readstr(r, buf); free(__s);\n", m->name);
+            } else if(strcmp(t, "O9Slice") == 0){
+                print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
+                print("\t\treadstr(r, \"<slice>\\n\");\n");
             } else {
                 print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
                 if(storage_is_o9string(t)){
@@ -4467,6 +4507,9 @@ gen_write_handlers(Node *c)
                 /* Dict property: deserialize from write data */
                 print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
                 print("\t\to9_dict_deserialize(&s->%s, r->ifcall.data);\n", m->name);
+            } else if(strcmp(t, "O9Slice") == 0){
+                print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
+                print("\t\trespond(r, \"slice property not writable\"); return;\n");
             } else {
                 print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
                 if(storage_is_o9string(t)){
@@ -4551,6 +4594,10 @@ void gen_cleanup_props(Node *c, char *childname) {
             Node *p = find_class(m->name);
             if(p) gen_cleanup_props(p, childname);
         }
+        if(m->type == NStream) {
+            print("\tif(((%s_Internal*)self)->%s != nil){ void *__box; while((__box = nbrecvp(((%s_Internal*)self)->%s)) != nil) free(__box); chanfree(((%s_Internal*)self)->%s); }\n",
+                childname, m->name, childname, m->name, childname, m->name);
+        }
         if(m->type == NProp || m->type == NState) {
             char *t = type_storage_for_codegen(m->typeinfo);
             if(storage_is_o9string(t)) {
@@ -4559,6 +4606,8 @@ void gen_cleanup_props(Node *c, char *childname) {
                 print("\tfree(((%s_Internal*)self)->%s);\n", childname, m->name);
             } else if(strcmp(t, "O9Dict") == 0) {
                 print("\to9_dict_free(&((%s_Internal*)self)->%s);\n", childname, m->name);
+            } else if(strcmp(t, "O9Slice") == 0) {
+                print("\to9_slice_free(&((%s_Internal*)self)->%s);\n", childname, m->name);
             }
         }
     }
@@ -4937,7 +4986,7 @@ gen_class_server(Node *c)
         }
     }
     for(m = c->left; m; m = m->next){
-        if(m->type == NProp || m->type == NAtomic){
+        if(m->type == NProp){
             char *t, *fmt, *cast;
             Node *d;
             /* SECURITY (#7): private fields must not be readable through a
@@ -4956,6 +5005,9 @@ gen_class_server(Node *c)
                 /* Dict property: serialize */
                 print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
                 print("\t\tchar *__s = o9_dict_serialize(&inst->%s); snprint(buf, sizeof buf, \"%%s\", __s); readstr(r, buf); free(__s); respond(r, nil); return;\n\t}\n", m->name);
+            } else if(strcmp(t, "O9Slice") == 0){
+                print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
+                print("\t\treadstr(r, \"<slice>\\n\"); respond(r, nil); return;\n\t}\n");
             } else if(storage_is_o9string(t)) {
                 print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
                 print("\t\tsnprint(buf, sizeof buf, \"%%s\\n\", o9_string_data(inst->%s));\n", m->name);
@@ -5138,7 +5190,7 @@ gen_class_server(Node *c)
         }
     }
     for(m = c->left; m; m = m->next){
-        if(m->type == NProp || m->type == NAtomic){
+        if(m->type == NProp){
             char *t;
             Node *d;
             /* SECURITY (#7): private fields not writable via a per-class
@@ -5159,6 +5211,8 @@ gen_class_server(Node *c)
                     gen_state_store_typed("inst->state", field, m->name, m->typeinfo);
                 }
                 print("\t\tr->ofcall.count = r->ifcall.count;\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
+            } else if(strcmp(t, "O9Slice") == 0) {
+                print("\tif(strcmp(name, \"%s\") == 0){ respond(r, \"slice property not writable\"); return; }\n", m->name);
             } else if(storage_is_o9string(t)) {
                 print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
                 print("\t\to9_string_release(inst->%s);\n", m->name);
@@ -5347,14 +5401,33 @@ find_main_func(Node *root)
     Node *n, *m;
 
     for(n = root; n; n = n->next){
+        if(n->type == NMethod && n->name != nil && strcmp(n->name, "main") == 0 &&
+                  (n->flags & NFMain))
+            return n;
+    }
+    for(n = root; n; n = n->next){
         if(n->type == NModule){
             m = find_main_func(n->left);
             if(m != nil)
                 return m;
-        } else if(n->type == NMethod && n->name != nil && strcmp(n->name, "main") == 0)
-            return n;
+        }
     }
     return nil;
+}
+
+static int
+count_root_main_blocks(Node *root)
+{
+    Node *n;
+    int nmain;
+
+    nmain = 0;
+    for(n = root; n; n = n->next){
+        if(n->type == NMethod && n->name != nil && strcmp(n->name, "main") == 0 &&
+                (n->flags & NFMain))
+            nmain++;
+    }
+    return nmain;
 }
 
 static int
@@ -6255,10 +6328,64 @@ validate_type(Type *t, int *errs)
             validate_type(a->type, errs);
         return 0;
     case TyPtr:
+        s = type_render(t);
+        fprint(2, "o9c: error: line %d: pointer type '%s' is not allowed in o9 declarations "
+            "(keep raw pointers inside function c blocks and pass ordinary values through object methods/properties)\n",
+            sem_line, s);
+        (*errs)++;
+        return -1;
     case TyArray:
         return validate_type(t->base, errs);
     }
     return 0;
+}
+
+static int
+type_contains_address_scalar(Type *t)
+{
+    TypeList *a;
+
+    if(t == nil)
+        return 0;
+    switch(t->kind){
+    case TyName:
+        return t->name != nil &&
+            (strcmp(t->name, "intptr") == 0 || strcmp(t->name, "uintptr") == 0);
+    case TyApply:
+        for(a = t->args; a != nil; a = a->next)
+            if(type_contains_address_scalar(a->type))
+                return 1;
+        return 0;
+    case TyArray:
+        return type_contains_address_scalar(t->base);
+    case TyPtr:
+    case TyParam:
+        return 0;
+    }
+    return 0;
+}
+
+static int
+type_is_object_boundary_scope(Node *scope_class)
+{
+    return scope_class != nil &&
+        (scope_class->type == NClass || scope_class->type == NStruct ||
+         scope_class->type == NInterface) &&
+        (scope_class->flags & NFFunction) == 0;
+}
+
+static void
+reject_address_boundary_type(Type *t, int *errs, char *kind, char *name)
+{
+    char *s;
+
+    if(!type_contains_address_scalar(t))
+        return;
+    s = type_render(t);
+    fprint(2, "o9c: error: line %d: %s '%s' cannot use address-carrying type '%s' "
+        "on an object boundary (keep raw addresses inside function c blocks and pass ordinary values)\n",
+        sem_line, kind, name != nil ? name : "?", s);
+    (*errs)++;
 }
 
 static int
@@ -6275,6 +6402,182 @@ type_is_object_ref(Type *t)
         return d != nil && (d->type == NClass || d->type == NInterface);
     }
     return 0;
+}
+
+static int
+node_contains_type(Node *n, int type)
+{
+    for(; n != nil; n = n->next){
+        if(n->type == type)
+            return 1;
+        if(node_contains_type(n->left, type) || node_contains_type(n->right, type))
+            return 1;
+    }
+    return 0;
+}
+
+static void
+reject_rawc_object_locals(Node *n, int *errs)
+{
+    int saved;
+
+    for(; n != nil; n = n->next){
+        saved = sem_line;
+        if(n->line > 0)
+            sem_line = n->line;
+        if(n->type == NLocalVar && type_is_object_ref(n->typeinfo)){
+            fprint(2, "o9c: error: line %d: raw C functions cannot declare object handle '%s' "
+                "(pass ordinary values into c blocks; object mutation must go through o9 methods/properties)\n",
+                sem_line, n->name != nil ? n->name : "?");
+            (*errs)++;
+        }
+        reject_rawc_object_locals(n->left, errs);
+        reject_rawc_object_locals(n->right, errs);
+        sem_line = saved;
+    }
+}
+
+static void
+reject_rawc_object_handles(Node *method, int *errs)
+{
+    Node *p;
+    int saved;
+
+    if(method == nil || !node_contains_type(method->left, NRawC))
+        return;
+    for(p = method->right; p != nil; p = p->next){
+        saved = sem_line;
+        if(p->line > 0)
+            sem_line = p->line;
+        if(type_is_object_ref(p->typeinfo)){
+            fprint(2, "o9c: error: line %d: raw C functions cannot take object handle '%s' "
+                "(pass ordinary values into c blocks; object mutation must go through o9 methods/properties)\n",
+                sem_line, p->name != nil ? p->name : "?");
+            (*errs)++;
+        }
+        sem_line = saved;
+    }
+    reject_rawc_object_locals(method->left, errs);
+}
+
+static int
+rawc_forbidden_ident(char *id, char **why)
+{
+    if(id == nil)
+        return 0;
+    if(strstr(id, "_Internal") != nil ||
+       strstr(id, "_Client") != nil ||
+       strstr(id, "_find_instance") != nil ||
+       strstr(id, "_record_instance") != nil ||
+       strstr(id, "_create_instance") != nil ||
+       strstr(id, "_forget_instance") != nil ||
+       strstr(id, "_instances") != nil ||
+       strstr(id, "_ninstances") != nil){
+        *why = id;
+        return 1;
+    }
+    if(strncmp(id, "o9_impl_", 8) == 0 ||
+       strncmp(id, "o9_self_", 8) == 0 ||
+       strncmp(id, "o9_ctrl_", 8) == 0 ||
+       strncmp(id, "o9_registry_", 12) == 0 ||
+       strncmp(id, "o9_objects_", 11) == 0 ||
+       strncmp(id, "o9app_", 6) == 0 ||
+       strncmp(id, "obj9_", 5) == 0){
+        *why = id;
+        return 1;
+    }
+    if(strcmp(id, "O9Msg") == 0 ||
+       strcmp(id, "O9Reply") == 0 ||
+       strcmp(id, "O9ObjectStore") == 0 ||
+       strcmp(id, "O9State") == 0 ||
+       strcmp(id, "ArcLedger") == 0 ||
+       strcmp(id, "dispatch_chan") == 0 ||
+       strcmp(id, "shm_base") == 0 ||
+       strcmp(id, "objdir") == 0){
+        *why = id;
+        return 1;
+    }
+    return 0;
+}
+
+static void
+validate_rawc_boundary(char *src, int *errs)
+{
+    int i, mode, esc, j;
+    char id[256], *why;
+
+    if(src == nil)
+        return;
+    mode = 0;	/* 0 normal, 1 string, 2 char, 3 line comment, 4 block comment */
+    esc = 0;
+    for(i = 0; src[i] != '\0'; i++){
+        if(mode == 0){
+            if(src[i] == '"'){
+                mode = 1;
+                esc = 0;
+                continue;
+            }
+            if(src[i] == '\''){
+                mode = 2;
+                esc = 0;
+                continue;
+            }
+            if(src[i] == '/' && src[i+1] == '/'){
+                mode = 3;
+                i++;
+                continue;
+            }
+            if(src[i] == '/' && src[i+1] == '*'){
+                mode = 4;
+                i++;
+                continue;
+            }
+            if(isalpha((uchar)src[i]) || src[i] == '_'){
+                j = 0;
+                do {
+                    if(j < sizeof id - 1)
+                        id[j++] = src[i];
+                    i++;
+                } while(isalnum((uchar)src[i]) || src[i] == '_');
+                id[j] = '\0';
+                i--;
+                why = nil;
+                if(rawc_forbidden_ident(id, &why)){
+                    fprint(2, "o9c: error: line %d: raw C block uses forbidden o9 internal symbol '%s' "
+                        "(raw C may use Plan 9 C and local values, not generated object internals)\n",
+                        sem_line, why);
+                    (*errs)++;
+                }
+                continue;
+            }
+            continue;
+        }
+        if(mode == 1 || mode == 2){
+            if(esc){
+                esc = 0;
+                continue;
+            }
+            if(src[i] == '\\'){
+                esc = 1;
+                continue;
+            }
+            if((mode == 1 && src[i] == '"') || (mode == 2 && src[i] == '\''))
+                mode = 0;
+            continue;
+        }
+        if(mode == 3){
+            if(src[i] == '\n')
+                mode = 0;
+            continue;
+        }
+        if(mode == 4){
+            if(src[i] == '*' && src[i+1] == '/'){
+                mode = 0;
+                i++;
+            }
+            continue;
+        }
+    }
 }
 
 static Type*
@@ -6413,7 +6716,7 @@ typed_member_lookup_in(Node *cnode, TypeBind *bindings, char *name, int method, 
             return 1;
         }
         if(!method && (m->type == NProp || m->type == NState ||
-           m->type == NAtomic || m->type == NStream ||
+           m->type == NStream ||
            m->type == NSecret || m->type == NCap)){
             if(out != nil){
                 out->node = m;
@@ -6461,7 +6764,7 @@ member_typeinfo(Node *cnode, char *name, int method)
         if(method && m->type == NMethod)
             return decl_typeinfo(m);
         if(!method && (m->type == NProp || m->type == NState ||
-           m->type == NAtomic || m->type == NStream ||
+           m->type == NStream ||
            m->type == NSecret || m->type == NCap))
             return decl_typeinfo(m);
     }
@@ -6487,7 +6790,7 @@ member_node(Node *cnode, char *name, int method)
         if(method && m->type == NMethod)
             return m;
         if(!method && (m->type == NProp || m->type == NState ||
-           m->type == NAtomic || m->type == NStream ||
+           m->type == NStream ||
            m->type == NSecret || m->type == NCap))
             return m;
     }
@@ -6520,7 +6823,7 @@ type_accepts_nil(Type *t)
 
     if(t == nil)
         return 1;
-    if(t->kind == TyPtr || t->kind == TyArray)
+    if(t->kind == TyArray)
         return 1;
     if(t->kind == TyApply)
         return 1;
@@ -6682,6 +6985,8 @@ collection_get_type(Type *left, char *legacy)
         if(strcmp(left->name, "Dict") == 0)
             return type_list_at(left->args, 1);
     }
+    if(type_is_array(left))
+        return type_array_elem(left);
     if(legacy != nil && strncmp(legacy, "List:", 5) == 0)
         return typeinfo_from_legacy(legacy + 5);
     if(legacy != nil && strncmp(legacy, "Dict:", 5) == 0){
@@ -7048,7 +7353,7 @@ static int
 member_has_generated_storage(Node *m)
 {
     return m != nil && (m->type == NProp || m->type == NState ||
-        m->type == NAtomic || m->type == NStream ||
+        m->type == NStream ||
         m->type == NSecret || m->type == NCap);
 }
 
@@ -7333,7 +7638,12 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
         break;
     case NProp:
     case NState:
-    case NAtomic:
+        validate_type(e->typeinfo, errs);
+        if(type_is_object_boundary_scope(scope_class))
+            reject_address_boundary_type(e->typeinfo, errs,
+                e->type == NState ? "state field" : "field or parameter",
+                e->name);
+        break;
     case NCap:
     case NInherit:
         validate_type(e->typeinfo, errs);
@@ -7347,6 +7657,8 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
         break;
     case NMethod:
         validate_type(e->typeinfo, errs);
+        if(type_is_object_boundary_scope(scope_class))
+            reject_address_boundary_type(e->typeinfo, errs, "method return", e->name);
         break;
     case NClass:
         validate_type(e->typeinfo, errs);
@@ -7776,7 +8088,8 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
         if(scope_class == nil || (scope_class->flags & NFFunction) == 0){
             fprint(2, "o9c: error: line %d: raw C blocks are only allowed inside function bodies\n", sem_line);
             (*errs)++;
-        }
+        } else
+            validate_rawc_boundary(e->name, errs);
         break;
     case NUse:
         if(scope_class == nil || (scope_class->flags & NFFunction) == 0){
@@ -7934,6 +8247,8 @@ check_node(Node *n, Node *scope_class, int *errs)
             Type *saved_return;
             int saved_ctor;
             typecheck_expr(c, scope_class, errs);
+            if(scope_class != nil && (scope_class->flags & NFFunction))
+                reject_rawc_object_handles(c, errs);
             check_node(c->right, scope_class, errs);
             mark = mark_type_syms();
             add_decl_type_syms(c->right);
@@ -7968,6 +8283,13 @@ static int
 typecheck(Node *root)
 {
     int errors = semantic_errors;
+    int nmain;
+
+    nmain = count_root_main_blocks(root);
+    if(nmain > 1){
+        fprint(2, "o9c: error: program has %d main blocks; only one main block is allowed\n", nmain);
+        errors++;
+    }
     
     check_node(root, nil, &errors);
     
@@ -7981,7 +8303,6 @@ node_kind(int type)
     case NClass: return "NClass";
     case NProp: return "NProp";
     case NState: return "NState";
-    case NAtomic: return "NAtomic";
     case NStream: return "NStream";
     case NSecret: return "NSecret";
     case NCap: return "NCap";
@@ -8620,13 +8941,39 @@ emit_cdeps(void)
         print("\n");
 }
 
-/* Strip the `func main() { ... }` from imported source (only the root
- * file's main is the program entry). Balances braces from the first
- * `func main`. Edits in place. */
+static int
+o9_ident_char(int c)
+{
+    return isalnum(c) || c == '_';
+}
+
+static char*
+find_main_block_start(char *src)
+{
+    char *m, *p;
+
+    if(src == nil)
+        return nil;
+    for(m = src; (m = strstr(m, "main")) != nil; m += 4){
+        if((m > src && o9_ident_char((uchar)m[-1])) || o9_ident_char((uchar)m[4]))
+            continue;
+        p = m + 4;
+        while(*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
+            p++;
+        if(*p == '{')
+            return m;
+    }
+    return nil;
+}
+
+/* Strip imported program entries (only the root file owns the entry).
+ * Supports the current `main { ... }` form.  Legacy `func main() { ... }`
+ * is intentionally not stripped, so imported stale syntax still fails.
+ * Balances braces from the entry block and edits in place. */
 static void
 strip_imported_main(char *src)
 {
-    char *m = strstr(src, "func main");
+    char *m = find_main_block_start(src);
     char *p;
     int depth;
     if(m == nil) return;
@@ -8678,9 +9025,10 @@ resolve_import_path(char *rel, int line)
     return strdup(full);
 }
 
-/* Pull imported files' declarations into input_buf. One level deep of
- * nested imports is handled by re-scanning the combined buffer. */
-static void
+/* Pull imported files' declarations into input_buf. Returns non-zero when
+ * at least one import line was consumed; callers rescan until the combined
+ * source is import-free so stdlib modules can depend on each other. */
+static int
 resolve_imports(void)
 {
     char *combined;
@@ -8759,8 +9107,10 @@ resolve_imports(void)
         free(input_buf);
         input_buf = combined;
         input_len = clen;
+        return 1;
     } else {
         free(combined);
+        return 0;
     }
 }
 
@@ -8812,7 +9162,12 @@ main(int argc, char **argv)
     if(semantic_errors > 0)
         exits("deps");
 
-    resolve_imports();	/* splice imported decls into input_buf */
+    for(i = 0; i < 32 && resolve_imports(); i++)
+        ;
+    if(i >= 32){
+        fprint(2, "o9c: error: import nesting too deep or cyclic\n");
+        semantic_errors++;
+    }
     if(semantic_errors > 0)	/* import errors: stop before parse cascades */
         exits("import");
 

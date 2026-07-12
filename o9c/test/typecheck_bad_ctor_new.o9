@@ -10,6 +10,6 @@ class Node {
         Node child = new Node(n - 1);   // ERROR: new Node inside Node's ctor
     }
 }
-func main() {
+main {
     Node root = new Node(3);
 }

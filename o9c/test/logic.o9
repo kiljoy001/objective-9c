@@ -1,7 +1,7 @@
 class LogicTest {
     int64 val;
     string s;
-    func (LogicTest *l) run() void {
+    method void run() {
         bool b = true;
         bool b2 = false;
         if (b && !b2) {

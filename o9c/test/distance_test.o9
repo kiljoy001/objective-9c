@@ -4,7 +4,7 @@ class DistTest {
     method DistTest(int64 n) { val = n; }
 }
 
-func main() {
+main {
     DistTest a = new DistTest(1);
     DistTest b = new near DistTest(2);
     DistTest c = new far DistTest(3);

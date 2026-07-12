@@ -7,7 +7,7 @@ class Counter {
     method void add(int64 n) { val = val + n; }
     method int64 get() { return val; }
 }
-func main() {
+main {
     Counter c = new Counter(40);
     serve();           // block, yielding, so the 9P server keeps answering
 }

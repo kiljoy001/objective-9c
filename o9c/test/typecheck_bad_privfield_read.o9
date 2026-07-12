@@ -1,2 +1,2 @@
 class Counter { private int64 val; method int64 get() { return val; } }
-func main() { Counter c = new Counter(); print(c.val, "\n"); }
+main { Counter c = new Counter(); print(c.val, "\n"); }

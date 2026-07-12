@@ -1,6 +1,6 @@
 class Counter {
 }
 
-func main() {
+main {
     Counter<int64> c;
 }

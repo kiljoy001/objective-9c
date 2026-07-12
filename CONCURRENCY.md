@@ -45,9 +45,9 @@ That collapses every hard question a "goroutine" would raise:
   after its single method publishes a result, generated code must tear
   down the instance, unregister it, and let the proc exit, or use a
   special one-shot dispatch loop.
-- How does `function` differ from `func` / `method`? It IS a method, on
-  an unnamed one-method class the compiler synthesizes. `func main()`
-  stays the entry point; `method` stays the class member; `function` is
+- How does `function` differ from `main` / `method`? It IS a method, on
+  an unnamed one-method class the compiler synthesizes. `main {}`
+  stays the reserved entry point; `method` stays the class member; `function` is
   sugar that desugars to "anonymous single-method class + an instance."
 
 So the concurrency feature is mostly reuse of what works, with one-shot
@@ -137,7 +137,7 @@ declared return value to the numbered channel, or the compiler emits a
 special one-shot method wrapper whose result path is the numbered
 channel.
 
-`func main()` unchanged (entry point). `method` unchanged (class member).
+`main {}` is the reserved entry point. `method` unchanged (class member).
 `function` is the standalone one-method routine; also directly callable,
 not only spawnable.
 

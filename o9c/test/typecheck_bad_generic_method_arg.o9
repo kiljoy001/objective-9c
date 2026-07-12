@@ -3,7 +3,7 @@ class Box<T> {
     }
 }
 
-func main() {
+main {
     Box<string> names;
     names.set(1);
 }

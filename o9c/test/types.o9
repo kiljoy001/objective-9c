@@ -5,7 +5,7 @@ class TypesTest {
     ulong unsigned_long;
     chan trigger;
 
-    func (TypesTest *t) reset() void {
+    method void reset() {
         normal_int = 0;
         large_int = 0;
         unsigned_long = 0;

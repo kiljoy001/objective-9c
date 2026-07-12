@@ -53,6 +53,9 @@ ctlquote-test:V:	o9c libo9.a
 debug-test:V:	o9c libo9.a
 	rc ./o9c/test/run_debug.rc
 
+issue-test:V:	o9c libo9.a
+	rc ./o9c/test/run_issue_regressions.rc
+
 crypto-test:V:	libo9.a
 	$CC -I. o9c/test/crypto_test.c
 	$LD -o o9c/test/crypto_test crypto_test.$O libo9.a

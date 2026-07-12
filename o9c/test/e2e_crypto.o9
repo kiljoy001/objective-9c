@@ -10,7 +10,7 @@ class Vault {
     method string open(string key) { return decrypt(key, blob); }
 }
 
-func main() {
+main {
     // attestation: sign/verify + hash
     string sec = keygen();
     string pub = pubkey(sec);

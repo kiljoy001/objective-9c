@@ -1,0 +1,15 @@
+class Counter {
+    prop int64 value;
+}
+
+function bad() int64 {
+    Counter c = new Counter();
+    int64 n;
+    c {
+        n = 0;
+    }
+    return n;
+}
+
+main {
+}

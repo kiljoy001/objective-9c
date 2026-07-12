@@ -8,7 +8,7 @@ function chain() int64 {
     return n;
 }
 
-func main() {
+main {
     Task<int64> t = spawn chain();
     print("chain ", t.await(), "\n");
 }

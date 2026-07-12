@@ -1,1 +1,1 @@
-func main() { print("OK\n"); }
+main { print("OK\n"); }

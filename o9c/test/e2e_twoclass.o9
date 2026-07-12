@@ -12,7 +12,7 @@ class Doubler {
     method Doubler(int64 n) { v = n; }
     method int64 twice() { return v * 2; }
 }
-func main() {
+main {
     Adder a = new Adder(40);
     Doubler d = new Doubler(21);
     a.add(2);

@@ -2,29 +2,24 @@ class Plan9Types {
     prop short s;
     prop uint u;
     prop long l;
-    prop intptr ip;
-    prop uintptr up;
+    prop uchar c;
+    prop ushort us;
 
     method void setup() {
         s = 7;
         u = 11;
         l = 13;
-        ip = 17;
-        up = 19;
+        c = 17;
+        us = 19;
     }
 
     method int64 sum() {
-        return s + u + l + ip + up;
-    }
-
-    method uintptr addr() {
-        return up;
+        return s + u + l + c + us;
     }
 }
 
-func main() {
+main {
     Plan9Types p = new Plan9Types();
     p.setup();
     print("ctypes ", p.sum(), "\n");
-    print("up ", p.addr(), "\n");
 }

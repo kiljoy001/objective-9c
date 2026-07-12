@@ -9,7 +9,7 @@ class E2Counter {
     method int64 twice() { return get() * 2; }
 }
 
-func main() {
+main {
     E2Counter a = new E2Counter(20);
     E2Counter b = new E2Counter(1);
     a.add(b.get());

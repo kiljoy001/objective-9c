@@ -22,7 +22,7 @@ class Counter {
     method int64 double() => val * 2;
 }
 
-func main() {
+main {
     Counter c = new Counter(10);
     c.inc(5);
     c.inc(1);
@@ -38,7 +38,34 @@ func main() {
 
 `int64` `uint64` `int32` `uint32` `int16` `uint16` `int8` `uint8`
 `int` `uint` `short` `long` `char` `vlong` `uvlong` `ulong` `ushort`
-`uchar` `intptr` `uintptr` `void` `bool` `string` `chan`
+`uchar` `void` `bool` `string` `chan`
+
+`intptr` and `uintptr` are available for raw-C function interop, but are
+rejected on normal object fields, method/interface parameters, and method
+returns. Explicit pointer types (`T*`) are not o9 declaration types; keep raw
+pointers inside `function` `c { ... }` blocks and pass ordinary values through
+object methods/properties.
+
+## Standard Library
+
+The first stdlib objects live under `stdlib/` and are imported by filename:
+
+```
+import "bytes.o9";
+import "file.o9";
+import "path.o9";
+```
+
+Implemented modules:
+
+- `Bytes` - length-carrying byte storage over o9 strings.
+- `Buffer` - mutable byte/text builder over `Bytes`.
+- `File` - Plan 9 file read/write/append/stat/dir helpers.
+- `Path` - Plan 9 path cleaning, join, base, dir, and extension helpers.
+- `Tabula` - built-in libtab-backed structured data object with `write`,
+  `query`, `read`, and `flush`.
+
+See `stdlib/README.md` and `stdlib/e2e_*.o9` for runnable examples.
 
 ## Primitives
 
@@ -48,14 +75,13 @@ func main() {
 - **Expression bodies** — `method rettype name() => expr`
 - **Dot notation** — `c.method(args)`
 - **Object creation** — `Counter c = new Counter(args)`
-- **Old-style C methods** — `func (T *self) name(params) ret { }`
 - **Function tasks** — `function name(args) type { }`, spawned with `spawn name(args)`
 - **Raw Plan 9 C blocks** — `c { ... }` inside `function` bodies only
 - **Constrained C deps** — `use { bio }` inside `function` bodies; resolves through built-in deps plus optional project-root `deps.tab`
 - **Destructor** — `~ClassName() { }`
 - **Inheritance** — `Base;` as member
 - **Properties (field-level)** — `prop type name;`
-- **State/atomic/stream/secret/cap field types**
+- **State/stream/secret field types** — `cap` and `atomic` are rejected user-level field types
 - **Channel ops** — `c <- val`, `c <-? val`, `val <- c`
 - **Control flow** — `if / else / while`, `return`
 - **Comments** — `// line`, `/* block */`

@@ -6,7 +6,7 @@ function leak() int64 {
     return payload;
 }
 
-func main() {
+main {
     Host h = new Host();
     Task<int64> t = spawn leak();
     int64 v = t.await();

@@ -1,6 +1,6 @@
 enum Color { Red }
 enum Size { Small }
 
-func main() {
+main {
     Color c = Small;
 }

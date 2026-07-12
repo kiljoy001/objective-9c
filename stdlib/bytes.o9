@@ -1,0 +1,154 @@
+function BytesGetRaw(string data, int64 index) byte {
+    byte out;
+
+    c {
+        if(data == nil || index < 0 || index >= o9_string_len(data))
+            out = 0;
+        else
+            out = (uchar)o9_string_data(data)[index];
+    }
+    return out;
+}
+
+function BytesSetRaw(string data, int64 index, byte b) string {
+    string out;
+
+    c {
+        vlong n;
+
+        n = o9_string_len(data);
+        out = o9_string_new(nil, n);
+        if(out != nil){
+            if(n > 0)
+                memmove(o9_string_data(out), o9_string_data(data), n);
+            if(index >= 0 && index < n)
+                o9_string_data(out)[index] = (uchar)b;
+        }
+    }
+    return out;
+}
+
+function BytesAppendRaw(string data, byte b) string {
+    string out;
+
+    c {
+        vlong n;
+
+        n = o9_string_len(data);
+        out = o9_string_new(nil, n + 1);
+        if(out != nil){
+            if(n > 0)
+                memmove(o9_string_data(out), o9_string_data(data), n);
+            o9_string_data(out)[n] = (uchar)b;
+        }
+    }
+    return out;
+}
+
+function BytesSliceRaw(string data, int64 start, int64 count) string {
+    string out;
+
+    c {
+        vlong n;
+
+        n = o9_string_len(data);
+        if(start < 0)
+            start = 0;
+        if(count < 0)
+            count = 0;
+        if(start > n)
+            start = n;
+        if(start + count > n)
+            count = n - start;
+        out = o9_string_new(o9_string_data(data) + start, count);
+    }
+    return out;
+}
+
+function BytesHexRaw(string data) string {
+    string out;
+
+    c {
+        static char hex[] = "0123456789abcdef";
+        uchar *p;
+        char *q;
+        vlong i, n;
+
+        n = o9_string_len(data);
+        p = (uchar*)o9_string_data(data);
+        out = o9_string_new(nil, n * 2);
+        if(out != nil){
+            q = o9_string_data(out);
+            for(i = 0; i < n; i++){
+                q[i * 2] = hex[p[i] >> 4];
+                q[i * 2 + 1] = hex[p[i] & 15];
+            }
+        }
+    }
+    return out;
+}
+
+class Bytes {
+    prop string value;
+
+    method Bytes(string initial) {
+        value = initial;
+    }
+
+    method void clear() {
+        value = "";
+    }
+
+    method void setText(string data) {
+        value = data;
+    }
+
+    method string text() {
+        return value;
+    }
+
+    method int64 length() {
+        return len(value);
+    }
+
+    method bool empty() {
+        return len(value) == 0;
+    }
+
+    method byte get(int64 index) {
+        Task<byte> t = spawn BytesGetRaw(value, index);
+        return t.await();
+    }
+
+    method void set(int64 index, byte b) {
+        Task<string> t = spawn BytesSetRaw(value, index, b);
+        value = t.await();
+    }
+
+    method void append(byte b) {
+        Task<string> t = spawn BytesAppendRaw(value, b);
+        value = t.await();
+    }
+
+    method void appendString(string s) {
+        value = cat(value, s);
+    }
+
+    method string slice(int64 start, int64 count) {
+        Task<string> t = spawn BytesSliceRaw(value, start, count);
+        return t.await();
+    }
+
+    method string hex() {
+        Task<string> t = spawn BytesHexRaw(value);
+        return t.await();
+    }
+
+    method int64 compare(string other) {
+        return cmp(value, other);
+    }
+
+    method bool equals(string other) {
+        return cmp(value, other) == 0;
+    }
+}

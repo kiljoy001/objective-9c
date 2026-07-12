@@ -17,7 +17,7 @@ class Counter {
     method int64 Bump(int64 Delta) { Value = Value + Delta; return Value; }
 }
 
-func main() {
+main {
     Counter c = new Counter(41);
     int64 Total = c.GetValue();
     c.SetName("main");

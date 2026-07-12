@@ -1,14 +1,30 @@
 import "file.o9";
 
-func main() {
+main {
     File f = new File("/tmp/o9_stdlib_file.txt");
+    Bytes out = new Bytes("");
     f.remove();
     print("exists0 ", f.exists(), "\n");
     print("write ", f.write("abc"), "\n");
     print("append ", f.append("de"), "\n");
+    f.readInto(out);
+    print("bytes ", out.hex(), "\n");
+    out.clear();
+    out.appendString("xy");
+    print("appendb ", f.appendBytes(out), "\n");
     print("exists1 ", f.exists(), "\n");
     print("size ", f.size(), "\n");
     print("read ", f.read(), "\n");
     print("remove ", f.remove(), "\n");
     print("exists2 ", f.exists(), "\n");
+
+    File d = new File("/tmp/o9_stdlib_dir");
+    File child = new File("/tmp/o9_stdlib_dir/a");
+    child.remove();
+    d.remove();
+    print("mkdir ", d.mkdir(), " ", d.isDir(), "\n");
+    child.write("z");
+    print("list ", d.list());
+    print("rma ", child.remove(), "\n");
+    print("rmd ", d.remove(), "\n");
 }

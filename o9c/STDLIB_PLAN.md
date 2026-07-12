@@ -111,6 +111,18 @@ First library layers:
 
 At runtime, these should be mountable/bindable under the application root, for example `<root>/lib/text` and `<root>/lib/fs`.
 
+The first concrete stdlib layer is now object-first:
+
+- `stdlib/bytes.o9`: `Bytes`, a length-carrying byte object over o9 strings.
+- `stdlib/buffer.o9`: `Buffer`, a mutable byte/text builder over `Bytes`.
+- `stdlib/file.o9`: `File`, common Plan 9 file, stat, directory, and byte helpers.
+- `stdlib/path.o9`: `Path`, Plan 9 path cleaning and decomposition helpers.
+- `Tabula`: built into the runtime because it wraps libtab directly; its public
+  API is `write`, `query`, `read`, `flush`, iteration, and cell access.
+
+These are validated by native e2e tests in `stdlib/e2e_*.o9` plus the Tabula
+runtime/e2e tests under `o9c/test/`.
+
 ## Build Order
 
 1. Keep `module` as the source-level type qualifier term; reserve "namespace" for Plan 9 namespace behavior.

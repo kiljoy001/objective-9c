@@ -1,6 +1,6 @@
 import "time.o9";
 
-func main() {
+main {
     Time t = new Time();
     int64 now = t.now();
     int64 ns = t.nsec();

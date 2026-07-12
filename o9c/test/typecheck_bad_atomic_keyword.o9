@@ -1,0 +1,6 @@
+class Counter {
+    atomic int64 n;
+}
+
+main {
+}

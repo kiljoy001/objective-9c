@@ -3,7 +3,7 @@ function bad() int64 {
     return 0;
 }
 
-func main() {
+main {
     Task<int64> t = spawn bad();
     print(t.await(), "\n");
 }

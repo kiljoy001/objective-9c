@@ -1,4 +1,7 @@
 buf abCd
 len 4
 at 67 0
-clear 0
+set aZCd
+slice ZC
+hex 615a4364
+clear 0 1

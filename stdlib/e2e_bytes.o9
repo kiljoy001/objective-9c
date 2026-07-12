@@ -1,0 +1,21 @@
+import "bytes.o9";
+
+main {
+    Bytes b = new Bytes("ab");
+    byte c = 67;
+
+    print("len0 ", b.length(), " empty ", b.empty(), "\n");
+    b.append(c);
+    b.appendString("d");
+    print("text ", b.text(), "\n");
+    print("len1 ", b.length(), "\n");
+    print("get ", b.get(0), " ", b.get(2), " ", b.get(99), "\n");
+    b.set(1, 90);
+    b.set(99, 88);
+    print("set ", b.text(), "\n");
+    print("slice ", b.slice(1, 2), " ", b.slice(9, 4), "\n");
+    print("hex ", b.hex(), "\n");
+    print("eq ", b.equals("aZCd"), " cmp ", b.compare("zz"), "\n");
+    b.clear();
+    print("clear ", b.length(), " ", b.empty(), "\n");
+}

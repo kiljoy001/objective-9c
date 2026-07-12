@@ -1,5 +1,5 @@
 // Text/Fs builtins: cat/len/cmp + writefile/readfile roundtrip.
-func main() {
+main {
     string h = "hello";
     string w = cat(h, " world");
     int64 n = len(w);

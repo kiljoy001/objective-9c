@@ -2,6 +2,6 @@ interface Sink {
 	method void put(int64 value);
 }
 
-func main() {
+main {
 	Sink s = new Sink();
 }

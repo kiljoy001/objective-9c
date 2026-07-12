@@ -52,7 +52,8 @@ typedef struct o9_AsmTable {
  *   +24: long ref
  *   +32: void *dispatch_chan  (Channel*)
  * Do NOT reorder the first 5 fields.
- * srvname/cachepath are appended at the end and are NOT asm-accessible.
+ * srvname/cachepath/oid/gen are appended at the end and are NOT
+ * asm-accessible.
  */
 typedef struct o9_Object {
     int fd;
@@ -63,6 +64,8 @@ typedef struct o9_Object {
     int  distance;		/* -1=same, 0=near/IL, 1=far/TCP */
     char srvname[64];		/* server name for /srv/ cache walk */
     char cachepath[128];	/* mounted object cache path */
+    char oid[64];		/* registry object id for lookup handles */
+    vlong gen;			/* registry generation for lookup handles */
 } o9_Object;
 
 /* Runtime Functions */
@@ -135,6 +138,7 @@ extern void   o9_slice_init(O9Slice *s, int elemsize);
 extern void   o9_slice_append(O9Slice *s, void *val);
 extern void*  o9_slice_get(O9Slice *s, vlong idx);
 extern void   o9_slice_set(O9Slice *s, vlong idx, void *val);
+extern void   o9_slice_setgrow(O9Slice *s, vlong idx, void *val);
 extern void   o9_slice_free(O9Slice *s);
 
 /* Dict operations — chained hash table, serialized as "key:value\n" */
@@ -204,6 +208,7 @@ extern int  o9_registry_lookup(char *oid, O9Handle *out);
 extern int  o9_registry_unregister(char *oid);
 extern int  o9_lookup_client(void *client, O9String *oid, int size);
 extern O9String* o9_send(void *client, O9String *line);
+extern int  o9_selftest_9p_rpc_split(void);
 
 /* Namespace assembly: recipe mirroring + object binds */
 extern void o9_ns_recipe(char *root, char *app, char *line);

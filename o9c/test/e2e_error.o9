@@ -21,7 +21,7 @@ class Bank {
     }
     method void bump() { log = log + 1; }
 }
-func main() {
+main {
     Bank b = new Bank(100);
     print("ok ", b.spend(30), "\n");     // 70; defer ran (log 1)
     print("bal ", b.get(), "\n");        // 70

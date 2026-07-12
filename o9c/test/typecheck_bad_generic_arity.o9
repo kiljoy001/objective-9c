@@ -2,6 +2,6 @@ class Box<T> {
 	prop T value;
 }
 
-func main() {
+main {
 	Box<int64,string> b;
 }

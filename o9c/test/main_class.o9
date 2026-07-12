@@ -3,7 +3,7 @@ class Counter {
     method Counter(int64 n) { val = n; }
 }
 
-func main() {
+main {
     Counter c = new Counter(42);
     print("done\n");
 }

@@ -7,7 +7,7 @@ module App {
 		method Color get() { return color; }
 	}
 
-	func main() {
+	main {
 		Color local = Red;
 		Shape s = new Shape();
 		s.color = Green;
@@ -15,7 +15,7 @@ module App {
 	}
 }
 
-func main() {
+main {
 	App.Color selected = App.Red;
 	App.Shape s = new App.Shape();
 	s.color = App.Color.Blue;

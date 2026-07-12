@@ -1,0 +1,6 @@
+function bad(int64* p) int64 {
+    return 0;
+}
+
+main {
+}

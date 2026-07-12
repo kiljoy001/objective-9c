@@ -1,5 +1,5 @@
 /* Test: nil keyword */
-func main() {
+main {
     string s;
     s = nil;
     print("nil_test: OK\\n");

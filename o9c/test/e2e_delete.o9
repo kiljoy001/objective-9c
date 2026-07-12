@@ -7,7 +7,7 @@ class Res {
     }
 }
 
-func main() {
+main {
     Res r = new Res(5);
     delete r;
     print("after delete\n");

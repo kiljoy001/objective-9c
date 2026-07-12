@@ -1,0 +1,6 @@
+class Bad {
+    prop int64* p;
+}
+
+main {
+}

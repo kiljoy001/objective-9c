@@ -1,0 +1,9 @@
+len0 2 empty 0
+text abCd
+len1 4
+get 97 67 0
+set aZCd
+slice ZC 
+hex 615a4364
+eq 1 cmp -1
+clear 0 1

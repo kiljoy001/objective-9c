@@ -6,7 +6,7 @@ class Counter {
     method int64 get() { return val; }
 }
 
-func main() {
+main {
     Counter c = new Counter(0);
     while(true) { }
 }

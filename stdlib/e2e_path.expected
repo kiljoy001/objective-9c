@@ -1,0 +1,7 @@
+clean /tmp/b/file.txt
+base file.txt
+dir /tmp/b
+ext .txt
+join /tmp/b/c/note.md
+mut /tmp/b/x.bin x.bin .bin
+plain . plain []

@@ -2,7 +2,7 @@
 // this compilation. Resolved relative to THIS file; may only reach this
 // subtree. One honest verb — `import` pulls the file's decls.
 import "impdir/lib.o9";
-func main() {
+main {
     Greeter g = new Greeter();
     g.setbase(100);
     print("answer ", g.answer(), "\n");   // 100 + 42 = 142

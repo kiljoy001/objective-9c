@@ -22,7 +22,7 @@ class StringSink {
     }
 }
 
-func main() {
+main {
     Box<int64> numbers;
     Box<string> names;
     int64 n;

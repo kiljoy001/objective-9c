@@ -1,0 +1,14 @@
+// Dispatch-cache collision correctness. These method names collide in the
+// low 6 bits used by the asm cache buckets: has/read and dir/next.
+class Collide {
+    method int64 has() { return 1; }
+    method int64 read() { return 2; }
+    method int64 dir() { return 3; }
+    method int64 next() { return 4; }
+}
+
+main {
+    Collide c = new Collide();
+    print(c.has(), " ", c.read(), " ", c.has(), " ", c.read(), "\n");
+    print(c.dir(), " ", c.next(), " ", c.dir(), " ", c.next(), "\n");
+}

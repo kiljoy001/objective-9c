@@ -1,4 +1,4 @@
-func main() {
+main {
 	Dict<string,int64> xs;
 	xs.Has(1);
 }

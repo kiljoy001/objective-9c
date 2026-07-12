@@ -19,7 +19,7 @@ string to int64`.
 ## 1. Hello
 
 ```
-func main() {
+main {
     print("hello ", 42, "\n");      // auto-format: %s for strings,
 }                                    // numbers as %lld; % is literal
 ```
@@ -35,7 +35,7 @@ class Counter {
     method int64 twice() { return get() * 2; }  // bare self-call
 }
 
-func main() {
+main {
     Counter a = new Counter(20);
     a.add(a.twice());                // nested calls are safe
     print("a ", a.get(), "\n");      // → a 60
@@ -203,7 +203,49 @@ e2e_crypto.o9 (the Vault class).
 A class method of the same name shadows any builtin.
 (e2e_text.o9, e2e_crypto.o9)
 
-## 6. Handles — lookup by identity
+## 6. Standard Library Objects
+
+The stdlib is ordinary o9 where possible. Raw Plan 9 C is kept inside
+`function` helpers, then exposed through objects:
+
+```
+import "bytes.o9";
+import "file.o9";
+import "path.o9";
+
+main {
+    Bytes b = new Bytes("ab");
+    b.append(67);
+    print(b.text(), " ", b.hex(), "\n");
+
+    File f = new File("/tmp/o9-note");
+    f.writeBytes(b);
+    print(f.read(), "\n");
+
+    Path p = new Path("/tmp//x/../o9-note");
+    print(p.clean(), " ", p.base(), "\n");
+}
+```
+
+`Bytes`, `Buffer`, `File`, and `Path` live in `stdlib/`. `Tabula` is built into
+the runtime because it wraps libtab:
+
+```
+main {
+    Tabula t = new Tabula("orders", "item,qty,status");
+    t.write("a", "item", "widget");
+    t.write("a", "qty", "5");
+    t.write("a", "status", "paid");
+
+    Tabula paid = t.query("status", "paid");
+    print(paid.first(), " ", paid.get("item"), "\n");
+}
+```
+
+See `stdlib/README.md` for the method list and `stdlib/e2e_*.o9` for runnable
+examples.
+
+## 7. Handles — lookup by identity
 
 ```
 Counter c = new Counter(77);
@@ -227,7 +269,7 @@ selector+frame a compiled call site uses, with the reply formatted by
 the method table's ret column. Construct calls at runtime from
 strings — dispatch is text all the way down.
 
-## 7. Your app from the shell — one fileserver, no client code
+## 8. Your app from the shell — one fileserver, no client code
 
 The whole program is **one** 9P fileserver posted at `/srv/o9.<app>`,
 with a flat, uniform interface — the same shape for every app regardless
@@ -279,7 +321,7 @@ mount /srv/o9.Counter.Counter.app /mnt/o9
 cat /mnt/o9/state                    # metadata + live state (debug only)
 ```
 
-## 8. Composition
+## 9. Composition
 
 `object` and `link` declarations record intent; `link replace a -> b`
 binds b over a at startup, `link union` union-binds (read
@@ -291,8 +333,9 @@ your program's assembly, as replayable text.
 - implicit narrowing is rejected; use an explicit Plan 9 C scalar type
   (`int64`, `uint64`, `int32`, `uint32`, `int16`, `uint16`, `int8`,
   `uint8`, `int`, `uint`, `short`, `long`, `char`, `uchar`, `ushort`,
-  `ulong`, `vlong`, `uvlong`, `intptr`, `uintptr`) and convert
-  intentionally
+  `ulong`, `vlong`, `uvlong`) and convert intentionally. `intptr` and
+  `uintptr` are reserved for raw-C function interop and are rejected on
+  normal object APIs.
 - a *variable* named identically to a declared class parses as the type
 - `replica` doesn't sync state yet; `while`, `if/else if`, `for` exist
   but there's no `switch`; strings returned by methods print with a

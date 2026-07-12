@@ -1,0 +1,24 @@
+class ArrayBox {
+    prop int64[] values;
+
+    method void fill() {
+        values[0] = 5;
+        values[2] = 9;
+    }
+
+    method int64 at(int64 i) {
+        return values[i];
+    }
+
+    method int64 local() {
+        int64[] tmp;
+        tmp[1] = 7;
+        return tmp[0] + tmp[1];
+    }
+}
+
+main {
+    ArrayBox b = new ArrayBox();
+    b.fill();
+    print(b.at(0), " ", b.at(1), " ", b.at(2), " ", b.local(), "\n");
+}

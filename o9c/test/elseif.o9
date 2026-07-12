@@ -15,4 +15,4 @@ class Test {
         }
     }
 }
-func main() { }
+main { }

@@ -1,6 +1,6 @@
 import "string.o9";
 
-func main() {
+main {
     String s = new String("  Hello Plan 9  ");
     print("len ", s.length(), "\n");
     print("trim ", s.trim(), "\n");

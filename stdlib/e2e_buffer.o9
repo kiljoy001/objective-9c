@@ -1,6 +1,6 @@
 import "buffer.o9";
 
-func main() {
+main {
     Buffer b = new Buffer("ab");
     byte c = 67;
     b.appendByte(c);
@@ -8,6 +8,10 @@ func main() {
     print("buf ", b.text(), "\n");
     print("len ", b.length(), "\n");
     print("at ", b.byteAt(2), " ", b.byteAt(99), "\n");
+    b.setByte(1, 90);
+    print("set ", b.text(), "\n");
+    print("slice ", b.slice(1, 2), "\n");
+    print("hex ", b.hex(), "\n");
     b.clear();
-    print("clear ", b.length(), "\n");
+    print("clear ", b.length(), " ", b.empty(), "\n");
 }

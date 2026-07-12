@@ -5,7 +5,7 @@ module App {
 		}
 	}
 
-	func main() {
+	main {
 		Adder a = new Adder();
 		a.add(2, 3);
 	}

@@ -1,7 +1,7 @@
 // for loop: C-style init/cond/step with assignments. Regression for the
 // TFORSEMI lexer bug (header ; not converted) and the missing init/step
 // codegen (assignments in a for-clause were dropped -> infinite loop).
-func main() {
+main {
     int64 sum;
     int64 i;
     sum = 0;

@@ -14,7 +14,7 @@ class Chain {
         return y + 1;
     }
 }
-func main() {
+main {
     Chain c = new Chain();
     print("ok ", c.top(5), "\n");       // leaf 10 -> mid 11 -> top 12
     print("bad ", c.top(-1), "\n");     // leaf fails, propagates twice -> 0

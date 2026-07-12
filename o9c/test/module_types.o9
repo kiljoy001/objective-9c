@@ -10,7 +10,7 @@ module App {
 		method int64 get() { return val; }
 	}
 
-	func main() {
+	main {
 		Point p;
 		p.x = 10;
 		p.y = 20;
@@ -19,7 +19,7 @@ module App {
 	}
 }
 
-func main() {
+main {
 	App.Counter c = new App.Counter();
 	c.val = 5;
 	c.set(7);

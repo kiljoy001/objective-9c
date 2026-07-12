@@ -2,7 +2,7 @@ class Counter {
     prop int64 value;
 }
 
-func main() {
+main {
     Counter c = new Counter();
     c.missing;
 }

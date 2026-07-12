@@ -5,7 +5,7 @@ class Box<T> {
     method void set(T v) { value = v; }
 }
 
-func main() {
+main {
     Box<int64> a = new Box<int64>(41);
     a.set(63);
     print("boxed ", a.get(), "\n");

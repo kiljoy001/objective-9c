@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>o9 Language — How It Works</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'JetBrains Mono', monospace;
+      background: #020617;
+      min-height: 100vh;
+      padding: 2rem;
+      color: #e2e8f0;
+    }
+    .container { max-width: 1400px; margin: 0 auto; }
+    .header { margin-bottom: 2rem; }
+    .header-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+    .pulse-dot {
+      width: 12px; height: 12px; background: #22d3ee; border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; }
+    .subtitle { color: #94a3b8; font-size: 0.875rem; margin-left: 1.75rem; }
+
+    .diagram-container {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 1rem;
+      border: 1px solid #1e293b;
+      padding: 1.5rem;
+      overflow-x: auto;
+      margin-bottom: 2rem;
+    }
+    svg { width: 100%; min-width: 1100px; display: block; }
+
+    .kw-section { margin-bottom: 2rem; }
+    .kw-section h2 {
+      font-size: 1.1rem; font-weight: 600; margin-bottom: 1rem;
+      color: #e2e8f0; padding-bottom: 0.5rem;
+      border-bottom: 1px solid #1e293b;
+    }
+    .kw-table {
+      width: 100%; border-collapse: collapse; font-size: 0.8rem;
+    }
+    .kw-table th {
+      text-align: left; padding: 0.6rem 0.8rem;
+      color: #64748b; font-weight: 600; font-size: 0.7rem;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      border-bottom: 1px solid #1e293b;
+    }
+    .kw-table td {
+      padding: 0.6rem 0.8rem;
+      border-bottom: 1px solid rgba(30,41,59,0.5);
+      vertical-align: top;
+    }
+    .kw-table tr:hover { background: rgba(30,41,59,0.3); }
+    .kw {
+      font-weight: 600; color: #22d3ee; white-space: nowrap;
+      font-size: 0.85rem;
+    }
+    .kw-desc { color: #94a3b8; font-size: 0.75rem; }
+    .kw-code {
+      color: #34d399; font-size: 0.75rem;
+      font-family: 'JetBrains Mono', monospace;
+      white-space: pre; background: rgba(6,78,59,0.15);
+      padding: 0.3rem 0.5rem; border-radius: 0.3rem;
+      border: 1px solid rgba(52,211,153,0.15);
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1rem; margin-top: 2rem;
+    }
+    .card {
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 0.75rem; border: 1px solid #1e293b;
+      padding: 1.25rem;
+    }
+    .card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card-dot.cyan { background: #22d3ee; }
+    .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; }
+    .card-dot.amber { background: #fbbf24; }
+    .card-dot.rose { background: #fb7185; }
+    .card-dot.orange { background: #fb923c; }
+    .card h3 { font-size: 0.875rem; font-weight: 600; }
+    .card ul { list-style: none; color: #94a3b8; font-size: 0.75rem; }
+    .card li { margin-bottom: 0.375rem; line-height: 1.5; }
+    .card code {
+      color: #34d399; font-size: 0.7rem;
+      background: rgba(6,78,59,0.15); padding: 0.1rem 0.3rem;
+      border-radius: 0.2rem;
+    }
+    .footer { text-align: center; margin-top: 1.5rem; color: #475569; font-size: 0.75rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>o9 Language — How It Works</h1>
+      </div>
+      <p class="subtitle">Every object is a CSP actor. The application is one 9P fileserver. Method calls are channel messages (local) or 9P transactions (remote). Plan 9 C target, 9front libc atomics.</p>
+    </div>
+
+    <!-- Pipeline Diagram -->
+    <div class="diagram-container">
+      <svg viewBox="0 0 1100 520">
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
+          </marker>
+          <marker id="arrowhead-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee" />
+          </marker>
+          <marker id="arrowhead-emerald" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#34d399" />
+          </marker>
+          <marker id="arrowhead-violet" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#a78bfa" />
+          </marker>
+          <marker id="arrowhead-rose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#fb7185" />
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+
+        <!-- Background Grid -->
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- ==================== COMPILER PIPELINE (top) ==================== -->
+        <text x="550" y="25" fill="#e2e8f0" font-size="13" font-weight="700" text-anchor="middle">o9c Compiler Pipeline</text>
+
+        <!-- Source -->
+        <rect x="20" y="45" width="110" height="50" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="75" y="65" fill="white" font-size="11" font-weight="600" text-anchor="middle">prog.o9</text>
+        <text x="75" y="80" fill="#94a3b8" font-size="8" text-anchor="middle">source file</text>
+
+        <!-- resolve_imports -->
+        <rect x="160" y="45" width="120" height="50" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="220" y="65" fill="white" font-size="11" font-weight="600" text-anchor="middle">resolve_imports</text>
+        <text x="220" y="80" fill="#94a3b8" font-size="8" text-anchor="middle">splice .o9 files</text>
+
+        <!-- prescan -->
+        <rect x="310" y="45" width="120" height="50" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="370" y="65" fill="white" font-size="11" font-weight="600" text-anchor="middle">prescan</text>
+        <text x="370" y="80" fill="#94a3b8" font-size="8" text-anchor="middle">register types</text>
+
+        <!-- yyparse -->
+        <rect x="460" y="45" width="120" height="50" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="520" y="65" fill="white" font-size="11" font-weight="600" text-anchor="middle">yyparse</text>
+        <text x="520" y="80" fill="#94a3b8" font-size="8" text-anchor="middle">build AST</text>
+
+        <!-- typecheck -->
+        <rect x="610" y="45" width="120" height="50" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="670" y="65" fill="white" font-size="11" font-weight="600" text-anchor="middle">typecheck</text>
+        <text x="670" y="80" fill="#94a3b8" font-size="8" text-anchor="middle">Type* semantics</text>
+
+        <!-- codegen -->
+        <rect x="760" y="45" width="120" height="50" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="820" y="65" fill="white" font-size="11" font-weight="600" text-anchor="middle">codegen</text>
+        <text x="820" y="80" fill="#94a3b8" font-size="8" text-anchor="middle">emit Plan 9 C</text>
+
+        <!-- Output -->
+        <rect x="910" y="45" width="110" height="50" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="965" y="65" fill="white" font-size="11" font-weight="600" text-anchor="middle">prog.c</text>
+        <text x="965" y="80" fill="#94a3b8" font-size="8" text-anchor="middle">+ libo9.a</text>
+
+        <!-- Pipeline arrows -->
+        <line x1="130" y1="70" x2="158" y2="70" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead-emerald)"/>
+        <line x1="280" y1="70" x2="308" y2="70" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead-emerald)"/>
+        <line x1="430" y1="70" x2="458" y2="70" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead-emerald)"/>
+        <line x1="580" y1="70" x2="608" y2="70" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead-emerald)"/>
+        <line x1="730" y1="70" x2="758" y2="70" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead-emerald)"/>
+        <line x1="880" y1="70" x2="908" y2="70" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead-emerald)"/>
+
+        <!-- ==================== RUNTIME (middle) ==================== -->
+        <text x="550" y="130" fill="#e2e8f0" font-size="13" font-weight="700" text-anchor="middle">Runtime: Application = 9P Fileserver, Objects = CSP Actors</text>
+
+        <!-- 9P facade boundary -->
+        <rect x="30" y="145" width="500" height="200" rx="12" fill="rgba(251,191,36,0.05)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
+        <text x="42" y="163" fill="#fbbf24" font-size="10" font-weight="600">Application 9P Facade (one server, flat 4-file tree, shared by all classes)</text>
+
+        <!-- ctl file -->
+        <rect x="50" y="175" width="100" height="50" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="100" y="195" fill="white" font-size="11" font-weight="600" text-anchor="middle">ctl</text>
+        <text x="100" y="210" fill="#94a3b8" font-size="8" text-anchor="middle">method calls in</text>
+
+        <!-- data file -->
+        <rect x="170" y="175" width="100" height="50" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="220" y="195" fill="white" font-size="11" font-weight="600" text-anchor="middle">data</text>
+        <text x="220" y="210" fill="#94a3b8" font-size="8" text-anchor="middle">return values out</text>
+
+        <!-- status file -->
+        <rect x="290" y="175" width="100" height="50" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="340" y="195" fill="white" font-size="11" font-weight="600" text-anchor="middle">status</text>
+        <text x="340" y="210" fill="#94a3b8" font-size="8" text-anchor="middle">schema + health</text>
+
+        <!-- methods file -->
+        <rect x="410" y="175" width="100" height="50" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="460" y="195" fill="white" font-size="11" font-weight="600" text-anchor="middle">methods</text>
+        <text x="460" y="210" fill="#94a3b8" font-size="8" text-anchor="middle">dispatch table</text>
+
+        <!-- Session pool -->
+        <rect x="50" y="240" width="460" height="40" rx="6" fill="rgba(136,19,55,0.2)" stroke="#fb7185" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="280" y="260" fill="#fb7185" font-size="10" font-weight="600" text-anchor="middle">Session Pool (clone model: grow-and-reuse, per-session QLock)</text>
+        <text x="280" y="273" fill="#94a3b8" font-size="8" text-anchor="middle">srvrelease/srvacquire for concurrent request handling</text>
+
+        <!-- Class handler table -->
+        <rect x="50" y="295" width="460" height="40" rx="6" fill="rgba(76,29,149,0.2)" stroke="#a78bfa" stroke-width="1"/>
+        <text x="280" y="313" fill="#a78bfa" font-size="10" font-weight="600" text-anchor="middle">O9ClassH[] — routes ctl lines to per-class actor dispatch loops</text>
+        <text x="280" y="326" fill="#94a3b8" font-size="8" text-anchor="middle">read/write/find/dumpstate/listinst per class</text>
+
+        <!-- ==================== PER-CLASS ACTOR (right) ==================== -->
+        <rect x="570" y="145" width="490" height="200" rx="12" fill="rgba(6,78,59,0.08)" stroke="#34d399" stroke-width="1" stroke-dasharray="8,4"/>
+        <text x="582" y="163" fill="#34d399" font-size="10" font-weight="600">Per-Class Actor (proc + dispatch_chan, NOT a fileserver)</text>
+
+        <!-- dispatch_chan -->
+        <rect x="600" y="175" width="120" height="45" rx="6" fill="rgba(251,146,60,0.2)" stroke="#fb923c" stroke-width="1.5"/>
+        <text x="660" y="193" fill="white" font-size="10" font-weight="600" text-anchor="middle">dispatch_chan</text>
+        <text x="660" y="207" fill="#94a3b8" font-size="8" text-anchor="middle">Channel* (CSP)</text>
+
+        <!-- dispatch loop -->
+        <rect x="740" y="175" width="140" height="45" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="810" y="193" fill="white" font-size="10" font-weight="600" text-anchor="middle">dispatch loop</text>
+        <text x="810" y="207" fill="#94a3b8" font-size="8" text-anchor="middle">recvp → switch(sel)</text>
+
+        <!-- Internal state -->
+        <rect x="900" y="175" width="140" height="45" rx="6" fill="rgba(76,29,149,0.3)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="970" y="193" fill="white" font-size="10" font-weight="600" text-anchor="middle">Internal struct</text>
+        <text x="970" y="207" fill="#94a3b8" font-size="8" text-anchor="middle">fields + ARC ledger</text>
+
+        <!-- Atomic fields -->
+        <rect x="600" y="240" width="140" height="40" rx="6" fill="rgba(136,19,55,0.3)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="670" y="258" fill="white" font-size="10" font-weight="600" text-anchor="middle">Avlong fields</text>
+        <text x="670" y="270" fill="#94a3b8" font-size="8" text-anchor="middle">agetv/aincv/aswapv</text>
+
+        <!-- Asm cache -->
+        <rect x="760" y="240" width="140" height="40" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="830" y="258" fill="white" font-size="10" font-weight="600" text-anchor="middle">Asm Cache (64)</text>
+        <text x="830" y="270" fill="#94a3b8" font-size="8" text-anchor="middle">djb2 hash & 63</text>
+
+        <!-- Method impls -->
+        <rect x="920" y="240" width="120" height="40" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="980" y="258" fill="white" font-size="10" font-weight="600" text-anchor="middle">method impls</text>
+        <text x="980" y="270" fill="#94a3b8" font-size="8" text-anchor="middle">o9_impl_C_M</text>
+
+        <!-- 9P post -->
+        <rect x="600" y="295" width="210" height="40" rx="6" fill="rgba(120,53,15,0.2)" stroke="#fbbf24" stroke-width="1"/>
+        <text x="705" y="313" fill="#fbbf24" font-size="9" font-weight="600" text-anchor="middle">/srv/o9.&lt;app&gt;.&lt;class&gt;.&lt;inst&gt;</text>
+        <text x="705" y="326" fill="#94a3b8" font-size="8" text-anchor="middle">idempotent post — machine boundary</text>
+
+        <!-- Registry -->
+        <rect x="830" y="295" width="210" height="40" rx="6" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1"/>
+        <text x="935" y="313" fill="#94a3b8" font-size="9" font-weight="600" text-anchor="middle">Registry (CSP proc)</text>
+        <text x="935" y="326" fill="#64748b" font-size="8" text-anchor="middle">256-handle table, gen++</text>
+
+        <!-- Arrows: facade -> actor -->
+        <line x1="460" y1="195" x2="598" y2="195" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead-emerald)"/>
+        <text x="530" y="188" fill="#94a3b8" font-size="8">sendp(O9Msg)</text>
+
+        <line x1="600" y1="200" x2="738" y2="200" stroke="#fb923c" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="668" y="218" fill="#94a3b8" font-size="8">recvp</text>
+
+        <line x1="880" y1="200" x2="898" y2="200" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrowhead-emerald)"/>
+
+        <!-- reply arrow -->
+        <line x1="880" y1="210" x2="600" y2="210" stroke="#22d3ee" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrowhead-cyan)"/>
+        <text x="730" y="232" fill="#22d3ee" font-size="7">sendp(O9Reply*)</text>
+
+        <!-- ==================== DISPATCH TIERS (bottom) ==================== -->
+        <text x="550" y="380" fill="#e2e8f0" font-size="13" font-weight="700" text-anchor="middle">Dispatch Tiers (same call, different locality)</text>
+
+        <!-- Tier 1 -->
+        <rect x="50" y="400" width="280" height="100" rx="8" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="190" y="420" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">Tier 1: Asm Cache</text>
+        <text x="190" y="438" fill="#94a3b8" font-size="9" text-anchor="middle">Same process, shared memory</text>
+        <text x="190" y="455" fill="#64748b" font-size="8" text-anchor="middle">o9_dispatch.s: hash&63 → ptr</text>
+        <text x="190" y="470" fill="#64748b" font-size="8" text-anchor="middle">Direct memory access</text>
+        <text x="190" y="487" fill="#22d3ee" font-size="9" font-weight="600" text-anchor="middle">&lt;1ns (9front only)</text>
+
+        <!-- Tier 2 -->
+        <rect x="380" y="400" width="280" height="100" rx="8" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="520" y="420" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">Tier 2: CSP Channel</text>
+        <text x="520" y="438" fill="#94a3b8" font-size="9" text-anchor="middle">Same process, different actor</text>
+        <text x="520" y="455" fill="#64748b" font-size="8" text-anchor="middle">sendp(O9Msg) → recvp(O9Reply*)</text>
+        <text x="520" y="470" fill="#64748b" font-size="8" text-anchor="middle">One writer per object, no locks</text>
+        <text x="520" y="487" fill="#34d399" font-size="9" font-weight="600" text-anchor="middle">~50ns</text>
+
+        <!-- Tier 3 -->
+        <rect x="710" y="400" width="280" height="100" rx="8" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="850" y="420" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">Tier 3: 9P Protocol</text>
+        <text x="850" y="438" fill="#94a3b8" font-size="9" text-anchor="middle">Remote machine</text>
+        <text x="850" y="455" fill="#64748b" font-size="8" text-anchor="middle">Twalk→Topen→Twrite/Tread</text>
+        <text x="850" y="470" fill="#64748b" font-size="8" text-anchor="middle">near=IL, far=TCP</text>
+        <text x="850" y="487" fill="#fbbf24" font-size="9" font-weight="600" text-anchor="middle">~2500ns</text>
+
+        <!-- Tier arrows -->
+        <line x1="330" y1="450" x2="378" y2="450" stroke="#64748b" stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#arrowhead)"/>
+        <line x1="660" y1="450" x2="708" y2="450" stroke="#64748b" stroke-width="1.5" stroke-dasharray="4,4" marker-end="url(#arrowhead)"/>
+        <text x="354" y="443" fill="#64748b" font-size="7">miss</text>
+        <text x="684" y="443" fill="#64748b" font-size="7">remote</text>
+      </svg>
+    </div>
+
+    <!-- ==================== KEYWORD TABLES ==================== -->
+
+    <div class="kw-section">
+      <h2>Types &amp; Declarations</h2>
+      <table class="kw-table">
+        <thead>
+          <tr><th style="width:140px">Keyword</th><th style="width:250px">Description</th><th>Example</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="kw">class</td>
+            <td class="kw-desc">Define a class. Each <code>new</code> spawns a CSP actor (proc + dispatch_chan). The application is one shared 9P server; classes register handlers, not separate fileservers.</td>
+            <td class="kw-code">class Counter {
+    int64 val;
+    method Counter(int64 n) { val = n; }
+    method int64 get() { return val; }
+}</td>
+          </tr>
+          <tr>
+            <td class="kw">interface</td>
+            <td class="kw-desc">Compile-time contract. Cannot be instantiated.</td>
+            <td class="kw-code">interface Sink {
+    method void put(int64 value);
+}</td>
+          </tr>
+          <tr>
+            <td class="kw">struct</td>
+            <td class="kw-desc">Value type — no actor, no 9P server, embedded by copy.</td>
+            <td class="kw-code">struct Point {
+    int64 x;
+    int64 y;
+}</td>
+          </tr>
+          <tr>
+            <td class="kw">enum</td>
+            <td class="kw-desc">Named integer constants. Compile-time only.</td>
+            <td class="kw-code">enum Color {
+    Red,
+    Green,
+    Blue
+}</td>
+          </tr>
+          <tr>
+            <td class="kw">module</td>
+            <td class="kw-desc">Namespace grouping. Classes qualified as App.Counter.</td>
+            <td class="kw-code">module App {
+    class Counter { ... }
+}</td>
+          </tr>
+          <tr>
+            <td class="kw">object</td>
+            <td class="kw-desc">Singleton instance declaration. Class-typed slot.</td>
+            <td class="kw-code">object Logger {
+    method void log(string s) { ... }
+}</td>
+          </tr>
+          <tr>
+            <td class="kw">import</td>
+            <td class="kw-desc">Splice another .o9 file's declarations into the source.</td>
+            <td class="kw-code">import "string.o9";</td>
+          </tr>
+          <tr>
+            <td class="kw">func</td>
+            <td class="kw-desc">Free function (entry point or helper). Not an actor.</td>
+            <td class="kw-code">func main() {
+    print("hello\n");
+}</td>
+          </tr>
+          <tr>
+            <td class="kw">function</td>
+            <td class="kw-desc">Spawnable function-class. Desugars to anonymous one-method class.</td>
+            <td class="kw-code">function rawadd(int64 a, int64 b) int64 {
+    return a + b;
+}</td>
+          </tr>
+          <tr>
+            <td class="kw">method</td>
+            <td class="kw-desc">Class member function. Dispatched via CSP channel or 9P.</td>
+            <td class="kw-code">method int64 add(int64 n) { val = val + n; }</td>
+          </tr>
+          <tr>
+            <td class="kw">~ClassName</td>
+            <td class="kw-desc">Destructor. Runs synchronously on delete, then actor exits.</td>
+            <td class="kw-code">~Res() {
+    print("destructor ran\n");
+}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="kw-section">
+      <h2>Field Modifiers</h2>
+      <table class="kw-table">
+        <thead>
+          <tr><th style="width:140px">Keyword</th><th style="width:250px">Description</th><th>Example</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="kw">prop</td>
+            <td class="kw-desc">Property field. Exposed as a 9P file. Read/write through the facade.</td>
+            <td class="kw-code">prop byte value;</td>
+          </tr>
+          <tr>
+            <td class="kw">state</td>
+            <td class="kw-desc">Authoritative state field. Persisted to state .tab file.</td>
+            <td class="kw-code">state int64 counter;</td>
+          </tr>
+          <tr>
+            <td class="kw">atomic</td>
+            <td class="kw-desc">Lock-free atomic field. vlong → Avlong + agetv/aincv/aswapv.</td>
+            <td class="kw-code">atomic int64 n;
+n = n + 1;    // emits aincv
+n = 42;       // emits aswapv</td>
+          </tr>
+          <tr>
+            <td class="kw">stream</td>
+            <td class="kw-desc">CSP channel field. Auto-created at construction. Buffered (8).</td>
+            <td class="kw-code">stream s;
+method void put(int64 v) { s -> v; }</td>
+          </tr>
+          <tr>
+            <td class="kw">chan</td>
+            <td class="kw-desc">Alternate spelling of stream. Same NStream node.</td>
+            <td class="kw-code">chan c;
+method int64 take() { return <- c; }</td>
+          </tr>
+          <tr>
+            <td class="kw">secret</td>
+            <td class="kw-desc">Sealed storage. Desugars to blob + seal/open methods. AEAD.</td>
+            <td class="kw-code">secret string token;
+// desugars to:
+//   string token__blob;
+//   seal_token(key, v)  → encrypt
+//   open_token(key)     → decrypt</td>
+          </tr>
+          <tr>
+            <td class="kw">cap</td>
+            <td class="kw-desc">REMOVED. Using it is a compile error. Capabilities are 9P fids / namespace mounts, not a field type. Use a <code>secret</code> field for bearer tokens.</td>
+            <td class="kw-code">// cap string auth;     ← ERROR: 'cap' is not a language keyword
+// Use namespace mounts for authority,
+// or a secret field for a bearer token</td>
+          </tr>
+          <tr>
+            <td class="kw">private</td>
+            <td class="kw-desc">Class-scoped member. Not reachable through the 9P facade.</td>
+            <td class="kw-code">private int64 val;
+private method void bump(int64 d) { ... }</td>
+          </tr>
+          <tr>
+            <td class="kw">public</td>
+            <td class="kw-desc">Default. Reachable from outside and through 9P facade.</td>
+            <td class="kw-code">public method int64 get() { return val; }</td>
+          </tr>
+          <tr>
+            <td class="kw">abstract</td>
+            <td class="kw-desc">Marks a class non-instantiable or a method bodiless.</td>
+            <td class="kw-code">abstract class Base {
+    abstract method int64 id();
+}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="kw-section">
+      <h2>Control Flow &amp; Error Handling</h2>
+      <table class="kw-table">
+        <thead>
+          <tr><th style="width:140px">Keyword</th><th style="width:250px">Description</th><th>Example</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="kw">if / else / elif</td>
+            <td class="kw-desc">Conditional branches. elif = else if.</td>
+            <td class="kw-code">if(n > balance) { fail("insufficient"); }
+elif(n > 0) { balance -= n; }
+else { fail("zero"); }</td>
+          </tr>
+          <tr>
+            <td class="kw">while</td>
+            <td class="kw-desc">Loop with condition. No do-while, no break/continue.</td>
+            <td class="kw-code">while(n == 1) {
+    print(t.get("item"), "\n");
+    n = t.next();
+}</td>
+          </tr>
+          <tr>
+            <td class="kw">for</td>
+            <td class="kw-desc">C-style loop: init; cond; step. Semicolon-separated.</td>
+            <td class="kw-code">for(i = 0; i < 5; i = i + 1) {
+    sum = sum + i;
+}</td>
+          </tr>
+          <tr>
+            <td class="kw">return</td>
+            <td class="kw-desc">Return a value from a method/function.</td>
+            <td class="kw-code">return val * 2;</td>
+          </tr>
+          <tr>
+            <td class="kw">try</td>
+            <td class="kw-desc">Propagate callee's error. Errors are values (fail sets err).</td>
+            <td class="kw-code">int64 x = try leaf(n);
+// if leaf() called fail(), x = 0, error propagates</td>
+          </tr>
+          <tr>
+            <td class="kw">defer</td>
+            <td class="kw-desc">Run cleanup at method exit, on every path (success or error).</td>
+            <td class="kw-code">defer close(h);
+// runs when method returns, regardless of try/fail</td>
+          </tr>
+          <tr>
+            <td class="kw">fail</td>
+            <td class="kw-desc">Set error string and return early. Builtin, not a keyword.</td>
+            <td class="kw-code">if(n > balance) { fail("insufficient funds"); }</td>
+          </tr>
+          <tr>
+            <td class="kw">delete</td>
+            <td class="kw-desc">Run destructor synchronously, then actor exits. Blocks.</td>
+            <td class="kw-code">Res r = new Res(5);
+delete r;
+print("after delete\n");</td>
+          </tr>
+          <tr>
+            <td class="kw">new</td>
+            <td class="kw-desc">Construct object: spawn actor proc, create dispatch_chan, init fields. Not a 9P server — the app's shared server routes to it.</td>
+            <td class="kw-code">Counter c = new Counter(10);</td>
+          </tr>
+          <tr>
+            <td class="kw">new near</td>
+            <td class="kw-desc">Connect to remote via IL (reliable datagram, LAN).</td>
+            <td class="kw-code">Counter b = new near Counter(2);</td>
+          </tr>
+          <tr>
+            <td class="kw">new far</td>
+            <td class="kw-desc">Connect to remote via TCP (wide area).</td>
+            <td class="kw-code">Counter c = new far Counter(3);</td>
+          </tr>
+          <tr>
+            <td class="kw">spawn</td>
+            <td class="kw-desc">Run a function-class concurrently. Returns Task&lt;T&gt;.</td>
+            <td class="kw-code">Task&lt;int64&gt; t = spawn rawadd(10, 20);
+int64 v = t.await();</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="kw-section">
+      <h2>Built-in Types &amp; Collections</h2>
+      <table class="kw-table">
+        <thead>
+          <tr><th style="width:140px">Keyword</th><th style="width:250px">Description</th><th>Example</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="kw">int64..int8</td>
+            <td class="kw-desc">Plan 9 scalar types. Map to vlong, long, short, char.</td>
+            <td class="kw-code">int64 n; uint8 b; int16 s;</td>
+          </tr>
+          <tr>
+            <td class="kw">string</td>
+            <td class="kw-desc">O9String* — refcounted, UTF-8. Builtins: len, cmp, cat.</td>
+            <td class="kw-code">string s = "hello";
+print(len(s), "\n");</td>
+          </tr>
+          <tr>
+            <td class="kw">bool</td>
+            <td class="kw-desc">Boolean. true/false literals. Stored as int.</td>
+            <td class="kw-code">bool ok = true;</td>
+          </tr>
+          <tr>
+            <td class="kw">byte</td>
+            <td class="kw-desc">Unsigned 8-bit. Same as uint8/uchar.</td>
+            <td class="kw-code">prop byte value;</td>
+          </tr>
+          <tr>
+            <td class="kw">void</td>
+            <td class="kw-desc">No return value.</td>
+            <td class="kw-code">method void set(int64 n) { val = n; }</td>
+          </tr>
+          <tr>
+            <td class="kw">List&lt;T&gt;</td>
+            <td class="kw-desc">Dynamic array. O9Slice backing. Add(), Length(), [].</td>
+            <td class="kw-code">List&lt;int64&gt; numbers;
+numbers.Add(10);
+print(numbers[0]);  // 10</td>
+          </tr>
+          <tr>
+            <td class="kw">Dict&lt;K,V&gt;</td>
+            <td class="kw-desc">Hash map. O9Dict backing. Has(), Get(), Set().</td>
+            <td class="kw-code">Dict&lt;string, int64&gt; ages;
+ages.Set("bob", 42);</td>
+          </tr>
+          <tr>
+            <td class="kw">T[]</td>
+            <td class="kw-desc">Array type. O9Slice backing (same as List). Growable.</td>
+            <td class="kw-code">int64[] items;
+items[0] = 42;</td>
+          </tr>
+          <tr>
+            <td class="kw">Task&lt;T&gt;</td>
+            <td class="kw-desc">Spawn join handle. await() blocks for result.</td>
+            <td class="kw-code">Task&lt;int64&gt; t = spawn rawadd(3, 4);
+int64 v = t.await();  // 7</td>
+          </tr>
+          <tr>
+            <td class="kw">Tabula</td>
+            <td class="kw-desc">First-class table type. libtab-backed. Text boundary.</td>
+            <td class="kw-code">Tabula t = new Tabula("orders", "item,qty");
+t.add("a");
+t.set("item", "widget");
+print(t.get("item"));  // widget</td>
+          </tr>
+          <tr>
+            <td class="kw">MountTable</td>
+            <td class="kw-desc">Namespace composition as data. Validate-then-apply.</td>
+            <td class="kw-code">MountTable mt = new MountTable();
+mt.allowRoot("/tmp/o9");
+mt.bind("/tmp", "tmp", 0);
+mt.dir("cache", 493);
+mt.validate();
+mt.apply();</td>
+          </tr>
+          <tr>
+            <td class="kw">chan</td>
+            <td class="kw-desc">CSP channel type (as a field type, not a keyword).</td>
+            <td class="kw-code">chan c;   // untyped, buffered(8)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="kw-section">
+      <h2>Channel Operators &amp; Raw C</h2>
+      <table class="kw-table">
+        <thead>
+          <tr><th style="width:140px">Operator</th><th style="width:250px">Description</th><th>Example</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="kw">-&gt;</td>
+            <td class="kw-desc">Channel send. Boxes the value, sendp to channel.</td>
+            <td class="kw-code">c -> v;     // send v on channel c</td>
+          </tr>
+          <tr>
+            <td class="kw">&lt;-</td>
+            <td class="kw-desc">Channel receive. recvp, unbox, return value.</td>
+            <td class="kw-code">x = <- c;   // receive from c into x</td>
+          </tr>
+          <tr>
+            <td class="kw">-&gt;?</td>
+            <td class="kw-desc">Non-blocking send (try). Alt with CHANSND + CHANNOBLK.</td>
+            <td class="kw-code">c ->? v;    // try-send, no rendezvous</td>
+          </tr>
+          <tr>
+            <td class="kw">c { }</td>
+            <td class="kw-desc">Raw Plan 9 C block. Inside function bodies only.</td>
+            <td class="kw-code">function rawadd(int64 a) int64 {
+    int64 out;
+    c {
+        out = a + 7;
+    }
+    return out;
+}</td>
+          </tr>
+          <tr>
+            <td class="kw">use { }</td>
+            <td class="kw-desc">Declare constrained C dependencies. Resolves via deps.tab.</td>
+            <td class="kw-code">function countbytes(string path) int64 {
+    use { bio }
+    c {
+        Biobuf *b = Bopen(path, OREAD);
+    }
+}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="kw-section">
+      <h2>Built-in Functions</h2>
+      <table class="kw-table">
+        <thead>
+          <tr><th style="width:140px">Function</th><th style="width:250px">Description</th><th>Example</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="kw">print</td>
+            <td class="kw-desc">Print arguments. Auto-format: %s for strings, %lld for numbers.</td>
+            <td class="kw-code">print("v = ", v, "\n");</td>
+          </tr>
+          <tr>
+            <td class="kw">len</td>
+            <td class="kw-desc">String length.</td>
+            <td class="kw-code">print(len(s), "\n");</td>
+          </tr>
+          <tr>
+            <td class="kw">cmp</td>
+            <td class="kw-desc">String compare. Returns -1, 0, 1.</td>
+            <td class="kw-code">if(cmp(a, b) == 0) { ... }</td>
+          </tr>
+          <tr>
+            <td class="kw">cat</td>
+            <td class="kw-desc">String concatenation.</td>
+            <td class="kw-code">string s = cat("foo", "bar");</td>
+          </tr>
+          <tr>
+            <td class="kw">fail</td>
+            <td class="kw-desc">Set error and return early.</td>
+            <td class="kw-code">fail("insufficient funds");</td>
+          </tr>
+          <tr>
+            <td class="kw">send</td>
+            <td class="kw-desc">Fire a ctl line at any handle. Code as data.</td>
+            <td class="kw-code">send(handle, "method Counter inc arg0=5");</td>
+          </tr>
+          <tr>
+            <td class="kw">lookup</td>
+            <td class="kw-desc">Resolve a handle by OID through registry or /srv.</td>
+            <td class="kw-code">lookup(client, "Counter.main");</td>
+          </tr>
+          <tr>
+            <td class="kw">serve</td>
+            <td class="kw-desc">Post the application 9P server and block.</td>
+            <td class="kw-code">serve();</td>
+          </tr>
+          <tr>
+            <td class="kw">export</td>
+            <td class="kw-desc">Publish a Tabula into the served-tree exports/ dir.</td>
+            <td class="kw-code">export("inventory", t);</td>
+          </tr>
+          <tr>
+            <td class="kw">readfile</td>
+            <td class="kw-desc">Read a file as string.</td>
+            <td class="kw-code">string s = readfile("/tmp/data");</td>
+          </tr>
+          <tr>
+            <td class="kw">writefile</td>
+            <td class="kw-desc">Write a string to a file.</td>
+            <td class="kw-code">writefile("/tmp/out", "ok");</td>
+          </tr>
+          <tr>
+            <td class="kw">readline</td>
+            <td class="kw-desc">Read a line from stdin.</td>
+            <td class="kw-code">string line = readline();</td>
+          </tr>
+          <tr>
+            <td class="kw">keygen / sign / verify / hash</td>
+            <td class="kw-desc">Crypto builtins (monocypher). Hex-encoded keys/sigs.</td>
+            <td class="kw-code">string sec = keygen();
+string sig = sign(sec, "attest");
+print(verify(pub, "attest", sig));</td>
+          </tr>
+          <tr>
+            <td class="kw">encrypt / decrypt</td>
+            <td class="kw-desc">AEAD encryption. Decrypt returns nil on tamper.</td>
+            <td class="kw-code">string blob = encrypt(k, "secret");
+string pt = decrypt(k, blob);</td>
+          </tr>
+          <tr>
+            <td class="kw">passkey</td>
+            <td class="kw-desc">Argon2id password → key. Interop with reference impl.</td>
+            <td class="kw-code">string pk = passkey("hunter2", "salt");</td>
+          </tr>
+          <tr>
+            <td class="kw">exchange / xpubkey</td>
+            <td class="kw-desc">X25519 key exchange. Both sides derive same shared key.</td>
+            <td class="kw-code">string shared = exchange(a, xpubkey(b));</td>
+          </tr>
+          <tr>
+            <td class="kw">mac</td>
+            <td class="kw-desc">Keyed BLAKE2b-256 MAC.</td>
+            <td class="kw-code">print(mac(key, "data"), "\n");</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ==================== INFO CARDS ==================== -->
+    <div class="cards">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h3>Compilation</h3>
+        </div>
+        <ul>
+          <li>• yacc/lex grammar → <code>o9c</code> transpiler</li>
+          <li>• 4 phases: import, prescan, parse, typecheck</li>
+          <li>• Monomorphization for generics (<code>Box&lt;int64&gt;</code>)</li>
+          <li>• Emits Plan 9 C → <code>6c</code> → <code>6l</code> → binary</li>
+          <li>• Links <code>libo9.a</code> (runtime + dispatch)</li>
+          <li>• Target: 9front (6c/6l toolchain)</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h3>Object Model</h3>
+        </div>
+        <ul>
+          <li>• <code>new</code> = proccreate + dispatch_chan (CSP actor)</li>
+          <li>• Application is ONE 9P server (flat 4-file tree)</li>
+          <li>• Classes register handlers into O9ClassH[] table</li>
+          <li>• Method call = <code>sendp(O9Msg)</code> → <code>recvp(O9Reply*)</code></li>
+          <li>• ARC ledger tracks references (ainc/adec)</li>
+          <li>• <code>delete</code> = synchronous destroy + threadexits</li>
+          <li>• Atomic vlong: <code>Avlong</code> + <code>agetv</code>/<code>aincv</code></li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot amber"></div>
+          <h3>9P Facade</h3>
+        </div>
+        <ul>
+          <li>• ONE server per app: <code>ctl</code>, <code>data</code>, <code>status</code>, <code>methods</code></li>
+          <li>• <code>ctl</code> receives method lines: <code>method Class.inst name arg0=5</code></li>
+          <li>• <code>data</code> returns the result as text</li>
+          <li>• Session pool (clone model, grow-and-reuse)</li>
+          <li>• <code>srvrelease</code>/<code>srvacquire</code> for concurrency</li>
+          <li>• Remote: raw 9P (Tversion→Tattach→Twalk→Topen→Twrite/Tread)</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot violet"></div>
+          <h3>Tabula &amp; MountTable</h3>
+        </div>
+        <ul>
+          <li>• Tabula = first-class table type (libtab backing)</li>
+          <li>• Every value in/out is string (text boundary)</li>
+          <li>• MountTable = namespace composition as data</li>
+          <li>• Schema: call/fd/old/new/flag/aname/mode</li>
+          <li>• Validate-then-apply pattern (path traversal safe)</li>
+          <li>• Operations: dir, bind, mountsrv</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot rose"></div>
+          <h3>Security</h3>
+        </div>
+        <ul>
+          <li>• <code>secret string</code> desugars to AEAD blob + seal/open</li>
+          <li>• Plaintext never exists as stored state</li>
+          <li>• Key custody stays with caller (passkey/exchange/keygen)</li>
+          <li>• Crypto: monocypher (Ed25519, X25519, BLAKE2b, AEAD)</li>
+          <li>• <code>private</code> members not reachable through 9P</li>
+          <li>• <code>use { bio }</code> constrains raw C dependencies</li>
+          <li>• Capabilities = 9P fids / namespace mounts, not a keyword</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot orange"></div>
+          <h3>Concurrency</h3>
+        </div>
+        <ul>
+          <li>• One model: every object is a CSP actor</li>
+          <li>• <code>function</code> = anonymous one-method class</li>
+          <li>• <code>spawn f(args)</code> → <code>Task&lt;T&gt;</code> join handle</li>
+          <li>• <code>t.await()</code> blocks on done channel (per-proc error)</li>
+          <li>• Channels buffered (8), boxes freed on recv or drain</li>
+          <li>• No goroutines, no closures, no capture</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <p class="footer">
+      o9 / objective-9c • Plan 9-native transpiler • 9front C target • CSP actor model
+    </p>
+  </div>
+</body>
+</html>

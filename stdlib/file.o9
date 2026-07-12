@@ -1,3 +1,5 @@
+import "bytes.o9";
+
 function FileAppendRaw(string path, string data) int64 {
     int64 out;
 
@@ -85,6 +87,99 @@ function FileRemoveRaw(string path) int64 {
     return out;
 }
 
+function FileMkdirRaw(string path) int64 {
+    int64 out;
+
+    c {
+        char *cpath;
+        int fd;
+        Dir *d;
+
+        out = 0;
+        cpath = o9_string_cstr(path);
+        if(cpath != nil){
+            fd = create(cpath, OREAD, DMDIR|0755);
+            if(fd >= 0){
+                out = 1;
+                close(fd);
+            } else {
+                d = dirstat(cpath);
+                if(d != nil){
+                    if(d->mode & DMDIR)
+                        out = 1;
+                    free(d);
+                }
+            }
+            free(cpath);
+        }
+    }
+    return out;
+}
+
+function FileIsDirRaw(string path) int64 {
+    int64 out;
+
+    c {
+        char *cpath;
+        Dir *d;
+
+        out = 0;
+        cpath = o9_string_cstr(path);
+        if(cpath != nil){
+            d = dirstat(cpath);
+            if(d != nil){
+                if(d->mode & DMDIR)
+                    out = 1;
+                free(d);
+            }
+            free(cpath);
+        }
+    }
+    return out;
+}
+
+function FileListRaw(string path) string {
+    string out;
+
+    c {
+        char *cpath, *q;
+        int fd, i, n;
+        vlong total, len;
+        Dir *dirs;
+
+        out = nil;
+        cpath = o9_string_cstr(path);
+        if(cpath != nil){
+            fd = open(cpath, OREAD);
+            free(cpath);
+            if(fd >= 0){
+                dirs = nil;
+                n = dirreadall(fd, &dirs);
+                close(fd);
+                if(n > 0 && dirs != nil){
+                    total = 0;
+                    for(i = 0; i < n; i++)
+                        total += strlen(dirs[i].name) + 1;
+                    out = o9_string_new(nil, total);
+                    if(out != nil){
+                        q = o9_string_data(out);
+                        for(i = 0; i < n; i++){
+                            len = strlen(dirs[i].name);
+                            memmove(q, dirs[i].name, len);
+                            q += len;
+                            *q++ = '\n';
+                        }
+                    }
+                }
+                free(dirs);
+            }
+        }
+        if(out == nil)
+            out = o9_string_new("", 0);
+    }
+    return out;
+}
+
 class File {
     prop string path;
 
@@ -105,6 +200,18 @@ class File {
         return t.await();
     }
 
+    method int64 writeBytes(Bytes data) {
+        return write(data.text());
+    }
+
+    method int64 appendBytes(Bytes data) {
+        return append(data.text());
+    }
+
+    method void readInto(Bytes data) {
+        data.setText(read());
+    }
+
     method bool exists() {
         Task<int64> t = spawn FileExistsRaw(path);
         return t.await() == 1;
@@ -118,5 +225,20 @@ class File {
     method bool remove() {
         Task<int64> t = spawn FileRemoveRaw(path);
         return t.await() == 1;
+    }
+
+    method bool mkdir() {
+        Task<int64> t = spawn FileMkdirRaw(path);
+        return t.await() == 1;
+    }
+
+    method bool isDir() {
+        Task<int64> t = spawn FileIsDirRaw(path);
+        return t.await() == 1;
+    }
+
+    method string list() {
+        Task<string> t = spawn FileListRaw(path);
+        return t.await();
     }
 }

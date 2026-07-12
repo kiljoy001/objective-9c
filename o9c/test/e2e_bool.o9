@@ -24,7 +24,7 @@ class BoolBox {
     }
 }
 
-func main() {
+main {
     BoolBox t = new BoolBox(true, false);
     print("both ", t.both(), "\n");
     print("either ", t.either(), "\n");

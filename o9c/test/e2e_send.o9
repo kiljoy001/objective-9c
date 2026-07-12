@@ -8,7 +8,7 @@ class Counter {
     method int64 get() { return val; }
     method string tag() { return "counter"; }
 }
-func main() {
+main {
     Counter c = new Counter(40);
     send(c, "method c add arg0=2");
     print(send(c, "method c get"), "\n");

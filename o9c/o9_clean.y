@@ -10,7 +10,6 @@ enum {
     NClass,
     NProp,
     NState,
-    NAtomic,
     NStream,
     NSecret,
     NCap,
@@ -194,7 +193,7 @@ get_sym_type(Node *c, char *name)
     Node *m;
     if(c == nil || name == nil) return "vlong";
     for(m = c->left; m; m = m->next){
-        if((m->type == NProp || m->type == NAtomic || m->type == NState) && m->name && strcmp(m->name, name) == 0){
+        if((m->type == NProp || m->type == NState) && m->name && strcmp(m->name, name) == 0){
             return map_type(m->typename);
         }
     }
@@ -337,7 +336,11 @@ prop_decl:
 atomic_decl:
     TATOMIC typename TIDENT ';'
     {
-        $$ = mk(NAtomic, $3->name, $2->name, nil, nil);
+        fprint(2, "o9c: error: 'atomic' is not a language keyword. "
+            "Use object dispatch/streams/spawn for concurrency; low-level "
+            "atomics are internal runtime machinery or raw C in a function.\n");
+        semantic_errors++;
+        $$ = mk(NProp, $3->name, $2->name, nil, nil);
     }
     ;
 
@@ -1256,7 +1259,7 @@ gen_stmt(Node *c, Node *s)
                         Node *cnode = find_class(cn);
                         Node *m;
                         for(m = cnode->left; m; m = m->next){
-                            if(m->type == NProp || m->type == NState || m->type == NAtomic){
+                            if(m->type == NProp || m->type == NState){
                                 if(m->typename && strncmp(m->typename, "Dict:", 5) == 0)
                                     print("\t\to9_dict_init(&__%s->%s);\n", s->name, m->name);
                                 else
@@ -1572,7 +1575,7 @@ gen_class_server(Node *c)
     print("struct %s_Internal {\n\tArcLedger ledger;\n\tlong ref;\t/* ARC reference count */\n\tint distance;\t/* -1=same, 0=near/IL, 1=far/TCP */\n", c->name);
     for(m = c->left; m; m = m->next){
         if(m->type == NInherit) print("\t%s_Internal;\n", m->name);
-        if(m->type == NProp || m->type == NState || m->type == NAtomic) 
+        if(m->type == NProp || m->type == NState) 
             print("\t%s %s;\n", map_type(m->typename), m->name);
         if(m->type == NStream)
             print("\tChannel *%s;\n", m->name);
@@ -1715,7 +1718,7 @@ gen_class_server(Node *c)
         }
     }
     for(m = c->left; m; m = m->next){
-        if(m->type == NProp || m->type == NAtomic){
+        if(m->type == NProp){
             char *t = map_type(m->typename);
             char *fmt = type_fmt(t);
             char *cast = type_cast(t);
@@ -1769,7 +1772,7 @@ gen_class_server(Node *c)
         }
     }
     for(m = c->left; m; m = m->next){
-        if(m->type == NProp || m->type == NAtomic){
+        if(m->type == NProp){
             char *t = map_type(m->typename);
             if(strcmp(t, "O9Dict") == 0) {
                 /* Dict property: deserialize */
@@ -1798,7 +1801,7 @@ gen_class_server(Node *c)
     print("\tcreatefile(dir, \"status\", nil, 0444, nil);\n");
     print("\t{ File *__df = createfile(dir, \"__distance__\", nil, 0444, nil); if(__df) __df->aux = inst; }\n");
     for(m = c->left; m; m = m->next){
-        if(m->type == NProp || m->type == NAtomic)
+        if(m->type == NProp)
             print("\t{ File *__f = createfile(dir, \"%s\", nil, 0666, nil); if(__f) __f->aux = inst; }\n", m->name);
     }
     for(m = c->left; m; m = m->next){
@@ -1856,7 +1859,7 @@ codegen(Node *root)
     }
     Node *main_func = nil;
     Node *last = nil;
-    int has_remote_new = 0;  /* set if func main() uses new near/far */
+    int has_remote_new = 0;  /* set if main {} uses new near/far */
     for(n = root; n; n = n->next){
         if(n->type == NClass) {
             gen_class_server(n);

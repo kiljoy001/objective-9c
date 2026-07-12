@@ -1,5 +1,5 @@
 // MountTable - typed namespace syscall parameters stored as Tabula data.
-func main() {
+main {
     MountTable mt = new MountTable();
     print("schema ", mt.schema(), "\n");
     print("dir ", mt.dir("cache", 493), "\n");

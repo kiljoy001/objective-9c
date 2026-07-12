@@ -1,0 +1,11 @@
+class Bad {
+    method uintptr addr() {
+        return 0;
+    }
+
+    method void set(uintptr addr) {
+    }
+}
+
+main {
+}

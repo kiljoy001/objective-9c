@@ -4,7 +4,7 @@ class ArrayHolder {
     string[] names;
 }
 
-func main() {
+main {
     ArrayHolder h = new ArrayHolder();
     print("array_test: OK\n");
 }

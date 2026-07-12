@@ -11,7 +11,7 @@ class Car {
     method Car(int64 p) { motor = new Engine(p); }
     method int64 drive() { return motor.rev(); }   // call through the field
 }
-func main() {
+main {
     Car c = new Car(50);
     print("drive ", c.drive(), "\n");   // 100
 }

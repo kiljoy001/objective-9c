@@ -1,4 +1,4 @@
-func main() {
+main {
     MountTable m = new MountTable();
     m.bind("/tmp", "tmp", "0");
 }

@@ -6,7 +6,7 @@ class Counter {
     method int64 get() { return val; }
 }
 
-func main() {
+main {
     Counter c = new near Counter("il!localhost!Counter", 42);
     c.inc(5);
     print(c.get());

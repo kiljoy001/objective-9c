@@ -4,7 +4,7 @@ class Echo {
     method int64 getn() { return n; }
     method string greet(string who) { return who; }
 }
-func main() {
+main {
     Echo e = new Echo();
     serve();
 }

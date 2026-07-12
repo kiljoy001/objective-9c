@@ -6,7 +6,7 @@ class Pipe {
     method void put(int64 v) { s -> v; }
     method int64 take() { int64 x; x = <- s; return x; }
 }
-func main() {
+main {
     Pipe p = new Pipe();
     p.put(11);
     p.put(22);
