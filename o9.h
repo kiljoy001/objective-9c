@@ -15,6 +15,7 @@ struct O9Msg {
 struct O9Reply {
     int ok;
     uintptr ret;
+    double dret;
     char *err;
 };
 
@@ -86,11 +87,15 @@ extern long  o9_ledger_value(void *client, ulong id);
 extern void  o9_clunk(int fd);
 extern void* obj9_msgSend(void *receiver, char *method, ulong selector, void *args);
 extern void* obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int nargs);
+extern double obj9_msgSendDoubleN(void *receiver, char *method, ulong selector, void *args, int nargs);
+extern vlong o9_double_pack(double d);
+extern double o9_double_unpack(vlong v);
 extern ulong o9_hash(char *s);
 /* Per-proc last-call error for `try` (procdata-backed; each object proc
  * has its own — see o9_runtime.c). NOT a global: parallel actors. */
 extern void  o9_set_call_err(char *e);
 extern char* o9_get_call_err(void);
+extern void  o9_actor_enter(void *dispatch_chan, char *oid);
 
 /* O9String — immutable language-level string.
  *
@@ -327,6 +332,7 @@ typedef struct O9Task O9Task;
 extern O9Task*   o9_task_new(int id);
 extern void*     o9_task_chan(O9Task *t);	/* internal: the done Channel* (as void*) */
 extern vlong     o9_task_await(O9Task *t);	/* block; value, or per-proc err + 0 */
+extern double    o9_task_await_double(O9Task *t);
 extern void      o9_task_close(O9Task *t);
 
 #endif

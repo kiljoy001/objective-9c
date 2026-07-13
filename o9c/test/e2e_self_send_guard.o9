@@ -1,0 +1,29 @@
+class LoopGuard {
+    int64 n;
+
+    method LoopGuard(int64 v) {
+        n = v;
+    }
+
+    method int64 value() {
+        return n;
+    }
+
+    method int64 direct() {
+        return value();
+    }
+
+    method int64 through(LoopGuard other) {
+        int64 v = try other.value();
+        return v + 1;
+    }
+}
+
+main {
+    LoopGuard a = new LoopGuard(7);
+    LoopGuard b = new LoopGuard(20);
+
+    print("direct ", a.direct(), "\n");
+    print("other ", a.through(b), "\n");
+    print("self ", a.through(a), "\n");
+}

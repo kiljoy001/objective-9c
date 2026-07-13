@@ -27,6 +27,7 @@ enum {
     NAssign,
     NReturn,
     NIntLit,
+    NDoubleLit,
     NStringLit,
     NCharLit,
     NBoolLit,
@@ -79,7 +80,11 @@ enum {
     NSpawn,
     NCast,
     NRawC,
-    NUse
+    NUse,
+    NAlt,
+    NAltCase,
+    NAltDefault,
+    NTupleLit
 };
 
 enum {
@@ -135,6 +140,10 @@ static int in_prescan;              /* 1 during prescan phase, 0 during parse */
 static int cur_line = 1;            /* current source line for diagnostics */
 static int sem_line;                /* line of the node being semantically checked */
 static Node *gen_class;             /* class whose method body is being generated */
+static Type *gen_return_type;        /* method return type while emitting body */
+static char *parse_class_stack[32];
+static int parse_class_depth;
+static char *current_parse_class_source;
 static char last_caps_ident[128];   /* capitalized ident not in type registry */
 static int last_caps_line;
 
@@ -203,6 +212,7 @@ find_class(char *name)
 
 Node* mk(int type, char *name, char *typename, Node *l, Node *r);
 static Node* mk_secret_field(Node *tn, char *name);
+static Node* synth_function_class(char *fname, Node *rettn, Node *params, Node *body);
 static void o9_note_registered(char *name);
 static int member_exists(Node *cnode, char *name);
 Node* append_node(Node *list, Node *node);
@@ -215,6 +225,7 @@ static Type* typeinfo_from_legacy(char *t);
 static Node* type_decl_node(Type *t);
 static Type* decl_typeinfo(Node *n);
 static Node* member_node(Node *cnode, char *name, int method);
+static int typed_member_lookup(Type *receiver, char *name, int method, TypedMember *out);
 static int method_has_body(Node *m);
 static Type* get_typeinfo_sym(char *name);
 static void add_type_sym_typed(char *name, char *typename, Type *typeinfo);
@@ -429,6 +440,7 @@ char* get_expr_type(Node *e) {
     if(e->typeinfo != nil) return legacy_type_name(e->typeinfo);
     switch(e->type){
     case NIntLit: return "int64";
+    case NDoubleLit: return "double";
     case NStringLit: return "string";
     case NBoolLit: return "bool";
     case NClass: return e->name;
@@ -946,6 +958,23 @@ pop_module(void)
     current_module = module_stack[--module_depth];
 }
 
+static void
+push_parse_class(char *source)
+{
+    if(parse_class_depth >= nelem(parse_class_stack))
+        sysfatal("class nesting too deep");
+    parse_class_stack[parse_class_depth++] = current_parse_class_source;
+    current_parse_class_source = source;
+}
+
+static void
+pop_parse_class(void)
+{
+    if(parse_class_depth <= 0)
+        return;
+    current_parse_class_source = parse_class_stack[--parse_class_depth];
+}
+
 char*
 type_storage_for_codegen(Type *t)
 {
@@ -991,6 +1020,15 @@ type_storage_for_codegen(Type *t)
             return "O9Dict";
         if(strcmp(t->name, "Task") == 0)
             return "O9Task*";	/* handle; <T> only types await's return */
+        if(strcmp(t->name, "Tuple") == 0){
+            c = type_cname(t);
+            n = strlen(c) + 2;
+            r = malloc(n);
+            if(r == nil)
+                sysfatal("malloc: tuple storage");
+            snprint(r, n, "%s*", c);
+            return r;
+        }
         d = type_decl_node(t);
         c = type_cname(type_name(t->name));
         if(d != nil && (d->type == NClass || d->type == NInterface)){
@@ -1057,6 +1095,7 @@ type_cast_for_codegen(Type *t)
     if(strcmp(s, "vlong") == 0 || strcmp(s, "uvlong") == 0 ||
        strcmp(s, "long") == 0 || strcmp(s, "ulong") == 0 ||
        strcmp(s, "int") == 0 || strcmp(s, "uint") == 0 ||
+       strcmp(s, "double") == 0 ||
        strcmp(s, "intptr") == 0 || strcmp(s, "uintptr") == 0 ||
        strcmp(s, "short") == 0 || strcmp(s, "ushort") == 0 ||
        strcmp(s, "char") == 0 || strcmp(s, "uchar") == 0)
@@ -1106,6 +1145,19 @@ type_is_string(Type *t)
 }
 
 static int
+type_is_double(Type *t)
+{
+    return t != nil && t->kind == TyName && strcmp(t->name, "double") == 0;
+}
+
+static int
+type_is_tuple(Type *t)
+{
+    return t != nil && t->kind == TyApply && t->name != nil &&
+        strcmp(t->name, "Tuple") == 0;
+}
+
+static int
 storage_is_o9string(char *s)
 {
     return s != nil && strcmp(s, "O9String*") == 0;
@@ -1151,6 +1203,7 @@ c_type_fmt(char *t)
     if(strcmp(t, "ulong") == 0) return "%lud";
     if(strcmp(t, "int") == 0) return "%d";
     if(strcmp(t, "uint") == 0) return "%ud";
+    if(strcmp(t, "double") == 0) return "%g";
     if(strcmp(t, "short") == 0) return "%d";
     if(strcmp(t, "ushort") == 0) return "%ud";
     if(strcmp(t, "char") == 0) return "%d";
@@ -1168,6 +1221,7 @@ type_cast(char *t)
     if(strcmp(t, "vlong") == 0 || strcmp(t, "uvlong") == 0 ||
        strcmp(t, "long") == 0 || strcmp(t, "ulong") == 0 ||
        strcmp(t, "int") == 0 || strcmp(t, "uint") == 0 ||
+       strcmp(t, "double") == 0 ||
        strcmp(t, "short") == 0 || strcmp(t, "ushort") == 0 ||
        strcmp(t, "char") == 0 || strcmp(t, "uchar") == 0) return t;
     if(find_class(t) && find_class(t)->type == NStruct) return "";
@@ -1192,6 +1246,7 @@ is_primitive(char *t)
     if(strcmp(t, "int8") == 0) return 1;
     if(strcmp(t, "uint8") == 0) return 1;
     if(strcmp(t, "byte") == 0) return 1;
+    if(strcmp(t, "double") == 0) return 1;
     if(strcmp(t, "bool") == 0) return 1;
     if(strcmp(t, "string") == 0) return 1;
     if(strcmp(t, "int") == 0) return 1;
@@ -1343,7 +1398,9 @@ typeinfo_from_legacy(char *t)
 
 %token <node> TIDENT TTYPE TQIDENT TTYPEIDENT TENUMIDENT
 %token <name> TINTLIT TSTRINGLIT TCHARLIT TRAWC
+%token <name> TDOUBLELIT
 %token TCLASS TINTERFACE TSTRUCT TENUM TMODULE TIMPORT TFUNC TFUNCTION TMAIN TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TLIST TTASK TNIL TABSTRACT TDELETE TSPAWN TCAST TUSE
+%token TALT TCASE TDEFAULT
 %token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TOBJECT TTRUE TFALSE TARROW
 %token TPUBLIC TPRIVATE
 %token TTRY TDEFER
@@ -1364,9 +1421,10 @@ typeinfo_from_legacy(char *t)
 %left TADD TSUB
 %left '*' '/' '%'
 %right '!' '~' UMINUS
+%right TTRY
 %left '.' '['
  
-%type <node> program top_levels top_level class_decl class_head interface_decl interface_head struct_decl struct_head enum_decl enum_vals enum_val module_decl module_head import_decl object_decl member_list member member_body var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename name_ref type_name_ref decl_name generic_name enum_name member_name spawn_name dep_name dep_list param_list param call_args call_arg main_decl func_top_level function_decl for_init for_cond for_step else_clause generic_opt generic_names abstract_opt
+%type <node> program top_levels top_level class_decl class_head interface_decl interface_head struct_decl struct_head enum_decl enum_vals enum_val module_decl module_head import_decl object_decl member_list member member_body var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename name_ref type_name_ref decl_name generic_name enum_name member_name spawn_name dep_name dep_list param_list param call_args call_arg main_decl func_top_level function_decl for_init for_cond for_step else_clause generic_opt generic_names abstract_opt alt_stmt alt_cases alt_case
 %type <type> type_expr type_primary
 %type <types> type_args type_args_opt
 
@@ -1450,7 +1508,12 @@ type_primary:
     | TLIST '<' type_args '>' { $$ = type_apply("List", $3); }
     | TDICT '<' type_args '>' { $$ = type_apply("Dict", $3); }
     | TTASK '<' type_args '>' { $$ = type_apply("Task", $3); }
-    | '(' type_expr ')' { $$ = $2; }
+    | '(' type_args ')' {
+        if(type_list_len($2) == 1)
+            $$ = $2->type;
+        else
+            $$ = type_apply("Tuple", $2);
+    }
     ;
 
 type_args_opt:
@@ -1555,11 +1618,15 @@ func_top_level:
 function_decl:
     TFUNCTION TIDENT '(' param_list ')' typename '{' stmt_list '}'
     {
-        $$ = synth_function_class($2->name, $6, $4, $8);
+        char *fname = current_parse_class_source != nil ?
+            join_module_name(current_parse_class_source, $2->name) : $2->name;
+        $$ = synth_function_class(fname, $6, $4, $8);
     }
     | TFUNCTION TIDENT '(' param_list ')' '{' stmt_list '}'
     {
-        $$ = synth_function_class($2->name, nil, $4, $7);
+        char *fname = current_parse_class_source != nil ?
+            join_module_name(current_parse_class_source, $2->name) : $2->name;
+        $$ = synth_function_class(fname, nil, $4, $7);
     }
     ;
 
@@ -1581,12 +1648,14 @@ class_head:
         if($1 != nil)
             $$->flags |= NFAbstract;
         push_type_params($4);
+        push_parse_class(source);
     }
     ;
 
 class_decl:
     class_head member_list '}'
     {
+        pop_parse_class();
         pop_type_params();
         $$ = $1;
         $$->left = $2;
@@ -1712,6 +1781,7 @@ member:
 
 member_body:
     var_decl
+    | function_decl
     | func_decl
     | method_decl
     | state_decl
@@ -1756,6 +1826,14 @@ stream_decl:
     TSTREAM TIDENT ';'
     {
         $$ = mk(NStream, $2->name, nil, nil, nil);
+    }
+    | TSTREAM '<' typename '>' member_name ';'
+    {
+        $$ = mk_typed(NStream, $5->name, $3, nil, nil);
+    }
+    | TCHAN '<' typename '>' member_name ';'
+    {
+        $$ = mk_typed(NStream, $5->name, $3, nil, nil);
     }
     ;
 
@@ -1937,8 +2015,32 @@ stmt:
     }
     | TWHILE '(' expr ')' '{' stmt_list '}' { $$ = mk(NWhile, nil, nil, $3, $6); }
     | TFOR '(' for_init TFORSEMI for_cond TFORSEMI for_step ')' '{' stmt_list '}' { $$ = mk(NFor, nil, nil, $3, mk(NFor, nil, nil, $5, $7)); $$->right->next = $10; }
+    | alt_stmt { $$ = $1; }
     | TUSE '{' dep_list '}' { $$ = mk(NUse, nil, nil, $3, nil); }
     | TRAWC { $$ = mk(NRawC, $1, nil, nil, nil); }
+    ;
+
+alt_stmt:
+    TALT '{' alt_cases '}'
+    {
+        $$ = mk(NAlt, nil, nil, $3, nil);
+    }
+    ;
+
+alt_cases:
+    alt_case { $$ = $1; }
+    | alt_cases alt_case { $$ = append_node($1, $2); }
+    ;
+
+alt_case:
+    TCASE expr TEQ TCHANRECV expr ':' stmt_list
+    {
+        $$ = mk(NAltCase, nil, nil, mk(NChanRecv, nil, nil, $2, $5), $7);
+    }
+    | TDEFAULT ':' stmt_list
+    {
+        $$ = mk(NAltDefault, nil, nil, $3, nil);
+    }
     ;
 
 for_init:
@@ -2008,6 +2110,7 @@ expr:
     | TQIDENT { $$ = enum_expr_or_ident($1); }
     | TENUMIDENT { $$ = enum_expr_or_ident($1); }
     | TINTLIT { $$ = mk(NIntLit, $1, nil, nil, nil); }
+    | TDOUBLELIT { $$ = mk(NDoubleLit, $1, nil, nil, nil); }
     | TSTRINGLIT { $$ = mk(NStringLit, $1, nil, nil, nil); }
     | TCHARLIT { $$ = mk(NCharLit, $1, nil, nil, nil); }
     | TTRUE { $$ = mk(NBoolLit, "1", nil, nil, nil); }
@@ -2050,7 +2153,12 @@ expr:
         n->right = $5;
         $$ = n;
     }
-    | '(' expr ')' { $$ = $2; }
+    | '(' call_args ')' {
+        if(node_list_len($2) == 1)
+            $$ = $2;
+        else
+            $$ = mk(NTupleLit, nil, nil, $2, nil);
+    }
     ;
 
 call_args:
@@ -2198,6 +2306,28 @@ synth_function_class(char *fname, Node *rettn, Node *params, Node *body)
     cls->left = members;
     add_class(cls->name, cls);
     return cls;
+}
+
+static char*
+spawn_function_cname(char *name, Node *scope_class)
+{
+    char *source, *cname, *outer;
+    Node *fc;
+
+    if(name == nil)
+        return nil;
+    if(scope_class != nil && !name_has_module(name)){
+        outer = scope_class->qname != nil ? scope_class->qname : scope_class->name;
+        if(outer != nil){
+            source = join_module_name(outer, name);
+            cname = mangle_source_name(source);
+            fc = find_class(cname);
+            if(fc != nil && (fc->flags & NFFunction))
+                return cname;
+        }
+    }
+    source = qualify_source_name(current_module, name);
+    return mangle_source_name(source);
 }
 
 void
@@ -2520,6 +2650,44 @@ yylex(void)
             while(isdigit(c = lex_getc())) {
                 if(i < 63) buf[i++] = c;
             }
+            if(c == '.'){
+                if(i < 63) buf[i++] = c;
+                while(isdigit(c = lex_getc())) {
+                    if(i < 63) buf[i++] = c;
+                }
+                if(c == 'e' || c == 'E'){
+                    if(i < 63) buf[i++] = c;
+                    c = lex_getc();
+                    if(c == '+' || c == '-'){
+                        if(i < 63) buf[i++] = c;
+                        c = lex_getc();
+                    }
+                    while(isdigit(c)) {
+                        if(i < 63) buf[i++] = c;
+                        c = lex_getc();
+                    }
+                }
+                lex_ungetc(c);
+                buf[i] = '\0';
+                yylval.name = strdup(buf);
+                return TDOUBLELIT;
+            }
+            if(c == 'e' || c == 'E'){
+                if(i < 63) buf[i++] = c;
+                c = lex_getc();
+                if(c == '+' || c == '-'){
+                    if(i < 63) buf[i++] = c;
+                    c = lex_getc();
+                }
+                while(isdigit(c)) {
+                    if(i < 63) buf[i++] = c;
+                    c = lex_getc();
+                }
+                lex_ungetc(c);
+                buf[i] = '\0';
+                yylval.name = strdup(buf);
+                return TDOUBLELIT;
+            }
             lex_ungetc(c);
             buf[i] = '\0';
             yylval.name = strdup(buf);
@@ -2589,6 +2757,9 @@ yylex(void)
             if(strcmp(buf, "function") == 0) return TFUNCTION;
             if(strcmp(buf, "main") == 0) return TMAIN;
             if(strcmp(buf, "spawn") == 0) return TSPAWN;
+            if(strcmp(buf, "alt") == 0) return TALT;
+            if(strcmp(buf, "case") == 0) return TCASE;
+            if(strcmp(buf, "default") == 0) return TDEFAULT;
             if(strcmp(buf, "cast") == 0) return TCAST;
             if(strcmp(buf, "use") == 0) return TUSE;
             if(strcmp(buf, "new") == 0) return TNEW;
@@ -2642,6 +2813,7 @@ yylex(void)
             if(strcmp(buf, "int8") == 0) return TTYPE;
             if(strcmp(buf, "uint8") == 0) return TTYPE;
             if(strcmp(buf, "byte") == 0) return TTYPE;
+            if(strcmp(buf, "double") == 0) return TTYPE;
             if(strcmp(buf, "void") == 0) return TTYPE;
             if(strcmp(buf, "string") == 0) return TTYPE;
             if(strcmp(buf, "int") == 0) return TTYPE;
@@ -2690,6 +2862,7 @@ Node *cur_class;			/* current class being codegen'd, for type lookups */
 int in_constructor_body = 0;		/* 1 while typechecking a constructor body */
 char *ctor_class_name = nil;		/* the class whose ctor body is being checked */
 int new_tmp_id = 0;
+static int alt_tmp_id;
 
 static void
 msg_frame_reset(void)
@@ -2791,8 +2964,7 @@ gen_expr(Node *e)
          * per-function helper (emitted with the function-class) owns
          * construction + forwarder + non-blocking dispatch. */
         {
-            char *fq = qualify_source_name(current_module, e->name);
-            char *fc = mangle_source_name(fq);
+            char *fc = spawn_function_cname(e->name, gen_class);
             Node *a;
             print("o9_spawn_%s(", fc);
             for(a = e->right; a; a = a->next){
@@ -2824,11 +2996,38 @@ gen_expr(Node *e)
     case NIntLit:
         print("%s", e->name);
         break;
+    case NDoubleLit:
+        print("%s", e->name);
+        break;
     case NStringLit:
         {
             print("o9_string_new(");
             gen_c_string_literal(e->name);
             print(", %d)", strlen(e->name));
+        }
+        break;
+    case NTupleLit:
+        {
+            Node *a;
+            TypeList *ta;
+            char *cn;
+            int i;
+
+            cn = type_cname(e->typeinfo);
+            print("o9_tuple_new_%s(", cn);
+            for(a = e->left, ta = e->typeinfo != nil ? e->typeinfo->args : nil, i = 0;
+                a != nil; a = a->next, ta = ta != nil ? ta->next : nil, i++){
+                if(i > 0)
+                    print(", ");
+                if(ta != nil && type_storage_pointerish(ta->type)){
+                    print("(%s)(uintptr)(", type_storage_for_codegen(ta->type));
+                    gen_expr(a);
+                    print(")");
+                } else {
+                    gen_expr(a);
+                }
+            }
+            print(")");
         }
         break;
     case NCharLit:
@@ -2923,8 +3122,13 @@ gen_expr(Node *e)
              * error on a spawned failure (so `try t.await()` propagates). */
             if(lt != nil && lt->kind == TyApply && lt->name != nil &&
                strcmp(lt->name, "Task") == 0 && strcmp(e->name, "await") == 0){
-                char *rt = type_storage_for_codegen(type_list_at(lt->args, 0));
-                print("(%s)o9_task_await(", rt); gen_expr(e->left); print(")");
+                Type *at = type_list_at(lt->args, 0);
+                char *rt = type_storage_for_codegen(at);
+                if(type_is_double(at))
+                    print("o9_task_await_double(");
+                else
+                    print("(%s)o9_task_await(", rt);
+                gen_expr(e->left); print(")");
                 break;
             }
             /* Tabula methods: the receiver is an O9Tabula* handle, so
@@ -3013,14 +3217,16 @@ gen_expr(Node *e)
         {
             char *retst = nil;
             int retptr = 0;
+            int retdouble = 0;
             int nargs = 0, d;
             Node *a;
             for(a = e->right; a; a = a->next) nargs++;
             if(e->typeinfo != nil){
                 retst = type_storage_for_codegen(e->typeinfo);
                 retptr = storage_pointerish(retst);
+                retdouble = type_is_double(e->typeinfo);
             }
-            if(retptr)
+            if(retptr && !retdouble)
                 print("(%s)(uintptr)(", retst);
             /* Every method send in a source statement gets a compiler-owned
              * frame.  C does not guarantee sibling argument evaluation order,
@@ -3075,6 +3281,10 @@ gen_expr(Node *e)
                         print("(vlong)(uintptr)&(");
                         gen_expr(a);
                         print(")");
+                    } else if(type_is_double(a->typeinfo)){
+                        print("o9_double_pack(");
+                        gen_expr(a);
+                        print(")");
                     } else if(type_storage_pointerish(a->typeinfo)){
                         print("(vlong)(uintptr)(");
                         gen_expr(a);
@@ -3091,18 +3301,21 @@ gen_expr(Node *e)
              * frame[0]), fallback to CSP/9P with frame+1 (skip shm_base) */
             print(", o9_dispatch_call(&");
             gen_expr(e->left);
-            print(", 0x%lux, __o9fr[%d]) != nil ? __o9fr[%d][0] : ", o9_hash(e->name), d, d);
+            if(retdouble)
+                print(", 0x%lux, __o9fr[%d]) != nil ? o9_double_unpack(__o9fr[%d][0]) : ", o9_hash(e->name), d, d);
+            else
+                print(", 0x%lux, __o9fr[%d]) != nil ? __o9fr[%d][0] : ", o9_hash(e->name), d, d);
             if(e->left && e->left->type == NIdent){
                 /* Remote 9P path walks to "varname/methodname" in the instance tree */
-                print("(vlong)obj9_msgSendN(&");
+                print(retdouble ? "obj9_msgSendDoubleN(&" : "(vlong)obj9_msgSendN(&");
                 gen_expr(e->left);
                 print(", \"%s/%s\", 0x%lux, __o9fr[%d]+1, %d))", e->left->name, e->name, o9_hash(e->name), d, nargs);
             } else {
-                print("(vlong)obj9_msgSendN(&");
+                print(retdouble ? "obj9_msgSendDoubleN(&" : "(vlong)obj9_msgSendN(&");
                 gen_expr(e->left);
                 print(", \"%s\", 0x%lux, __o9fr[%d]+1, %d))", e->name, o9_hash(e->name), d, nargs);
             }
-            if(retptr)
+            if(retptr && !retdouble)
                 print(")");
         }
         break;
@@ -3119,6 +3332,10 @@ gen_expr(Node *e)
                         print(")->shm_base)->%s", e->name);
                     } else if(strcmp(t, "char*") == 0 || storage_is_o9string(t) ||
                               strcmp(t, "O9Dict") == 0 || strcmp(t, "O9Slice") == 0){
+                        print("((%s_Internal*)((%s_Client*)&", cn, cn);
+                        gen_expr(e->left);
+                        print(")->shm_base)->%s", e->name);
+                    } else if(type_is_double(member_node(cnode, e->name, 0) != nil ? member_node(cnode, e->name, 0)->typeinfo : nil)){
                         print("((%s_Internal*)((%s_Client*)&", cn, cn);
                         gen_expr(e->left);
                         print(")->shm_base)->%s", e->name);
@@ -3243,6 +3460,8 @@ gen_expr(Node *e)
                         }
                     } else if(type_is_string(a2->typeinfo))
                         print("%%s");
+                    else if(type_is_double(a2->typeinfo))
+                        print("%%g");
                     else
                         print("%%lld");
                 }
@@ -3253,6 +3472,8 @@ gen_expr(Node *e)
                     print(", ");
                     if(type_is_string(a2->typeinfo)){
                         print("o9_string_data("); gen_expr(a2); print(")");
+                    } else if(type_is_double(a2->typeinfo)){
+                        gen_expr(a2);
                     } else {
                         print("(vlong)(");
                         gen_expr(a2);
@@ -3357,7 +3578,9 @@ gen_assign_new_to(char *varname, char *target, int is_field, char *lhs_type, Nod
             print("\t\tvlong __args_%s[%d];\n", varname, rest);
             for(ca = first_arg->next; ca; ca = ca->next){
                 print("\t\t__args_%s[%d] = ", varname, ai);
-                if(type_storage_pointerish(ca->typeinfo)){
+                if(type_is_double(ca->typeinfo)){
+                    print("o9_double_pack("); gen_expr(ca); print(")");
+                } else if(type_storage_pointerish(ca->typeinfo)){
                     print("(vlong)(uintptr)("); gen_expr(ca); print(")");
                 } else
                     gen_expr(ca);
@@ -3395,7 +3618,9 @@ gen_assign_new_to(char *varname, char *target, int is_field, char *lhs_type, Nod
         print("\t{ vlong __args_%s_%d[%d];\n", varname, id, nctor);
         for(ca = n->right; ca; ca = ca->next){
             print("\t__args_%s_%d[%d] = ", varname, id, ai);
-            if(type_storage_pointerish(ca->typeinfo)){
+            if(type_is_double(ca->typeinfo)){
+                print("o9_double_pack("); gen_expr(ca); print(")");
+            } else if(type_storage_pointerish(ca->typeinfo)){
                 print("(vlong)(uintptr)("); gen_expr(ca); print(")");
             } else
                 gen_expr(ca);
@@ -3443,7 +3668,9 @@ gen_local_new(Node *s, char *cn, int distance)
         print("\t{ vlong __args_%s[%d];\n", s->name, nctor);
         for(ca = s->left->right; ca; ca = ca->next){
             print("\t__args_%s[%d] = ", s->name, ai);
-            if(type_storage_pointerish(ca->typeinfo)){
+            if(type_is_double(ca->typeinfo)){
+                print("o9_double_pack("); gen_expr(ca); print(")");
+            } else if(type_storage_pointerish(ca->typeinfo)){
                 print("(vlong)(uintptr)("); gen_expr(ca); print(")");
             } else
                 gen_expr(ca);
@@ -3489,6 +3716,105 @@ gen_for_clause(Node *e)
         return;
     }
     gen_expr(e);
+}
+
+static char*
+alt_target_storage(Node *c, Node *target)
+{
+    if(target != nil && target->typeinfo != nil)
+        return type_storage_for_codegen(target->typeinfo);
+    if(target != nil && target->type == NIdent)
+        return get_sym_type(c, target->name);
+    return "vlong";
+}
+
+static Type*
+channel_elem_type(Node *c, Node *chanexpr)
+{
+    Node *m;
+    Type *lt;
+    TypedMember tm;
+
+    if(chanexpr == nil)
+        return nil;
+    if(chanexpr->type == NIdent && chanexpr->name != nil){
+        m = member_node(c, chanexpr->name, 0);
+        if(m != nil && m->type == NStream && m->typename != nil &&
+           strcmp(m->typename, "chan") != 0)
+            return m->typeinfo;
+    }
+    if(chanexpr->type == NPropRead && chanexpr->left != nil){
+        lt = chanexpr->left->typeinfo;
+        if(typed_member_lookup(lt, chanexpr->name, 0, &tm) && tm.node != nil &&
+           tm.node->type == NStream && tm.node->typename != nil &&
+           strcmp(tm.node->typename, "chan") != 0)
+            return tm.node->typeinfo;
+    }
+    return nil;
+}
+
+static char*
+channel_box_storage(Node *c, Node *chanexpr, Node *fallback)
+{
+    Type *et;
+
+    et = channel_elem_type(c, chanexpr);
+    if(et != nil)
+        return type_storage_for_codegen(et);
+    if(fallback != nil && fallback->typeinfo != nil)
+        return type_storage_for_codegen(fallback->typeinfo);
+    if(fallback != nil && fallback->type == NIdent)
+        return get_sym_type(c, fallback->name);
+    return "vlong";
+}
+
+static void
+gen_alt_stmt(Node *c, Node *s)
+{
+    Node *a, *n;
+    int id, idx, rx;
+
+    id = alt_tmp_id++;
+    print("\t{\n");
+    rx = 0;
+    for(a = s->left; a != nil; a = a->next)
+        if(a->type == NAltCase)
+            print("\t\tvoid *__o9altbox_%d_%d = nil;\n", id, rx++);
+    print("\t\tAlt __o9alt_%d[] = {\n", id);
+    rx = 0;
+    for(a = s->left; a != nil; a = a->next){
+        if(a->type == NAltCase){
+            print("\t\t\t{");
+            gen_expr(a->left->right);
+            print(", &__o9altbox_%d_%d, CHANRCV},\n", id, rx++);
+        } else if(a->type == NAltDefault)
+            print("\t\t\t{nil, nil, CHANNOBLK},\n");
+    }
+    print("\t\t\t{nil, nil, CHANEND}\n");
+    print("\t\t};\n");
+    print("\t\tswitch(alt(__o9alt_%d)){\n", id);
+    idx = 0;
+    rx = 0;
+    for(a = s->left; a != nil; a = a->next){
+        print("\t\tcase %d: {\n", idx++);
+        if(a->type == NAltCase){
+            char *t = channel_box_storage(c, a->left->right, a->left->left);
+            print("\t\t\tif(__o9altbox_%d_%d != nil){ %s *__o9v = (%s*)__o9altbox_%d_%d; ",
+                id, rx, t, t, id, rx);
+            gen_expr(a->left->left);
+            print(" = *__o9v; free(__o9v); }\n");
+            rx++;
+            for(n = a->right; n != nil; n = n->next)
+                gen_stmt(c, n);
+            print("\t\t\tbreak;\n\t\t}\n");
+        } else if(a->type == NAltDefault){
+            for(n = a->left; n != nil; n = n->next)
+                gen_stmt(c, n);
+            print("\t\t\tbreak;\n\t\t}\n");
+        }
+    }
+    print("\t\t}\n");
+    print("\t}\n");
 }
 
 void
@@ -3548,8 +3874,9 @@ gen_stmt(Node *c, Node *s)
             print("vlong __superargs[%d]; ", na);
             for(ca = s->right; ca != nil; ca = ca->next){
                 print("__superargs[%d] = ", ai2);
-                if(type_storage_pointerish(ca->typeinfo)){ print("(vlong)(uintptr)("); gen_expr(ca); print(")"); }
-                else { print("(vlong)("); gen_expr(ca); print(")"); }
+                            if(type_is_double(ca->typeinfo)){ print("o9_double_pack("); gen_expr(ca); print(")"); }
+                            else if(type_storage_pointerish(ca->typeinfo)){ print("(vlong)(uintptr)("); gen_expr(ca); print(")"); }
+                            else { print("(vlong)("); gen_expr(ca); print(")"); }
                 print("; ");
                 ai2++;
             }
@@ -3647,7 +3974,9 @@ gen_stmt(Node *c, Node *s)
                         print("\t\tvlong __args_%s[%d];\n", s->name, rest);
                         for(ca = first_arg->next; ca; ca = ca->next){
                             print("\t\t__args_%s[%d] = ", s->name, ai);
-                            if(type_storage_pointerish(ca->typeinfo)){
+                            if(type_is_double(ca->typeinfo)){
+                                print("o9_double_pack("); gen_expr(ca); print(")");
+                            } else if(type_storage_pointerish(ca->typeinfo)){
                                 print("(vlong)(uintptr)("); gen_expr(ca); print(")");
                             } else
                                 gen_expr(ca);
@@ -3705,24 +4034,40 @@ gen_stmt(Node *c, Node *s)
         print("\t%s.fd = -1;\n", s->name);
         break;
     case NChanSend: {
-        char *t = "vlong";
-        if(s->right->type == NIdent) t = get_sym_type(c, s->right->name);
+        char *t = channel_box_storage(c, s->left, s->right);
         print("\t{ %s *__box = malloc(sizeof(%s)); *__box = (%s)", t, t, t); gen_expr(s->right); print("; sendp("); gen_expr(s->left); print(", __box); }\n");
         break;
     }
     case NChanTry: {
-        char *t = "vlong";
-        if(s->right->type == NIdent) t = get_sym_type(c, s->right->name);
+        char *t = channel_box_storage(c, s->left, s->right);
         print("\t{ %s *__box = malloc(sizeof(%s)); *__box = (%s)", t, t, t); gen_expr(s->right); print("; Alt __a[] = {{"); gen_expr(s->left); print(", __box, CHANSND}, {nil, nil, CHANNOBLK}, {nil, nil, CHANEND}}; if(alt(__a) == 1) free(__box); }\n");
         break;
     }
     case NChanRecv: {
-        char *t = "vlong";
-        if(s->left->type == NIdent) t = get_sym_type(c, s->left->name);
+        char *t = channel_box_storage(c, s->right, s->left);
         print("\t{ %s *__box = recvp(", t); gen_expr(s->right); print("); if(__box){ "); gen_expr(s->left); print(" = *__box; free(__box); } }\n");
         break;
     }
+    case NAlt:
+        gen_alt_stmt(c, s);
+        break;
     case NAssign:
+        if(s->left != nil && s->left->type == NTupleLit){
+            Node *a;
+            char *st;
+            int i;
+
+            st = type_storage_for_codegen(s->right != nil ? s->right->typeinfo : nil);
+            print("\t{ %s __o9tuple = ", st);
+            gen_expr(s->right);
+            print("; if(__o9tuple != nil){ ");
+            for(a = s->left->left, i = 0; a != nil; a = a->next, i++){
+                gen_expr(a);
+                print(" = __o9tuple->v%d; ", i);
+            }
+            print("} }\n");
+            break;
+        }
         if(s->left != nil && s->left->type == NArrayGet){
             Type *lt = s->left->left != nil ? s->left->left->typeinfo : nil;
             if(type_is_collection(lt, "List")){
@@ -3922,7 +4267,15 @@ gen_stmt(Node *c, Node *s)
     case NReturn:
         if(in_method_body){
             has_return = 1;
-            if(is_try(s->left)){
+            if(type_is_double(gen_return_type)){
+                if(is_try(s->left)){
+                    print("\t{ double __rv = "); gen_expr(s->left); print(";\n");
+                    print("\t{ char *__ce = o9_get_call_err(); if(__ce != nil){ __o9r->err = __ce; goto done; } }\n");
+                    print("\t__o9r->dret = __rv; }\n\tgoto done;\n");
+                } else {
+                    print("\t__o9r->dret = (double)("); gen_expr(s->left); print(");\n\tgoto done;\n");
+                }
+            } else if(is_try(s->left)){
                 /* return try f(): capture, check error, then set ret */
                 print("\t{ vlong __rv = (vlong)("); gen_expr(s->left); print(");\n");
                 print("\t{ char *__ce = o9_get_call_err(); if(__ce != nil){ __o9r->err = __ce; goto done; } }\n");
@@ -4037,6 +4390,79 @@ gen_struct_def(Node *c)
     print("};\n\n");
 }
 
+static char *emitted_tuple_types[256];
+static int nemitted_tuple_types;
+
+static int
+tuple_type_emitted(char *name)
+{
+    int i;
+
+    for(i = 0; i < nemitted_tuple_types; i++)
+        if(strcmp(emitted_tuple_types[i], name) == 0)
+            return 1;
+    return 0;
+}
+
+static void emit_tuple_type(Type *t);
+
+static void
+emit_tuple_arg_types(TypeList *args)
+{
+    for(; args != nil; args = args->next)
+        emit_tuple_type(args->type);
+}
+
+static void
+emit_tuple_type(Type *t)
+{
+    TypeList *a;
+    char *cn;
+    int i;
+
+    if(t == nil)
+        return;
+    if(t->kind == TyApply)
+        emit_tuple_arg_types(t->args);
+    else if(t->kind == TyArray || t->kind == TyPtr)
+        emit_tuple_type(t->base);
+    if(!type_is_tuple(t))
+        return;
+    cn = type_cname(t);
+    if(tuple_type_emitted(cn))
+        return;
+    if(nemitted_tuple_types < nelem(emitted_tuple_types))
+        emitted_tuple_types[nemitted_tuple_types++] = cn;
+    print("typedef struct %s %s;\n", cn, cn);
+    print("struct %s {\n", cn);
+    for(a = t->args, i = 0; a != nil; a = a->next, i++)
+        print("\t%s v%d;\n", type_storage_for_codegen(a->type), i);
+    print("};\n\n");
+    print("static %s* o9_tuple_new_%s(", cn, cn);
+    for(a = t->args, i = 0; a != nil; a = a->next, i++){
+        if(i > 0)
+            print(", ");
+        print("%s a%d", type_storage_for_codegen(a->type), i);
+    }
+    print("){\n");
+    print("\t%s *t = mallocz(sizeof(*t), 1);\n", cn);
+    for(a = t->args, i = 0; a != nil; a = a->next, i++)
+        print("\tt->v%d = a%d;\n", i, i);
+    print("\treturn t;\n");
+    print("}\n\n");
+}
+
+static void
+emit_tuple_types_node(Node *n)
+{
+    for(; n != nil; n = n->next){
+        emit_tuple_type(n->typeinfo);
+        emit_tuple_types_node(n->params);
+        emit_tuple_types_node(n->left);
+        emit_tuple_types_node(n->right);
+    }
+}
+
 void
 gen_class_header(Node *c)
 {
@@ -4124,6 +4550,9 @@ gen_state_store_typed(char *stateexpr, char *fieldexpr, char *name, Type *type)
     } else if(storage_is_o9string(t)){
         print("\to9_state_set(%s, \"%s\", o9_string_data(%s));\n",
             stateexpr, name, fieldexpr);
+    } else if(type_is_double(type)){
+        print("\t{ char __o9dbuf[64]; snprint(__o9dbuf, sizeof __o9dbuf, \"%%g\", %s); o9_state_set(%s, \"%s\", __o9dbuf); }\n",
+            fieldexpr, stateexpr, name);
     } else if((d = type_decl_node(type)) != nil && (d->type == NStruct || d->type == NClass || d->type == NInterface)){
         /* Complex in-memory values stay in the hot struct for now. */
     } else {
@@ -4708,6 +5137,8 @@ gen_class_server(Node *c)
                          * exactly like a class-typed local — every
                          * receiver-use site (&param) then works unchanged. */
                         print("\t%s %s = *(%s*)(uintptr)((vlong*)msg->args)[%d];\n", st, p->name, st, pi);
+                    else if(type_is_double(p->typeinfo))
+                        print("\t%s %s = o9_double_unpack(((vlong*)msg->args)[%d]);\n", st, p->name, pi);
                     else if(storage_pointerish(st))
                         print("\t%s %s = (%s)(uintptr)((vlong*)msg->args)[%d];\n", st, p->name, st, pi);
                     else
@@ -4717,6 +5148,7 @@ gen_class_server(Node *c)
             }
             in_method_body = 1;
             gen_class = c;
+            gen_return_type = m->typeinfo;
             has_return = 0;
             try_seen = 0;
             defer_list = nil;
@@ -4736,6 +5168,7 @@ gen_class_server(Node *c)
             }
             in_method_body = 0;
             gen_class = nil;
+            gen_return_type = nil;
             print("\t__o9r->ok = 1;\n\tsendp(msg->replyc, __o9r);\n}\n\n");
 			/* Ctrl dispatch thunk (void(*)(void*) for asm cache) */
 			{
@@ -4749,6 +5182,8 @@ gen_class_server(Node *c)
 							char *st = type_storage_for_codegen(pn->typeinfo);
 							if(type_is_class_ref(pn->typeinfo))
 								print("\t%s *__arg%d = (%s*)(uintptr)((vlong*)__a)[%d];\n", st, pi, st, pi+1);
+							else if(type_is_double(pn->typeinfo))
+								print("\t%s __arg%d = o9_double_unpack(((vlong*)__a)[%d]);\n", st, pi, pi+1);
 							else if(storage_pointerish(st))
 								print("\t%s __arg%d = (%s)(uintptr)((vlong*)__a)[%d];\n", st, pi, st, pi+1);
 							else
@@ -4756,7 +5191,9 @@ gen_class_server(Node *c)
 						}
 						print("\tvlong __args[%d];\n", np);
 						for(pn = m->right, pi = 0; pn; pn = pn->next, pi++){
-							if(type_is_class_ref(pn->typeinfo) || type_storage_pointerish(pn->typeinfo))
+							if(type_is_double(pn->typeinfo))
+								print("\t__args[%d] = o9_double_pack(__arg%d);\n", pi, pi);
+							else if(type_is_class_ref(pn->typeinfo) || type_storage_pointerish(pn->typeinfo))
 								print("\t__args[%d] = (vlong)(uintptr)__arg%d;\n", pi, pi);
 							else
 								print("\t__args[%d] = (vlong)__arg%d;\n", pi, pi);
@@ -4769,7 +5206,10 @@ gen_class_server(Node *c)
 				print("\to9_impl_%s_%s(self, &__m);\n", c->name, m->name);
 				print("\t{ O9Reply *__r = recvp(__m.replyc);\n");
 				print("\tif(__r->err != nil){ werrstr(\"%%s\", __r->err); o9_set_call_err(__r->err); ((vlong*)__a)[0] = 0; }\n");
-				print("\telse { o9_set_call_err(nil); ((vlong*)__a)[0] = (vlong)(uintptr)__r->ret; }\n");
+				if(type_is_double(m->typeinfo))
+					print("\telse { o9_set_call_err(nil); ((vlong*)__a)[0] = o9_double_pack(__r->dret); }\n");
+				else
+					print("\telse { o9_set_call_err(nil); ((vlong*)__a)[0] = (vlong)(uintptr)__r->ret; }\n");
 				print("\tfree(__r); }\n");
 				print("\tchanfree(__m.replyc);\n}\n\n");
 
@@ -4788,7 +5228,9 @@ gen_class_server(Node *c)
 					if(!isvoid)
 						print("\t%s __v;\n", rst);
 					for(pn = m->right, pi = 0; pn; pn = pn->next, pi++){
-						if(type_storage_pointerish(pn->typeinfo))
+						if(type_is_double(pn->typeinfo))
+							print("\t__args[%d] = o9_double_pack(__a%d);\n", pi, pi);
+						else if(type_storage_pointerish(pn->typeinfo))
 							print("\t__args[%d] = (vlong)(uintptr)__a%d;\n", pi, pi);
 						else
 							print("\t__args[%d] = (vlong)__a%d;\n", pi, pi);
@@ -4800,7 +5242,10 @@ gen_class_server(Node *c)
 					print("\t__r = recvp(__m.replyc);\n");
 					if(!isvoid){
 						print("\tif(__r->err != nil){ werrstr(\"%%s\", __r->err); o9_set_call_err(__r->err); __v = 0; }\n");
-						print("\telse { o9_set_call_err(nil); __v = (%s)__r->ret; }\n", rst);
+						if(type_is_double(m->typeinfo))
+							print("\telse { o9_set_call_err(nil); __v = __r->dret; }\n");
+						else
+							print("\telse { o9_set_call_err(nil); __v = (%s)__r->ret; }\n", rst);
 					} else
 						print("\tif(__r->err != nil) werrstr(\"%%s\", __r->err);\n");
 					print("\tfree(__r);\n\tchanfree(__m.replyc);\n");
@@ -4858,6 +5303,7 @@ gen_class_server(Node *c)
     /* 3. CSP Dispatch Loop */
     print("static void %s_loop(void *v) {\n", c->name);
     print("\t%s_Internal *self = v;\n\tO9Msg *m;\n", c->name);
+    print("\to9_actor_enter(self->dispatch_chan, self->oid);\n");
     print("\tfor(;;){\n\t\tm = recvp(self->dispatch_chan);\n\t\tif(m == nil) continue;\n");
     print("\t\tswitch(m->sel){\n");
     num_emitted = 0;
@@ -5003,6 +5449,8 @@ gen_class_server(Node *c)
             print("\t\telse\n");
             if(type_is_string(m->typeinfo)){
                 print("\t\tsnprint(buf, sizeof buf, \"%%s\\n\", o9_string_data((O9String*)__o9rep->ret));\n");
+            } else if(type_is_double(m->typeinfo)){
+                print("\t\tsnprint(buf, sizeof buf, \"%%g\\n\", __o9rep->dret);\n");
             } else if(strcmp(fmt, "%s") == 0){
                 print("\t\tsnprint(buf, sizeof buf, \"%%s\\n\", (char*) __o9rep->ret);\n");
             } else {
@@ -5130,6 +5578,8 @@ gen_class_server(Node *c)
                         print("\t\t\t\t{ o9app_put_status(r, \"error: %s: object-handle args not callable over ctl\\n\"); o9app_put_result(r, \"\"); respond(r, nil); return; }\n", m->name);
                     } else if(strcmp(pt, "string") == 0){
                         print("\t\t\t\t__wargs[%d] = (vlong)(uintptr)o9_string_from_c(v);\n", pi);
+                    } else if(strcmp(pt, "double") == 0){
+                        print("\t\t\t\t__wargs[%d] = o9_double_pack(strtod(v, nil));\n", pi);
                     } else if(strcmp(pt, "Tabula") == 0){
                         print("\t\t\t\t{ o9app_put_status(r, \"error: %s: Tabula args not callable over ctl\\n\"); o9app_put_result(r, \"\"); respond(r, nil); return; }\n", m->name);
                     } else {
@@ -5164,6 +5614,8 @@ gen_class_server(Node *c)
                 print("\t\t\t\t\t{ char __rb[4096];\n");
                 if(type_is_string(m->typeinfo))
                     print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%s\\n\", o9_string_data((O9String*)__o9rep->ret));\n");
+                else if(type_is_double(m->typeinfo))
+                    print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%g\\n\", __o9rep->dret);\n");
                 else if(strcmp(fmt, "%s") == 0)
                     print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%s\\n\", (char*)__o9rep->ret);\n");
                 else
@@ -5196,6 +5648,8 @@ gen_class_server(Node *c)
                 print("\t\tvlong __wargs[%d] = {0};\n", np);
                 if(m->right != nil && type_is_string(m->right->typeinfo))
                     print("\t\t__wargs[0] = (vlong)(uintptr)o9_string_new(r->ifcall.data, r->ifcall.count);\n");
+                else if(m->right != nil && type_is_double(m->right->typeinfo))
+                    print("\t\t__wargs[0] = o9_double_pack(strtod(r->ifcall.data, nil));\n");
                 else
                     print("\t\t__wargs[0] = strtoll(r->ifcall.data, nil, 0);\n");
             }
@@ -5265,7 +5719,9 @@ gen_class_server(Node *c)
                 /* skip writing to structs via 9P for now */
             } else {
                 print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
-                if(m->typeinfo != nil && m->typeinfo->kind == TyParam)
+                if(type_is_double(m->typeinfo))
+                    print("\t\tinst->%s = strtod(r->ifcall.data, nil);\n", m->name);
+                else if(m->typeinfo != nil && m->typeinfo->kind == TyParam)
                     print("\t\tinst->%s = (void*)(uintptr)strtoll(r->ifcall.data, nil, 0);\n", m->name);
                 else
                     print("\t\tinst->%s = (%s)strtoll(r->ifcall.data, nil, 0);\n", m->name, type_cast_for_codegen(m->typeinfo));
@@ -5336,7 +5792,9 @@ gen_class_server(Node *c)
         if(np > 0){
             print("\tvlong *__args = malloc(%d*sizeof(vlong));\n", np);
             for(pn = (rm ? rm->right : nil), pi = 0; pn; pn = pn->next, pi++){
-                if(type_is_class_ref(pn->typeinfo) || type_storage_pointerish(pn->typeinfo))
+                if(type_is_double(pn->typeinfo))
+                    print("\t__args[%d] = o9_double_pack(__a%d);\n", pi, pi);
+                else if(type_is_class_ref(pn->typeinfo) || type_storage_pointerish(pn->typeinfo))
                     print("\t__args[%d] = (vlong)(uintptr)__a%d;\n", pi, pi);
                 else
                     print("\t__args[%d] = (vlong)__a%d;\n", pi, pi);
@@ -5416,6 +5874,9 @@ gen_classes(Node *root)
             if(sub != nil)
                 last = sub;
         } else if(n->type == NClass && (n->flags & NFAbstract) == 0 && n->params == nil){
+            sub = gen_classes(n->left);
+            if(sub != nil)
+                last = sub;
             gen_class_server(n);
             last = n;
         }
@@ -5977,6 +6438,7 @@ codegen(Node *root)
 
     gen_enums(root);
     gen_structs(root);
+    emit_tuple_types_node(root);
     for(n = mono_list; n; n = n->next)
         if(n->type == NStruct)
             gen_struct_def(n);
@@ -6331,6 +6793,11 @@ validate_type(Type *t, int *errs)
         } else if(strcmp(t->name, "Dict") == 0){
             if(type_list_len(t->args) != 2){
                 fprint(2, "o9c: error: line %d: Dict needs 2 type arguments\n", sem_line);
+                (*errs)++;
+            }
+        } else if(strcmp(t->name, "Tuple") == 0){
+            if(type_list_len(t->args) < 2){
+                fprint(2, "o9c: error: line %d: tuple needs at least 2 type arguments\n", sem_line);
                 (*errs)++;
             }
         } else {
@@ -6880,6 +7347,12 @@ type_numeric_scalar(Type *t)
 }
 
 static int
+type_integral_scalar(Type *t)
+{
+    return type_numeric_scalar(t) && !type_is_double(t);
+}
+
+static int
 type_compatible_either(Type *a, Type *b)
 {
     return type_assignable_semantic(a, b) || type_assignable_semantic(b, a);
@@ -7066,8 +7539,7 @@ annotate_expr_type(Node *e, Node *scope_class)
         {
             Node *a, *fc, *rm;
             Type *rt = type_name("int64");	/* default */
-            char *fq = qualify_source_name(current_module, e->name);
-            char *fcn = mangle_source_name(fq);
+            char *fcn = spawn_function_cname(e->name, scope_class);
             for(a = e->right; a; a = a->next)
                 annotate_expr_type(a, scope_class);
             fc = find_class(fcn);
@@ -7084,8 +7556,21 @@ annotate_expr_type(Node *e, Node *scope_class)
         return set_expr_type(e, e->typeinfo);
     case NIntLit:
         return set_expr_type(e, type_name("int64"));
+    case NDoubleLit:
+        return set_expr_type(e, type_name("double"));
     case NStringLit:
         return set_expr_type(e, type_name("string"));
+    case NTupleLit:
+        {
+            TypeList *tl;
+
+            tl = nil;
+            for(a = e->left; a != nil; a = a->next){
+                t = annotate_expr_type(a, scope_class);
+                tl = type_list_append(tl, t);
+            }
+            return set_expr_type(e, type_apply("Tuple", tl));
+        }
     case NCharLit:
         return set_expr_type(e, type_name("char"));
     case NBoolLit:
@@ -7205,6 +7690,11 @@ annotate_expr_type(Node *e, Node *scope_class)
     case NSub:
     case NMul:
     case NDiv:
+        lt = annotate_expr_type(e->left, scope_class);
+        rt = annotate_expr_type(e->right, scope_class);
+        if(type_is_double(lt) || type_is_double(rt))
+            return set_expr_type(e, type_name("double"));
+        return set_expr_type(e, type_name("int64"));
     case NMod:
     case NBitAnd:
     case NBitOr:
@@ -7215,6 +7705,10 @@ annotate_expr_type(Node *e, Node *scope_class)
         annotate_expr_type(e->right, scope_class);
         return set_expr_type(e, type_name("int64"));
     case NNeg:
+        lt = annotate_expr_type(e->left, scope_class);
+        if(type_is_double(lt))
+            return set_expr_type(e, type_name("double"));
+        return set_expr_type(e, type_name("int64"));
     case NBitNot:
         annotate_expr_type(e->left, scope_class);
         return set_expr_type(e, type_name("int64"));
@@ -8131,9 +8625,57 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
         annotate_expr_type(e, scope_class);
         check_index_key(e, errs);
         break;
+    case NChanSend:
+    case NChanTry:
+        {
+            Type *et;
+
+            annotate_expr_type(e, scope_class);
+            et = channel_elem_type(scope_class, e->left);
+            if(et != nil && !type_assignable_semantic(et, e->right != nil ? e->right->typeinfo : nil))
+                type_mismatch_error("send", et, e->right != nil ? e->right->typeinfo : nil, errs);
+        }
+        break;
+    case NChanRecv:
+        {
+            Type *et;
+
+            annotate_expr_type(e, scope_class);
+            et = channel_elem_type(scope_class, e->right);
+            if(et != nil && !type_assignable_semantic(e->left != nil ? e->left->typeinfo : nil, et))
+                type_mismatch_error("receive", e->left != nil ? e->left->typeinfo : nil, et, errs);
+        }
+        break;
     case NAssign:
         annotate_expr_type(e, scope_class);
         check_index_key(e->left, errs);
+        if(e->left != nil && e->left->type == NTupleLit){
+            TypeList *ra;
+            Node *la;
+            int li;
+
+            if(!type_is_tuple(e->right != nil ? e->right->typeinfo : nil)){
+                fprint(2, "o9c: error: line %d: destructuring assignment needs a tuple value\n", sem_line);
+                (*errs)++;
+                break;
+            }
+            if(node_list_len(e->left->left) != type_list_len(e->right->typeinfo->args)){
+                fprint(2, "o9c: error: line %d: tuple destructuring count mismatch\n", sem_line);
+                (*errs)++;
+                break;
+            }
+            for(la = e->left->left, ra = e->right->typeinfo->args, li = 0;
+                la != nil && ra != nil; la = la->next, ra = ra->next, li++){
+                if(!type_assignable_semantic(la->typeinfo, ra->type)){
+                    fprint(2, "o9c: error: line %d: tuple field %d has type %s, target is %s\n",
+                        sem_line, li + 1,
+                        ra->type != nil ? type_render(ra->type) : "<unknown>",
+                        la->typeinfo != nil ? type_render(la->typeinfo) : "<unknown>");
+                    (*errs)++;
+                }
+            }
+            break;
+        }
         if(e->left != nil && e->right != nil &&
            !type_assignable_semantic(e->left->typeinfo, e->right->typeinfo))
             type_mismatch_error("assign", e->left->typeinfo, e->right->typeinfo, errs);
@@ -8171,12 +8713,6 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
     case NSub:
     case NMul:
     case NDiv:
-    case NMod:
-    case NBitAnd:
-    case NBitOr:
-    case NBitXor:
-    case NLshift:
-    case NRshift:
         annotate_expr_type(e, scope_class);
         if(e->left != nil && !type_numeric_scalar(e->left->typeinfo)){
             fprint(2, "o9c: error: line %d: operator '%s' needs numeric operands\n", sem_line, expr_op_name(e->type));
@@ -8184,6 +8720,22 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
         }
         if(e->right != nil && !type_numeric_scalar(e->right->typeinfo)){
             fprint(2, "o9c: error: line %d: operator '%s' needs numeric operands\n", sem_line, expr_op_name(e->type));
+            (*errs)++;
+        }
+        break;
+    case NMod:
+    case NBitAnd:
+    case NBitOr:
+    case NBitXor:
+    case NLshift:
+    case NRshift:
+        annotate_expr_type(e, scope_class);
+        if(e->left != nil && !type_integral_scalar(e->left->typeinfo)){
+            fprint(2, "o9c: error: line %d: operator '%s' needs integer operands\n", sem_line, expr_op_name(e->type));
+            (*errs)++;
+        }
+        if(e->right != nil && !type_integral_scalar(e->right->typeinfo)){
+            fprint(2, "o9c: error: line %d: operator '%s' needs integer operands\n", sem_line, expr_op_name(e->type));
             (*errs)++;
         }
         break;
@@ -8217,10 +8769,16 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
         }
         break;
     case NNeg:
-    case NBitNot:
         annotate_expr_type(e, scope_class);
         if(e->left != nil && !type_numeric_scalar(e->left->typeinfo)){
             fprint(2, "o9c: error: line %d: operator '%s' needs numeric operand\n", sem_line, expr_op_name(e->type));
+            (*errs)++;
+        }
+        break;
+    case NBitNot:
+        annotate_expr_type(e, scope_class);
+        if(e->left != nil && !type_integral_scalar(e->left->typeinfo)){
+            fprint(2, "o9c: error: line %d: operator '%s' needs integer operand\n", sem_line, expr_op_name(e->type));
             (*errs)++;
         }
         break;
@@ -8282,7 +8840,7 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
 static void
 check_node(Node *n, Node *scope_class, int *errs)
 {
-    Node *c;
+    Node *c, *a;
     TypeSym *mark;
 
     if(n == nil) return;
@@ -8331,6 +8889,34 @@ check_node(Node *n, Node *scope_class, int *errs)
         }
         if(c->type == NUse){
             typecheck_expr(c, scope_class, errs);
+            continue;
+        }
+        if(c->type == NStream){
+            if(c->typeinfo != nil && c->typename != nil &&
+               strcmp(c->typename, "chan") != 0)
+                validate_type(c->typeinfo, errs);
+            continue;
+        }
+        if(c->type == NAlt){
+            int ndefault;
+
+            ndefault = 0;
+            for(a = c->left; a != nil; a = a->next){
+                if(a->line > 0)
+                    sem_line = a->line;
+                if(a->type == NAltCase){
+                    typecheck_expr(a->left, scope_class, errs);
+                    check_node(a->right, scope_class, errs);
+                } else if(a->type == NAltDefault){
+                    ndefault++;
+                    check_node(a->left, scope_class, errs);
+                }
+            }
+            if(ndefault > 1){
+                fprint(2, "o9c: error: line %d: alt has %d default cases; only one is allowed\n",
+                    sem_line, ndefault);
+                (*errs)++;
+            }
             continue;
         }
         typecheck_expr(c, scope_class, errs);
@@ -8418,6 +9004,10 @@ node_kind(int type)
     case NCast: return "NCast";
     case NRawC: return "NRawC";
     case NUse: return "NUse";
+    case NAlt: return "NAlt";
+    case NAltCase: return "NAltCase";
+    case NAltDefault: return "NAltDefault";
+    case NTupleLit: return "NTupleLit";
     case NFor: return "NFor";
     case NArrayGet: return "NArrayGet";
     case NArraySet: return "NArraySet";

@@ -14,6 +14,7 @@ main {
     print("appendb ", f.appendBytes(out), "\n");
     print("exists1 ", f.exists(), "\n");
     print("size ", f.size(), "\n");
+    print("meta ", f.mode() > 0, " ", f.mtime() > 0, " ", len(f.owner()) > 0, "\n");
     print("read ", f.read(), "\n");
     print("remove ", f.remove(), "\n");
     print("exists2 ", f.exists(), "\n");

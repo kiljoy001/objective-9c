@@ -1,0 +1,50 @@
+class Mixer {
+    chan leftc;
+    chan rightc;
+
+    method void left(int64 v) {
+        leftc -> v;
+    }
+
+    method void right(int64 v) {
+        rightc -> v;
+    }
+
+    method int64 take() {
+        int64 x;
+
+        alt {
+        case x = <- leftc:
+            x = x + 100;
+        case x = <- rightc:
+            x = x + 200;
+        }
+        return x;
+    }
+
+    method int64 takeDefault() {
+        int64 x;
+
+        x = 7;
+        alt {
+        case x = <- leftc:
+            x = x + 1;
+        default:
+            x = 99;
+        }
+        return x;
+    }
+}
+
+main {
+    Mixer m = new Mixer();
+    Mixer n = new Mixer();
+
+    m.right(5);
+    print(m.take(), "\n");
+    m.left(9);
+    print(m.take(), "\n");
+    print(n.takeDefault(), "\n");
+    n.left(3);
+    print(n.takeDefault(), "\n");
+}

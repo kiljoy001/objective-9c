@@ -1,0 +1,21 @@
+import "random.o9";
+
+main {
+    Random r = new Random();
+    int64 a;
+    int64 b;
+    int64 c;
+    double f;
+
+    print(r.seed(12345), "\n");
+    a = r.next();
+    b = r.bounded(10);
+    c = r.boundedLong(1000000);
+    f = r.float();
+
+    print(a >= 0, "\n");
+    print(b >= 0 && b < 10, "\n");
+    print(c >= 0 && c < 1000000, "\n");
+    print(f >= 0.0 && f < 1.0, "\n");
+    print(r.bounded(0), "\n");
+}

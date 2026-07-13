@@ -1,0 +1,42 @@
+class TypedPipe {
+    chan<int64> leftc;
+    stream<int64> rightc;
+
+    method void left(int64 v) {
+        leftc -> v;
+    }
+
+    method void right(int64 v) {
+        rightc -> v;
+    }
+
+    method int64 takeLeft() {
+        int64 x;
+
+        x = <- leftc;
+        return x;
+    }
+
+    method int64 takeAny() {
+        int64 x;
+
+        alt {
+        case x = <- leftc:
+            x = x + 10;
+        case x = <- rightc:
+            x = x + 20;
+        }
+        return x;
+    }
+}
+
+main {
+    TypedPipe p = new TypedPipe();
+
+    p.left(7);
+    print(p.takeLeft(), "\n");
+    p.right(3);
+    print(p.takeAny(), "\n");
+    p.left(5);
+    print(p.takeAny(), "\n");
+}

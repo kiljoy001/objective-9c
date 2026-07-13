@@ -38,7 +38,7 @@ main {
 
 `int64` `uint64` `int32` `uint32` `int16` `uint16` `int8` `uint8`
 `int` `uint` `short` `long` `char` `vlong` `uvlong` `ulong` `ushort`
-`uchar` `void` `bool` `string` `chan`
+`uchar` `double` `void` `bool` `string` `chan`
 
 `intptr` and `uintptr` are available for raw-C function interop, but are
 rejected on normal object fields, method/interface parameters, and method
@@ -46,8 +46,9 @@ returns. Explicit pointer types (`T*`) are not o9 declaration types; keep raw
 pointers inside `function` `c { ... }` blocks and pass ordinary values through
 object methods/properties.
 
-Use `cast<T>(expr)` for explicit scalar conversions between integer, char, and
-bool storage types. Object, string, collection, and pointer casts are rejected.
+Use `cast<T>(expr)` for explicit scalar conversions between integer, char,
+double, and bool storage types. Object, string, collection, and pointer casts
+are rejected.
 
 ## Standard Library
 
@@ -56,6 +57,8 @@ The first stdlib objects live under `stdlib/` and are imported by filename:
 ```
 import "bytes.o9";
 import "file.o9";
+import "math.o9";
+import "random.o9";
 import "path.o9";
 ```
 
@@ -67,6 +70,9 @@ Implemented modules:
 - `Buffer` - mutable byte/text builder over `Bytes`.
 - `list<T>` / `array<T>` / `dictionary<T>` - stdlib collection objects over
   existing `T[]` and `Dict<string,T>` carriers with lowercase methods.
+- `Math` - Plan 9 libc floating math wrappers (`sqrt`, `sin`, `pow`,
+  `floor`, `ceil`, `fmod`, `log`, `exp`, etc.) plus integer `abs`.
+- `Random` - Plan 9 libc pseudo-random and entropy-backed number helpers.
 - `File` - Plan 9 file read/write/append/stat/dir helpers.
 - `Path` - Plan 9 path cleaning, join, base, dir, and extension helpers.
 - `IOBuffer` / `Reader` / `Writer` / `Appender` - buffered file IO over `Biobuf`.
@@ -86,15 +92,18 @@ See `stdlib/README.md` and `stdlib/e2e_*.o9` for runnable examples.
 - **Dot notation** — `c.method(args)`
 - **Object creation** — `Counter c = new Counter(args)`
 - **Casts** — `cast<byte>(n)`, `cast<int64>(b)` for explicit scalar conversion
-- **Function tasks** — `function name(args) type { }`, spawned with `spawn name(args)`
+- **Tuples** — return `(int64, string)` values and destructure into declared locals with `(a, b) = f()`
+- **Function tasks** — `function name(args) type { }`, spawned with `spawn name(args)`; functions may be top-level or nested inside a class
 - **Raw Plan 9 C blocks** — `c { ... }` inside `function` bodies only
 - **Constrained C deps** — `use { bio }` inside `function` bodies; resolves through built-in deps plus optional project-root `deps.tab`
 - **Destructor** — `~ClassName() { }`
 - **Inheritance** — `Base;` as member
 - **Properties (field-level)** — `prop type name;`
 - **State/stream/secret field types** — `cap` and `atomic` are rejected user-level field types
-- **Channel ops** — `c <- val`, `c <-? val`, `val <- c`
-- **Control flow** — `if / else / while`, `return`
+- **Typed channels** — `chan<int64> c;` or `stream<string> events;` as object fields
+- **Channel ops** — `c -> val`, `c ->? val`, `val = <- c`
+- **Channel select** — `alt { case x = <- c: ... default: ... }`
+- **Control flow** — `if / else / while / for / alt`, `return`
 - **Comments** — `// line`, `/* block */`
 - **Expressions** — arithmetic, bitwise, comparison, logical, ternary
 - **Built-in** — `print(...)` (emits Plan 9 `print()`)

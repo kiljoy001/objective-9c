@@ -70,6 +70,69 @@ function FileSizeRaw(string path) int64 {
     return out;
 }
 
+function FileModeRaw(string path) int64 {
+    int64 out;
+
+    c {
+        char *cpath;
+        Dir *d;
+
+        out = -1;
+        cpath = o9_string_cstr(path);
+        if(cpath != nil){
+            d = dirstat(cpath);
+            if(d != nil){
+                out = d->mode;
+                free(d);
+            }
+            free(cpath);
+        }
+    }
+    return out;
+}
+
+function FileMtimeRaw(string path) int64 {
+    int64 out;
+
+    c {
+        char *cpath;
+        Dir *d;
+
+        out = -1;
+        cpath = o9_string_cstr(path);
+        if(cpath != nil){
+            d = dirstat(cpath);
+            if(d != nil){
+                out = d->mtime;
+                free(d);
+            }
+            free(cpath);
+        }
+    }
+    return out;
+}
+
+function FileOwnerRaw(string path) string {
+    string out;
+
+    c {
+        char *cpath;
+        Dir *d;
+
+        out = o9_string_new("", 0);
+        cpath = o9_string_cstr(path);
+        if(cpath != nil){
+            d = dirstat(cpath);
+            if(d != nil){
+                out = o9_string_from_c(d->uid != nil ? d->uid : "");
+                free(d);
+            }
+            free(cpath);
+        }
+    }
+    return out;
+}
+
 function FileRemoveRaw(string path) int64 {
     int64 out;
 
@@ -219,6 +282,21 @@ class File {
 
     method int64 size() {
         Task<int64> t = spawn FileSizeRaw(path);
+        return t.await();
+    }
+
+    method int64 mode() {
+        Task<int64> t = spawn FileModeRaw(path);
+        return t.await();
+    }
+
+    method int64 mtime() {
+        Task<int64> t = spawn FileMtimeRaw(path);
+        return t.await();
+    }
+
+    method string owner() {
+        Task<string> t = spawn FileOwnerRaw(path);
         return t.await();
     }
 

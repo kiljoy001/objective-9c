@@ -11,6 +11,8 @@ import "bytes.o9";
 import "collections.o9";
 import "file.o9";
 import "io.o9";
+import "math.o9";
+import "random.o9";
 import "net.o9";
 import "path.o9";
 import "process.o9";
@@ -155,6 +157,9 @@ Methods:
 - `readInto(Bytes data)`
 - `exists() bool`
 - `size() int64`
+- `mode() int64`
+- `mtime() int64`
+- `owner() string`
 - `remove() bool`
 - `mkdir() bool`
 - `isDir() bool`
@@ -298,6 +303,74 @@ are logical deletes implemented with generation stamps, so stale values are not
 reachable through the object API. Key iteration and value iteration are not
 exposed yet because the current runtime carrier has no safe iterator primitive
 for wrappers to call.
+
+## Math
+
+`Math` wraps the floating-point functions Plan 9 exposes through
+`/sys/include/libc.h` and `libc.a`. The raw C calls stay inside nested
+function objects in the `Math` class; the public surface is ordinary methods.
+
+```o9
+import "math.o9";
+
+main {
+    Math m = new Math();
+    print(m.sqrt(9.0), "\n");          // 3
+    print(m.pow(2.0, 8.0), "\n");      // 256
+    print(m.fmod(7.5, 2.0), "\n");     // 1.5
+}
+```
+
+Methods:
+
+- `Math()`
+- `sqrt(double x) double`
+- `sin(double x) double`
+- `cos(double x) double`
+- `tan(double x) double`
+- `asin(double x) double`
+- `atan(double x) double`
+- `atan2(double y, double x) double`
+- `sinh(double x) double`
+- `log(double x) double`
+- `log10(double x) double`
+- `exp(double x) double`
+- `pow(double x, double y) double`
+- `pow10(double x) double`
+- `floor(double x) double`
+- `ceil(double x) double`
+- `fmod(double x, double y) double`
+- `fabs(double x) double`
+- `abs(int64 n) int64`
+
+## Random
+
+`Random` wraps Plan 9 libc's pseudo-random functions and the kernel-backed
+entropy helpers. Use `seed` when you want repeatable pseudo-random sequences;
+use `entropy`/`entropyBounded` when you want system randomness.
+
+```o9
+import "random.o9";
+
+main {
+    Random r = new Random();
+    r.seed(12345);
+    print(r.bounded(10), "\n");
+    print(r.float(), "\n");
+}
+```
+
+Methods:
+
+- `Random()`
+- `seed(int64 value) int64`
+- `next() int64`
+- `bounded(int64 max) int64`
+- `nextLong() int64`
+- `boundedLong(int64 max) int64`
+- `float() double`
+- `entropy() int64`
+- `entropyBounded(int64 max) int64`
 
 ## Process And Env
 

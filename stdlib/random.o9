@@ -1,0 +1,126 @@
+class Random {
+function RandomSeedRaw(int64 seed) int64 {
+    int64 out;
+
+    c {
+        srand(seed);
+        out = 1;
+    }
+    return out;
+}
+
+function RandomNextRaw() int64 {
+    int64 out;
+
+    c {
+        out = rand();
+    }
+    return out;
+}
+
+function RandomBoundedRaw(int64 max) int64 {
+    int64 out;
+
+    c {
+        if(max <= 0)
+            out = 0;
+        else
+            out = nrand(max);
+    }
+    return out;
+}
+
+function RandomLongRaw() int64 {
+    int64 out;
+
+    c {
+        out = lrand();
+    }
+    return out;
+}
+
+function RandomLongBoundedRaw(int64 max) int64 {
+    int64 out;
+
+    c {
+        if(max <= 0)
+            out = 0;
+        else
+            out = lnrand(max);
+    }
+    return out;
+}
+
+function RandomFloatRaw() double {
+    double out;
+
+    c {
+        out = frand();
+    }
+    return out;
+}
+
+function RandomEntropyRaw() int64 {
+    int64 out;
+
+    c {
+        out = truerand();
+    }
+    return out;
+}
+
+function RandomEntropyBoundedRaw(int64 max) int64 {
+    int64 out;
+
+    c {
+        if(max <= 0)
+            out = 0;
+        else
+            out = ntruerand(max);
+    }
+    return out;
+}
+
+    method Random() {
+    }
+
+    method int64 seed(int64 value) {
+        Task<int64> t = spawn RandomSeedRaw(value);
+        return t.await();
+    }
+
+    method int64 next() {
+        Task<int64> t = spawn RandomNextRaw();
+        return t.await();
+    }
+
+    method int64 bounded(int64 max) {
+        Task<int64> t = spawn RandomBoundedRaw(max);
+        return t.await();
+    }
+
+    method int64 nextLong() {
+        Task<int64> t = spawn RandomLongRaw();
+        return t.await();
+    }
+
+    method int64 boundedLong(int64 max) {
+        Task<int64> t = spawn RandomLongBoundedRaw(max);
+        return t.await();
+    }
+
+    method double float() {
+        Task<double> t = spawn RandomFloatRaw();
+        return t.await();
+    }
+
+    method int64 entropy() {
+        Task<int64> t = spawn RandomEntropyRaw();
+        return t.await();
+    }
+
+    method int64 entropyBounded(int64 max) {
+        Task<int64> t = spawn RandomEntropyBoundedRaw(max);
+        return t.await();
+    }
+}

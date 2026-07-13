@@ -1,0 +1,32 @@
+function split(int64 x) (int64, int64) {
+    return (x, x + 1);
+}
+
+class Pairer {
+    method (int64, int64) pair(int64 x) {
+        return (x + 10, x + 20);
+    }
+
+    method int64 sum(int64 x) {
+        int64 a;
+        int64 b;
+
+        (a, b) = pair(x);
+        return a + b;
+    }
+}
+
+main {
+    Pairer p = new Pairer();
+    int64 a;
+    int64 b;
+    Task<(int64, int64)> t;
+
+    (a, b) = p.pair(5);
+    print(a, " ", b, "\n");
+    print(p.sum(1), "\n");
+
+    t = spawn split(30);
+    (a, b) = t.await();
+    print(a, " ", b, "\n");
+}

@@ -1,0 +1,26 @@
+class Meter {
+    double value;
+
+    method Meter(double initial) {
+        value = initial;
+    }
+
+    method double get() {
+        return value;
+    }
+
+    method double add(double n) {
+        value = value + n;
+        return value;
+    }
+}
+
+main {
+    double a = 1.5;
+    double b = 2.25;
+    Meter m = new Meter(a + b);
+
+    print(m.get(), "\n");
+    print(m.add(0.25), "\n");
+    print(cast<int64>(m.get()), "\n");
+}

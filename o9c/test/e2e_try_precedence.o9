@@ -1,0 +1,17 @@
+class TryCalc {
+    method int64 value(int64 n) {
+        return n;
+    }
+
+    method int64 dotted(TryCalc other, int64 n) {
+        int64 v = try other.value(n);
+        return v + 2;
+    }
+}
+
+main {
+    TryCalc c = new TryCalc();
+    TryCalc d = new TryCalc();
+    print(c.value(5), "\n");
+    print(c.dotted(d, 8), "\n");
+}

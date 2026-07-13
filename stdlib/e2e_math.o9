@@ -1,0 +1,15 @@
+import "math.o9";
+
+main {
+    Math m = new Math();
+    double x = 9.0;
+    double y = 7.5;
+
+    print(m.sqrt(x), "\n");
+    print(m.pow(2.0, 8.0), "\n");
+    print(m.floor(3.9), "\n");
+    print(m.ceil(3.1), "\n");
+    print(m.fmod(y, 2.0), "\n");
+    print(m.fabs(-4.5), "\n");
+    print(m.abs(-42), "\n");
+}

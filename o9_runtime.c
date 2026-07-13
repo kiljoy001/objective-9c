@@ -69,23 +69,80 @@ o9_atomic_dec(long *p)
 }
 void o9_cache_fill(void *client, ulong hash, int is_ctrl);
 
+typedef struct O9ProcCtx O9ProcCtx;
+struct O9ProcCtx {
+	char *err;
+	char errbuf[192];
+	void *actor_chan;
+	char actor_oid[64];
+};
+
+static O9ProcCtx*
+o9_proc_ctx(void)
+{
+	O9ProcCtx **pp, *ctx;
+
+	pp = (O9ProcCtx**)procdata();
+	if(*pp == nil){
+		ctx = mallocz(sizeof(O9ProcCtx), 1);
+		if(ctx == nil)
+			sysfatal("o9_proc_ctx: malloc");
+		*pp = ctx;
+	}
+	return *pp;
+}
+
 /* Last-call error signal for `try`: set non-nil by a failed dispatch,
  * nil on success.  try checks it right after a call to decide whether to
  * propagate.  PER-PROC (via procdata()), NOT a global: every object is
  * its own proc (proccreate) and they run in PARALLEL on SMP 9front, so a
  * global would let two parallel actors' `try` clobber each other's error
- * signal.  procdata() gives each proc its own slot.  Errors-as-values,
- * no unwinding. */
+ * signal.  The same proc context also records the current actor identity
+ * so synchronous handle sends can reject same-actor deadlocks. */
 void
 o9_set_call_err(char *e)
 {
-	*procdata() = e;
+	o9_proc_ctx()->err = e;
 }
 
 char*
 o9_get_call_err(void)
 {
-	return *procdata();
+	return o9_proc_ctx()->err;
+}
+
+void
+o9_actor_enter(void *dispatch_chan, char *oid)
+{
+	O9ProcCtx *ctx;
+
+	ctx = o9_proc_ctx();
+	ctx->actor_chan = dispatch_chan;
+	if(oid != nil)
+		snprint(ctx->actor_oid, sizeof ctx->actor_oid, "%s", oid);
+	else
+		ctx->actor_oid[0] = '\0';
+}
+
+static int
+o9_actor_self_send(void *dispatch_chan, char *method)
+{
+	O9ProcCtx *ctx;
+	char err[192];
+
+	ctx = o9_proc_ctx();
+	if(dispatch_chan == nil || ctx->actor_chan == nil ||
+	   dispatch_chan != ctx->actor_chan)
+		return 0;
+	snprint(err, sizeof err,
+		"sync actor call to self%s%s%s; use a direct method call",
+		method != nil ? " for " : "",
+		method != nil ? method : "",
+		method != nil ? "()" : "");
+	werrstr("%s", err);
+	snprint(ctx->errbuf, sizeof ctx->errbuf, "%s", err);
+	ctx->err = ctx->errbuf;
+	return 1;
 }
 
 ulong
@@ -2604,6 +2661,26 @@ o9_task_chan(O9Task *t)
  * `try t.await()` propagates; return 0. Else return the value. Idempotent
  * (caches the reply — await twice is safe). */
 vlong
+o9_double_pack(double d)
+{
+	vlong v;
+
+	v = 0;
+	memmove(&v, &d, sizeof d);
+	return v;
+}
+
+double
+o9_double_unpack(vlong v)
+{
+	double d;
+
+	d = 0.0;
+	memmove(&d, &v, sizeof d);
+	return d;
+}
+
+vlong
 o9_task_await(O9Task *t)
 {
 	if(t == nil){
@@ -2622,6 +2699,27 @@ o9_task_await(O9Task *t)
 	}
 	o9_set_call_err(nil);
 	return (vlong)t->reply->ret;
+}
+
+double
+o9_task_await_double(O9Task *t)
+{
+	if(t == nil){
+		o9_set_call_err("await of nil task");
+		return 0.0;
+	}
+	if(t->reply == nil)
+		t->reply = recvp(t->done);
+	if(t->reply == nil){
+		o9_set_call_err("task produced no result");
+		return 0.0;
+	}
+	if(t->reply->err != nil){
+		o9_set_call_err(t->reply->err);
+		return 0.0;
+	}
+	o9_set_call_err(nil);
+	return t->reply->dret;
 }
 
 void
@@ -3181,6 +3279,8 @@ obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int narg
     char cmd[1024], data[8192];
 
     if(obj->dispatch_chan != nil){
+        if(o9_actor_self_send(obj->dispatch_chan, method))
+            return nil;
         if(obj->oid[0] != '\0' && obj->gen != 0){
             if(o9_registry_lookup(obj->oid, &h) < 0 ||
                h.gen != obj->gen || h.chan != obj->dispatch_chan){
@@ -3230,6 +3330,67 @@ obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int narg
     }
 
     return nil;
+}
+
+double
+obj9_msgSendDoubleN(void *receiver, char *method, ulong selector, void *args, int nargs)
+{
+    o9_Object *obj = receiver;
+    O9Handle h;
+    O9Msg *m;
+    O9Reply *r;
+    double ret;
+    char cmd[1024], data[8192];
+
+    ret = 0.0;
+    if(obj->dispatch_chan != nil){
+        if(o9_actor_self_send(obj->dispatch_chan, method))
+            return 0.0;
+        if(obj->oid[0] != '\0' && obj->gen != 0){
+            if(o9_registry_lookup(obj->oid, &h) < 0 ||
+               h.gen != obj->gen || h.chan != obj->dispatch_chan){
+                werrstr("stale object handle");
+                o9_set_call_err("stale object handle");
+                return 0.0;
+            }
+        }
+        m = mallocz(sizeof(O9Msg), 1);
+        m->sel = selector;
+        m->args = args;
+        m->nargs = nargs;
+        m->replyc = chancreate(sizeof(void*), 0);
+        sendp(obj->dispatch_chan, m);
+        r = recvp(m->replyc);
+        if(r->err != nil){
+            werrstr("%s", r->err);
+            o9_set_call_err(r->err);
+        } else {
+            o9_set_call_err(nil);
+            ret = r->dret;
+        }
+        chanfree(m->replyc);
+        free(r);
+        free(m);
+        return ret;
+    }
+
+    if(obj->fd >= 0 && method != nil && obj->distance >= 0){
+        o9_remote_method_cmd(obj, method, args, nargs, cmd, sizeof cmd);
+        if(o9_remote_ctl_data(obj, cmd, data, sizeof data) == 0){
+            if(strncmp(data, "error: ", 7) == 0){
+                char *nl = strchr(data, '\n');
+                if(nl != nil)
+                    *nl = '\0';
+                werrstr("%s", data + 7);
+                o9_set_call_err("remote call failed");
+                return 0.0;
+            }
+            o9_set_call_err(nil);
+            return strtod(data, nil);
+        }
+    }
+
+    return 0.0;
 }
 
 void*

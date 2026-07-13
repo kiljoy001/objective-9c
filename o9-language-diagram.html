@@ -550,7 +550,7 @@ print("after delete\n");</td>
           </tr>
           <tr>
             <td class="kw">spawn</td>
-            <td class="kw-desc">Run a function-class concurrently. Returns Task&lt;T&gt;.</td>
+            <td class="kw-desc">Run a function-class concurrently. Returns Task&lt;T&gt;. Functions may be top-level or nested in a class.</td>
             <td class="kw-code">Task&lt;int64&gt; t = spawn rawadd(10, 20);
 int64 v = t.await();</td>
           </tr>
@@ -594,6 +594,12 @@ print(len(s), "\n");</td>
             <td class="kw-code">prop byte value;</td>
           </tr>
           <tr>
+            <td class="kw">double</td>
+            <td class="kw-desc">Plan 9 C double. Used by raw-C function wrappers and Math. Prints with %g.</td>
+            <td class="kw-code">double x = 9.0;
+print(x, "\n");</td>
+          </tr>
+          <tr>
             <td class="kw">intptr / uintptr</td>
             <td class="kw-desc">Address-sized integer values for raw-C function interop. Rejected on object fields, method params, and method returns.</td>
             <td class="kw-code">function fdaddr(int64 fd) uintptr {
@@ -631,6 +637,17 @@ items[0] = 42;</td>
 int64 v = t.await();  // 7</td>
           </tr>
           <tr>
+            <td class="kw">(T,U)</td>
+            <td class="kw-desc">Tuple return value. Lowered to an immutable generated C struct pointer; destructure into declared locals.</td>
+            <td class="kw-code">method (int64, int64) pair(int64 x) {
+    return (x, x + 1);
+}
+
+int64 a;
+int64 b;
+(a, b) = obj.pair(7);</td>
+          </tr>
+          <tr>
             <td class="kw">Tabula</td>
             <td class="kw-desc">First-class table type. libtab-backed. Text boundary.</td>
             <td class="kw-code">Tabula t = new Tabula("orders", "item,qty");
@@ -650,8 +667,9 @@ mt.apply();</td>
           </tr>
           <tr>
             <td class="kw">chan</td>
-            <td class="kw-desc">CSP channel field. Use as <code>chan c;</code> or <code>stream c;</code> on objects.</td>
-            <td class="kw-code">chan c;   // untyped, buffered(8)</td>
+            <td class="kw-desc">CSP channel field. Prefer typed <code>chan&lt;T&gt;</code> or <code>stream&lt;T&gt;</code>; legacy untyped channels still work.</td>
+            <td class="kw-code">chan&lt;int64&gt; c;
+stream&lt;string&gt; events;</td>
           </tr>
         </tbody>
       </table>
@@ -680,14 +698,28 @@ mt.apply();</td>
             <td class="kw-code">c ->? v;    // try-send, no rendezvous</td>
           </tr>
           <tr>
+            <td class="kw">alt</td>
+            <td class="kw-desc">Select over receive-ready channels. Optional default maps to CHANNOBLK.</td>
+            <td class="kw-code">alt {
+case x = &lt;- leftc:
+    print(x, "\n");
+case x = &lt;- rightc:
+    print(x, "\n");
+default:
+    print("none\n");
+}</td>
+          </tr>
+          <tr>
             <td class="kw">c { }</td>
             <td class="kw-desc">Raw Plan 9 C block. Inside function bodies only.</td>
-            <td class="kw-code">function rawadd(int64 a) int64 {
+            <td class="kw-code">class Worker {
+function rawadd(int64 a) int64 {
     int64 out;
     c {
         out = a + 7;
     }
     return out;
+}
 }</td>
           </tr>
           <tr>
@@ -893,6 +925,7 @@ string pt = decrypt(k, blob);</td>
           <li>• <code>function</code> = anonymous one-method class</li>
           <li>• <code>spawn f(args)</code> → <code>Task&lt;T&gt;</code> join handle</li>
           <li>• <code>t.await()</code> blocks on done channel (per-proc error)</li>
+          <li>• <code>alt</code> selects over channel receives with optional default</li>
           <li>• Channels buffered (8), boxes freed on recv or drain</li>
           <li>• No goroutines, no closures, no capture</li>
         </ul>
@@ -1001,8 +1034,28 @@ Process.setenv("X", "hello");
 print(Process.getenv("X"), "\n");    // hello</td>
           </tr>
           <tr>
+            <td class="kw">math</td>
+            <td class="kw-desc">Math functions via libm: sqrt, sin, cos, tan, asin, atan, atan2, sinh, log, log10, exp, pow, pow10, floor, ceil, fmod, fabs. Pure-o9 abs for int64. Uses <code>double</code> type.</td>
+            <td class="kw-code">import "math.o9";
+Math m = new Math();
+print(m.sqrt(9.0), "\n");       // 3
+print(m.pow(2.0, 8.0), "\n");   // 256
+print(m.floor(3.9), "\n");      // 3
+print(m.abs(-42), "\n");        // 42</td>
+          </tr>
+          <tr>
+            <td class="kw">random</td>
+            <td class="kw-desc">PRNG + true entropy: seed, next, bounded, nextLong, boundedLong, float (frand), entropy (truerand), entropyBounded (ntruerand).</td>
+            <td class="kw-code">import "random.o9";
+Random r = new Random();
+r.seed(12345);
+print(r.bounded(10), "\n");     // 0-9
+print(r.float(), "\n");         // 0.0 - 0.999...
+print(r.entropy(), "\n");       // true random</td>
+          </tr>
+          <tr>
             <td class="kw">collections</td>
-            <td class="kw-desc">Generic collections: <code>list&lt;T&gt;</code> wraps T[], <code>array&lt;T&gt;</code> adds sparse put, and <code>dictionary&lt;T&gt;</code> wraps Dict&lt;string,T&gt; with logical delete/clear.</td>
+            <td class="kw-desc">Generic collections: <code>list&lt;T&gt;</code> (wraps List&lt;T&gt;, add/get/set/length/empty/clear/pop/remove), <code>array&lt;T&gt;</code> (wraps T[], add/put/get/set/length/grow/clear/pop/remove), <code>dictionary&lt;T&gt;</code> (wraps Dict&lt;string,T&gt;, set/get/has/length/remove/clear).</td>
             <td class="kw-code">import "collections.o9";
 list&lt;int64&gt; nums;
 nums.add(10);
@@ -1013,6 +1066,24 @@ print(nums.get(0), "\n");        // 10
 dictionary&lt;int64&gt; ages;
 ages.set("bob", 42);
 print(ages.get("bob"), "\n");   // 42</td>
+          </tr>
+          <tr>
+            <td class="kw">math</td>
+            <td class="kw-desc">Plan 9 libc floating math wrappers: sqrt, sin, cos, tan, log, exp, pow, floor, ceil, fmod, fabs, plus integer abs.</td>
+            <td class="kw-code">import "math.o9";
+Math m = new Math();
+print(m.sqrt(9.0), "\n");        // 3
+print(m.pow(2.0, 8.0), "\n");    // 256
+print(m.fmod(7.5, 2.0), "\n");   // 1.5</td>
+          </tr>
+          <tr>
+            <td class="kw">random</td>
+            <td class="kw-desc">Plan 9 libc pseudo-random and entropy helpers: seed, next, bounded, long, longBounded, float, entropy, entropyBounded.</td>
+            <td class="kw-code">import "random.o9";
+Random r = new Random();
+r.seed(12345);
+print(r.bounded(10), "\n");
+print(r.float(), "\n");</td>
           </tr>
         </tbody>
       </table>
@@ -1030,7 +1101,7 @@ print(ages.get("bob"), "\n");   // 42</td>
           <li>• Raw C in <code>function</code> bodies wraps Plan 9 libc calls</li>
           <li>• Classes expose methods; blocking ops use <code>spawn</code> + <code>await</code></li>
           <li>• <code>import "string.o9"</code> splices declarations into source</li>
-          <li>• 10 modules, all e2e tested with expected output</li>
+          <li>• 12 modules, all e2e tested with expected output</li>
           <li>• Constrained deps: <code>use { bio }</code> for buffered I/O</li>
         </ul>
       </div>
@@ -1047,9 +1118,12 @@ print(ages.get("bob"), "\n");   // 42</td>
           <li>• <code>io</code> — buffered I/O via bio (readAll, readLine, readByte)</li>
           <li>• <code>time</code> — now, nsec, sleep</li>
           <li>• <code>net</code> — NetConn, NetListener, Factotum, NetToken, KnownRemotes</li>
+          <li>• <code>math</code> — Plan 9 libc double math wrappers plus integer abs</li>
           <li>• <code>path</code> — clean, base, dir, ext, join</li>
           <li>• <code>process</code> — pid, user, env, cwd, run</li>
           <li>• <code>collections</code> — list&lt;T&gt;, array&lt;T&gt;, dictionary&lt;T&gt;</li>
+          <li>• <code>math</code> — sqrt, sin, cos, pow, floor, ceil, log, exp, abs (double)</li>
+          <li>• <code>random</code> — PRNG + true entropy (seed, next, bounded, float, truerand)</li>
         </ul>
       </div>
       <div class="card">
@@ -1070,7 +1144,7 @@ print(ages.get("bob"), "\n");   // 42</td>
 
     <!-- Footer -->
     <p class="footer">
-      o9 / objective-9c • Plan 9-native transpiler • 9front C target • CSP actor model • 10 stdlib modules
+      o9 / objective-9c • Plan 9-native transpiler • 9front C target • CSP actor model • 12 stdlib modules
     </p>
   </div>
 </body>
