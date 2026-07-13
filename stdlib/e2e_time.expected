@@ -1,3 +1,13 @@
 now 1
 nsec 1
 sleep 1
+format 1
+parse 12345
+dt ctor 1
+dt epoch 12345
+dt set 2026 7 13 1 1 30 5
+dt text 1 1
+dt fields 1 1 1 1 1
+dt clock 1 1 1 1 1 1
+dt ordinal 1 1 1 1
+dt now 1

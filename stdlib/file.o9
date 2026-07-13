@@ -179,6 +179,60 @@ function FileMkdirRaw(string path) int64 {
     return out;
 }
 
+function FileMkdirAllRaw(string path) int64 {
+    int64 out;
+
+    c {
+        char *cpath, *p;
+        int fd;
+        Dir *d;
+
+        out = 0;
+        cpath = o9_string_cstr(path);
+        if(cpath != nil && cpath[0] != '\0'){
+            out = 1;
+            for(p = cpath + 1; *p != '\0'; p++){
+                if(*p == '/'){
+                    *p = '\0';
+                    if(cpath[0] != '\0'){
+                        d = dirstat(cpath);
+                        if(d != nil){
+                            if((d->mode & DMDIR) == 0)
+                                out = 0;
+                            free(d);
+                        } else {
+                            fd = create(cpath, OREAD, DMDIR|0755);
+                            if(fd >= 0)
+                                close(fd);
+                            else
+                                out = 0;
+                        }
+                    }
+                    *p = '/';
+                    if(out == 0)
+                        break;
+                }
+            }
+            if(out != 0){
+                d = dirstat(cpath);
+                if(d != nil){
+                    if((d->mode & DMDIR) == 0)
+                        out = 0;
+                    free(d);
+                } else {
+                    fd = create(cpath, OREAD, DMDIR|0755);
+                    if(fd >= 0)
+                        close(fd);
+                    else
+                        out = 0;
+                }
+            }
+        }
+        free(cpath);
+    }
+    return out;
+}
+
 function FileIsDirRaw(string path) int64 {
     int64 out;
 
@@ -197,6 +251,47 @@ function FileIsDirRaw(string path) int64 {
             }
             free(cpath);
         }
+    }
+    return out;
+}
+
+function FileCopyRaw(string from, string to) int64 {
+    int64 out;
+
+    c {
+        char *cfrom, *cto;
+        char buf[8192];
+        int in, ofd, n;
+        vlong total;
+
+        out = -1;
+        cfrom = o9_string_cstr(from);
+        cto = o9_string_cstr(to);
+        if(cfrom != nil && cto != nil){
+            in = open(cfrom, OREAD);
+            if(in >= 0){
+                ofd = create(cto, OWRITE, 0644);
+                if(ofd >= 0){
+                    total = 0;
+                    out = 0;
+                    while((n = read(in, buf, sizeof buf)) > 0){
+                        if(write(ofd, buf, n) != n){
+                            out = -1;
+                            break;
+                        }
+                        total += n;
+                    }
+                    if(n < 0)
+                        out = -1;
+                    if(out == 0)
+                        out = total;
+                    close(ofd);
+                }
+                close(in);
+            }
+        }
+        free(cfrom);
+        free(cto);
     }
     return out;
 }
@@ -310,6 +405,11 @@ class File {
         return t.await() == 1;
     }
 
+    method bool mkdirAll() {
+        Task<int64> t = spawn FileMkdirAllRaw(path);
+        return t.await() == 1;
+    }
+
     method bool isDir() {
         Task<int64> t = spawn FileIsDirRaw(path);
         return t.await() == 1;
@@ -318,5 +418,17 @@ class File {
     method string list() {
         Task<string> t = spawn FileListRaw(path);
         return t.await();
+    }
+
+    method int64 copyTo(string dest) {
+        Task<int64> t = spawn FileCopyRaw(path, dest);
+        return t.await();
+    }
+
+    method bool moveTo(string dest) {
+        if(copyTo(dest) < 0) {
+            return false;
+        }
+        return remove();
     }
 }

@@ -1,0 +1,7 @@
+class Node {
+    prop Node next;
+}
+
+main {
+    Node n = new Node();
+}

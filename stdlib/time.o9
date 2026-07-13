@@ -26,6 +26,124 @@ function TimeSleepRaw(int64 ms) int64 {
     return out;
 }
 
+function TimeFormatRaw(int64 sec) string {
+    string out;
+
+    c {
+        char *s, buf[64];
+        int n;
+
+        s = ctime(sec);
+        if(s != nil){
+            snprint(buf, sizeof buf, "%s", s);
+            n = strlen(buf);
+            if(n > 0 && buf[n-1] == '\n')
+                buf[n-1] = '\0';
+            out = o9_string_from_c(buf);
+        } else {
+            out = o9_string_new("", 0);
+        }
+    }
+    return out;
+}
+
+function TimeParseRaw(string text) int64 {
+    int64 out;
+
+    c {
+        char *s;
+
+        out = -1;
+        s = o9_string_cstr(text);
+        if(s != nil){
+            out = strtoll(s, nil, 0);
+            free(s);
+        }
+    }
+    return out;
+}
+
+function DateTimeFieldRaw(int64 sec, int64 field) int64 {
+    int64 out;
+
+    c {
+        Tm *tm;
+
+        out = -1;
+        tm = localtime(sec);
+        if(tm != nil){
+            switch(field){
+            case 0:
+                out = tm->year + 1900;
+                break;
+            case 1:
+                out = tm->mon + 1;
+                break;
+            case 2:
+                out = tm->mday;
+                break;
+            case 3:
+                out = tm->hour;
+                break;
+            case 4:
+                out = tm->min;
+                break;
+            case 5:
+                out = tm->sec;
+                break;
+            case 6:
+                out = tm->wday;
+                break;
+            case 7:
+                out = tm->yday;
+                break;
+            case 8:
+                out = tm->tzoff;
+                break;
+            }
+        }
+    }
+    return out;
+}
+
+function DateTimeStampRaw(int64 sec) string {
+    string out;
+
+    c {
+        Tm *tm;
+        char buf[64];
+
+        tm = localtime(sec);
+        if(tm != nil){
+            snprint(buf, sizeof buf, "%04d-%02d-%02d %02d:%02d:%02d",
+                tm->year + 1900, tm->mon + 1, tm->mday,
+                tm->hour, tm->min, tm->sec);
+            out = o9_string_from_c(buf);
+        } else {
+            out = o9_string_new("", 0);
+        }
+    }
+    return out;
+}
+
+function DateTimeFromPartsRaw(int64 year, int64 month, int64 day, int64 hour, int64 minute, int64 second) int64 {
+    int64 out;
+
+    c {
+        Tm tm;
+
+        memset(&tm, 0, sizeof tm);
+        tm.year = year - 1900;
+        tm.mon = month - 1;
+        tm.mday = day;
+        tm.hour = hour;
+        tm.min = minute;
+        tm.sec = second;
+        out = tm2sec(&tm);
+    }
+    return out;
+}
+
 class Time {
     method int64 now() {
         Task<int64> t = spawn TimeNowRaw();
@@ -39,6 +157,97 @@ class Time {
 
     method int64 sleep(int64 ms) {
         Task<int64> t = spawn TimeSleepRaw(ms);
+        return t.await();
+    }
+
+    method string format(int64 sec) {
+        Task<string> t = spawn TimeFormatRaw(sec);
+        return t.await();
+    }
+
+    method int64 parse(string text) {
+        Task<int64> t = spawn TimeParseRaw(text);
+        return t.await();
+    }
+}
+
+class DateTime {
+    prop int64 seconds;
+
+    method DateTime() {
+        setNow();
+    }
+
+    method void setEpoch(int64 sec) {
+        seconds = sec;
+    }
+
+    method void set(int64 year, int64 month, int64 day, int64 hour, int64 minute, int64 second) {
+        Task<int64> t = spawn DateTimeFromPartsRaw(year, month, day, hour, minute, second);
+        seconds = t.await();
+    }
+
+    method void setNow() {
+        Task<int64> t = spawn TimeNowRaw();
+        seconds = t.await();
+    }
+
+    method int64 epoch() {
+        return seconds;
+    }
+
+    method string text() {
+        Task<string> t = spawn TimeFormatRaw(seconds);
+        return t.await();
+    }
+
+    method string stamp() {
+        Task<string> t = spawn DateTimeStampRaw(seconds);
+        return t.await();
+    }
+
+    method int64 year() {
+        Task<int64> t = spawn DateTimeFieldRaw(seconds, 0);
+        return t.await();
+    }
+
+    method int64 month() {
+        Task<int64> t = spawn DateTimeFieldRaw(seconds, 1);
+        return t.await();
+    }
+
+    method int64 day() {
+        Task<int64> t = spawn DateTimeFieldRaw(seconds, 2);
+        return t.await();
+    }
+
+    method int64 hour() {
+        Task<int64> t = spawn DateTimeFieldRaw(seconds, 3);
+        return t.await();
+    }
+
+    method int64 minute() {
+        Task<int64> t = spawn DateTimeFieldRaw(seconds, 4);
+        return t.await();
+    }
+
+    method int64 second() {
+        Task<int64> t = spawn DateTimeFieldRaw(seconds, 5);
+        return t.await();
+    }
+
+    method int64 weekday() {
+        Task<int64> t = spawn DateTimeFieldRaw(seconds, 6);
+        return t.await();
+    }
+
+    method int64 yearday() {
+        Task<int64> t = spawn DateTimeFieldRaw(seconds, 7);
+        return t.await();
+    }
+
+    method int64 zoneOffset() {
+        Task<int64> t = spawn DateTimeFieldRaw(seconds, 8);
         return t.await();
     }
 }

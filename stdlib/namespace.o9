@@ -1,0 +1,39 @@
+class Namespace {
+    prop MountTable table;
+
+    method Namespace() {
+        table = new MountTable();
+    }
+
+    method bool root(string path) {
+        return table.allowRoot(path) == 0;
+    }
+
+    method bool dir(string path, int64 mode) {
+        return table.dir(path, mode) == 0;
+    }
+
+    method bool bind(string old, string dest, int64 flag) {
+        return table.bind(old, dest, flag) == 0;
+    }
+
+    method bool mountsrv(string srv, string dest, int64 flag, string aname) {
+        return table.mountsrv(srv, dest, flag, aname) == 0;
+    }
+
+    method bool validate() {
+        return table.validate() == 0;
+    }
+
+    method bool apply() {
+        return table.apply() == 0;
+    }
+
+    method string read() {
+        return table.read();
+    }
+
+    method Tabula query(string column, string value) {
+        return table.query(column, value);
+    }
+}

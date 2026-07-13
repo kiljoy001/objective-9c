@@ -162,8 +162,11 @@ Methods:
 - `owner() string`
 - `remove() bool`
 - `mkdir() bool`
+- `mkdirAll() bool`
 - `isDir() bool`
 - `list() string`
+- `copyTo(string dest) int64`
+- `moveTo(string dest) bool`
 
 `list()` returns newline-separated directory entries.
 
@@ -397,6 +400,7 @@ main {
 - `argc() int64`
 - `arg(int64 index) string`
 - `run(string command) int64`
+- `output(string command) string`
 
 `Env` methods:
 
@@ -407,7 +411,91 @@ main {
 - `cwd() string`
 - `chdir(string path) bool`
 
-`run` executes through `/bin/rc -c`; return `0` means the command exited cleanly.
+`run` and `output` execute through `/bin/rc -c`; `run` returns `0` when the
+command exits cleanly, while `output` returns captured stdout/stderr text.
+
+## Time
+
+`time.o9` exposes basic wall-clock helpers.
+
+```o9
+import "time.o9";
+
+main {
+    Time t = new Time();
+    DateTime d = new DateTime();
+
+    print(t.now() > 0, "\n");
+    print(d.stamp(), "\n");
+}
+```
+
+`Time` methods:
+
+- `Time()`
+- `now() int64`
+- `nsec() int64`
+- `sleep(int64 ms) int64`
+- `format(int64 sec) string`
+- `parse(string text) int64`
+
+`format` returns Plan 9 `ctime`-style text without the trailing newline.
+`parse` accepts numeric epoch seconds.
+
+`DateTime` is a calendar-shaped object. Its constructor captures the current
+local time; epoch seconds remain available for interop with Plan 9 C, file
+mtimes, and serialized data.
+
+- `DateTime()`
+- `setEpoch(int64 sec)`
+- `set(int64 year, int64 month, int64 day, int64 hour, int64 minute, int64 second)`
+- `setNow()`
+- `epoch() int64`
+- `text() string`
+- `stamp() string`
+- `year() int64`
+- `month() int64`
+- `day() int64`
+- `hour() int64`
+- `minute() int64`
+- `second() int64`
+- `weekday() int64`
+- `yearday() int64`
+- `zoneOffset() int64`
+
+`text` returns Plan 9 `ctime` text. `stamp` returns `YYYY-MM-DD HH:MM:SS`
+in the local timezone.
+
+## Namespace
+
+`namespace.o9` wraps `MountTable` in an object API. `MountTable` remains the
+Tabula-backed transport data; `Namespace` is the object that builds and applies
+that table.
+
+```o9
+import "namespace.o9";
+
+main {
+    Namespace ns = new Namespace();
+
+    ns.root("/tmp/appns");
+    ns.dir("cache", 493);
+    ns.bind("/tmp", "tmp", 0);
+    ns.apply();
+}
+```
+
+`Namespace` methods:
+
+- `Namespace()`
+- `root(string path) bool`
+- `dir(string path, int64 mode) bool`
+- `bind(string old, string new, int64 flag) bool`
+- `mountsrv(string srv, string new, int64 flag, string aname) bool`
+- `validate() bool`
+- `apply() bool`
+- `read() string`
+- `query(string column, string value) Tabula`
 
 ## Net
 

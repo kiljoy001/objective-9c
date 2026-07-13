@@ -19,13 +19,36 @@ main {
     print("remove ", f.remove(), "\n");
     print("exists2 ", f.exists(), "\n");
 
+    File src = new File("/tmp/o9_stdlib_copy_src");
+    File dst = new File("/tmp/o9_stdlib_copy_dst");
+    File moved = new File("/tmp/o9_stdlib_copy_moved");
+    src.remove();
+    dst.remove();
+    moved.remove();
+    src.write("copy");
+    print("copy ", src.copyTo("/tmp/o9_stdlib_copy_dst"), " ", dst.read(), "\n");
+    print("move ", dst.moveTo("/tmp/o9_stdlib_copy_moved"), " ", dst.exists(), " ", moved.read(), "\n");
+    src.remove();
+    moved.remove();
+
     File d = new File("/tmp/o9_stdlib_dir");
     File child = new File("/tmp/o9_stdlib_dir/a");
+    File deep = new File("/tmp/o9_stdlib_dir/deep/nest");
+    File deepchild = new File("/tmp/o9_stdlib_dir/deep/nest/x");
     child.remove();
+    deepchild.remove();
+    deep.remove();
+    File mid = new File("/tmp/o9_stdlib_dir/deep");
+    mid.remove();
     d.remove();
     print("mkdir ", d.mkdir(), " ", d.isDir(), "\n");
     child.write("z");
     print("list ", d.list());
     print("rma ", child.remove(), "\n");
+    print("mkdirall ", deep.mkdirAll(), " ", deep.isDir(), "\n");
+    deepchild.write("x");
+    print("deeplist ", deep.list());
+    print("rmdeepfile ", deepchild.remove(), "\n");
+    print("rmdeep ", deep.remove(), " ", mid.remove(), "\n");
     print("rmd ", d.remove(), "\n");
 }

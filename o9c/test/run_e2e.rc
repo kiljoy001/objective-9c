@@ -198,6 +198,7 @@ stdlibcase e2e_time
 stdlibcase e2e_io
 stdlibcase e2e_process
 stdlibcase e2e_net
+stdlibcase e2e_namespace
 runcase e2e_hard_recursion
 runcase e2e_hard_nesttry
 runcase e2e_hard_defer

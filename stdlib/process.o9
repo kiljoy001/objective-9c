@@ -67,6 +67,64 @@ function ProcessRunRaw(string command) int64 {
     return out;
 }
 
+function ProcessOutputRaw(string command) string {
+    string out;
+    c {
+        char *cmd, *buf, *next;
+        int p[2], pid, n;
+        vlong len, cap;
+        Waitmsg *w;
+
+        out = o9_string_new("", 0);
+        cmd = o9_string_cstr(command);
+        if(cmd != nil){
+            if(pipe(p) == 0){
+                pid = rfork(RFPROC|RFFDG|RFNOTEG);
+                if(pid == 0){
+                    close(p[0]);
+                    dup(p[1], 1);
+                    dup(p[1], 2);
+                    close(p[1]);
+                    execl("/bin/rc", "rc", "-c", cmd, nil);
+                    exits("exec");
+                }
+                close(p[1]);
+                cap = 1024;
+                len = 0;
+                buf = malloc(cap);
+                if(buf != nil){
+                    while((n = read(p[0], buf + len, cap - len)) > 0){
+                        len += n;
+                        if(cap - len < 512){
+                            cap *= 2;
+                            next = realloc(buf, cap);
+                            if(next == nil)
+                                break;
+                            buf = next;
+                        }
+                    }
+                    out = o9_string_new(buf, len);
+                    free(buf);
+                }
+                close(p[0]);
+                if(pid > 0){
+                    for(;;){
+                        w = wait();
+                        if(w == nil)
+                            break;
+                        n = w->pid;
+                        free(w);
+                        if(n == pid)
+                            break;
+                    }
+                }
+            }
+            free(cmd);
+        }
+    }
+    return out;
+}
+
 function EnvGetRaw(string name) string {
     string out;
     c {
@@ -188,6 +246,11 @@ class Process {
 
     method int64 run(string command) {
         Task<int64> t = spawn ProcessRunRaw(command);
+        return t.await();
+    }
+
+    method string output(string command) {
+        Task<string> t = spawn ProcessOutputRaw(command);
         return t.await();
     }
 }

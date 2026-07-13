@@ -5474,8 +5474,8 @@ gen_class_server(Node *c)
             fmt = type_fmt_for_codegen(m->typeinfo);
             cast = type_cast_for_codegen(m->typeinfo);
             d = type_decl_node(m->typeinfo);
-            if(type_is_class_ref(m->typeinfo)){
-                /* class-typed field is a live handle, not a readable value */
+            if(type_is_class_ref(m->typeinfo) || type_storage_pointerish(m->typeinfo)){
+                /* object/builtin handle field is live state, not a readable value */
                 print("\tif(strcmp(name, \"%s\") == 0){ readstr(r, \"<handle>\\n\"); respond(r, nil); return; }\n", m->name);
             } else if(strcmp(t, "O9Dict") == 0){
                 /* Dict property: serialize */
@@ -5681,8 +5681,9 @@ gen_class_server(Node *c)
                 continue;
             t = type_storage_for_codegen(m->typeinfo);
             d = type_decl_node(m->typeinfo);
-            if(type_is_class_ref(m->typeinfo)){
-                /* class-typed field is a handle — not writable via 9P */
+            if(type_is_class_ref(m->typeinfo) || type_storage_pointerish(m->typeinfo)){
+                /* object/builtin handle field is not writable via textual 9P */
+                print("\tif(strcmp(name, \"%s\") == 0){ respond(r, \"handle property not writable\"); return; }\n", m->name);
             } else if(strcmp(t, "O9Dict") == 0) {
                 /* Dict property: deserialize */
                 print("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
@@ -8837,6 +8838,25 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
     }
 }
 
+static int
+is_stored_member_decl(Node *n)
+{
+    return n != nil && (n->type == NProp || n->type == NState);
+}
+
+static int
+member_type_is_declaring_class(Node *member, Node *owner)
+{
+    if(member == nil || owner == nil || member->typeinfo == nil ||
+       member->typeinfo->kind != TyName || member->typeinfo->name == nil)
+        return 0;
+    if(owner->name != nil && strcmp(member->typeinfo->name, owner->name) == 0)
+        return 1;
+    if(owner->qname != nil && strcmp(member->typeinfo->name, owner->qname) == 0)
+        return 1;
+    return 0;
+}
+
 static void
 check_node(Node *n, Node *scope_class, int *errs)
 {
@@ -8855,7 +8875,17 @@ check_node(Node *n, Node *scope_class, int *errs)
         if(c->type == NEnum)
             continue;
         if(c->type == NClass || c->type == NStruct || c->type == NInterface){
+            Node *m;
             push_type_params(c->params);
+            for(m = c->left; m != nil; m = m->next){
+                if(is_stored_member_decl(m) && member_type_is_declaring_class(m, c)){
+                    fprint(2, "o9c: error: line %d: class '%s' cannot directly contain itself as field '%s'\n",
+                        m->line > 0 ? m->line : sem_line,
+                        c->qname != nil ? c->qname : c->name,
+                        m->name != nil ? m->name : "?");
+                    (*errs)++;
+                }
+            }
             check_node(c->left, c, errs);
             check_inheritance_contract(c, errs);
             pop_type_params();

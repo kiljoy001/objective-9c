@@ -329,6 +329,7 @@ require_error o9c/test/typecheck_bad_privfield_read.o9 '''Counter.val'' is priva
 require_error o9c/test/typecheck_bad_inherited_private.o9 'subclass cannot access an inherited private'
 require_error o9c/test/typecheck_bad_privfield_write.o9 '''Counter.val'' is private'
 require_error o9c/test/typecheck_bad_ctor_new.o9 'cannot ''new Node'' inside Node''s own constructor'
+require_error o9c/test/typecheck_bad_self_field.o9 'cannot directly contain itself'
 require_error o9c/test/typecheck_bad_cap.o9 '''cap'' is not a language keyword'
 require_error o9c/test/typecheck_bad_atomic_keyword.o9 '''atomic'' is not a language keyword'
 require_error o9c/test/typecheck_bad_pointer_field.o9 'pointer type'

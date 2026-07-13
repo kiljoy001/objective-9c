@@ -15,5 +15,6 @@ main {
 
     p.run("echo ran >/tmp/o9_process_run");
     print("run ", readfile("/tmp/o9_process_run"));
+    print("output ", p.output("echo captured"));
     print("fail ", p.run("exit fail"), "\n");
 }
