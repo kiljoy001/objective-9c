@@ -106,7 +106,7 @@
         <div class="pulse-dot"></div>
         <h1>o9 Language — How It Works</h1>
       </div>
-      <p class="subtitle">Every object is a CSP actor. The application is one 9P fileserver. Method calls are channel messages (local) or 9P transactions (remote). Plan 9 C target, 9front libc atomics.</p>
+      <p class="subtitle">Every object is a CSP actor. The application is one 9P fileserver. Method calls are channel messages locally and 9P transactions remotely. The compiler always emits Plan 9 C.</p>
     </div>
 
     <!-- Pipeline Diagram -->
@@ -187,22 +187,22 @@
 
         <!-- 9P facade boundary -->
         <rect x="30" y="145" width="500" height="200" rx="12" fill="rgba(251,191,36,0.05)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
-        <text x="42" y="163" fill="#fbbf24" font-size="10" font-weight="600">Application 9P Facade (one server, flat 4-file tree, shared by all classes)</text>
+        <text x="42" y="163" fill="#fbbf24" font-size="10" font-weight="600">Application 9P Facade (one server, sessioned tree, shared by all classes)</text>
 
         <!-- ctl file -->
         <rect x="50" y="175" width="100" height="50" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
         <text x="100" y="195" fill="white" font-size="11" font-weight="600" text-anchor="middle">ctl</text>
-        <text x="100" y="210" fill="#94a3b8" font-size="8" text-anchor="middle">method calls in</text>
+        <text x="100" y="210" fill="#94a3b8" font-size="8" text-anchor="middle">session commands</text>
 
         <!-- data file -->
         <rect x="170" y="175" width="100" height="50" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
         <text x="220" y="195" fill="white" font-size="11" font-weight="600" text-anchor="middle">data</text>
-        <text x="220" y="210" fill="#94a3b8" font-size="8" text-anchor="middle">return values out</text>
+        <text x="220" y="210" fill="#94a3b8" font-size="8" text-anchor="middle">session replies</text>
 
         <!-- status file -->
         <rect x="290" y="175" width="100" height="50" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
         <text x="340" y="195" fill="white" font-size="11" font-weight="600" text-anchor="middle">status</text>
-        <text x="340" y="210" fill="#94a3b8" font-size="8" text-anchor="middle">schema + health</text>
+        <text x="340" y="210" fill="#94a3b8" font-size="8" text-anchor="middle">health + debug</text>
 
         <!-- methods file -->
         <rect x="410" y="175" width="100" height="50" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
@@ -238,10 +238,10 @@
         <text x="970" y="193" fill="white" font-size="10" font-weight="600" text-anchor="middle">Internal struct</text>
         <text x="970" y="207" fill="#94a3b8" font-size="8" text-anchor="middle">fields + ARC ledger</text>
 
-        <!-- Atomic fields -->
+        <!-- Runtime atomics -->
         <rect x="600" y="240" width="140" height="40" rx="6" fill="rgba(136,19,55,0.3)" stroke="#fb7185" stroke-width="1.5"/>
-        <text x="670" y="258" fill="white" font-size="10" font-weight="600" text-anchor="middle">Avlong fields</text>
-        <text x="670" y="270" fill="#94a3b8" font-size="8" text-anchor="middle">agetv/aincv/aswapv</text>
+        <text x="670" y="258" fill="white" font-size="10" font-weight="600" text-anchor="middle">Runtime atomics</text>
+        <text x="670" y="270" fill="#94a3b8" font-size="8" text-anchor="middle">ARC/tasks/internal only</text>
 
         <!-- Asm cache -->
         <rect x="760" y="240" width="140" height="40" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
@@ -373,9 +373,9 @@
             <td class="kw-code">import "string.o9";</td>
           </tr>
           <tr>
-            <td class="kw">func</td>
-            <td class="kw-desc">Free function (entry point or helper). Not an actor.</td>
-            <td class="kw-code">func main() {
+            <td class="kw">main</td>
+            <td class="kw-desc">Reserved program entry block. It is not a user class method and does not use legacy <code>func main()</code> syntax.</td>
+            <td class="kw-code">main {
     print("hello\n");
 }</td>
           </tr>
@@ -421,10 +421,9 @@
           </tr>
           <tr>
             <td class="kw">atomic</td>
-            <td class="kw-desc">Lock-free atomic field. vlong → Avlong + agetv/aincv/aswapv.</td>
+            <td class="kw-desc">REMOVED. Using it is a compile error. Atomics are internal runtime machinery or raw C inside a function.</td>
             <td class="kw-code">atomic int64 n;
-n = n + 1;    // emits aincv
-n = 42;       // emits aswapv</td>
+// ERROR: 'atomic' is not a language keyword</td>
           </tr>
           <tr>
             <td class="kw">stream</td>
@@ -555,6 +554,13 @@ print("after delete\n");</td>
             <td class="kw-code">Task&lt;int64&gt; t = spawn rawadd(10, 20);
 int64 v = t.await();</td>
           </tr>
+          <tr>
+            <td class="kw">cast&lt;T&gt;</td>
+            <td class="kw-desc">Explicit scalar conversion. Integers, chars, byte, and bool are allowed. Object, string, collection, and pointer casts are rejected.</td>
+            <td class="kw-code">byte b = cast&lt;byte&gt;(260);       // 4
+bool ok = cast&lt;bool&gt;(b);        // 1
+int64 n = cast&lt;int64&gt;(ok);      // 1</td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -568,7 +574,7 @@ int64 v = t.await();</td>
         <tbody>
           <tr>
             <td class="kw">int64..int8</td>
-            <td class="kw-desc">Plan 9 scalar types. Map to vlong, long, short, char.</td>
+            <td class="kw-desc">Plan 9 scalar storage types. Map to vlong/uvlong, long/ulong, short/ushort, char/uchar.</td>
             <td class="kw-code">int64 n; uint8 b; int16 s;</td>
           </tr>
           <tr>
@@ -588,20 +594,27 @@ print(len(s), "\n");</td>
             <td class="kw-code">prop byte value;</td>
           </tr>
           <tr>
+            <td class="kw">intptr / uintptr</td>
+            <td class="kw-desc">Address-sized integer values for raw-C function interop. Rejected on object fields, method params, and method returns.</td>
+            <td class="kw-code">function fdaddr(int64 fd) uintptr {
+    c { /* return opaque address-sized value */ }
+}</td>
+          </tr>
+          <tr>
             <td class="kw">void</td>
             <td class="kw-desc">No return value.</td>
             <td class="kw-code">method void set(int64 n) { val = n; }</td>
           </tr>
           <tr>
             <td class="kw">List&lt;T&gt;</td>
-            <td class="kw-desc">Dynamic array. O9Slice backing. Add(), Length(), [].</td>
+            <td class="kw-desc">Compiler collection carrier. O9Slice backing. Prefer stdlib <code>list&lt;T&gt;</code> for object-style methods.</td>
             <td class="kw-code">List&lt;int64&gt; numbers;
 numbers.Add(10);
 print(numbers[0]);  // 10</td>
           </tr>
           <tr>
             <td class="kw">Dict&lt;K,V&gt;</td>
-            <td class="kw-desc">Hash map. O9Dict backing. Has(), Get(), Set().</td>
+            <td class="kw-desc">Compiler hash-map carrier. O9Dict backing. Prefer stdlib <code>dictionary&lt;T&gt;</code> for object-style methods.</td>
             <td class="kw-code">Dict&lt;string, int64&gt; ages;
 ages.Set("bob", 42);</td>
           </tr>
@@ -637,7 +650,7 @@ mt.apply();</td>
           </tr>
           <tr>
             <td class="kw">chan</td>
-            <td class="kw-desc">CSP channel type (as a field type, not a keyword).</td>
+            <td class="kw-desc">CSP channel field. Use as <code>chan c;</code> or <code>stream c;</code> on objects.</td>
             <td class="kw-code">chan c;   // untyped, buffered(8)</td>
           </tr>
         </tbody>
@@ -814,12 +827,12 @@ string pt = decrypt(k, blob);</td>
         </div>
         <ul>
           <li>• <code>new</code> = proccreate + dispatch_chan (CSP actor)</li>
-          <li>• Application is ONE 9P server (flat 4-file tree)</li>
+          <li>• Application is ONE 9P server with clone/session reply state</li>
           <li>• Classes register handlers into O9ClassH[] table</li>
           <li>• Method call = <code>sendp(O9Msg)</code> → <code>recvp(O9Reply*)</code></li>
           <li>• ARC ledger tracks references (ainc/adec)</li>
           <li>• <code>delete</code> = synchronous destroy + threadexits</li>
-          <li>• Atomic vlong: <code>Avlong</code> + <code>agetv</code>/<code>aincv</code></li>
+          <li>• Runtime atomics are internal only: ARC, tasks, counters</li>
         </ul>
       </div>
 
@@ -829,10 +842,10 @@ string pt = decrypt(k, blob);</td>
           <h3>9P Facade</h3>
         </div>
         <ul>
-          <li>• ONE server per app: <code>ctl</code>, <code>data</code>, <code>status</code>, <code>methods</code></li>
-          <li>• <code>ctl</code> receives method lines: <code>method Class.inst name arg0=5</code></li>
-          <li>• <code>data</code> returns the result as text</li>
-          <li>• Session pool (clone model, grow-and-reuse)</li>
+          <li>• ONE server per app: <code>clone</code>, session <code>ctl</code>/<code>data</code>/<code>status</code>, global <code>methods</code>, <code>exports</code></li>
+          <li>• Session <code>ctl</code> receives method lines: <code>method Class.inst name arg0=5</code></li>
+          <li>• Session <code>data</code> returns the result as text</li>
+          <li>• Session pool uses explicit request state, not a global current session</li>
           <li>• <code>srvrelease</code>/<code>srvacquire</code> for concurrency</li>
           <li>• Remote: raw 9P (Tversion→Tattach→Twalk→Topen→Twrite/Tread)</li>
         </ul>
@@ -865,6 +878,7 @@ string pt = decrypt(k, blob);</td>
           <li>• Crypto: monocypher (Ed25519, X25519, BLAKE2b, AEAD)</li>
           <li>• <code>private</code> members not reachable through 9P</li>
           <li>• <code>use { bio }</code> constrains raw C dependencies</li>
+          <li>• Address-sized values stay out of object method surfaces</li>
           <li>• Capabilities = 9P fids / namespace mounts, not a keyword</li>
         </ul>
       </div>
@@ -885,9 +899,178 @@ string pt = decrypt(k, blob);</td>
       </div>
     </div>
 
+    <!-- ==================== STDLIB SECTION ==================== -->
+    <div class="kw-section">
+      <h2>Standard Library</h2>
+      <p style="color:#64748b; font-size:0.75rem; margin-bottom:1rem;">
+        All stdlib modules are written in o9 itself — raw C operations wrapped in
+        <code>function</code> bodies, exposed as <code>class</code> methods.
+        Every operation that can block runs via <code>spawn</code> + <code>Task&lt;T&gt;</code>.
+        E2e tested with expected output on 9front.
+      </p>
+      <table class="kw-table">
+        <thead>
+          <tr><th style="width:140px">Module</th><th style="width:250px">Description</th><th>Example</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="kw">string</td>
+            <td class="kw-desc">O9String wrapper. Length, compare, concat, trim, case, slice, indexOf, contains, startsWith, endsWith.</td>
+            <td class="kw-code">import "string.o9";
+String s = new String("  Hello  ");
+print(s.trim(), "\n");          // Hello
+print(s.length(), "\n");         // 7
+print(s.contains("ell"), "\n");  // 1</td>
+          </tr>
+          <tr>
+            <td class="kw">bytes</td>
+            <td class="kw-desc">Byte-level operations on string data. Get, set, append, slice, hex, text, eq, cmp.</td>
+            <td class="kw-code">import "bytes.o9";
+Bytes b = new Bytes("ab");
+b.append(67);                   // 'C'
+print(b.text(), "\n");           // abC
+print(b.hex(), "\n");            // 616243
+print(b.get(0), "\n");           // 97</td>
+          </tr>
+          <tr>
+            <td class="kw">buffer</td>
+            <td class="kw-desc">Grow-on-write buffer over Bytes. Append string or byte, setByte, byteAt, slice, hex, text, clear, empty.</td>
+            <td class="kw-code">import "buffer.o9";
+Buffer b = new Buffer("ab");
+b.appendByte(67);
+b.append("d");
+print(b.text(), "\n");           // abCd
+b.setByte(1, 90);
+print(b.text(), "\n");           // aZCd</td>
+          </tr>
+          <tr>
+            <td class="kw">file</td>
+            <td class="kw-desc">File operations: read, write, append, exists, size, remove, mkdir, isDir, list. Wraps readfile/writefile builtins + raw C functions.</td>
+            <td class="kw-code">import "file.o9";
+File f = new File("/tmp/data");
+f.write("hello");
+print(f.exists(), "\n");        // 1
+print(f.size(), "\n");          // 5
+print(f.read(), "\n");          // hello
+f.remove();</td>
+          </tr>
+          <tr>
+            <td class="kw">io</td>
+            <td class="kw-desc">Buffered I/O via bio. readAll, readLine, readByte, write, writeByte, append, close. Uses <code>use { bio }</code> constrained deps.</td>
+            <td class="kw-code">import "io.o9";
+IO r = new IO("/tmp/file");
+string all = r.readAll();
+print(all, "\n");
+string line = r.readLine(0);
+r.close();</td>
+          </tr>
+          <tr>
+            <td class="kw">time</td>
+            <td class="kw-desc">Time operations: now (epoch seconds), nsec (nanoseconds), sleep (milliseconds).</td>
+            <td class="kw-code">import "time.o9";
+Time t = new Time();
+print(t.now() > 0, "\n");       // 1
+print(t.nsec() > 0, "\n");      // 1
+t.sleep(1);</td>
+          </tr>
+          <tr>
+            <td class="kw">net</td>
+            <td class="kw-desc">Network objects: dial/listen/read/write/close plus factotum identity, portable token fallback, and TOFU known-remote pinning.</td>
+            <td class="kw-code">import "net.o9";
+NetConn c = new NetConn();
+c.dial("tcp!example.com!80");
+c.write("GET / HTTP/1.0\n\n");
+print(c.read(), "\n");
+c.close();</td>
+          </tr>
+          <tr>
+            <td class="kw">path</td>
+            <td class="kw-desc">Path manipulation: clean, base, dir, ext, join. Wraps cleanname + string ops.</td>
+            <td class="kw-code">import "path.o9";
+print(Path.clean("/tmp//b/../b/file.txt"), "\n");  // /tmp/b/file.txt
+print(Path.base("/tmp/b/file.txt"), "\n");          // file.txt
+print(Path.ext("note.md"), "\n");                   // .md</td>
+          </tr>
+          <tr>
+            <td class="kw">process</td>
+            <td class="kw-desc">Process info: argc, arg, pid, user, setenv, getenv, unsetenv, cwd, chdir, run (spawn command).</td>
+            <td class="kw-code">import "process.o9";
+print(Process.pid() > 0, "\n");      // 1
+print(Process.user(), "\n");         // scott
+Process.setenv("X", "hello");
+print(Process.getenv("X"), "\n");    // hello</td>
+          </tr>
+          <tr>
+            <td class="kw">collections</td>
+            <td class="kw-desc">Generic collections: <code>list&lt;T&gt;</code> wraps T[], <code>array&lt;T&gt;</code> adds sparse put, and <code>dictionary&lt;T&gt;</code> wraps Dict&lt;string,T&gt; with logical delete/clear.</td>
+            <td class="kw-code">import "collections.o9";
+list&lt;int64&gt; nums;
+nums.add(10);
+nums.add(20);
+print(nums.length(), "\n");      // 2
+print(nums.get(0), "\n");        // 10
+
+dictionary&lt;int64&gt; ages;
+ages.set("bob", 42);
+print(ages.get("bob"), "\n");   // 42</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ==================== STDLIB INFO CARD ==================== -->
+    <div class="cards">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h3>Stdlib Architecture</h3>
+        </div>
+        <ul>
+          <li>• Written in o9 itself — no separate C library</li>
+          <li>• Raw C in <code>function</code> bodies wraps Plan 9 libc calls</li>
+          <li>• Classes expose methods; blocking ops use <code>spawn</code> + <code>await</code></li>
+          <li>• <code>import "string.o9"</code> splices declarations into source</li>
+          <li>• 10 modules, all e2e tested with expected output</li>
+          <li>• Constrained deps: <code>use { bio }</code> for buffered I/O</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h3>Stdlib Modules</h3>
+        </div>
+        <ul>
+          <li>• <code>string</code> — O9String wrapper (trim, slice, case, search)</li>
+          <li>• <code>bytes</code> — byte-level ops on string data (get, set, hex)</li>
+          <li>• <code>buffer</code> — grow-on-write buffer over Bytes</li>
+          <li>• <code>file</code> — file read/write/append/exists/mkdir/list</li>
+          <li>• <code>io</code> — buffered I/O via bio (readAll, readLine, readByte)</li>
+          <li>• <code>time</code> — now, nsec, sleep</li>
+          <li>• <code>net</code> — NetConn, NetListener, Factotum, NetToken, KnownRemotes</li>
+          <li>• <code>path</code> — clean, base, dir, ext, join</li>
+          <li>• <code>process</code> — pid, user, env, cwd, run</li>
+          <li>• <code>collections</code> — list&lt;T&gt;, array&lt;T&gt;, dictionary&lt;T&gt;</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot amber"></div>
+          <h3>Future: libdraw</h3>
+        </div>
+        <ul>
+          <li>• libdraw wrapper for o9 — display as 9P fileserver</li>
+          <li>• Window, Point, Font, Image classes</li>
+          <li>• Raw C blocks wrap libdraw calls</li>
+          <li>• GUI apps as o9 classes with dispatch loops</li>
+          <li>• Works on 9front (native libdraw) + Linux (drawterm)</li>
+          <li>• Per-process display namespace on 9lx</li>
+        </ul>
+      </div>
+    </div>
+
     <!-- Footer -->
     <p class="footer">
-      o9 / objective-9c • Plan 9-native transpiler • 9front C target • CSP actor model
+      o9 / objective-9c • Plan 9-native transpiler • 9front C target • CSP actor model • 10 stdlib modules
     </p>
   </div>
 </body>

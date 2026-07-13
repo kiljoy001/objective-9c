@@ -77,6 +77,7 @@ enum {
     NTry,
     NDefer,
     NSpawn,
+    NCast,
     NRawC,
     NUse
 };
@@ -437,6 +438,7 @@ char* get_expr_type(Node *e) {
     case NMsgSend: if(e->left){ char *lt = get_expr_type(e->left); Node *c = find_class(lt); if(c) return get_method_type(c, e->name); } return "vlong";
     case NSelfCall: if(gen_class != nil) return get_method_type(gen_class, e->name); return "vlong";
     case NArrayGet: { char *lt = get_expr_type(e->left); if(strncmp(lt, "List:", 5) == 0) return lt + 5; if(strncmp(lt, "Dict:", 5) == 0) return strrchr(lt, ':') + 1; return "vlong"; }
+    case NCast: return e->typename != nil ? e->typename : "vlong";
     case NAdd: case NSub: case NMul: case NDiv: case NMod: return "int64";
     default: return "vlong";
     }
@@ -1066,6 +1068,13 @@ type_cast_for_codegen(Type *t)
 }
 
 static int
+type_cast_target_is_bool(Type *t)
+{
+    return t != nil && t->kind == TyName && t->name != nil &&
+        strcmp(t->name, "bool") == 0;
+}
+
+static int
 type_is_collection(Type *t, char *name)
 {
     return t != nil && t->kind == TyApply && t->name != nil &&
@@ -1334,7 +1343,7 @@ typeinfo_from_legacy(char *t)
 
 %token <node> TIDENT TTYPE TQIDENT TTYPEIDENT TENUMIDENT
 %token <name> TINTLIT TSTRINGLIT TCHARLIT TRAWC
-%token TCLASS TINTERFACE TSTRUCT TENUM TMODULE TIMPORT TFUNC TFUNCTION TMAIN TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TLIST TTASK TNIL TABSTRACT TDELETE TSPAWN TUSE
+%token TCLASS TINTERFACE TSTRUCT TENUM TMODULE TIMPORT TFUNC TFUNCTION TMAIN TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TLIST TTASK TNIL TABSTRACT TDELETE TSPAWN TCAST TUSE
 %token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TOBJECT TTRUE TFALSE TARROW
 %token TPUBLIC TPRIVATE
 %token TTRY TDEFER
@@ -2023,6 +2032,10 @@ expr:
         Node *n = mk(NSpawn, $2->name, nil, nil, $4);
         $$ = n;
     }
+    | TCAST '<' type_expr '>' '(' expr ')' {
+        Node *tn = type_node($3);
+        $$ = mk_typed(NCast, "cast", tn, $6, nil);
+    }
     | TNEW TNEAR typename '(' call_args ')' {
         Node *n = mk(NClass, $3->name, "near", nil, nil);
         n->typeinfo = $3->typeinfo;
@@ -2576,6 +2589,7 @@ yylex(void)
             if(strcmp(buf, "function") == 0) return TFUNCTION;
             if(strcmp(buf, "main") == 0) return TMAIN;
             if(strcmp(buf, "spawn") == 0) return TSPAWN;
+            if(strcmp(buf, "cast") == 0) return TCAST;
             if(strcmp(buf, "use") == 0) return TUSE;
             if(strcmp(buf, "new") == 0) return TNEW;
             if(strcmp(buf, "near") == 0) return TNEAR;
@@ -2786,6 +2800,17 @@ gen_expr(Node *e)
                 gen_expr(a);
             }
             print(")");
+        }
+        break;
+    case NCast:
+        if(type_cast_target_is_bool(e->typeinfo)){
+            print("((");
+            gen_expr(e->left);
+            print(") != 0)");
+        }else{
+            print("((%s)(", type_cast_for_codegen(e->typeinfo));
+            gen_expr(e->left);
+            print("))");
         }
         break;
     case NIdent:
@@ -6861,6 +6886,16 @@ type_compatible_either(Type *a, Type *b)
 }
 
 static int
+type_castable_semantic(Type *target, Type *actual)
+{
+    if(target == nil || actual == nil)
+        return 1;
+    if(type_is_nil(target) || type_is_nil(actual))
+        return 0;
+    return type_scalar_builtin(target) && type_scalar_builtin(actual);
+}
+
+static int
 type_assignable_semantic(Type *target, Type *actual)
 {
     Node *td, *ad;
@@ -6909,6 +6944,17 @@ type_mismatch_error(char *what, Type *target, Type *actual, int *errs)
     ts = target != nil ? type_render(target) : "<unknown>";
     as = actual != nil ? type_render(actual) : "<unknown>";
     fprint(2, "o9c: error: line %d: cannot %s %s to %s\n", sem_line, what, as, ts);
+    (*errs)++;
+}
+
+static void
+type_cast_error(Type *target, Type *actual, int *errs)
+{
+    char *ts, *as;
+
+    ts = target != nil ? type_render(target) : "<unknown>";
+    as = actual != nil ? type_render(actual) : "<unknown>";
+    fprint(2, "o9c: error: line %d: cannot cast %s to %s\n", sem_line, as, ts);
     (*errs)++;
 }
 
@@ -7033,6 +7079,9 @@ annotate_expr_type(Node *e, Node *scope_class)
                     }
             return set_expr_type(e, type_apply("Task", type_list(rt)));
         }
+    case NCast:
+        annotate_expr_type(e->left, scope_class);
+        return set_expr_type(e, e->typeinfo);
     case NIntLit:
         return set_expr_type(e, type_name("int64"));
     case NStringLit:
@@ -7639,6 +7688,13 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
     case NDefer:
         /* try/defer wrap a call expression — typecheck the inner call */
         typecheck_expr(e->left, scope_class, errs);
+        break;
+    case NCast:
+        validate_type(e->typeinfo, errs);
+        typecheck_expr(e->left, scope_class, errs);
+        annotate_expr_type(e, scope_class);
+        if(!type_castable_semantic(e->typeinfo, e->left != nil ? e->left->typeinfo : nil))
+            type_cast_error(e->typeinfo, e->left != nil ? e->left->typeinfo : nil, errs);
         break;
     case NProp:
     case NState:
@@ -8359,6 +8415,7 @@ node_kind(int type)
     case NPropRead: return "NPropRead";
     case NFuncCall: return "NFuncCall";
     case NSpawn: return "NSpawn";
+    case NCast: return "NCast";
     case NRawC: return "NRawC";
     case NUse: return "NUse";
     case NFor: return "NFor";

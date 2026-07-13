@@ -1,0 +1,11 @@
+main {
+    int64 wide = 260;
+    byte b = cast<byte>(wide);
+    int64 back = cast<int64>(b);
+    bool yes = cast<bool>(back);
+    int64 flag = cast<int64>(yes);
+    int8 neg = cast<int8>(255);
+    uint16 small = cast<uint16>(wide);
+
+    print("cast ", b, " ", back, " ", yes, " ", flag, " ", neg, " ", small, "\n");
+}

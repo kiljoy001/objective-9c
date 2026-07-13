@@ -46,6 +46,9 @@ returns. Explicit pointer types (`T*`) are not o9 declaration types; keep raw
 pointers inside `function` `c { ... }` blocks and pass ordinary values through
 object methods/properties.
 
+Use `cast<T>(expr)` for explicit scalar conversions between integer, char, and
+bool storage types. Object, string, collection, and pointer casts are rejected.
+
 ## Standard Library
 
 The first stdlib objects live under `stdlib/` and are imported by filename:
@@ -80,6 +83,7 @@ See `stdlib/README.md` and `stdlib/e2e_*.o9` for runnable examples.
 - **Expression bodies** — `method rettype name() => expr`
 - **Dot notation** — `c.method(args)`
 - **Object creation** — `Counter c = new Counter(args)`
+- **Casts** — `cast<byte>(n)`, `cast<int64>(b)` for explicit scalar conversion
 - **Function tasks** — `function name(args) type { }`, spawned with `spawn name(args)`
 - **Raw Plan 9 C blocks** — `c { ... }` inside `function` bodies only
 - **Constrained C deps** — `use { bio }` inside `function` bodies; resolves through built-in deps plus optional project-root `deps.tab`

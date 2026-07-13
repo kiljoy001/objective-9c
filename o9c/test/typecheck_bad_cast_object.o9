@@ -1,0 +1,8 @@
+class Counter {
+    prop int64 value;
+}
+
+main {
+    Counter c = new Counter();
+    int64 n = cast<int64>(c);
+}
