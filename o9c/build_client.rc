@@ -1,9 +1,0 @@
-#!/bin/rc
-# build_client.rc — build and run client that calls remote counter via local /srv/Counter
-cd /tmp/o9
-git/pull >[2]/dev/null
-mk >[2]/dev/null
-o9c/o9c < o9c/test/counter_client.o9 > cli.c
-6c -FVw -I. -o cli.6 cli.c >[2]/dev/null
-6l -o counter_cli cli.6 libo9.a /$objtype/lib/libndb.a >[2]/dev/null
-echo 'CLIENTBUILT'

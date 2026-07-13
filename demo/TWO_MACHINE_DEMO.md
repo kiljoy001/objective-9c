@@ -67,4 +67,4 @@ cat /mnt/o9/data
 A server's self-mount at `/mnt/o9/...` is visible only inside its own
 process namespace. The `/srv` post is the canonical publication point;
 assembled `/mnt/o9/App` trees are built by *consumers* from the
-namespace recipe, each in their own namespace. See ARCHITECTURE.md.
+namespace recipe, each in their own namespace. See ../docs/ARCHITECTURE.md.

@@ -2,7 +2,7 @@
 
 This is the anchor document.  When a design question arises, it is
 answered here or made consistent with here.  Everything else
-(ARCHITECTURE.md, TABULA.md, CODE_AS_TABLE.md, O9_SPEC.md) is detail
+(ARCHITECTURE.md, TABULA.md, CODE_AS_TABLE.md, and README.md) is detail
 under these decisions.
 
 ## The seed

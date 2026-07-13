@@ -82,6 +82,7 @@ Implemented modules:
   `query`, `read`, and `flush`.
 
 See `stdlib/README.md` and `stdlib/e2e_*.o9` for runnable examples.
+Design notes live under `docs/`.
 
 ## Primitives
 
@@ -161,4 +162,5 @@ Every class becomes a CSP actor (goroutine-like process) with a 9P fileserver
 facade. Objects communicate via typed channels (fast, in-process) or 9P
 (network-transparent). An asm dispatch cache accelerates hot paths.
 
-See `o9c/test/` for example programs.
+See `docs/TOUCHSTONE.md`, `docs/ARCHITECTURE.md`, and `o9c/test/` for
+the design record and example programs.
