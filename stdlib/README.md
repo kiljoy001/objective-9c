@@ -16,6 +16,51 @@ import "path.o9";
 import "process.o9";
 ```
 
+## String
+
+`String` is the object wrapper for o9's built-in length-carrying `string`.
+It covers common search, slice, case, replacement, repetition, and delimiter
+helpers without introducing a second text class.
+
+```o9
+import "string.o9";
+
+main {
+    String s = new String("alpha,beta,gamma");
+    print(s.field(",", 1), "\n");       // beta
+    print(s.before(","), "\n");         // alpha
+    print(s.after(","), "\n");          // beta,gamma
+    print(s.replace("beta", "rio"), "\n");
+}
+```
+
+Methods:
+
+- `String(string s)`
+- `set(string s)`
+- `get() string`
+- `length() int64`
+- `empty() bool`
+- `compare(string other) int64`
+- `equals(string other) bool`
+- `concat(string suffix) string`
+- `indexOf(string needle) int64`
+- `lastIndexOf(string needle) int64`
+- `count(string needle) int64`
+- `contains(string needle) bool`
+- `startsWith(string prefix) bool`
+- `endsWith(string suffix) bool`
+- `slice(int64 start, int64 count) string`
+- `trim() string`
+- `lower() string`
+- `upper() string`
+- `replace(string needle, string repl) string`
+- `repeat(int64 times) string`
+- `field(string sep, int64 index) string`
+- `line(int64 index) string`
+- `before(string sep) string`
+- `after(string sep) string`
+
 ## Bytes
 
 `Bytes` is the byte-oriented companion to `string`. It stores length-carrying

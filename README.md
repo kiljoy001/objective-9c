@@ -61,6 +61,8 @@ import "path.o9";
 
 Implemented modules:
 
+- `String` - object wrapper for search, slice, trim, case, replace, repeat,
+  and delimiter helpers over built-in `string`.
 - `Bytes` - length-carrying byte storage over o9 strings.
 - `Buffer` - mutable byte/text builder over `Bytes`.
 - `list<T>` / `array<T>` / `dictionary<T>` - stdlib collection objects over

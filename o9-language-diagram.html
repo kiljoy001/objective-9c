@@ -915,12 +915,12 @@ string pt = decrypt(k, blob);</td>
         <tbody>
           <tr>
             <td class="kw">string</td>
-            <td class="kw-desc">O9String wrapper. Length, compare, concat, trim, case, slice, indexOf, contains, startsWith, endsWith.</td>
+            <td class="kw-desc">O9String wrapper. Search, count, trim, case, slice, replace, repeat, field, line, before/after.</td>
             <td class="kw-code">import "string.o9";
-String s = new String("  Hello  ");
-print(s.trim(), "\n");          // Hello
-print(s.length(), "\n");         // 7
-print(s.contains("ell"), "\n");  // 1</td>
+String s = new String("alpha,beta,gamma");
+print(s.field(",", 1), "\n");    // beta
+print(s.before(","), "\n");      // alpha
+print(s.replace("beta", "rio"), "\n");</td>
           </tr>
           <tr>
             <td class="kw">bytes</td>
@@ -1040,7 +1040,7 @@ print(ages.get("bob"), "\n");   // 42</td>
           <h3>Stdlib Modules</h3>
         </div>
         <ul>
-          <li>• <code>string</code> — O9String wrapper (trim, slice, case, search)</li>
+          <li>• <code>string</code> — O9String wrapper (search, replace, fields, lines)</li>
           <li>• <code>bytes</code> — byte-level ops on string data (get, set, hex)</li>
           <li>• <code>buffer</code> — grow-on-write buffer over Bytes</li>
           <li>• <code>file</code> — file read/write/append/exists/mkdir/list</li>

@@ -2,8 +2,14 @@ len 16
 trim Hello Plan 9
 slice Hello
 contains 1 0
+last 9 count 3
 prefix 1 suffix 1
 case   hello plan 9   |   HELLO PLAN 9  
 eq 1 cmp -1
 cat   Hello Plan 9  !
+replace   Hello rio 9  
+repeat hahaha
+field beta missing 
+before alpha after beta,gamma
+line two
 empty 1

@@ -61,6 +61,167 @@ function StringUpperRaw(string s) string {
     return out;
 }
 
+function StringLastIndexOfRaw(string s, string needle) int64 {
+    int64 pos;
+
+    c {
+        char *sp, *np;
+        vlong sn, nn, i;
+
+        sp = o9_string_data(s);
+        np = o9_string_data(needle);
+        sn = o9_string_len(s);
+        nn = o9_string_len(needle);
+        pos = -1;
+        if(nn == 0)
+            pos = sn;
+        else if(nn <= sn)
+            for(i = sn - nn; i >= 0; i--)
+                if(memcmp(sp + i, np, nn) == 0){
+                    pos = i;
+                    break;
+                }
+    }
+    return pos;
+}
+
+function StringCountRaw(string s, string needle) int64 {
+    int64 n;
+
+    c {
+        char *sp, *np;
+        vlong sn, nn, i;
+
+        sp = o9_string_data(s);
+        np = o9_string_data(needle);
+        sn = o9_string_len(s);
+        nn = o9_string_len(needle);
+        n = 0;
+        if(nn > 0 && nn <= sn)
+            for(i = 0; i <= sn - nn; ){
+                if(memcmp(sp + i, np, nn) == 0){
+                    n++;
+                    i += nn;
+                }else
+                    i++;
+            }
+    }
+    return n;
+}
+
+function StringReplaceRaw(string s, string needle, string repl) string {
+    string out;
+
+    c {
+        O9String *r;
+        char *sp, *np, *rp, *op;
+        vlong sn, nn, rn, i, matches, total;
+
+        sp = o9_string_data(s);
+        np = o9_string_data(needle);
+        rp = o9_string_data(repl);
+        sn = o9_string_len(s);
+        nn = o9_string_len(needle);
+        rn = o9_string_len(repl);
+        if(nn == 0){
+            out = o9_string_new(sp, sn);
+        }else{
+            matches = 0;
+            for(i = 0; i <= sn - nn; ){
+                if(memcmp(sp + i, np, nn) == 0){
+                    matches++;
+                    i += nn;
+                }else
+                    i++;
+            }
+            total = sn + matches * (rn - nn);
+            r = o9_string_new(nil, total);
+            op = o9_string_data(r);
+            for(i = 0; i < sn; ){
+                if(i <= sn - nn && memcmp(sp + i, np, nn) == 0){
+                    if(rn > 0){
+                        memmove(op, rp, rn);
+                        op += rn;
+                    }
+                    i += nn;
+                }else{
+                    *op++ = sp[i++];
+                }
+            }
+            *op = 0;
+            out = r;
+        }
+    }
+    return out;
+}
+
+function StringRepeatRaw(string s, int64 times) string {
+    string out;
+
+    c {
+        O9String *r;
+        char *sp, *op;
+        vlong sn, i;
+
+        sp = o9_string_data(s);
+        sn = o9_string_len(s);
+        if(times <= 0 || sn == 0){
+            out = o9_string_new("", 0);
+        }else{
+            r = o9_string_new(nil, sn * times);
+            op = o9_string_data(r);
+            for(i = 0; i < times; i++){
+                memmove(op, sp, sn);
+                op += sn;
+            }
+            *op = 0;
+            out = r;
+        }
+    }
+    return out;
+}
+
+function StringFieldRaw(string s, string sep, int64 index) string {
+    string out;
+
+    c {
+        char *sp, *dp;
+        vlong sn, dn, i, start, field;
+
+        sp = o9_string_data(s);
+        dp = o9_string_data(sep);
+        sn = o9_string_len(s);
+        dn = o9_string_len(sep);
+        out = nil;
+        if(index >= 0){
+            if(dn == 0){
+                if(index == 0)
+                    out = o9_string_new(sp, sn);
+            }else{
+                start = 0;
+                field = 0;
+                for(i = 0; i <= sn - dn; ){
+                    if(memcmp(sp + i, dp, dn) == 0){
+                        if(field == index){
+                            out = o9_string_new(sp + start, i - start);
+                            break;
+                        }
+                        field++;
+                        i += dn;
+                        start = i;
+                    }else
+                        i++;
+                }
+                if(out == nil && field == index)
+                    out = o9_string_new(sp + start, sn - start);
+            }
+        }
+        if(out == nil)
+            out = o9_string_new("", 0);
+    }
+    return out;
+}
+
 class String {
     prop string value;
 
@@ -105,6 +266,16 @@ class String {
         return indexOf(needle) >= 0;
     }
 
+    method int64 lastIndexOf(string needle) {
+        Task<int64> t = spawn StringLastIndexOfRaw(value, needle);
+        return t.await();
+    }
+
+    method int64 count(string needle) {
+        Task<int64> t = spawn StringCountRaw(value, needle);
+        return t.await();
+    }
+
     method bool startsWith(string prefix) {
         Task<int64> t = spawn StringStartsWithRaw(value, prefix);
         return t.await() == 1;
@@ -133,5 +304,40 @@ class String {
     method string upper() {
         Task<string> t = spawn StringUpperRaw(value);
         return t.await();
+    }
+
+    method string replace(string needle, string repl) {
+        Task<string> t = spawn StringReplaceRaw(value, needle, repl);
+        return t.await();
+    }
+
+    method string repeat(int64 times) {
+        Task<string> t = spawn StringRepeatRaw(value, times);
+        return t.await();
+    }
+
+    method string field(string sep, int64 index) {
+        Task<string> t = spawn StringFieldRaw(value, sep, index);
+        return t.await();
+    }
+
+    method string line(int64 index) {
+        return field("\n", index);
+    }
+
+    method string before(string sep) {
+        int64 p = indexOf(sep);
+        if(p < 0) {
+            return value;
+        }
+        return slice(0, p);
+    }
+
+    method string after(string sep) {
+        int64 p = indexOf(sep);
+        if(p < 0) {
+            return "";
+        }
+        return slice(p + len(sep), len(value));
     }
 }
