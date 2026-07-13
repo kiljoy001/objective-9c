@@ -2120,7 +2120,14 @@ o9_mt_srv_source_ok(char *source)
 static int
 o9_mt_flag_ok(vlong flag)
 {
-	return flag >= 0 && flag <= 0xFFFF;
+	vlong place;
+
+	if(flag < 0 || (flag & ~7) != 0)
+		return 0;
+	place = flag & 3;
+	if(place == 3)
+		return 0;
+	return 1;
 }
 
 static int

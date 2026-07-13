@@ -9,6 +9,41 @@ class Namespace {
         return table.allowRoot(path) == 0;
     }
 
+    method bool load(string path) {
+        table.close();
+        table = new MountTable(path);
+        return len(table.read()) > 0;
+    }
+
+    method bool save(string path) {
+        return writefile(path, table.read()) == 0;
+    }
+
+    method void reset() {
+        table.close();
+        table = new MountTable();
+    }
+
+    method void close() {
+        table.close();
+    }
+
+    method int64 replaceFlag() {
+        return 0;
+    }
+
+    method int64 beforeFlag() {
+        return 1;
+    }
+
+    method int64 afterFlag() {
+        return 2;
+    }
+
+    method int64 createFlag() {
+        return 4;
+    }
+
     method bool dir(string path, int64 mode) {
         return table.dir(path, mode) == 0;
     }
@@ -17,8 +52,44 @@ class Namespace {
         return table.bind(old, dest, flag) == 0;
     }
 
+    method bool bindReplace(string old, string dest) {
+        return bind(old, dest, replaceFlag());
+    }
+
+    method bool bindBefore(string old, string dest) {
+        return bind(old, dest, beforeFlag());
+    }
+
+    method bool bindAfter(string old, string dest) {
+        return bind(old, dest, afterFlag());
+    }
+
+    method bool bindCreate(string old, string dest) {
+        return bind(old, dest, createFlag());
+    }
+
+    method bool bindBeforeCreate(string old, string dest) {
+        return bind(old, dest, beforeFlag() + createFlag());
+    }
+
+    method bool bindAfterCreate(string old, string dest) {
+        return bind(old, dest, afterFlag() + createFlag());
+    }
+
     method bool mountsrv(string srv, string dest, int64 flag, string aname) {
         return table.mountsrv(srv, dest, flag, aname) == 0;
+    }
+
+    method bool mountsrvReplace(string srv, string dest, string aname) {
+        return mountsrv(srv, dest, replaceFlag(), aname);
+    }
+
+    method bool mountsrvBefore(string srv, string dest, string aname) {
+        return mountsrv(srv, dest, beforeFlag(), aname);
+    }
+
+    method bool mountsrvAfter(string srv, string dest, string aname) {
+        return mountsrv(srv, dest, afterFlag(), aname);
     }
 
     method bool validate() {

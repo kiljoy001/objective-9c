@@ -1,8 +1,16 @@
 root 1
+flags 0 1 2 4
 dir 1
 bind 1
+bad 0
+badflag 0
 valid 1
 apply 1
 ok
 q 1 /tmp tmp
 read 1
+save 1
+load 1
+copyroot 1
+copyapply 1
+ok

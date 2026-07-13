@@ -472,6 +472,9 @@ in the local timezone.
 Tabula-backed transport data; `Namespace` is the object that builds and applies
 that table.
 
+Use `Namespace` for normal application code. Drop to `MountTable` only when
+you want the lower-level `.tab` data representation.
+
 ```o9
 import "namespace.o9";
 
@@ -480,7 +483,7 @@ main {
 
     ns.root("/tmp/appns");
     ns.dir("cache", 493);
-    ns.bind("/tmp", "tmp", 0);
+    ns.bindReplace("/tmp", "tmp");
     ns.apply();
 }
 ```
@@ -489,13 +492,34 @@ main {
 
 - `Namespace()`
 - `root(string path) bool`
+- `load(string path) bool`
+- `save(string path) bool`
+- `reset()`
+- `close()`
+- `replaceFlag() int64`
+- `beforeFlag() int64`
+- `afterFlag() int64`
+- `createFlag() int64`
 - `dir(string path, int64 mode) bool`
 - `bind(string old, string new, int64 flag) bool`
+- `bindReplace(string old, string new) bool`
+- `bindBefore(string old, string new) bool`
+- `bindAfter(string old, string new) bool`
+- `bindCreate(string old, string new) bool`
+- `bindBeforeCreate(string old, string new) bool`
+- `bindAfterCreate(string old, string new) bool`
 - `mountsrv(string srv, string new, int64 flag, string aname) bool`
+- `mountsrvReplace(string srv, string new, string aname) bool`
+- `mountsrvBefore(string srv, string new, string aname) bool`
+- `mountsrvAfter(string srv, string new, string aname) bool`
 - `validate() bool`
 - `apply() bool`
 - `read() string`
 - `query(string column, string value) Tabula`
+
+The raw flag values mirror Plan 9: replace is `0`, before is `1`, after is
+`2`, and create is `4`. The value `3` is intentionally invalid because it
+sets both before and after.
 
 ## Net
 

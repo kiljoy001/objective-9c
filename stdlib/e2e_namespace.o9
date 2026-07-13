@@ -3,8 +3,11 @@ import "namespace.o9";
 main {
     Namespace ns = new Namespace();
     print("root ", ns.root("/tmp/o9_namespace_root"), "\n");
+    print("flags ", ns.replaceFlag(), " ", ns.beforeFlag(), " ", ns.afterFlag(), " ", ns.createFlag(), "\n");
     print("dir ", ns.dir("cache", 493), "\n");
-    print("bind ", ns.bind("/tmp", "tmp", 0), "\n");
+    print("bind ", ns.bindReplace("/tmp", "tmp"), "\n");
+    print("bad ", ns.bindReplace("/tmp", "../bad"), "\n");
+    print("badflag ", ns.bind("/tmp", "badflag", 3), "\n");
     print("valid ", ns.validate(), "\n");
     writefile("/tmp/o9_namespace_probe", "ok");
     print("apply ", ns.apply(), "\n");
@@ -13,4 +16,13 @@ main {
     Tabula binds = ns.query("call", "bind");
     print("q ", binds.first(), " ", binds.get("old"), " ", binds.get("new"), "\n");
     print("read ", len(ns.read()) > 0, "\n");
+    print("save ", ns.save("/tmp/o9_namespace_spec.tab"), "\n");
+
+    Namespace copy = new Namespace();
+    print("load ", copy.load("/tmp/o9_namespace_spec.tab"), "\n");
+    print("copyroot ", copy.root("/tmp/o9_namespace_root2"), "\n");
+    print("copyapply ", copy.apply(), "\n");
+    print(readfile("/tmp/o9_namespace_root2/tmp/o9_namespace_probe"), "\n");
+    copy.close();
+    ns.close();
 }

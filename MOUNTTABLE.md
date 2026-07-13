@@ -5,6 +5,10 @@
 They call typed methods that write the exact parameter cells needed to
 replay the namespace operation later.
 
+Most application code should use the higher-level `Namespace` object.
+`MountTable` is the inert data layer: use it directly when you need to
+inspect, transport, or deliberately work at the syscall-parameter level.
+
 The serialized `.tab` is inert data. Nothing happens when it is read,
 exported, queried, or sent to another machine. Only local code that
 opens it as a `MountTable`, sets policy with `allowRoot()`, and calls
@@ -36,6 +40,10 @@ The stored cells are syscall-shaped:
 - `call=mountsrv`, `fd=/srv/name`, `old=<target>`, `flag=<int>`,
   `aname=<string>`
 - `call=dir`, `new=<target>`, `mode=<int>`
+
+Mount flags use the Plan 9 values: `MREPL=0`, `MBEFORE=1`, `MAFTER=2`,
+`MCREATE=4`. `MBEFORE|MAFTER` (`3`) is rejected because a mount cannot be
+both before and after in a union directory.
 
 That keeps the tab useful to another program or another machine: it can
 read ordinary data, inspect/query it, then replay it under its own
