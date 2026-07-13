@@ -60,6 +60,8 @@ Implemented modules:
 
 - `Bytes` - length-carrying byte storage over o9 strings.
 - `Buffer` - mutable byte/text builder over `Bytes`.
+- `list<T>` / `array<T>` / `dictionary<T>` - stdlib collection objects over
+  existing `T[]` and `Dict<string,T>` carriers with lowercase methods.
 - `File` - Plan 9 file read/write/append/stat/dir helpers.
 - `Path` - Plan 9 path cleaning, join, base, dir, and extension helpers.
 - `IOBuffer` / `Reader` / `Writer` / `Appender` - buffered file IO over `Biobuf`.

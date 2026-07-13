@@ -115,6 +115,8 @@ The first concrete stdlib layer is now object-first:
 
 - `stdlib/bytes.o9`: `Bytes`, a length-carrying byte object over o9 strings.
 - `stdlib/buffer.o9`: `Buffer`, a mutable byte/text builder over `Bytes`.
+- `stdlib/collections.o9`: `list<T>`, `array<T>`, and `dictionary<T>`,
+  object-style wrappers over the existing collection keywords/carriers.
 - `stdlib/file.o9`: `File`, common Plan 9 file, stat, directory, and byte helpers.
 - `stdlib/path.o9`: `Path`, Plan 9 path cleaning and decomposition helpers.
 - `stdlib/io.o9`: `IOBuffer`, `Reader`, `Writer`, and `Appender` over Plan 9 `Biobuf`.

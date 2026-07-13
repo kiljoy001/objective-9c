@@ -1,0 +1,31 @@
+import "collections.o9";
+
+main {
+    list<int64> xs = new list<int64>();
+    print("list0 ", xs.empty(), " ", xs.length(), " ", xs.get(0), "\n");
+    xs.add(10);
+    xs.add(20);
+    print("list1 ", xs.length(), " ", xs.get(0), " ", xs.get(1), " ", xs.set(1, 99), " ", xs.get(1), " ", xs.valid(2), "\n");
+    print("list2 ", xs.remove(0), " ", xs.length(), " ", xs.get(0), " ", xs.pop(), " ", xs.empty(), "\n");
+    xs.add(5);
+    xs.clear();
+    print("list3 ", xs.length(), " ", xs.get(0), "\n");
+
+    array<int64> a = new array<int64>();
+    a.add(3);
+    a.put(2, 7);
+    print("array ", a.empty(), " ", a.length(), " ", a.get(0), " ", a.get(1), " ", a.get(2), " ", a.set(0, 4), " ", a.get(0), "\n");
+    print("array2 ", a.remove(1), " ", a.length(), " ", a.get(0), " ", a.get(1), " ", a.pop(), " ", a.length(), "\n");
+    a.clear();
+    print("array3 ", a.empty(), " ", a.get(0), "\n");
+
+    dictionary<int64> d = new dictionary<int64>();
+    print("dict0 ", d.empty(), " ", d.length(), " ", d.has("age"), " ", d.get("age"), "\n");
+    d.set("age", 42);
+    d.set("age", 43);
+    d.set("count", 2);
+    print("dict1 ", d.empty(), " ", d.length(), " ", d.has("age"), " ", d.get("age"), " ", d.get("count"), " ", d.get("missing"), "\n");
+    print("dict2 ", d.remove("age"), " ", d.has("age"), " ", d.length(), " ", d.get("age"), "\n");
+    d.clear();
+    print("dict3 ", d.empty(), " ", d.length(), " ", d.has("count"), " ", d.get("count"), "\n");
+}

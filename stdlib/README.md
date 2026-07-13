@@ -8,6 +8,7 @@ Import modules by filename:
 
 ```o9
 import "bytes.o9";
+import "collections.o9";
 import "file.o9";
 import "io.o9";
 import "net.o9";
@@ -182,6 +183,76 @@ main {
 
 `Reader`, `Writer`, and `Appender` are narrower wrappers over the same raw
 helpers. They avoid exposing file descriptors or raw `Biobuf*` pointers.
+
+## Collections
+
+`collections.o9` provides object-style wrappers over the existing collection
+keywords. These classes do not replace the compiler's collection support; they
+make it easier to use from ordinary o9 code.
+
+```o9
+import "collections.o9";
+
+main {
+    list<int64> xs = new list<int64>();
+    xs.add(10);
+    xs.add(20);
+    xs.set(1, 99);
+    print(xs.length(), " ", xs.get(1), "\n");
+
+    dictionary<int64> ages = new dictionary<int64>();
+    ages.set("sam", 42);
+    print(ages.has("sam"), " ", ages.get("sam"), "\n");
+}
+```
+
+`list<T>` is a compact mutable sequence backed by `T[]`:
+
+- `list()`
+- `add(T value)`
+- `length() int64`
+- `empty() bool`
+- `valid(int64 index) bool`
+- `get(int64 index) T`
+- `set(int64 index, T value) bool`
+- `remove(int64 index) bool`
+- `pop() T`
+- `clear()`
+
+`array<T>` wraps `T[]` and tracks the logical length explicitly:
+
+- `array()`
+- `add(T value)`
+- `put(int64 index, T value) bool`
+- `length() int64`
+- `empty() bool`
+- `valid(int64 index) bool`
+- `get(int64 index) T`
+- `set(int64 index, T value) bool`
+- `remove(int64 index) bool`
+- `pop() T`
+- `clear()`
+
+`put` grows the logical length when writing beyond the current end; skipped
+slots read back as the type's zero value.
+
+`dictionary<T>` wraps `Dict<string,T>`:
+
+- `dictionary()`
+- `set(string key, T value)`
+- `has(string key) bool`
+- `get(string key) T`
+- `remove(string key) bool`
+- `clear()`
+- `length() int64`
+- `empty() bool`
+
+`dictionary<T>` intentionally uses string keys. The underlying runtime dict is
+string-keyed, and this wrapper keeps that fact visible. `remove` and `clear`
+are logical deletes implemented with generation stamps, so stale values are not
+reachable through the object API. Key iteration and value iteration are not
+exposed yet because the current runtime carrier has no safe iterator primitive
+for wrappers to call.
 
 ## Process And Env
 

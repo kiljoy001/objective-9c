@@ -4238,7 +4238,10 @@ gen_init_internal_state(Node *c, char *ptr)
                 print("\tmemset(&%s->%s, 0, sizeof(%s));\n", ptr, m->name, type_storage_for_codegen(m->typeinfo));
                 continue;
             }
-            if(type_is_collection(m->typeinfo, "Dict"))
+            if(type_is_collection(m->typeinfo, "List"))
+                print("\to9_slice_init(&%s->%s, sizeof(%s));\n", ptr, m->name,
+                    type_storage_for_codegen(type_list_at(m->typeinfo->args, 0)));
+            else if(type_is_collection(m->typeinfo, "Dict"))
                 print("\to9_dict_init(&%s->%s);\n", ptr, m->name);
             else if(type_is_array(m->typeinfo))
                 print("\to9_slice_init(&%s->%s, sizeof(%s));\n", ptr, m->name,

@@ -1,0 +1,205 @@
+class list<T> {
+    private T[] values;
+    private int64 count;
+
+    method list() {
+        count = 0;
+    }
+
+    method void add(T value) {
+        values[count] = value;
+        count = count + 1;
+    }
+
+    method int64 length() {
+        return count;
+    }
+
+    method bool empty() {
+        return count == 0;
+    }
+
+    method bool valid(int64 index) {
+        return index >= 0 && index < count;
+    }
+
+    method T get(int64 index) {
+        T zero;
+        if(!valid(index)) {
+            return zero;
+        }
+        return values[index];
+    }
+
+    method bool set(int64 index, T value) {
+        if(!valid(index)) {
+            return false;
+        }
+        values[index] = value;
+        return true;
+    }
+
+    method void clear() {
+        count = 0;
+    }
+
+    method T pop() {
+        T zero;
+        if(count <= 0) {
+            return zero;
+        }
+        count = count - 1;
+        return values[count];
+    }
+
+    method bool remove(int64 index) {
+        int64 i;
+        if(!valid(index)) {
+            return false;
+        }
+        i = index;
+        while(i < count - 1) {
+            values[i] = values[i + 1];
+            i = i + 1;
+        }
+        count = count - 1;
+        return true;
+    }
+}
+
+class array<T> {
+    private T[] values;
+    private int64 count;
+
+    method array() {
+        count = 0;
+    }
+
+    method int64 length() {
+        return count;
+    }
+
+    method bool empty() {
+        return count == 0;
+    }
+
+    method bool valid(int64 index) {
+        return index >= 0 && index < count;
+    }
+
+    method void add(T value) {
+        values[count] = value;
+        count = count + 1;
+    }
+
+    method bool put(int64 index, T value) {
+        if(index < 0) {
+            return false;
+        }
+        values[index] = value;
+        if(index >= count) {
+            count = index + 1;
+        }
+        return true;
+    }
+
+    method T get(int64 index) {
+        T zero;
+        if(!valid(index)) {
+            return zero;
+        }
+        return values[index];
+    }
+
+    method bool set(int64 index, T value) {
+        if(!valid(index)) {
+            return false;
+        }
+        values[index] = value;
+        return true;
+    }
+
+    method void clear() {
+        count = 0;
+    }
+
+    method T pop() {
+        T zero;
+        if(count <= 0) {
+            return zero;
+        }
+        count = count - 1;
+        return values[count];
+    }
+
+    method bool remove(int64 index) {
+        int64 i;
+        if(!valid(index)) {
+            return false;
+        }
+        i = index;
+        while(i < count - 1) {
+            values[i] = values[i + 1];
+            i = i + 1;
+        }
+        count = count - 1;
+        return true;
+    }
+}
+
+class dictionary<T> {
+    private Dict<string,T> values;
+    private Dict<string,int64> stamps;
+    private int64 generation;
+    private int64 count;
+
+    method dictionary() {
+        generation = 1;
+        count = 0;
+    }
+
+    method int64 length() {
+        return count;
+    }
+
+    method bool empty() {
+        return count == 0;
+    }
+
+    method bool has(string key) {
+        if(!stamps.Has(key)) {
+            return false;
+        }
+        return stamps[key] == generation;
+    }
+
+    method void set(string key, T value) {
+        if(!has(key)) {
+            count = count + 1;
+        }
+        stamps[key] = generation;
+        values[key] = value;
+    }
+
+    method T get(string key) {
+        T zero;
+        if(!has(key)) {
+            return zero;
+        }
+        return values[key];
+    }
+
+    method bool remove(string key) {
+        if(!has(key)) {
+            return false;
+        }
+        stamps[key] = 0;
+        count = count - 1;
+        return true;
+    }
+
+    method void clear() {
+        generation = generation + 1;
+        count = 0;
+    }
+}

@@ -181,6 +181,7 @@ importcase e2e_import
 stdlibcase e2e_string
 stdlibcase e2e_bytes
 stdlibcase e2e_buffer
+stdlibcase e2e_collections
 stdlibcase e2e_file
 stdlibcase e2e_path
 stdlibcase e2e_time
