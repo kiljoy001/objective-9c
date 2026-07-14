@@ -205,7 +205,7 @@ runcase e2e_hard_defer
 runcase e2e_hard_field
 runcase e2e_hard_deep
 runcase e2e_hard_super
-# All six adversarial cases resolved (HARD_CASES.md): five fixed, and
+# All six adversarial cases resolved (docs/HARD_CASES.md): five fixed, and
 # new-inside-a-constructor is now a clean compile error
 # (typecheck_bad_ctor_new.o9), not a crash.
 

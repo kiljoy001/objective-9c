@@ -1,5 +1,5 @@
 #!/bin/rc
-# Session isolation regression test (SESSIONS.md, review finding #6).
+# Session isolation regression test (docs/SESSIONS.md, review finding #6).
 # Two concurrent sessions (clone) drive two objects; each must read ITS
 # OWN result from its session data file — the fix for the global
 # o9app_lastdata race where one caller could read another's result.

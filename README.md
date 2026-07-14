@@ -1,166 +1,77 @@
-# objective-9c (o9c)
+# objective-9c
 
-A Plan 9-native transpiler from o9 (a C#-inspired language) to Plan 9 C with
-CSP channels, 9P fileserver facade, and asm-accelerated dispatch.
+objective-9c is a small 9front language that transpiles o9 source to Plan 9 C.
 
-## Language Syntax
+o9 is built for Plan 9-style programs: objects are CSP actors, public methods
+can be served through a 9P facade, structured data moves as `.tab` text, and
+raw Plan 9 C interop is isolated inside spawnable `function` blocks.
 
+## Status
+
+- Target: 9front.
+- Output: generated C; no binary blob.
+- Build: `mk` builds `o9c/o9c` and `libo9.a`.
+- Tests: native 9front e2e tests under `o9c/test/` and `stdlib/e2e_*.o9`.
+- Current focus: keeping the language small while growing useful stdlib
+  objects and examples.
+
+## Quick Build
+
+From the repository root on 9front:
+
+```rc
+mk
+o9c/o9c < source.o9 > output.c
+6c -FVw -I. -o output.6 output.c
+6l -o output output.6 libo9.a /$objtype/lib/libndb.a
 ```
+
+`libo9.a` includes the o9 runtime plus libtab support from `../9lx/libtab`.
+
+## A Small Program
+
+```o9
 class Counter {
     int64 val;
 
-    // Constructor — runs on new Counter(42)
-    method Counter(int64 initial) { val = initial; }
+    method Counter(int64 initial) {
+        val = initial;
+    }
 
-    // Method with return type (type first, C# style)
-    method int64 getValue() { return val; }
+    method void inc(int64 n) {
+        val = val + n;
+    }
 
-    // Void method with parameter
-    method void inc(int64 n) { val = val + n; }
-
-    // Expression body (no braces)
-    method int64 double() => val * 2;
+    method int64 get() {
+        return val;
+    }
 }
 
 main {
     Counter c = new Counter(10);
     c.inc(5);
-    c.inc(1);
-    int64 v = c.getValue();
-    int64 d = c.double();
-
-    // Built-in print
-    print("v = ", v);
+    print(c.get(), "\n");
 }
 ```
 
-## Supported Types
+## Mounted Method Call
 
-`int64` `uint64` `int32` `uint32` `int16` `uint16` `int8` `uint8`
-`int` `uint` `short` `long` `char` `vlong` `uvlong` `ulong` `ushort`
-`uchar` `double` `void` `bool` `string` `chan`
+An app that stays alive with `serve()` posts a 9P service under `/srv`. Use
+clone sessions for result-bearing calls:
 
-`intptr` and `uintptr` are available for raw-C function interop, but are
-rejected on normal object fields, method/interface parameters, and method
-returns. Explicit pointer types (`T*`) are not o9 declaration types; keep raw
-pointers inside `function` `c { ... }` blocks and pass ordinary values through
-object methods/properties.
-
-Use `cast<T>(expr)` for explicit scalar conversions between integer, char,
-double, and bool storage types. Object, string, collection, and pointer casts
-are rejected.
-
-## Standard Library
-
-The first stdlib objects live under `stdlib/` and are imported by filename:
-
-```
-import "bytes.o9";
-import "file.o9";
-import "math.o9";
-import "random.o9";
-import "path.o9";
+```rc
+mount -c /srv/o9.Counter.Counter.app /mnt/o9
+sid=`{cat /mnt/o9/clone}
+echo 'method Counter.c get' > /mnt/o9/$sid/ctl
+cat /mnt/o9/$sid/data
+echo close > /mnt/o9/$sid/ctl
 ```
 
-Implemented modules:
+## Docs
 
-- `String` - object wrapper for search, slice, trim, case, replace, repeat,
-  and delimiter helpers over built-in `string`.
-- `Bytes` - length-carrying byte storage over o9 strings.
-- `Buffer` - mutable byte/text builder over `Bytes`.
-- `list<T>` / `array<T>` / `dictionary<T>` - stdlib collection objects over
-  existing `T[]` and `Dict<string,T>` carriers with lowercase methods.
-- `Math` - Plan 9 libc floating math wrappers (`sqrt`, `sin`, `pow`,
-  `floor`, `ceil`, `fmod`, `log`, `exp`, etc.) plus integer `abs`.
-- `Random` - Plan 9 libc pseudo-random and entropy-backed number helpers.
-- `File` - Plan 9 file read/write/append/stat/dir helpers.
-- `Path` - Plan 9 path cleaning, join, base, dir, and extension helpers.
-- `IOBuffer` / `Reader` / `Writer` / `Appender` - buffered file IO over `Biobuf`.
-- `Process` / `Env` - process args, user/pid, command execution, cwd, and env vars.
-- `NetConn` / `NetListener` / `Factotum` / `NetToken` / `RemoteIdentity` / `KnownRemotes` - Plan 9 dial/listen fd wrappers, native factotum secret access, portable sealed capability tokens, and SSH-style TOFU identity pinning.
-- `Tabula` - built-in libtab-backed structured data object with `write`,
-  `query`, `read`, and `flush`.
-
-See `stdlib/README.md` and `stdlib/e2e_*.o9` for runnable examples.
-Design notes live under `docs/`.
-
-## Primitives
-
-- **Classes** — `class Name { props, methods }`
-- **Constructors** — `method ClassName(args) { }`
-- **Methods** — `method rettype name(params) : ret { body }`
-- **Expression bodies** — `method rettype name() => expr`
-- **Dot notation** — `c.method(args)`
-- **Object creation** — `Counter c = new Counter(args)`
-- **Casts** — `cast<byte>(n)`, `cast<int64>(b)` for explicit scalar conversion
-- **Tuples** — return `(int64, string)` values and destructure into declared locals with `(a, b) = f()`
-- **Function tasks** — `function name(args) type { }`, spawned with `spawn name(args)`; functions may be top-level or nested inside a class
-- **Raw Plan 9 C blocks** — `c { ... }` inside `function` bodies only
-- **Constrained C deps** — `use { bio }` inside `function` bodies; resolves through built-in deps plus optional project-root `deps.tab`
-- **Destructor** — `~ClassName() { }`
-- **Inheritance** — `Base;` as member
-- **Properties (field-level)** — `prop type name;`
-- **State/stream/secret field types** — `cap` and `atomic` are rejected user-level field types
-- **Typed channels** — `chan<int64> c;` or `stream<string> events;` as object fields
-- **Channel ops** — `c -> val`, `c ->? val`, `val = <- c`
-- **Channel select** — `alt { case x = <- c: ... default: ... }`
-- **Control flow** — `if / else / while / for / alt`, `return`
-- **Comments** — `// line`, `/* block */`
-- **Expressions** — arithmetic, bitwise, comparison, logical, ternary
-- **Built-in** — `print(...)` (emits Plan 9 `print()`)
-
-## Building
-
-```
-mk
-o9c/o9c < source.o9 > output.c
-6c -FVw -I. output.c
-6l -o binary output.6 libo9.a /$objtype/lib/libndb.a
-```
-
-`libo9.a` includes the o9 runtime plus the plain-table libtab objects from
-`../9lx/libtab`; generated binaries link `libndb.a` for libtab's ndb tuple
-storage.
-
-Raw C functions may declare constrained C dependencies:
-
-```
-function count(string path) int64 {
-    use { bio }
-    c {
-        Biobuf *b;
-        b = Bopen(path, OREAD);
-        if(b != nil)
-            Bterm(b);
-    }
-    return 0;
-}
-```
-
-`use` names are resolved from the built-in Plan 9 dependency registry and
-then optional `./deps.tab`. Project dependencies must stay under the
-project directory:
-
-```
-name=mycodec
-	header=include/mycodec.h
-	include=include
-	archive=lib/$objtype/libmycodec.a
-	kind=project
-```
-
-Generated C carries `/* o9: include ... */` and `/* o9: archive ... */`
-metadata for mk rules to consume.
-
-The built-in registry is mirrored in `o9c/system_deps.tab`. Dependency
-names that are not valid identifiers can be quoted, for example
-`use { "9p" }`.
-
-## Architecture
-
-Every class becomes a CSP actor (goroutine-like process) with a 9P fileserver
-facade. Objects communicate via typed channels (fast, in-process) or 9P
-(network-transparent). An asm dispatch cache accelerates hot paths.
-
-See `docs/TOUCHSTONE.md`, `docs/ARCHITECTURE.md`, and `o9c/test/` for
-the design record and example programs.
+- [Quickstart](docs/QUICKSTART.md) - build and run a first app on 9front.
+- [Language Guide](docs/LANGUAGE.md) - the canonical guide for writing o9.
+- [Examples](docs/EXAMPLES.md) - small complete programs.
+- [Standard Library](stdlib/README.md) - stdlib object reference.
+- [Architecture](docs/ARCHITECTURE.md) and
+  [Touchstone](docs/TOUCHSTONE.md) - design record and current direction.

@@ -4,18 +4,27 @@ The stdlib is written as ordinary o9 modules where possible. Plan 9 system
 calls stay behind `function` raw-C helpers, and the public surface is an object
 API.
 
+For language syntax and application shape, read
+[../docs/LANGUAGE.md](../docs/LANGUAGE.md). For build commands and complete
+programs, read [../docs/QUICKSTART.md](../docs/QUICKSTART.md) and
+[../docs/EXAMPLES.md](../docs/EXAMPLES.md).
+
 Import modules by filename:
 
 ```o9
+import "string.o9";
 import "bytes.o9";
+import "buffer.o9";
 import "collections.o9";
 import "file.o9";
 import "io.o9";
 import "math.o9";
-import "random.o9";
+import "namespace.o9";
 import "net.o9";
 import "path.o9";
 import "process.o9";
+import "random.o9";
+import "time.o9";
 ```
 
 ## String

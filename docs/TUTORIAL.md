@@ -281,9 +281,12 @@ line (like factotum or plumber, not procfs). A method that ran needs
 mount /srv/o9.Counter.Counter.app /mnt/o9
 cat /mnt/o9/status                   # live objects: which classes/instances exist
 cat /mnt/o9/methods                  # the public method surface (private omitted)
-echo 'method Counter.c add arg0=5' > /mnt/o9/ctl   # target named in the line
-echo 'method Counter.c get' > /mnt/o9/ctl
-cat /mnt/o9/data                     # → the value, or "error: <msg>" on failure
+sid=`{cat /mnt/o9/clone}
+echo 'method Counter.c add arg0=5' > /mnt/o9/$sid/ctl   # target named in the line
+echo 'method Counter.c get' > /mnt/o9/$sid/ctl
+cat /mnt/o9/$sid/status              # ok, or error text
+cat /mnt/o9/$sid/data                # → the return value
+echo close > /mnt/o9/$sid/ctl
 ```
 
 A string arg with spaces must be **single-quoted** (the ctl line is
@@ -292,16 +295,18 @@ tokenized rc-style): `arg0='hello world'` is one value; unquoted
 Object-handle and Tabula args can't be marshaled over a text ctl line
 and are rejected (pass objects in-process instead).
 
-The five files: `ctl` (write a call), `data` (read the result), `status`
-(the live object graph), `methods` (the public API — this *is* the
-contract, generated from the actual public methods, so it never drifts),
-and `exports/` (a dir where objects can publish `.tab` data files).
+The root files: `clone` (allocate a conversation), `status` (service
+state), `methods` (the public API — this *is* the contract, generated
+from the actual public methods, so it never drifts), and `exports/` (a
+dir where objects can publish `.tab` data files). Each session directory
+has its own `ctl`, `data`, and `status`.
 
 A public method **is** the network API — no REST/gRPC/schema layer to
 author. The shell, a script, another o9 program, and a remote machine
-all call it the same way: write text to `ctl`. (e2e_twoclass.o9 serves
-two classes as peers from one post; ext_access proves an outside process
-drives it over real 9P.)
+all call it the same way: allocate a session, write text to its `ctl`,
+then read that session's `status`/`data`. (e2e_twoclass.o9 serves two
+classes as peers from one post; session tests prove outside processes
+drive it over real 9P without sharing result buffers.)
 
 Across machines it's the same, plus one import
 (demo/TWO_MACHINE_DEMO.md): `rimport host /srv /n/x` then mount.
@@ -321,12 +326,16 @@ mount /srv/o9.Counter.Counter.app /mnt/o9
 cat /mnt/o9/state                    # metadata + live state (debug only)
 ```
 
-## 9. Composition
+## 9. Namespace Composition
 
-`object` and `link` declarations record intent; `link replace a -> b`
-binds b over a at startup, `link union` union-binds (read
-fallback). Every mount/bind is mirrored in the app's namespace recipe —
-your program's assembly, as replayable text.
+Object composition is not done by `link` declarations anymore. Objects
+live behind the app facade and are addressed by handles or ctl method
+commands.
+
+Use `Namespace` for normal programmatic namespace setup. It wraps
+`MountTable`, which is the lower-level Tabula-backed data format for
+mount/bind syscall parameters. That keeps mount recipes transportable as
+data without making mounted data executable.
 
 ## Current sharp edges
 
@@ -337,14 +346,15 @@ your program's assembly, as replayable text.
   `uintptr` are reserved for raw-C function interop and are rejected on
   normal object APIs.
 - a *variable* named identically to a declared class parses as the type
-- `replica` doesn't sync state yet; `while`, `if/else if`, `for` exist
-  but there's no `switch`; strings returned by methods print with a
-  6c format warning (harmless)
+- `while`, `if/else if`, and `for` exist, but there is no `switch`;
+  strings returned by methods may still print with a 6c format warning
+  in some generated code paths (harmless)
 
 ## Exercises
 
 1. A `Stack` class (`push`/`pop`/`size`) over an `int64` field per slot
-   of `List<int64>` — drive it from main, then from the shell via ctl.
+   of `List<int64>` — drive it from main, then from the shell through a
+   clone session.
 2. `Logger` with `prop string Name;` writing lines via `writefile` —
    `delete` it and watch the destructor fire.
 3. `Box<string>` holding `readline()` input, echoed back via a

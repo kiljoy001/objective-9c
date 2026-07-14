@@ -657,13 +657,21 @@ print(t.get("item"));  // widget</td>
           </tr>
           <tr>
             <td class="kw">MountTable</td>
-            <td class="kw-desc">Namespace composition as data. Validate-then-apply.</td>
+            <td class="kw-desc">Lower-level namespace composition as data. Prefer <code>Namespace</code> for normal code.</td>
             <td class="kw-code">MountTable mt = new MountTable();
 mt.allowRoot("/tmp/o9");
 mt.bind("/tmp", "tmp", 0);
 mt.dir("cache", 493);
 mt.validate();
 mt.apply();</td>
+          </tr>
+          <tr>
+            <td class="kw">Namespace</td>
+            <td class="kw-desc">Object API over MountTable for programmatic namespace setup.</td>
+            <td class="kw-code">Namespace ns = new Namespace();
+ns.root("/tmp/o9");
+ns.bindBeforeCreate("/tmp", "tmp");
+ns.apply();</td>
           </tr>
           <tr>
             <td class="kw">chan</td>
@@ -886,15 +894,16 @@ string pt = decrypt(k, blob);</td>
       <div class="card">
         <div class="card-header">
           <div class="card-dot violet"></div>
-          <h3>Tabula &amp; MountTable</h3>
+          <h3>Tabula, Namespace &amp; MountTable</h3>
         </div>
         <ul>
           <li>• Tabula = first-class table type (libtab backing)</li>
           <li>• Every value in/out is string (text boundary)</li>
-          <li>• MountTable = namespace composition as data</li>
+          <li>• Namespace = normal object API for namespace setup</li>
+          <li>• MountTable = lower-level namespace composition as data</li>
           <li>• Schema: call/fd/old/new/flag/aname/mode</li>
           <li>• Validate-then-apply pattern (path traversal safe)</li>
-          <li>• Operations: dir, bind, mountsrv</li>
+          <li>• Operations: root, dir, bind, mountsrv, validate, apply</li>
         </ul>
       </div>
 

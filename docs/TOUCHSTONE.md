@@ -118,12 +118,14 @@ Each item is independently useful; the order is forced by what each one
 needs to exist first.
 
 - **A. Per-application fileserver.**  Collapse the per-object fileserver
-  to per-app: one process per app, one `/srv/o9.<app>` post, objects as
-  *paths* in the app's tree (`/<class>/<inst>/ctl|data|status`),
-  dispatched to by walking a path.  Foundation for B/C/D — they all need
-  "a program" to be one addressable thing.  Escape hatch: an object that
-  needs a real trust boundary is spawned `far` into its own app-process,
-  paying 9P cost exactly where isolation is wanted.
+  to per-app: one process per app, one `/srv/o9.<app>` post, one shared
+  facade (`clone`, `methods`, `status`, `exports/`, and per-session
+  `ctl`/`data`/`status`). Objects are addressed by name through the
+  facade or by in-process handles, not mounted as separate public object
+  trees. Foundation for B/C/D — they all need "a program" to be one
+  addressable thing. Escape hatch: an object that needs a real trust
+  boundary is spawned `far` into its own app-process, paying 9P cost
+  exactly where isolation is wanted.
 
 - **B. ~~One `kind`-keyed ledger per app.~~  Abandoned (July 2026).**
   A unified store requires a query filter to answer "what methods does
@@ -132,7 +134,8 @@ needs to exist first.
   authority-bearing metadata is no longer a public writable file:
     - method table — private in-memory registrations
     - object table — private in-memory object inventory / node table
-    - `<class>.<inst>.tab` — per-instance field state (`state` keyword)
+    - `<class>.<inst>.tab` — per-instance field state when debug state
+      snapshots are explicitly enabled
     - `exports/<name>.tab` — published Tabulae (written by `export()`)
   Persisted method/object copies are debug snapshots only.  Roadmap order
   collapses to **A (done) → C → D**.
@@ -149,39 +152,37 @@ needs to exist first.
   pointers.  That is the correct model for this architecture.
 
 - **D. REPL / live editing (gated, last).**  Attach to the app server
-  (A), browse ledger + graph (B/C), swap a method's thunk while state in
-  the `.tab` survives.  Blocker: 9front has no `dlopen` — first proof on
-  a plan9port/Linux target (which has it), or the 9front-native trick of
-  a redefined method becoming a new small server the `ref` view points
-  at.  This is the "Python-on-Amoeba" moment: the layer that makes the
-  substrate conversational.  Whether it becomes Python-the-survivor or
-  Amoeba-the-artifact turns on the dual-target reach (see 9P section) —
-  o9 being compelling to someone who doesn't already believe in the
-  substrate.
+  (A), inspect public methods/exports and debug snapshots, and explore
+  whether code can be swapped while object state survives. Blocker:
+  9front has no `dlopen`; this stays gated until the compiled-code story
+  is honest on 9front. This is the "Python-on-Amoeba" moment: the layer
+  that makes the substrate conversational. Whether it becomes
+  Python-the-survivor or Amoeba-the-artifact turns on the dual-target
+  reach (see 9P section) — o9 being compelling to someone who doesn't
+  already believe in the substrate.
 
 Order is unambiguous: **A → B → C → D.**  None requires the transmitted
 code / rehydration path that was cut.
 
-## Inter-object state access without dispatch
+## Public Data Without Dispatch
 
-The state tab is a file. Reading another object's state requires no
-dispatch, no channel, no round-trip — just a file read.  This splits
-inter-object access into two natural patterns:
+The public data interface is `exports/`: an app publishes Tabulae as
+readable files, and other programs mount/read/import them as data. That
+keeps transport inert while letting applications share useful state.
 
-- **Read state** — `readfile("<root>/state/<Class>.<inst>.tab")` or mount
-  the namespace and `cat` it.  Any object, any process, any machine with
-  namespace access.  Zero dispatch overhead.  The data is inert, signable,
-  cat-able.  This replaces the "getter method" pattern that OO languages
-  overuse.
-- **Invoke behavior** — `send(handle, "method Class.inst name args")` or
-  direct dispatch.  Required for methods with side effects, arguments,
-  or computed return values.
+Internal object state is not the normal public data interface. It lives
+in memory and may be mirrored through the debug-only `state` inspector
+when `O9DEBUG` is enabled. That snapshot is read-only and
+non-authoritative. Mutation goes through methods and the app facade, not
+by editing metadata files.
 
-`public`/`private` on fields maps onto what appears in the state tab:
-private fields are omitted, `secret` fields appear sealed.  The file is
-the public data interface; `ctl` is the behavior interface.  Two distinct
-things with two distinct mechanisms — not collapsed into a single
-message-send for everything.
+So the split is:
+
+- **Read data** — mount `exports/` or another produced file tree and read
+  Tabulae. Data is inert, signable, and cat-able.
+- **Invoke behavior** — write a method command to a session `ctl`, or use
+  direct in-process dispatch. Required for side effects, arguments, and
+  computed return values.
 
 ## What was cut, permanently
 

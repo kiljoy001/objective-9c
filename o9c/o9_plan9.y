@@ -1614,7 +1614,7 @@ func_top_level:
     ;
 
 /* `function name(params) type { body }` — desugars to a templated class
- * (fixed spawn skeleton + the one user method `run`). See CONCURRENCY.md. */
+ * (fixed spawn skeleton + the one user method `run`). See docs/CONCURRENCY.md. */
 function_decl:
     TFUNCTION TIDENT '(' param_list ')' typename '{' stmt_list '}'
     {
@@ -2264,7 +2264,7 @@ mk_secret_field(Node *tn, char *name)
     return fld;
 }
 
-/* Synthesize the templated class for a `function` (see CONCURRENCY.md):
+/* Synthesize the templated class for a `function` (see docs/CONCURRENCY.md):
  * a fixed, user-uneditable skeleton (3 framework props) + the user's one
  * method named `run`. Desugars to a normal NClass so the whole existing
  * class pipeline (struct, dispatch loop, proccreate, ARC) handles it.
@@ -5598,7 +5598,7 @@ gen_class_server(Node *c)
             print("\t\t\t\tsrvrelease(r->srv);\n");
             print("\t\t\t\tO9Reply *__o9rep = recvp(__wm.replyc);\n");
             print("\t\t\t\tsrvacquire(r->srv);\n");
-            /* Roles (SESSIONS.md): success/error -> STATUS, the return
+            /* Roles (docs/SESSIONS.md): success/error -> STATUS, the return
              * value -> DATA. o9app_put_* route to the current session
              * (or o9app_lastdata for the root-ctl path). */
             print("\t\t\t\tif(__o9rep->err != nil){\n");
@@ -5743,7 +5743,7 @@ gen_class_server(Node *c)
      * O9Task*. Constructs a one-shot instance, sends run(args) WITHOUT
      * waiting, and starts a forwarder proc that owns the wait (recvp the
      * reply, push it into the task's channel, reap the instance). NSpawn
-     * lowers to a call of this. See CONCURRENCY.md. */
+     * lowers to a call of this. See docs/CONCURRENCY.md. */
     if(c->flags & NFFunction){
         Node *rm = nil, *pn;
         int np = 0, pi;
@@ -6096,11 +6096,11 @@ codegen(Node *root)
     print("#define o9_offsetof(s, m) (long)(&(((s*)0)->m))\n");
     print("typedef struct ArcEntry {\n\tulong id;\n\tlong count;\n} ArcEntry;\n\n");
     print("typedef struct ArcLedger {\n\tArcEntry entries[64];\n} ArcLedger;\n");
-    /* Per-app facade: ONE Srv with a FLAT four-file tree, built once at
-     * startup and never mutated at runtime.  No class/object dirs -> no
-     * runtime createfile/walkfile (the source of the lib9p faults).  The
-     * app has a uniform shape regardless of its classes.  ctl names its
-     * target instance in the line (method Class.inst method arg...);
+    /* Per-app facade: ONE Srv with a fixed root shape, built once at
+     * startup.  Root control files are stable; clone creates session dirs
+     * and exports/ accepts published Tabulae. The served facade does not
+     * compose the app from per-object fileservers. ctl names its target
+     * instance in the line (method Class.inst method arg...);
      * status/methods list the object graph and public surface by reading.
      *
      * Class handlers register themselves in a small table so the flat
@@ -6188,17 +6188,18 @@ codegen(Node *root)
      * serialized bytes live in the child File's aux. */
     /* Flat root handlers.  The four files share these; ctl routes by the
      * line's Class.inst to a class handler, the rest aggregate. */
-    /* Per-session conversation state (SESSIONS.md). Fixes the per-caller
+    /* Per-session conversation state (docs/SESSIONS.md). Fixes the per-caller
      * race: results/status live on the SESSION, not a global mailbox. A
      * session is allocated by reading `clone`; its dir + ctl/data/status
      * are createfile'd into the served root, each carrying the O9Session*
      * in File->aux. */
     /* Sessions: a GROW-AND-REUSE POOL (the Plan 9 /net clone model, with
      * List-style growth). Slot dirs <i>/{ctl,data,status} are created once
-     * and NEVER removed — clone hands out a free slot, a slot frees when
-     * its client's fids clunk (flag flip, no tree mutation). This dissolves
-     * both the leak (slots are bounded by peak concurrency, then recycled)
-     * and the reap re-entrancy fault (nothing is ever removefile'd). */
+     * and NEVER removed — clone hands out a closed slot, and explicit
+     * `close` marks it reusable. Fid clunks update diagnostic refs only.
+     * This dissolves both the leak (slots are bounded by peak open
+     * conversations, then recycled) and the reap re-entrancy fault
+     * (nothing is ever removefile'd). */
     print("typedef struct O9Session O9Session;\n");
     /* QLock per session guards data/status against concurrent request
      * handlers (once srvrelease lets requests interleave). */
@@ -6463,7 +6464,7 @@ codegen(Node *root)
     print("\to9app_tree = alloctree(nil, nil, DMDIR|0555, nil);\n");
     print("\to9app_srv.tree = o9app_tree;\n");
     print("\to9app_srv.read = o9app_root_read;\n\to9app_srv.write = o9app_root_write;\n");
-    print("\to9app_srv.open = o9app_open;\n\to9app_srv.destroyfid = o9app_destroyfid;\t/* session reap */\n");
+    print("\to9app_srv.open = o9app_open;\n\to9app_srv.destroyfid = o9app_destroyfid;\t/* session fid diagnostics */\n");
     /* The four control files + state are a FIXED shape, built once, never
      * mutated (their content is live, their structure is frozen). */
     print("\tcreatefile(o9app_tree->root, \"ctl\", \"o9\", 0666, nil);\n");
@@ -6472,7 +6473,7 @@ codegen(Node *root)
     print("\tcreatefile(o9app_tree->root, \"methods\", \"o9\", 0444, nil);\n");
     print("\tcreatefile(o9app_tree->root, \"state\", \"o9\", 0444, nil);\t/* debug inspector */\n");
     /* clone: reading it allocates a session <id>/ with session-local
-     * ctl/data/status (SESSIONS.md) — the /net/tcp/clone pattern that
+     * ctl/data/status (docs/SESSIONS.md) — the /net/tcp/clone pattern that
      * gives concurrent callers a private, path-addressable conversation. */
     print("\tcreatefile(o9app_tree->root, \"clone\", \"o9\", 0444, nil);\n");
     /* exports/ is a served-tree DIRECTORY inside the application file tree
@@ -8255,7 +8256,7 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
         break;
     /* NLink removed: `link` (object-as-fileserver namespace composition)
      * is retired — the keyword is gone from the grammar, so NLink can no
-     * longer be produced. See NAMESPACE.md (namespace control reframed as
+     * longer be produced. See docs/NAMESPACE.md (namespace control reframed as
      * organizing produced output, not object composition). */
     case NPropRead:
         annotate_expr_type(e, scope_class);
@@ -9130,7 +9131,7 @@ dump_ast(Node *root)
     dump_ast_nodes(root, 0, nil);
 }
 
-/* ---- import resolution (see IMPORTS.md) ----
+/* ---- import resolution (see docs/IMPORTS.md) ----
  *
  * Runs before prescan/parse. Scans the source for import lines, resolves
  * each to a real file within the project subtree, and splices the named

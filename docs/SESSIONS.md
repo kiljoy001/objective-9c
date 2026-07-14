@@ -1,8 +1,9 @@
 # o9 sessions — clone/session facade design (July 2026)
 
-Status: DESIGN (not built). Fixes the per-caller data race: today all
-callers share one global o9app_lastdata mailbox, so concurrent clients
-read each other's results. This doc is the agreed design.
+Status: BUILT. This fixes the old per-caller data race where all callers
+shared one global result mailbox. Result-bearing calls now use
+clone-allocated session directories, and generated writers route
+data/status through the current `Req *`.
 
 ## Why clone (not just fid->aux)
 
@@ -114,17 +115,19 @@ that's why they land together.
 ## Session lifecycle: grow-and-reuse pool (NOT create/destroy)
 
 Sessions are a GROW-AND-REUSE POOL — the Plan 9 /net clone model, with
-C#-List-style growth. This is how /net conversations work: a fixed set of
-numbered dirs, REUSED, never destroyed. o9 adds growth (List-style) so
-there's no hard cap.
+C#-List-style growth. A fixed set of numbered dirs is reused, never
+destroyed. o9 adds growth so there is no hard cap.
 
 - Slot dirs <i>/{ctl,data,status} are created ONCE (at first use / on
   growth) and NEVER removed.
-- clone: reuse a free slot (inuse==0); if none, grow the pool (realloc +
-  one createfile-into-stable-parent — the safe pattern). Reset the slot's
-  state (data/status/ref) and return its id.
-- A slot frees when its client's fids clunk: open -> ref++, destroyfid ->
-  ref--; at 0, inuse=0. FLAG FLIP ONLY — the dir is NOT removed.
+- clone: reuse a closed slot (`inuse==0`); if none, grow the pool
+  (`realloc` + one createfile-into-stable-parent — the safe pattern).
+  Reset the slot's state (`data`/`status`/diagnostic `ref`) and return
+  its id.
+- A slot becomes reusable only through explicit release:
+  `echo close > <id>/ctl`. `open` increments the diagnostic ref count and
+  `destroyfid` decrements it, but clunking a fid does not end the
+  conversation.
 
 Why not create-on-clone / removefile-on-reap (the obvious design): doing
 removefile inside destroyfid RE-ENTERS lib9p's tree cleanup mid-clunk ->
@@ -143,26 +146,25 @@ distinguishes session files from export files.
 - Per-session state (last result, last status) lives on the session —
   keyed by the session dir's files' aux, NOT a global. Reads of
   <id>/data and <id>/status serve that session's aux.
-- Session teardown: a session dir + its state should be reaped when the
-  client is done (clunk/remove, or an idle timeout). removefile on the
-  session dir.
+- Session teardown: explicit `close` marks the slot reusable and clears
+  the data buffer. The session dir remains in the served tree.
 - fid->aux is still the right per-open mechanism WITHIN a session's files;
   the session dir is the cross-file conversation identity fids alone
   can't give.
 
 ## Migration / compatibility
 
-- The flat root ctl/data (current) races under concurrency. Options at
-  build time: keep it as a documented single-client DEBUG convenience, or
-  remove it and require clone+session. (Decide at build; the tutorial and
-  tests currently use the flat form, so removing it is a blast radius.)
+The clone/session shape is the correct result-bearing interface. Root
+`ctl` may still exist for compatibility or fire-and-forget/app-wide
+commands, but shell examples and tests should use clone sessions for
+method results.
 
 ## Build order
 
-1. This doc.
-2. clone file: read allocates a session, creates <id>/{ctl,data,status}.
-3. Route ctl writes + data/status reads to per-session aux (kill the
-   global o9app_lastdata for result-bearing calls).
-4. Session teardown (reap on clunk/idle).
-5. Tests: two concurrent sessions must not see each other's results
-   (the race regression); result in data, error in status.
+1. DONE: clone file reads allocate sessions and create
+   `<id>/{ctl,data,status}`.
+2. DONE: ctl writes and data/status reads route through per-session aux;
+   result-bearing calls no longer use a global mailbox.
+3. DONE: explicit `close` marks a session reusable.
+4. DONE: tests prove two sessions do not see each other's results, and
+   result/status stay split.

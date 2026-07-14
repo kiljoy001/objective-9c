@@ -29,17 +29,20 @@ idempotent `/srv` post. Import it and mount:
 
 ```rc
 rimport babyFileServer.rentonsoftworks.coin /srv /n/bfsrv
-mount /n/bfsrv/o9.Counter.Counter.Counter /mnt/o9
+mount /n/bfsrv/o9.Counter.Counter.app /mnt/o9
 ls /mnt/o9
-        /mnt/o9/ctl  /mnt/o9/data  /mnt/o9/methods  /mnt/o9/status
+        /mnt/o9/clone  /mnt/o9/ctl  /mnt/o9/data  /mnt/o9/exports
+        /mnt/o9/methods  /mnt/o9/state  /mnt/o9/status
 sed 3q /mnt/o9/status
         state running
         typename Counter
         qname Counter
-echo 'method Counter inc arg0=23' > /mnt/o9/ctl
-echo 'method Counter get' > /mnt/o9/ctl
-cat /mnt/o9/data
+sid=`{cat /mnt/o9/clone}
+echo 'method Counter inc arg0=23' > /mnt/o9/$sid/ctl
+echo 'method Counter get' > /mnt/o9/$sid/ctl
+cat /mnt/o9/$sid/data
         23
+echo close > /mnt/o9/$sid/ctl
 ```
 
 `23` is the class server's auto-instance (starts at 0). The program's
@@ -47,17 +50,19 @@ own `new Counter(100)` created a second instance, addressable by name
 through the same two files:
 
 ```rc
-echo 'method c get' > /mnt/o9/ctl
-cat /mnt/o9/data
+sid=`{cat /mnt/o9/clone}
+echo 'method c get' > /mnt/o9/$sid/ctl
+cat /mnt/o9/$sid/data
         100
+echo close > /mnt/o9/$sid/ctl
 ```
 
 ## What this exercised
 
-- idempotent `/srv/o9.<app>.<class>.<inst>` posts (phase 1) as the
+- idempotent `/srv/o9.<app>.<app>.app` post as the
   machine boundary
-- the counted `method <inst> <name> argN=` ctl protocol with `data`
-  readback
+- the counted `method <inst> <name> argN=` ctl protocol with session
+  `data` readback
 - per-instance dispatch through the CSP actor on the remote machine
 - `/srv` import as the composition mechanism: the consumer assembles
   its own view in its own namespace

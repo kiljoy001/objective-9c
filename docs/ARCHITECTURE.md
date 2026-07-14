@@ -34,7 +34,9 @@ only the transport changes.
 ```
 
 The `distance` field selects transport for crossing machines only.
-Composition — which objects appear where — is always the namespace's job.
+Application composition is the app facade's job; the Plan 9 namespace
+composes mounted apps, sessions, exports, and lower-level namespace setup
+tables.
 
 ## Object Model
 
@@ -44,8 +46,8 @@ Every class compiles to:
   libtab), owned by a **CSP actor proc** that serializes all method
   execution — one writer per object, no locks;
 - a **Client handle** callers hold: `(dispatch_chan, shm_base, table, distance, srvname)`;
-- a **9P file tree**: `ctl` (commands), `data` (replies), `status`
-  (identity, schema, instances), `methods` (dispatch table as text);
+- an **app 9P facade**: root `clone`, `methods`, `status`, `exports/`,
+  and per-session `<id>/ctl`, `<id>/data`, `<id>/status`;
 - generated **impl functions**, asm-cache **thunks**, and same-class-call
   wrappers.
 
@@ -72,8 +74,8 @@ calls cannot interfere. Errors propagate through every tier.
 
 One identity, two forms:
 
-- **universal**: the `oid` — resolves anywhere via the object store or a
-  namespace walk (`/mnt/o9/App/obj/<oid>`);
+- **universal**: the `oid` — resolves through the object registry,
+  method facade, or `/srv` mount protocol;
 - **local fast form**: `(dispatch_chan, shm_base, gen)` — valid only
   in-process, guarded by the generation counter.
 
@@ -85,8 +87,8 @@ handle to its oid; the far side re-resolves in its own ring.
 
 - **O9ObjectStore**: private in-memory libtab carrying oid, type, class,
   status (declared|live), addr+gen, ns, path, owner. `new` writes live
-  rows; `object` declarations sit at declared. It is not mounted as a
-  writable `.tab` file.
+  rows; optional `object` declarations are metadata. It is not mounted as
+  a writable `.tab` file.
 - **O9MethodStore**: private in-memory libtab carrying class, method,
   selector, arity, signature, thunk addr+gen(pid). Registered at startup
   (inherited methods flattened), backs the dispatch cache, served as each
@@ -107,58 +109,46 @@ reading the app's `state` file emits read-only method/object snapshots
 alongside live instance state. With `O9DEBUG` unset, the inspector remains
 gated.
 
-## The Process Model (planned: phases below)
+## The Process Model
 
 **One OS process per app instance.** All classes of an app are roommates:
-actors share memory, dispatch through rings 0's machinery, and each class
-still posts its own 9P tree — per-class servers preserved, but post-only:
+actors share memory and dispatch through ring 0's machinery. The external
+surface is the shared app fileserver facade:
 
 ```
  app process
  ├── actors (one proc per instance, CSP-serialized)
- ├── registry actor           ← the intra-program bus hub
- ├── /srv/o9.<app>.<class>    (one post per class, idempotent)
- └── shared: object store, method store, app root
+ ├── object/method stores     ← private runtime metadata
+ ├── /srv/o9.<app>...         ← published app facade
+ └── root files: clone, methods, status, exports, sessions
 ```
 
 ### The Registry Actor (CSP as the intra-program bus)
 
-One actor per process owns the live handle table:
-`register(oid, handle)`, `lookup(oid) → handle`, `watch(oid) → channel`,
-`unregister + notify`. Single-writer by construction. The object store is
-its persisted state; the 9P `obj/` tree is its external projection.
-`delete` flows through it, so watchers re-resolve on death — Plan B
-re-resolution, in-process, with no coordinator daemon.
+One registry path per process owns the live handle table:
+`register(oid, handle)`, `lookup(oid) -> handle`, and `unregister`.
+Single-writer discipline protects the object store. `delete` unregisters
+the handle after the actor exits.
 
 Discipline: the registry never calls out synchronously (notifications use
 try-send `<-?` / buffered channels); handles travel in messages, never as
 nested synchronous call cycles.
 
-### Namespace as the Box
+### Namespace Control
 
-Assembly is a **generated namespace recipe** — mount/bind lines emitted
-into startup and mirrored as a text file under `state/` (`/lib/namespace`
-format). The compiler's `object` and `link` declarations compile to it:
+The retired `link`/`replace`/`union` object-composition model is gone.
+Namespace control now has two jobs:
 
-```
- mount /srv/o9.App.Counter    /mnt/o9/App/class/Counter
- bind  …/class/Counter/c      /mnt/o9/App/obj/c
- bind  …/obj/mirror           /mnt/o9/App/obj/primary    # link replace
- bind -b …/obj/backup         /mnt/o9/App/obj/primary    # fallback union
-```
-
-`link replace` is a bind — kernel-implemented redirection; union binds give
-failover; re-resolution is re-binding after a repost.
+- compose mounted app facades and exported data in a client's namespace;
+- let programs use `Namespace`/`MountTable` to build controlled private
+  namespaces for setup and isolation.
 
 **The /srv seam (verified on the grid):** a server's self-mount is
 visible only inside its own process namespace. The idempotent `/srv`
 post is therefore the canonical publication point — machine-global,
 importable (`rimport host /srv`), mountable anywhere. Assembled
-`/mnt/o9/App` trees are built by *consumers* executing the recipe in
-their own namespaces, never by the server for others. Replica semantics
-(actual state sync) remain future work. There is no box daemon: the box
-is a text file the kernel interprets, inside the process it is the
-registry actor — provably the same table, two projections.
+`/mnt/o9/App` trees are built by consumers in their own namespaces, never
+by the server for others.
 
 ## Compilation Pipeline
 
@@ -186,8 +176,9 @@ generic instantiation.
       Text/Fs/IO builtins; execute-and-assert harness
 - [x] **Phase 1**: idempotent unique `/srv` posts — verified across the
       grid (demo/TWO_MACHINE_DEMO.md)
-- [x] **Phase 2**: registry actor + namespace assembly recipe
-- [x] **Phase 3**: `link replace`/`union` as binds with union fallbacks
-- [ ] Next: oid handle form in method args; registry watch channels;
-      replica sync; module-based stdlib services under `lib/`;
+- [x] **Phase 2**: clone/session facade with per-request session state
+- [x] **Phase 3**: `function`/`spawn`/`Task<T>` and stdlib object layer
+- [x] **Phase 4**: `MountTable` data layer and `Namespace` object
+- [ ] Next: produced-file namespace surface beyond `exports/`;
+      higher-level 9P/client helpers; directional channel ends;
       IL placement for `new near`

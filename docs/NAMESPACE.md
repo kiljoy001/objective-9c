@@ -1,7 +1,10 @@
 # o9 namespaces — produce-into-namespace design (July 2026)
 
-Status: DESIGN (not built). This doc corrects an architectural drift and
-sets the real direction for namespace control in o9.
+Status: PARTLY BUILT. `link`-style object composition is removed.
+`MountTable` exists as the lower-level Tabula-backed mount/bind data
+object, and `Namespace` is the user-facing object for programmatic
+namespace setup. The broader produce-into-namespace facade is still
+design work.
 
 ## The architectural honesty check (why this doc exists)
 
@@ -21,9 +24,9 @@ o9 changed architectures partway through, and a feature was left behind:
 The facade replaced namespace-composition-of-objects. So the old `link`
 feature (which binds `<root>/obj/<name>` paths) is ORPHANED: it composes
 per-object paths the flat facade no longer creates, and is used in ZERO
-real tests (only a parse fixture + a negative test). Same pattern as cap,
-the replica name, the o9type sidecar: a feature from a replaced
-architecture surviving because nobody asked "does this still have a job?"
+real tests (only a parse fixture + a negative test). Same pattern as cap
+and the old replica/link surface: a feature from a replaced architecture
+surviving because nobody asked "does this still have a job?"
 
 **Correction to a wrong turn:** "userspace namespace control is o9's
 defining feature" (as composition-of-objects) is the ABANDONED thesis.
@@ -64,12 +67,17 @@ o9_ns_recipe (namespace-as-serializable-data), the served-tree
 createfile-into-stable-parent pattern (exports/, clone sessions), MREPL/
 MBEFORE.
 
-NEW SURFACE: `MountTable` is the authority-bearing, Tabula-backed object
-for `schema=mounts` data.  Users do not hand-write mount cells; typed
-methods (`dir`, `bind`, `mountsrv`) store syscall-shaped parameters, and
-`MountTable` validates policy (`allowRoot`) before applying them to the
-current process namespace.  This is namespace control for application
-setup/isolation, not object composition.
+BUILT SURFACE: `Namespace` is the object normal code should use for
+programmatic namespace setup. It wraps a `MountTable`, exposes named flag
+helpers (`bindBefore`, `bindAfter`, `mountsrvReplace`, etc.), and applies
+the table to the current process namespace.
+
+LOWER-LEVEL DATA SURFACE: `MountTable` is the authority-bearing,
+Tabula-backed object for `schema=mounts` data. Users do not hand-write
+mount cells; typed methods (`dir`, `bind`, `mountsrv`) store
+syscall-shaped parameters, and `MountTable` validates policy
+(`allowRoot`) before applying them. Use it directly when the `.tab`
+transport representation matters.
 
 `replace`/`union` MIGHT survive — not to bind objects, but to compose
 OUTPUT REGIONS (union several produced trees at a path; replace a region).
@@ -130,15 +138,18 @@ mounted as parts.
 3. DONE: first `MountTable` surface for local namespace setup
    (`dir`/`bind`/`mountsrv`, root-confined targets, syscall-shaped
    Tabula storage).
-4. Design the produce-into-namespace surface (generalize exports/) from
+4. DONE: `Namespace` object over `MountTable` for normal application
+   code; `MountTable` remains the data layer for transport/inspection.
+5. Design the produce-into-namespace surface (generalize exports/) from
    the open questions above, with the output-integrity goals as the
    security spec.
-5. Build it; tests: an app produces a tree of files into a namespace, a
+6. Build it; tests: an app produces a tree of files into a namespace, a
    client mounts and reads the produced shape — plus the output-integrity
    adversarial tests.
 
-Current implemented pieces: link is removed, and `MountTable` can build,
+Current implemented pieces: link is removed; `MountTable` can build,
 transport, validate, and apply root-confined local namespace setup from
-`schema=mounts` Tabulae.  The remaining work relates to the app-facade
-(the shipped shape), exports (the first produce-into-namespace instance),
-and sessions (per-caller produced file sets).
+`schema=mounts` Tabulae; `Namespace` is the preferred object API over
+that data. The remaining work relates to the app-facade produced-file
+surface: exports are the first instance, and sessions are per-caller
+produced file sets.

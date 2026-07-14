@@ -524,10 +524,10 @@ o9_object_addr(O9ObjectStore *s, char *oid, vlong gen)
 	return (void*)o9_object_parse_addr(v);
 }
 
-/* Registry actor — the intra-program bus hub (ARCHITECTURE.md).
+/* Registry actor — the intra-program bus hub (docs/ARCHITECTURE.md).
  * One proc per app process owns the live handle table: single-writer by
- * construction, no locks.  Handles are CSP values; the object store is
- * the persisted view, the 9P obj/ tree the external one. */
+ * construction, no locks. Handles are CSP values; the object store is the
+ * private runtime view. Public access goes through the app facade. */
 
 enum { O9RegRegister, O9RegLookup, O9RegUnregister };
 
@@ -2629,7 +2629,7 @@ o9_mount_table_close(O9MountTable *m)
 	free(m);
 }
 
-/* ---- Task<T>: a one-shot spawn JOIN HANDLE (see CONCURRENCY.md) ----
+/* ---- Task<T>: a one-shot spawn JOIN HANDLE (see docs/CONCURRENCY.md) ----
  *
  * spawn f(args) returns a Task<T>. Internally channel-backed (the
  * "numbered channel" — compiler/runtime plumbing, never user-facing): a

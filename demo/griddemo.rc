@@ -9,14 +9,18 @@ echo '=== starting server on babyFileserver:'
 rcpu -h babyFileserver -c 'sleep 25 | /usr/scott/tmp/o9demo' &
 sleep 6
 echo '=== importing remote app namespace:'
-rimport babyFileserver /mnt/o9/Counter /n/o9demo && ls /n/o9demo
+rimport babyFileserver /srv /n/bfsrv || exit rimport
+mkdir /n/o9demo >[2]/dev/null
+mount /n/bfsrv/o9.Counter.Counter.app /n/o9demo || exit mount
+ls /n/o9demo
 echo '=== remote status:'
-sed 3q /n/o9demo/class/Counter/status
+sed 3q /n/o9demo/status
 echo '=== remote method calls over the wire:'
-echo 'method Counter inc arg0=23' > /n/o9demo/class/Counter/ctl
-echo 'method Counter get' > /n/o9demo/class/Counter/ctl
-cat /n/o9demo/class/Counter/data
+sid=`{cat /n/o9demo/clone}
+echo 'method Counter inc arg0=23' > /n/o9demo/$sid/ctl
+echo 'method Counter get' > /n/o9demo/$sid/ctl
+cat /n/o9demo/$sid/data
+echo close > /n/o9demo/$sid/ctl
 echo '=== assembly recipe written by the remote server:'
-cat /n/o9demo/state/*.namespace
+cat /n/o9demo/status
 echo demo done
-
