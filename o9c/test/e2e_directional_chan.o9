@@ -1,0 +1,25 @@
+class Widget {
+    recv chan<int64> events;
+    send chan<int64> commands;
+
+    method void emit(int64 v) {
+        events -> v;
+    }
+
+    method int64 nextCommand() {
+        int64 v;
+        v = <- commands;
+        return v;
+    }
+}
+
+main {
+    Widget w = new Widget();
+    int64 event;
+
+    w.emit(7);
+    event = <- w.events;
+
+    w.commands -> 11;
+    print(event, " ", w.nextCommand(), "\n");
+}

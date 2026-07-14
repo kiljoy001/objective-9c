@@ -93,7 +93,9 @@ enum {
     NFSelfCalled = 1<<2,
     NFPrivate = 1<<3,	/* class-scoped; not reachable through the app facade */
     NFFunction = 1<<4,	/* a synthesized function-class (fixed spawn template) */
-    NFMain = 1<<5	/* reserved top-level program bootstrap block */
+    NFMain = 1<<5,	/* reserved top-level program bootstrap block */
+    NFChanSendOnly = 1<<6,	/* public endpoint may send, not receive */
+    NFChanRecvOnly = 1<<7	/* public endpoint may receive, not send */
 };
 
 struct Node {
@@ -237,6 +239,7 @@ static int is_known_type_name(char *name);
 static Type* type_from_name(char *name);
 static Node* type_node(Type *type);
 static Node* mk_typed(int type, char *name, Node *tn, Node *l, Node *r);
+static void set_channel_dir(Node *n, Node *dir);
 static void set_node_names(Node *n, char *qname, char *cname);
 static char* legacy_type_name(Type *type);
 static Type* type_list_at(TypeList *list, int idx);
@@ -731,6 +734,24 @@ mk_typed(int type, char *name, Node *tn, Node *l, Node *r)
     if(tn != nil)
         n->typeinfo = tn->typeinfo;
     return n;
+}
+
+static void
+set_channel_dir(Node *n, Node *dir)
+{
+    if(n == nil || dir == nil || dir->name == nil)
+        return;
+    if(strcmp(dir->name, "send") == 0){
+        n->flags |= NFChanSendOnly;
+        return;
+    }
+    if(strcmp(dir->name, "recv") == 0){
+        n->flags |= NFChanRecvOnly;
+        return;
+    }
+    fprint(2, "o9c: error: line %d: channel direction must be 'send' or 'recv', got '%s'\n",
+        dir->line > 0 ? dir->line : cur_line, dir->name);
+    semantic_errors++;
 }
 
 static Node*
@@ -1280,6 +1301,8 @@ get_sym_type(Node *c, char *name)
         if((m->type == NProp || m->type == NState) && m->name && strcmp(m->name, name) == 0){
             return type_storage_for_codegen(m->typeinfo);
         }
+        if(m->type == NStream && m->name && strcmp(m->name, name) == 0)
+            return "Channel*";
     }
     return "vlong";
 }
@@ -1834,6 +1857,26 @@ stream_decl:
     | TCHAN '<' typename '>' member_name ';'
     {
         $$ = mk_typed(NStream, $5->name, $3, nil, nil);
+    }
+    | TIDENT TSTREAM TIDENT ';'
+    {
+        $$ = mk(NStream, $3->name, nil, nil, nil);
+        set_channel_dir($$, $1);
+    }
+    | TIDENT TSTREAM '<' typename '>' member_name ';'
+    {
+        $$ = mk_typed(NStream, $6->name, $4, nil, nil);
+        set_channel_dir($$, $1);
+    }
+    | TIDENT TCHAN member_name ';'
+    {
+        $$ = mk(NStream, $3->name, "chan", nil, nil);
+        set_channel_dir($$, $1);
+    }
+    | TIDENT TCHAN '<' typename '>' member_name ';'
+    {
+        $$ = mk_typed(NStream, $6->name, $4, nil, nil);
+        set_channel_dir($$, $1);
     }
     ;
 
@@ -3331,7 +3374,8 @@ gen_expr(Node *e)
                         gen_expr(e->left);
                         print(")->shm_base)->%s", e->name);
                     } else if(strcmp(t, "char*") == 0 || storage_is_o9string(t) ||
-                              strcmp(t, "O9Dict") == 0 || strcmp(t, "O9Slice") == 0){
+                              strcmp(t, "O9Dict") == 0 || strcmp(t, "O9Slice") == 0 ||
+                              strcmp(t, "Channel*") == 0){
                         print("((%s_Internal*)((%s_Client*)&", cn, cn);
                         gen_expr(e->left);
                         print(")->shm_base)->%s", e->name);
@@ -3753,6 +3797,69 @@ channel_elem_type(Node *c, Node *chanexpr)
     return nil;
 }
 
+static Node*
+channel_endpoint_member(Node *c, Node *chanexpr, int *public_endpoint)
+{
+    Type *lt;
+    TypedMember tm;
+
+    if(public_endpoint != nil)
+        *public_endpoint = 0;
+    if(chanexpr == nil)
+        return nil;
+
+    /* Bare field use inside the declaring object is the owner endpoint.
+     * Direction protects the public endpoint reached through obj.field;
+     * the owner still needs full access to feed recv-only events and
+     * drain send-only commands. */
+    if(chanexpr->type == NIdent && chanexpr->name != nil)
+        return member_node(c, chanexpr->name, 0);
+
+    if(chanexpr->type == NPropRead && chanexpr->left != nil){
+        lt = chanexpr->left->typeinfo;
+        if(typed_member_lookup(lt, chanexpr->name, 0, &tm) &&
+           tm.node != nil && tm.node->type == NStream){
+            if(public_endpoint != nil)
+                *public_endpoint = 1;
+            return tm.node;
+        }
+    }
+    return nil;
+}
+
+static char*
+channel_endpoint_name(Node *chanexpr)
+{
+    if(chanexpr == nil)
+        return "?";
+    if(chanexpr->name != nil)
+        return chanexpr->name;
+    if(chanexpr->type == NPropRead && chanexpr->name != nil)
+        return chanexpr->name;
+    return "?";
+}
+
+static void
+check_channel_direction(Node *scope_class, Node *chanexpr, int recvop, int *errs)
+{
+    Node *m;
+    int pub;
+
+    m = channel_endpoint_member(scope_class, chanexpr, &pub);
+    if(m == nil || m->type != NStream || !pub)
+        return;
+    if(!recvop && (m->flags & NFChanRecvOnly)){
+        fprint(2, "o9c: error: line %d: cannot send to recv-only channel '%s'\n",
+            sem_line, channel_endpoint_name(chanexpr));
+        (*errs)++;
+    }
+    if(recvop && (m->flags & NFChanSendOnly)){
+        fprint(2, "o9c: error: line %d: cannot receive from send-only channel '%s'\n",
+            sem_line, channel_endpoint_name(chanexpr));
+        (*errs)++;
+    }
+}
+
 static char*
 channel_box_storage(Node *c, Node *chanexpr, Node *fallback)
 {
@@ -3766,6 +3873,85 @@ channel_box_storage(Node *c, Node *chanexpr, Node *fallback)
     if(fallback != nil && fallback->type == NIdent)
         return get_sym_type(c, fallback->name);
     return "vlong";
+}
+
+static Type*
+channel_box_type(Node *c, Node *chanexpr, Node *fallback)
+{
+    Type *et;
+
+    et = channel_elem_type(c, chanexpr);
+    if(et != nil)
+        return et;
+    if(fallback != nil && fallback->typeinfo != nil)
+        return fallback->typeinfo;
+    if(fallback != nil && fallback->type == NIdent && fallback->name != nil)
+        return get_typeinfo_sym(fallback->name);
+    return nil;
+}
+
+static int
+type_is_struct_value(Type *t)
+{
+    Node *d;
+
+    d = type_decl_node(t);
+    return d != nil && d->type == NStruct;
+}
+
+static int
+type_is_slice_value(Type *t)
+{
+    return type_is_array(t) || type_is_collection(t, "List");
+}
+
+static int
+channel_value_needs_memmove(Type *t)
+{
+    return type_is_class_ref(t) || type_is_struct_value(t) ||
+        type_is_slice_value(t);
+}
+
+static void
+gen_channel_value_temp(Node *expr, Type *value_type, char *storage, char *tmp)
+{
+    if(channel_value_needs_memmove(value_type)){
+        print("%s %s; memmove(&%s, &", storage, tmp, tmp);
+        gen_expr(expr);
+        print(", sizeof(%s));", storage);
+        return;
+    }
+    print("%s %s = (%s)", storage, tmp, storage);
+    gen_expr(expr);
+    print(";");
+}
+
+static void
+gen_channel_pack_call(Type *value_type, char *tmp)
+{
+    if(type_is_string(value_type))
+        print("o9_chan_pack_string(%s)", tmp);
+    else if(type_is_slice_value(value_type))
+        print("o9_chan_pack_slice(&%s)", tmp);
+    else
+        print("o9_chan_pack(&%s, sizeof(%s))", tmp, tmp);
+}
+
+static void
+gen_channel_recv_assign(Node *target, char *boxname, char *storage, Type *boxtype)
+{
+    if(type_is_string(boxtype)){
+        print("o9_string_release(");
+        gen_expr(target);
+        print("); ");
+    } else if(type_is_slice_value(boxtype)){
+        print("o9_slice_free(&");
+        gen_expr(target);
+        print("); ");
+    }
+    print("o9_chan_take(%s, &", boxname);
+    gen_expr(target);
+    print(", sizeof(%s));", storage);
 }
 
 static void
@@ -3798,11 +3984,13 @@ gen_alt_stmt(Node *c, Node *s)
     for(a = s->left; a != nil; a = a->next){
         print("\t\tcase %d: {\n", idx++);
         if(a->type == NAltCase){
-            char *t = channel_box_storage(c, a->left->right, a->left->left);
-            print("\t\t\tif(__o9altbox_%d_%d != nil){ %s *__o9v = (%s*)__o9altbox_%d_%d; ",
-                id, rx, t, t, id, rx);
-            gen_expr(a->left->left);
-            print(" = *__o9v; free(__o9v); }\n");
+            Type *bt = channel_box_type(c, a->left->right, a->left->left);
+            char *t = bt != nil ? type_storage_for_codegen(bt) :
+                channel_box_storage(c, a->left->right, a->left->left);
+            print("\t\t\tif(__o9altbox_%d_%d != nil){ O9ChanMsg *__o9v = (O9ChanMsg*)__o9altbox_%d_%d; ",
+                id, rx, id, rx);
+            gen_channel_recv_assign(a->left->left, "__o9v", t, bt);
+            print(" o9_chan_free(__o9v); }\n");
             rx++;
             for(n = a->right; n != nil; n = n->next)
                 gen_stmt(c, n);
@@ -4034,18 +4222,38 @@ gen_stmt(Node *c, Node *s)
         print("\t%s.fd = -1;\n", s->name);
         break;
     case NChanSend: {
-        char *t = channel_box_storage(c, s->left, s->right);
-        print("\t{ %s *__box = malloc(sizeof(%s)); *__box = (%s)", t, t, t); gen_expr(s->right); print("; sendp("); gen_expr(s->left); print(", __box); }\n");
+        Type *bt = channel_box_type(c, s->left, s->right);
+        char *t = bt != nil ? type_storage_for_codegen(bt) :
+            channel_box_storage(c, s->left, s->right);
+        print("\t{ ");
+        gen_channel_value_temp(s->right, bt, t, "__o9v");
+        print(" O9ChanMsg *__box = ");
+        gen_channel_pack_call(bt, "__o9v");
+        print("; sendp(");
+        gen_expr(s->left);
+        print(", __box); }\n");
         break;
     }
     case NChanTry: {
-        char *t = channel_box_storage(c, s->left, s->right);
-        print("\t{ %s *__box = malloc(sizeof(%s)); *__box = (%s)", t, t, t); gen_expr(s->right); print("; Alt __a[] = {{"); gen_expr(s->left); print(", __box, CHANSND}, {nil, nil, CHANNOBLK}, {nil, nil, CHANEND}}; if(alt(__a) == 1) free(__box); }\n");
+        Type *bt = channel_box_type(c, s->left, s->right);
+        char *t = bt != nil ? type_storage_for_codegen(bt) :
+            channel_box_storage(c, s->left, s->right);
+        print("\t{ ");
+        gen_channel_value_temp(s->right, bt, t, "__o9v");
+        print(" O9ChanMsg *__box = ");
+        gen_channel_pack_call(bt, "__o9v");
+        print("; Alt __a[] = {{");
+        gen_expr(s->left);
+        print(", __box, CHANSND}, {nil, nil, CHANNOBLK}, {nil, nil, CHANEND}}; if(alt(__a) == 1) o9_chan_free(__box); }\n");
         break;
     }
     case NChanRecv: {
-        char *t = channel_box_storage(c, s->right, s->left);
-        print("\t{ %s *__box = recvp(", t); gen_expr(s->right); print("); if(__box){ "); gen_expr(s->left); print(" = *__box; free(__box); } }\n");
+        Type *bt = channel_box_type(c, s->right, s->left);
+        char *t = bt != nil ? type_storage_for_codegen(bt) :
+            channel_box_storage(c, s->right, s->left);
+        print("\t{ O9ChanMsg *__box = recvp("); gen_expr(s->right); print("); if(__box){ ");
+        gen_channel_recv_assign(s->left, "__box", t, bt);
+        print(" o9_chan_free(__box); } }\n");
         break;
     }
     case NAlt:
@@ -5052,7 +5260,7 @@ void gen_cleanup_props(Node *c, char *childname) {
             if(p) gen_cleanup_props(p, childname);
         }
         if(m->type == NStream) {
-            print("\tif(((%s_Internal*)self)->%s != nil){ void *__box; while((__box = nbrecvp(((%s_Internal*)self)->%s)) != nil) free(__box); chanfree(((%s_Internal*)self)->%s); }\n",
+            print("\tif(((%s_Internal*)self)->%s != nil){ O9ChanMsg *__box; while((__box = nbrecvp(((%s_Internal*)self)->%s)) != nil) o9_chan_free(__box); chanfree(((%s_Internal*)self)->%s); }\n",
                 childname, m->name, childname, m->name, childname, m->name);
         }
         if(m->type == NProp || m->type == NState) {
@@ -8630,20 +8838,40 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
     case NChanSend:
     case NChanTry:
         {
-            Type *et;
+            Type *et, *at;
+            int bad;
 
             annotate_expr_type(e, scope_class);
+            check_channel_direction(scope_class, e->left, 0, errs);
             et = channel_elem_type(scope_class, e->left);
+            at = e->right != nil ? e->right->typeinfo : nil;
+            bad = type_is_collection(et, "Dict") || type_is_collection(at, "Dict");
+            if(bad){
+                fprint(2, "o9c: error: line %d: Dict values cannot be sent over channels yet\n",
+                    sem_line);
+                (*errs)++;
+                break;
+            }
             if(et != nil && !type_assignable_semantic(et, e->right != nil ? e->right->typeinfo : nil))
                 type_mismatch_error("send", et, e->right != nil ? e->right->typeinfo : nil, errs);
         }
         break;
     case NChanRecv:
         {
-            Type *et;
+            Type *et, *tt;
+            int bad;
 
             annotate_expr_type(e, scope_class);
+            check_channel_direction(scope_class, e->right, 1, errs);
             et = channel_elem_type(scope_class, e->right);
+            tt = e->left != nil ? e->left->typeinfo : nil;
+            bad = type_is_collection(et, "Dict") || type_is_collection(tt, "Dict");
+            if(bad){
+                fprint(2, "o9c: error: line %d: Dict values cannot be received over channels yet\n",
+                    sem_line);
+                (*errs)++;
+                break;
+            }
             if(et != nil && !type_assignable_semantic(e->left != nil ? e->left->typeinfo : nil, et))
                 type_mismatch_error("receive", e->left != nil ? e->left->typeinfo : nil, et, errs);
         }
@@ -8924,8 +9152,13 @@ check_node(Node *n, Node *scope_class, int *errs)
         }
         if(c->type == NStream){
             if(c->typeinfo != nil && c->typename != nil &&
-               strcmp(c->typename, "chan") != 0)
+                strcmp(c->typename, "chan") != 0)
                 validate_type(c->typeinfo, errs);
+            if(type_is_collection(c->typeinfo, "Dict")){
+                fprint(2, "o9c: error: line %d: Dict values cannot be used as channel payloads yet\n",
+                    c->line > 0 ? c->line : sem_line);
+                (*errs)++;
+            }
             continue;
         }
         if(c->type == NAlt){
@@ -9098,6 +9331,10 @@ dump_node_line(Node *n, int depth, char *label)
         print(" typename=%s", n->typename);
     if(n->flags & NFAbstract)
         print(" abstract");
+    if(n->flags & NFChanSendOnly)
+        print(" sendonly");
+    if(n->flags & NFChanRecvOnly)
+        print(" recvonly");
     if(n->qname != nil)
         print(" qname=%s", n->qname);
     if(n->cname != nil)
@@ -9549,16 +9786,16 @@ use_cdep_inner(char *name, int line, int *errs, int depth)
         (*errs)++;
         return;
     }
+    if(d->requires != nil && d->requires[0] != '\0'){
+        reqs = strdup(d->requires);
+        for(p = reqs; *p != '\0'; p++)
+            if(*p == ',')
+                *p = ' ';
+        for(tok = strtok(reqs, " \t\r\n"); tok != nil; tok = strtok(nil, " \t\r\n"))
+            use_cdep_inner(tok, line, errs, depth + 1);
+        free(reqs);
+    }
     mark_cdep_used(d);
-    if(d->requires == nil || d->requires[0] == '\0')
-        return;
-    reqs = strdup(d->requires);
-    for(p = reqs; *p != '\0'; p++)
-        if(*p == ',')
-            *p = ' ';
-    for(tok = strtok(reqs, " \t\r\n"); tok != nil; tok = strtok(nil, " \t\r\n"))
-        use_cdep_inner(tok, line, errs, depth + 1);
-    free(reqs);
 }
 
 static void

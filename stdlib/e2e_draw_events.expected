@@ -1,0 +1,4 @@
+mouse 10 20 1 1
+key 65 2
+resize 320 200 3
+count 3

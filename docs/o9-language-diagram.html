@@ -427,7 +427,7 @@
           </tr>
           <tr>
             <td class="kw">stream</td>
-            <td class="kw-desc">CSP channel field. Auto-created at construction. Buffered (8).</td>
+            <td class="kw-desc">Typed CSP channel field. Auto-created at construction. Buffered (8). Carries o9 values through the generic channel envelope.</td>
             <td class="kw-code">stream s;
 method void put(int64 v) { s -> v; }</td>
           </tr>
@@ -675,7 +675,7 @@ ns.apply();</td>
           </tr>
           <tr>
             <td class="kw">chan</td>
-            <td class="kw-desc">CSP channel field. Prefer typed <code>chan&lt;T&gt;</code> or <code>stream&lt;T&gt;</code>; legacy untyped channels still work.</td>
+            <td class="kw-desc">CSP channel field. Prefer typed <code>chan&lt;T&gt;</code> or <code>stream&lt;T&gt;</code>. Supports primitives, strings, structs, object handles, arrays, and <code>List&lt;T&gt;</code>; <code>Dict</code> payloads are deferred.</td>
             <td class="kw-code">chan&lt;int64&gt; c;
 stream&lt;string&gt; events;</td>
           </tr>
@@ -692,12 +692,12 @@ stream&lt;string&gt; events;</td>
         <tbody>
           <tr>
             <td class="kw">-&gt;</td>
-            <td class="kw-desc">Channel send. Boxes the value, sendp to channel.</td>
+            <td class="kw-desc">Channel send. Copies the typed value into a generic CSP envelope and sends it.</td>
             <td class="kw-code">c -> v;     // send v on channel c</td>
           </tr>
           <tr>
             <td class="kw">&lt;-</td>
-            <td class="kw-desc">Channel receive. recvp, unbox, return value.</td>
+            <td class="kw-desc">Channel receive. Receives the envelope and copies the typed value into the target.</td>
             <td class="kw-code">x = <- c;   // receive from c into x</td>
           </tr>
           <tr>
@@ -1094,6 +1094,20 @@ r.seed(12345);
 print(r.bounded(10), "\n");
 print(r.float(), "\n");</td>
           </tr>
+          <tr>
+            <td class="kw">draw</td>
+            <td class="kw-desc">First libdraw-facing object. DrawWindow renders snapshots, can show a live rio/libdraw surface, and supports headless visual probes.</td>
+            <td class="kw-code">import "draw.o9";
+DrawWindow w = new DrawWindow("o9 draw", 96, 48);
+w.background(0x203040);
+w.accent(0xe0c040);
+w.snapshotPng("/tmp/o9_draw_snapshot.png");
+w.show(3000);
+DrawVisualProbe p = new DrawVisualProbe("probe", 128, 72);
+p.click(64, 42);
+p.nextEvent();
+print(p.eventType(), "\n");</td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -1110,8 +1124,8 @@ print(r.float(), "\n");</td>
           <li>• Raw C in <code>function</code> bodies wraps Plan 9 libc calls</li>
           <li>• Classes expose methods; blocking ops use <code>spawn</code> + <code>await</code></li>
           <li>• <code>import "string.o9"</code> splices declarations into source</li>
-          <li>• 12 modules, all e2e tested with expected output</li>
-          <li>• Constrained deps: <code>use { bio }</code> for buffered I/O</li>
+          <li>• 13 modules, all e2e tested with expected output</li>
+          <li>• Constrained deps: <code>use { bio }</code> for buffered I/O, <code>use { memdraw }</code>/<code>use { draw }</code> for drawing</li>
         </ul>
       </div>
       <div class="card">
@@ -1133,27 +1147,32 @@ print(r.float(), "\n");</td>
           <li>• <code>collections</code> — list&lt;T&gt;, array&lt;T&gt;, dictionary&lt;T&gt;</li>
           <li>• <code>math</code> — sqrt, sin, cos, pow, floor, ceil, log, exp, abs (double)</li>
           <li>• <code>random</code> — PRNG + true entropy (seed, next, bounded, float, truerand)</li>
+          <li>• <code>draw</code> — DrawWindow snapshots, live rio/libdraw display, CSP visual probes</li>
         </ul>
       </div>
       <div class="card">
         <div class="card-header">
           <div class="card-dot amber"></div>
-          <h3>Future: libdraw</h3>
+          <h3>Draw Layer</h3>
         </div>
         <ul>
-          <li>• libdraw wrapper for o9 — display as 9P fileserver</li>
-          <li>• Window, Point, Font, Image classes</li>
-          <li>• Raw C blocks wrap libdraw calls</li>
-          <li>• GUI apps as o9 classes with dispatch loops</li>
-          <li>• Works on 9front (native libdraw) + Linux (drawterm)</li>
-          <li>• Per-process display namespace on 9lx</li>
+          <li>• <code>DrawWindow</code> stores ordinary o9 state: title, size, colors</li>
+          <li>• Snapshot tests write Plan 9 image files and convert them with <code>topng</code></li>
+          <li>• <code>show(ms)</code> paints a real <code>libdraw</code> surface with an o9 title band</li>
+          <li>• <code>DrawVisualProbe</code> renders before/after PNG frames around synthetic clicks</li>
+          <li>• <code>DrawEventLoop</code> routes mouse, key, and resize input through CSP channels</li>
+          <li>• Event channels currently carry one compact scalar code; <code>next()</code> exposes typed accessors</li>
+          <li>• Raw C wraps <code>libmemdraw</code>/<code>libdraw</code> without exposing image pointers</li>
+          <li>• Test artifact: <code>o9c/test/artifacts/o9_draw_snapshot.png</code></li>
+          <li>• Probe artifacts: <code>o9_draw_probe_before.png</code>, <code>o9_draw_probe_after.png</code></li>
+          <li>• Manual visual demo: <code>mk draw-window-demo</code></li>
         </ul>
       </div>
     </div>
 
     <!-- Footer -->
     <p class="footer">
-      o9 / objective-9c • Plan 9-native transpiler • 9front C target • CSP actor model • 12 stdlib modules
+      o9 / objective-9c • Plan 9-native transpiler • 9front C target • CSP actor model • 13 stdlib modules
     </p>
   </div>
 </body>

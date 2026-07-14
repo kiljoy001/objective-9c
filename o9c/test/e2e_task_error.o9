@@ -1,0 +1,37 @@
+function maybe(int64 n) int64 {
+    if(n < 0) {
+        fail("negative task");
+    }
+    return n + 1;
+}
+
+class Runner {
+    int64 log;
+
+    method Runner() {
+        log = 0;
+    }
+
+    method void mark() {
+        log = log + 1;
+    }
+
+    method int64 checked(int64 n) {
+        defer mark();
+        Task<int64> t = spawn maybe(n);
+        int64 v = try t.await();
+        return v + 10;
+    }
+
+    method int64 logged() {
+        return log;
+    }
+}
+
+main {
+    Runner r = new Runner();
+    print("ok ", r.checked(5), "\n");
+    print("log ", r.logged(), "\n");
+    print("bad ", r.checked(-1), "\n");
+    print("log ", r.logged(), "\n");
+}

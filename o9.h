@@ -146,6 +146,22 @@ extern void   o9_slice_set(O9Slice *s, vlong idx, void *val);
 extern void   o9_slice_setgrow(O9Slice *s, vlong idx, void *val);
 extern void   o9_slice_free(O9Slice *s);
 
+/* Generic CSP channel payload.  The compiler owns typechecking; this
+ * envelope only moves bytes and releases abandoned owned payloads. */
+typedef struct O9ChanMsg O9ChanMsg;
+struct O9ChanMsg {
+    int n;
+    int taken;
+    void (*drop)(void*);
+    uchar data[1];
+};
+
+extern O9ChanMsg* o9_chan_pack(void *src, int n);
+extern O9ChanMsg* o9_chan_pack_string(O9String *s);
+extern O9ChanMsg* o9_chan_pack_slice(O9Slice *s);
+extern int        o9_chan_take(O9ChanMsg *m, void *dst, int n);
+extern void       o9_chan_free(O9ChanMsg *m);
+
 /* Dict operations — chained hash table, serialized as "key:value\n" */
 typedef struct O9DictEntry {
 	O9String *key;

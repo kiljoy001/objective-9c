@@ -79,9 +79,10 @@ One identity, two forms:
 - **local fast form**: `(dispatch_chan, shm_base, gen)` — valid only
   in-process, guarded by the generation counter.
 
-Handles are CSP values: sending one down a channel transfers the
-capability (channel mobility). Crossing a process boundary degrades a
-handle to its oid; the far side re-resolves in its own ring.
+Channels carry typed o9 values through a generic byte envelope. Handles are
+CSP values too: sending one down a channel transfers the capability
+(channel mobility), not the actor memory. Crossing a process boundary
+degrades a handle to its oid; the far side re-resolves in its own ring.
 
 ## The Data Plane (libtab)
 
@@ -179,6 +180,6 @@ generic instantiation.
 - [x] **Phase 2**: clone/session facade with per-request session state
 - [x] **Phase 3**: `function`/`spawn`/`Task<T>` and stdlib object layer
 - [x] **Phase 4**: `MountTable` data layer and `Namespace` object
+- [x] **Phase 5**: directional public channel endpoints for UI/event APIs
 - [ ] Next: produced-file namespace surface beyond `exports/`;
-      higher-level 9P/client helpers; directional channel ends;
-      IL placement for `new near`
+      higher-level 9P/client helpers; IL placement for `new near`

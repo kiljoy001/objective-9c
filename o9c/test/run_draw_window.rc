@@ -1,0 +1,62 @@
+#!/bin/rc
+# Manual visual demo: compile the DrawWindow live libdraw example and open it
+# in a rio window when rio's window-control file is available.
+
+tool=./o9c/o9c
+src=stdlib/demo_draw_window.o9
+cfile=/tmp/o9_draw_window.$pid.c
+ofile=/tmp/o9_draw_window.$pid.6
+bin=/tmp/o9_draw_window.$pid
+mode=$1
+
+fn depincs {
+	awk '/^\/\* o9: include / { print "-I" $4 }' $1
+}
+
+fn deparchs {
+	awk '/^\/\* o9: archive / { print $4 }' $1
+}
+
+if(! test -e $tool){
+	echo missing $tool >[1=2]
+	exit missing
+}
+if(! test -e libo9.a){
+	echo missing libo9.a >[1=2]
+	exit missing
+}
+if(! $tool $src > $cfile){
+	echo draw-window-demo: transpile failed >[1=2]
+	rm -f $cfile $ofile $bin
+	exit transpile
+}
+incs=`{depincs $cfile}
+archs=`{deparchs $cfile}
+if(! 6c -FVw -I. $incs -o $ofile $cfile){
+	echo draw-window-demo: compile failed >[1=2]
+	rm -f $cfile $ofile $bin
+	exit compile
+}
+if(! 6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a $archs){
+	echo draw-window-demo: link failed >[1=2]
+	rm -f $cfile $ofile $bin
+	exit link
+}
+
+if(~ $mode compileonly){
+	echo draw-window-demo: build OK
+	rm -f $cfile $ofile $bin
+	exit ''
+}
+
+if(test -e /dev/wctl){
+	echo 'opening rio window for '$bin
+	window -dx 420 -dy 260 -noscroll $bin
+	sleep 8
+}
+if not{
+	echo '/dev/wctl not found; running in current draw context'
+	$bin
+}
+
+rm -f $cfile $ofile $bin

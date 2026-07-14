@@ -1,0 +1,58 @@
+class Box {
+    prop int64 value;
+
+    method Box(int64 v) {
+        value = v;
+    }
+
+    method int64 get() {
+        return value;
+    }
+}
+
+class ObjectPipe {
+    chan<Box> left;
+    chan<Box> right;
+
+    method void sendLeft(Box b) {
+        left -> b;
+    }
+
+    method void sendRight(Box b) {
+        right -> b;
+    }
+
+    method int64 takeLeft() {
+        Box b;
+
+        b = <- left;
+        return b.get();
+    }
+
+    method int64 takeAny() {
+        Box b;
+        int64 result;
+
+        alt {
+        case b = <- left:
+            result = b.get() + 10;
+        case b = <- right:
+            result = b.get() + 20;
+        }
+        return result;
+    }
+}
+
+main {
+    ObjectPipe p = new ObjectPipe();
+    Box a = new Box(7);
+    Box b = new Box(3);
+    Box c = new Box(5);
+
+    p.sendLeft(a);
+    print(p.takeLeft(), "\n");
+    p.sendRight(b);
+    print(p.takeAny(), "\n");
+    p.sendLeft(c);
+    print(p.takeAny(), "\n");
+}

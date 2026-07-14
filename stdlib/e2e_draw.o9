@@ -1,0 +1,15 @@
+import "draw.o9";
+import "file.o9";
+
+main {
+    DrawWindow w = new DrawWindow("o9 draw snapshot", 96, 48);
+    File img = new File("o9c/test/artifacts/o9_draw_snapshot.img");
+    File png = new File("o9c/test/artifacts/o9_draw_snapshot.png");
+
+    img.remove();
+    png.remove();
+
+    print("window ", w.title(), " ", w.width(), " ", w.height(), "\n");
+    print("snap ", w.snapshot("o9c/test/artifacts/o9_draw_snapshot.img"), " ", img.exists(), " ", img.size() > 0, "\n");
+    print("png ", w.snapshotPng("o9c/test/artifacts/o9_draw_snapshot.png"), " ", png.exists(), " ", png.size() > 0, "\n");
+}

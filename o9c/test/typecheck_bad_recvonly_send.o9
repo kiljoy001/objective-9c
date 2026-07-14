@@ -1,0 +1,8 @@
+class Button {
+    recv chan<int64> clicks;
+}
+
+main {
+    Button b = new Button();
+    b.clicks -> 1;
+}

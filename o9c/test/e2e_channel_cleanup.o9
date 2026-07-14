@@ -1,0 +1,34 @@
+class Queue {
+    chan<int64> q;
+
+    method Queue() {
+    }
+
+    method void put(int64 v) {
+        q -> v;
+    }
+
+    method int64 take() {
+        int64 v;
+        v = <- q;
+        return v;
+    }
+
+    ~Queue() {
+        print("cleanup\n");
+    }
+}
+
+main {
+    Queue q = new Queue();
+    q.put(1);
+    q.put(2);
+    q.put(3);
+    q.put(4);
+    q.put(5);
+    q.put(6);
+    q.put(7);
+    q.put(8);
+    delete q;
+    print("after\n");
+}

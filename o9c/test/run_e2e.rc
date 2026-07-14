@@ -160,6 +160,7 @@ runcase e2e_twoclass
 runcase e2e_state
 runcase e2e_error
 runcase e2e_try_precedence
+runcase e2e_task_error
 runcase e2e_self_send_guard
 runcase e2e_tabula
 runcase e2e_tabula_methods
@@ -168,8 +169,12 @@ runcase e2e_for
 runcase e2e_chan
 runcase e2e_stream
 runcase e2e_alt
+runcase e2e_directional_chan
+runcase e2e_channel_cleanup
 runcase e2e_tuple
 runcase e2e_typed_chan
+runcase e2e_object_chan
+runcase e2e_csp_values
 runcase e2e_module
 runcase e2e_widths
 runcase e2e_bool
@@ -199,6 +204,9 @@ stdlibcase e2e_io
 stdlibcase e2e_process
 stdlibcase e2e_net
 stdlibcase e2e_namespace
+stdlibcase e2e_draw
+stdlibcase e2e_draw_probe
+stdlibcase e2e_draw_events
 runcase e2e_hard_recursion
 runcase e2e_hard_nesttry
 runcase e2e_hard_defer

@@ -1,0 +1,13 @@
+class CommandSink {
+    send chan<int64> commands;
+}
+
+main {
+    CommandSink s = new CommandSink();
+    int64 v;
+
+    alt {
+    case v = <- s.commands:
+        v = v + 1;
+    }
+}

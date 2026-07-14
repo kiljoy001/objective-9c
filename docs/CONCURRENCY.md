@@ -1,8 +1,8 @@
 # o9 Concurrency
 
-Status: BUILT for object actors, typed channels/streams, `function`,
-`spawn`, `Task<T>`, and clone/session facade isolation. Directional channel
-ends are still design work.
+Status: BUILT for object actors, typed channels/streams, directional public
+channel endpoints, `function`, `spawn`, `Task<T>`, and clone/session facade
+isolation.
 
 ## Current Implementation
 
@@ -12,8 +12,8 @@ ends are still design work.
 - Object actor procs are real Plan 9 processes created with
   `proccreate`; separate object actors can run on separate cores.
 - `chan<T>` and `stream<T>` fields are typed object fields. They are
-  auto-created at construction and support send, try-send, receive, and
-  `alt`.
+  auto-created at construction and support send, try-send, receive, `alt`,
+  and public endpoint direction (`send chan<T>` / `recv chan<T>`).
 - `function name(args) T { ... }` is a compiler-synthesized class with a
   fixed spawn envelope and one user method, `run`.
 - `spawn name(args)` constructs a one-shot function instance, dispatches
@@ -122,6 +122,8 @@ Current channel surface:
 class Counter {
     stream<int64> events;
     chan<string> names;
+    recv chan<int64> publicEvents;
+    send chan<string> publicCommands;
 
     method void sendValue(int64 n) {
         events -> n;
@@ -137,13 +139,17 @@ class Counter {
 Built:
 
 - typed `chan<T>` and `stream<T>` fields
+- generic value transport for primitives, strings, structs, object handles,
+  tasks/stdlib handles, arrays, and `List<T>`
+- directional public endpoints with `send chan<T>` and `recv chan<T>`
 - blocking send/recv
 - try-send
 - `alt`
 
 Still future work:
 
-- directional channel ends, such as send-only and recv-only types
+- `Dict<K,V>` channel payloads, once Dict has typed value ownership instead
+  of `void*` entries
 - richer fan-in/fan-out helpers over many tasks or channels
 
 ## 9P Facade Concurrency
@@ -164,7 +170,6 @@ by per-session locks. There is no global `o9app_cur_session`.
 
 ## Remaining Work
 
-- Add directional channel-end checking.
 - Add higher-level task/channel collection helpers if real programs need
   fan-in beyond simple `await()` loops.
 - Continue adversarial testing around concurrent session calls, task

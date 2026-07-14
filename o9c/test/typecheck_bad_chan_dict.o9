@@ -1,0 +1,6 @@
+class Bad {
+    chan<Dict<string,int64> > values;
+}
+
+main {
+}

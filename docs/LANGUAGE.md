@@ -320,7 +320,12 @@ current method or function. `defer` runs cleanup at method/function exit.
 ## Channels And Streams
 
 `chan<T>` and `stream<T>` are object-internal CSP channels. They are created
-when the containing object is constructed.
+when the containing object is constructed. Channels carry typed o9 values:
+numbers, `bool`, `byte`, `double`, `string`, structs, object handles,
+arrays, `List<T>`, `Task<T>`, and stdlib handles. Sends copy the value at
+the channel boundary; object sends copy the object handle, not the actor's
+internal memory. `Dict<K,V>` is intentionally rejected as a channel payload
+until Dict has typed value ownership.
 
 ```o9
 class Pipe {
@@ -343,6 +348,41 @@ class Pipe {
 ```o9
 stream<string> events;
 ```
+
+Directional public endpoints can be declared with contextual `send` and
+`recv` prefixes:
+
+```o9
+class Widget {
+    recv chan<int64> events;
+    send chan<int64> commands;
+
+    method void emit(int64 v) {
+        events -> v;           // owner endpoint: allowed
+    }
+
+    method int64 nextCommand() {
+        int64 v;
+        v = <- commands;       // owner endpoint: allowed
+        return v;
+    }
+}
+
+main {
+    Widget w = new Widget();
+    int64 event;
+
+    w.emit(7);
+    event = <- w.events;       // public recv endpoint: allowed
+    w.commands -> 11;          // public send endpoint: allowed
+}
+```
+
+`recv chan<T>` means outside code may receive from `obj.field` but may not
+send to it. `send chan<T>` means outside code may send to `obj.field` but may
+not receive from it. Inside the declaring object, bare field use is the owner
+endpoint and remains bidirectional, so the object can feed its own event
+stream or drain its own command channel.
 
 Use `alt` to wait on multiple receives:
 

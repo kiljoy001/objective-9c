@@ -1,0 +1,17 @@
+import "draw.o9";
+import "file.o9";
+
+main {
+    DrawVisualProbe p = new DrawVisualProbe("probe", 128, 72);
+    File before = new File("o9c/test/artifacts/o9_draw_probe_before.png");
+    File after = new File("o9c/test/artifacts/o9_draw_probe_after.png");
+
+    before.remove();
+    after.remove();
+
+    print("before ", p.snapshotPng("o9c/test/artifacts/o9_draw_probe_before.png"), " ", p.count(), " ", before.exists(), " ", before.size() > 0, "\n");
+    print("click ", p.click(64, 42), " ", p.count(), " ", p.pressed(), "\n");
+    p.nextEvent();
+    print("event ", p.eventType(), " ", p.eventX(), " ", p.eventY(), " ", p.eventButtons(), " ", p.eventCount(), "\n");
+    print("after ", p.snapshotPng("o9c/test/artifacts/o9_draw_probe_after.png"), " ", after.exists(), " ", after.size() > 0, "\n");
+}

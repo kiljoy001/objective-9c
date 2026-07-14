@@ -1,0 +1,117 @@
+#!/bin/rc
+# Adversarial session stress: many shell clients allocate clone sessions,
+# call the same method concurrently, then read their own session data.
+# A global result buffer or global current-session pointer shows up here as
+# crossed results, bad status, or a hang.
+
+tool=./o9c/o9c
+app=o9sessstress
+src=o9c/test/session_stress_app.o9
+bin=/tmp/o9sessstress.$pid
+mtpt=/n/o9sessstress.$pid
+srv=/srv/o9.$app.$app.app
+res=/tmp/o9sessstress.result.$pid
+fail=0
+watch=()
+cases=(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15)
+
+fn killstress {
+	for(kpid in `{ps | awk '/o9sessstress\./ { print $2 }'}){
+		if(test -e /proc/$kpid/ctl)
+			@{ echo kill > /proc/$kpid/ctl } >[2]/dev/null
+	}
+}
+
+fn cleanup {
+	unmount $mtpt >[2]/dev/null
+	if(! ~ $#watch 0)
+		@{ echo kill > /proc/$watch/ctl } >[2]/dev/null
+	killstress
+	rm -f $srv $bin /tmp/o9sessstress.$pid.^* $res.^*
+}
+
+fn failmsg {
+	echo $* >[1=2]
+	fail=1
+}
+
+fn donecount {
+	n=0
+	for(f in $res.^*){
+		if(test -e $f)
+			n=`{hoc -e $n+1}
+	}
+	echo $n
+}
+
+fn runclient {
+	n=$1
+	sid=`{cat $mtpt/clone}
+	if(~ $sid ''){
+		echo FAIL empty sid > $res.$n
+		exit
+	}
+	echo method Echo.e id 'arg0='^$n > $mtpt/$sid/ctl
+	got=`{cat $mtpt/$sid/data}
+	stat=`{cat $mtpt/$sid/status}
+	echo close > $mtpt/$sid/ctl
+	if(~ $got $n && ~ $stat ok)
+		echo OK > $res.$n
+	if not
+		echo FAIL got $got status $stat want $n > $res.$n
+}
+
+killstress
+
+if(! test -e $tool){ echo missing $tool >[1=2]; exit missing }
+if(! test -e libo9.a){ echo missing libo9.a >[1=2]; exit missing }
+
+rm -f $srv $res.^*
+if(! $tool $src > /tmp/o9sessstress.$pid.c){ failmsg 'session-stress: transpile failed'; cleanup; exit fail }
+if(! 6c -FVw -I. -o /tmp/o9sessstress.$pid.6 /tmp/o9sessstress.$pid.c){ failmsg 'session-stress: 6c failed'; cleanup; exit fail }
+if(! 6l -o $bin /tmp/o9sessstress.$pid.6 libo9.a /$objtype/lib/libndb.a){ failmsg 'session-stress: 6l failed'; cleanup; exit fail }
+
+$bin $app &
+p=$apid
+@{ sleep 20; kill $p >/dev/null >[2=1] } &
+watch=$apid
+
+i=0
+while(! test -e $srv && test $i -lt 12){
+	sleep 1
+	i=`{hoc -e $i+1}
+}
+if(! test -e $srv){ failmsg 'session-stress: no /srv post'; cleanup; exit fail }
+
+if(! mount -c $srv $mtpt){ failmsg 'session-stress: mount failed'; cleanup; exit fail }
+
+for(i in $cases)
+	runclient $i &
+
+want=16
+limit=0
+while(! ~ `{donecount} $want && test $limit -lt 80){
+	sleep 0.25
+	limit=`{hoc -e $limit+1}
+}
+
+if(! ~ `{donecount} $want)
+	failmsg 'session-stress: timeout waiting for clients'
+
+	for(i in $cases){
+		if(! test -e $res.$i){
+			failmsg session-stress: missing result $i
+		}
+		if not{
+			got=`{cat $res.$i}
+			if(! ~ $got OK)
+				failmsg session-stress: client $i $got
+		}
+	}
+
+cleanup
+
+if(~ $fail 0)
+	echo session_stress: OK
+if not
+	exit fail

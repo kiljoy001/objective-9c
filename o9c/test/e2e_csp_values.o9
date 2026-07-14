@@ -1,0 +1,120 @@
+struct Point {
+    int64 x;
+    int64 y;
+}
+
+class ValuePipe {
+    chan<double> doubles;
+    chan<byte> bytes;
+    chan<bool> bools;
+    chan<string> strings;
+    chan<Point> points;
+    chan<List<int64> > lists;
+    chan<int64[]> arrays;
+
+    method void sendBasics() {
+        doubles -> 1.5;
+        bytes -> 200;
+        bools -> true;
+        strings -> "hello";
+    }
+
+    method double takeDouble() {
+        double v;
+
+        v = <- doubles;
+        return v;
+    }
+
+    method byte takeByte() {
+        byte v;
+
+        v = <- bytes;
+        return v;
+    }
+
+    method bool takeBool() {
+        bool v;
+
+        v = <- bools;
+        return v;
+    }
+
+    method string takeString() {
+        string v;
+
+        v = <- strings;
+        return v;
+    }
+
+    method void sendPoint(int64 x, int64 y) {
+        Point p;
+
+        p.x = x;
+        p.y = y;
+        points -> p;
+        p.x = 99;
+    }
+
+    method int64 takePoint() {
+        Point p;
+
+        p = <- points;
+        return p.x * 10 + p.y;
+    }
+
+    method void sendList() {
+        List<int64> xs;
+
+        xs.Add(4);
+        xs.Add(6);
+        lists -> xs;
+        xs[1] = 99;
+    }
+
+    method int64 takeList() {
+        List<int64> xs;
+
+        xs = <- lists;
+        xs[0] = xs[0] + 1;
+        return xs[0] + xs[1] + xs.Length();
+    }
+
+    method void sendArray() {
+        int64[] xs;
+
+        xs[0] = 1;
+        xs[1] = 2;
+        xs[2] = 3;
+        arrays -> xs;
+        xs[1] = 99;
+    }
+
+    method int64 takeArray() {
+        int64[] xs;
+
+        xs = <- arrays;
+        return xs[0] + xs[1] + xs[2];
+    }
+}
+
+main {
+    ValuePipe p = new ValuePipe();
+    string s;
+
+    p.sendBasics();
+    print("double ", p.takeDouble(), "\n");
+    print("byte ", p.takeByte(), "\n");
+    print("bool ", p.takeBool(), "\n");
+    s = p.takeString();
+    print("string ", cmp(s, "hello"), " ", len(s), "\n");
+
+    p.sendPoint(4, 7);
+    print("point ", p.takePoint(), "\n");
+
+    p.sendList();
+    print("list ", p.takeList(), "\n");
+
+    p.sendArray();
+    print("array ", p.takeArray(), "\n");
+}

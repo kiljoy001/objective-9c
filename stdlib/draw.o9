@@ -1,0 +1,705 @@
+function DrawSnapshotRaw(string path, int64 width, int64 height, int64 background, int64 accent) int64 {
+    use { memdraw }
+
+    int64 out;
+    c {
+        char *p;
+        Memimage *img, *bar, *block;
+        Rectangle r;
+        ulong bg, ac, shade;
+        int fd, barh, blockw, blockh, x0, y0;
+
+        out = 0;
+        p = o9_string_cstr(path);
+        if(p != nil && width > 0 && height > 0 && width <= 4096 && height <= 4096){
+            bg = (ulong)background;
+            ac = (ulong)accent;
+            if((bg & 0xFF000000UL) == 0)
+                bg = ((bg & 0xFFFFFFUL) << 8) | 0xFFUL;
+            if((ac & 0xFF000000UL) == 0)
+                ac = ((ac & 0xFFFFFFUL) << 8) | 0xFFUL;
+            shade = (((bg >> 1) & 0x7F7F7F00UL) | 0xFFUL) ^ 0x30303000UL;
+
+            memimageinit();
+            r = Rect(0, 0, width, height);
+            img = allocmemimage(r, RGB24);
+            if(img != nil){
+                memfillcolor(img, bg);
+
+                barh = height / 5;
+                if(barh < 4)
+                    barh = 4;
+                if(barh > height)
+                    barh = height;
+                bar = allocmemimage(Rect(0, 0, width, barh), RGB24);
+                if(bar != nil){
+                    memfillcolor(bar, ac);
+                    memimagedraw(img, Rect(0, 0, width, barh), bar, ZP, memopaque, ZP, S);
+                    freememimage(bar);
+                }
+
+                blockw = width / 3;
+                blockh = height / 3;
+                if(blockw < 4)
+                    blockw = 4;
+                if(blockh < 4)
+                    blockh = 4;
+                if(blockw > width)
+                    blockw = width;
+                if(blockh > height)
+                    blockh = height;
+                x0 = (width - blockw) / 2;
+                y0 = (height - blockh) / 2;
+                block = allocmemimage(Rect(0, 0, blockw, blockh), RGB24);
+                if(block != nil){
+                    memfillcolor(block, shade);
+                    memimagedraw(img, Rect(x0, y0, x0 + blockw, y0 + blockh), block, ZP, memopaque, ZP, S);
+                    freememimage(block);
+                }
+
+                fd = create(p, OWRITE, 0666);
+                if(fd >= 0){
+                    if(writememimage(fd, img) >= 0)
+                        out = 1;
+                    close(fd);
+                }
+                freememimage(img);
+            }
+        }
+        free(p);
+    }
+    return out;
+}
+
+function DrawToPngRaw(string imagePath, string pngPath) int64 {
+    int64 out;
+    c {
+        char *img, *png;
+        int fd, pid, ok, got;
+        Waitmsg *w;
+        Dir *d;
+
+        out = 0;
+        img = o9_string_cstr(imagePath);
+        png = o9_string_cstr(pngPath);
+        if(img != nil && png != nil && img[0] != '\0' && png[0] != '\0'){
+            pid = rfork(RFPROC|RFFDG|RFNOTEG);
+            if(pid == 0){
+                fd = create(png, OWRITE, 0666);
+                if(fd < 0)
+                    exits("create");
+                dup(fd, 1);
+                close(fd);
+                execl("/bin/topng", "topng", img, nil);
+                exits("exec");
+            }
+            if(pid > 0){
+                ok = 0;
+                for(;;){
+                    w = wait();
+                    if(w == nil)
+                        break;
+                    got = w->pid;
+                    if(got == pid && (w->msg == nil || w->msg[0] == '\0'))
+                        ok = 1;
+                    free(w);
+                    if(got == pid)
+                        break;
+                }
+                if(ok){
+                    d = dirstat(png);
+                    if(d != nil){
+                        if(d->length > 0)
+                            out = 1;
+                        free(d);
+                    }
+                }
+            }
+        }
+        free(img);
+        free(png);
+    }
+    return out;
+}
+
+function DrawRemoveRaw(string path) int64 {
+    int64 out;
+    c {
+        char *p;
+
+        out = 0;
+        p = o9_string_cstr(path);
+        if(p != nil){
+            if(remove(p) == 0)
+                out = 1;
+            free(p);
+        }
+    }
+    return out;
+}
+
+function DrawShowRaw(string title, int64 width, int64 height, int64 background, int64 accent, int64 milliseconds) int64 {
+    use { draw }
+
+    int64 out;
+    c {
+        char *t;
+        char label[192];
+        Image *bg, *bar, *ink, *shade, *panel, *edge;
+        Rectangle wr, titlebar, body, card;
+        Point p;
+        ulong bgc, acc, shadec, panelc;
+        int fd, barh, pad, ms;
+
+        out = 0;
+        t = o9_string_cstr(title);
+        if(t != nil && width > 0 && height > 0 && width <= 4096 && height <= 4096){
+            bgc = (ulong)background;
+            acc = (ulong)accent;
+            if((bgc & 0xFF000000UL) == 0)
+                bgc = ((bgc & 0xFFFFFFUL) << 8) | 0xFFUL;
+            if((acc & 0xFF000000UL) == 0)
+                acc = ((acc & 0xFFFFFFUL) << 8) | 0xFFUL;
+            shadec = (((bgc >> 1) & 0x7F7F7F00UL) | 0xFFUL) ^ 0x20283000UL;
+            panelc = (((bgc >> 1) & 0x7F7F7F00UL) | 0xFFUL) ^ 0x10182000UL;
+
+            fd = open("/dev/wctl", OWRITE);
+            if(fd >= 0){
+                fprint(fd, "resize -dx %lld -dy %lld", width, height);
+                close(fd);
+            }
+            fd = open("/dev/label", OWRITE);
+            if(fd >= 0){
+                fprint(fd, "%s", t);
+                close(fd);
+            }
+
+            if(initdraw(nil, nil, t) >= 0){
+                bg = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, bgc);
+                bar = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, acc);
+                ink = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, 0xFFFFFFFFUL);
+                shade = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, shadec);
+                panel = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, panelc);
+                edge = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, 0x405060FFUL);
+                if(bg != nil && bar != nil && ink != nil && shade != nil && panel != nil && edge != nil){
+                    wr = screen->r;
+                    barh = font->height + 14;
+                    if(barh < 28)
+                        barh = 28;
+                    if(barh > Dy(wr))
+                        barh = Dy(wr);
+                    pad = 10;
+
+                    draw(screen, wr, bg, nil, ZP);
+                    titlebar = Rect(wr.min.x, wr.min.y, wr.max.x, wr.min.y + barh);
+                    draw(screen, titlebar, bar, nil, ZP);
+                    border(screen, insetrect(wr, 1), 1, edge, ZP);
+
+                    snprint(label, sizeof label, "o9 draw: %s", t);
+                    p = Pt(wr.min.x + pad, wr.min.y + (barh - font->height) / 2);
+                    string(screen, addpt(p, Pt(1, 1)), shade, ZP, font, label);
+                    string(screen, p, ink, ZP, font, label);
+
+                    body = Rect(wr.min.x + pad, wr.min.y + barh + pad, wr.max.x - pad, wr.max.y - pad);
+                    if(Dx(body) > 8 && Dy(body) > 8){
+                        draw(screen, body, shade, nil, ZP);
+                        card = insetrect(body, 8);
+                        if(Dx(card) > 8 && Dy(card) > font->height + 16){
+                            draw(screen, card, panel, nil, ZP);
+                            border(screen, card, 1, edge, ZP);
+                            p = Pt(card.min.x + 10, card.min.y + 10);
+                            string(screen, p, ink, ZP, font, "not in kansas anymore");
+                            p = Pt(card.min.x + 10, card.min.y + 10 + font->height + 6);
+                            string(screen, p, ink, ZP, font, "o9 stdlib owns this libdraw surface");
+                        }
+                    }
+
+                    flushimage(display, 1);
+                    ms = milliseconds;
+                    if(ms <= 0)
+                        ms = 3000;
+                    sleep(ms);
+                    out = 1;
+                }
+                if(edge != nil)
+                    freeimage(edge);
+                if(panel != nil)
+                    freeimage(panel);
+                if(shade != nil)
+                    freeimage(shade);
+                if(ink != nil)
+                    freeimage(ink);
+                if(bar != nil)
+                    freeimage(bar);
+                if(bg != nil)
+                    freeimage(bg);
+                closedisplay(display);
+            }
+        }
+        free(t);
+    }
+    return out;
+}
+
+function DrawProbeSnapshotRaw(string path, int64 width, int64 height, int64 background, int64 accent, int64 count, int64 lastx, int64 lasty, bool pressed) int64 {
+    use { memdraw }
+
+    int64 out;
+    c {
+        char *p;
+        Memimage *img, *bar, *button, *buttonedge, *dot, *tick;
+        Rectangle r, br, rr;
+        ulong bg, ac, body, edge, marker;
+        int fd, barh, bx0, by0, bw, bh, i, tx;
+
+        out = 0;
+        p = o9_string_cstr(path);
+        if(p != nil && width > 0 && height > 0 && width <= 4096 && height <= 4096){
+            bg = (ulong)background;
+            ac = (ulong)accent;
+            if((bg & 0xFF000000UL) == 0)
+                bg = ((bg & 0xFFFFFFUL) << 8) | 0xFFUL;
+            if((ac & 0xFF000000UL) == 0)
+                ac = ((ac & 0xFFFFFFUL) << 8) | 0xFFUL;
+            body = pressed ? ac : ((((bg >> 1) & 0x7F7F7F00UL) | 0xFFUL) ^ 0x20202000UL);
+            edge = 0xF0F0F0FFUL;
+            marker = 0xFFFFFFFFUL;
+
+            memimageinit();
+            r = Rect(0, 0, width, height);
+            img = allocmemimage(r, RGB24);
+            if(img != nil){
+                memfillcolor(img, bg);
+                barh = height / 6;
+                if(barh < 8)
+                    barh = 8;
+                if(barh > height)
+                    barh = height;
+                bar = allocmemimage(Rect(0, 0, width, barh), RGB24);
+                if(bar != nil){
+                    memfillcolor(bar, ac);
+                    memimagedraw(img, Rect(0, 0, width, barh), bar, ZP, memopaque, ZP, S);
+                    freememimage(bar);
+                }
+
+                bw = width / 2;
+                bh = height / 4;
+                if(bw < 24)
+                    bw = 24;
+                if(bh < 14)
+                    bh = 14;
+                if(bw > width - 8)
+                    bw = width - 8;
+                if(bh > height - barh - 8)
+                    bh = height - barh - 8;
+                bx0 = (width - bw) / 2;
+                by0 = barh + (height - barh - bh) / 2;
+                br = Rect(bx0, by0, bx0 + bw, by0 + bh);
+
+                buttonedge = allocmemimage(Rect(0, 0, bw, bh), RGB24);
+                button = allocmemimage(Rect(0, 0, bw - 4, bh - 4), RGB24);
+                if(buttonedge != nil && button != nil){
+                    memfillcolor(buttonedge, edge);
+                    memfillcolor(button, body);
+                    memimagedraw(img, br, buttonedge, ZP, memopaque, ZP, S);
+                    memimagedraw(img, insetrect(br, 2), button, ZP, memopaque, ZP, S);
+                }
+                if(button != nil)
+                    freememimage(button);
+                if(buttonedge != nil)
+                    freememimage(buttonedge);
+
+                tick = allocmemimage(Rect(0, 0, 4, 8), RGB24);
+                if(tick != nil){
+                    memfillcolor(tick, edge);
+                    for(i = 0; i < count && i < 24; i++){
+                        tx = 8 + i * 6;
+                        if(tx + 4 <= width)
+                            memimagedraw(img, Rect(tx, height - 12, tx + 4, height - 4), tick, ZP, memopaque, ZP, S);
+                    }
+                    freememimage(tick);
+                }
+
+                if(lastx >= 0 && lasty >= 0 && lastx < width && lasty < height){
+                    dot = allocmemimage(Rect(0, 0, 5, 5), RGB24);
+                    if(dot != nil){
+                        memfillcolor(dot, marker);
+                        rr = Rect(lastx - 2, lasty - 2, lastx + 3, lasty + 3);
+                        memimagedraw(img, rr, dot, ZP, memopaque, ZP, S);
+                        freememimage(dot);
+                    }
+                }
+
+                fd = create(p, OWRITE, 0666);
+                if(fd >= 0){
+                    if(writememimage(fd, img) >= 0)
+                        out = 1;
+                    close(fd);
+                }
+                freememimage(img);
+            }
+        }
+        free(p);
+    }
+    return out;
+}
+
+class DrawWindow {
+    prop string label;
+    prop int64 w;
+    prop int64 h;
+    prop int64 bg;
+    prop int64 fg;
+
+    method DrawWindow(string title, int64 width, int64 height) {
+        label = title;
+        w = width;
+        h = height;
+        bg = 0x203040;
+        fg = 0xe0c040;
+    }
+
+    method string title() {
+        return label;
+    }
+
+    method int64 width() {
+        return w;
+    }
+
+    method int64 height() {
+        return h;
+    }
+
+    method void resize(int64 width, int64 height) {
+        w = width;
+        h = height;
+    }
+
+    method void background(int64 rgb) {
+        bg = rgb;
+    }
+
+    method void accent(int64 rgb) {
+        fg = rgb;
+    }
+
+    method bool snapshot(string path) {
+        Task<int64> t = spawn DrawSnapshotRaw(path, w, h, bg, fg);
+        return t.await() > 0;
+    }
+
+    method bool snapshotPng(string path) {
+        string image;
+        int64 ok;
+        Task<int64> snap;
+        Task<int64> png;
+        Task<int64> rm;
+
+        image = cat(path, ".img");
+        snap = spawn DrawSnapshotRaw(image, w, h, bg, fg);
+        if(snap.await() <= 0) {
+            return false;
+        }
+        png = spawn DrawToPngRaw(image, path);
+        ok = png.await();
+        rm = spawn DrawRemoveRaw(image);
+        rm.await();
+        return ok > 0;
+    }
+
+    method bool show(int64 milliseconds) {
+        Task<int64> t = spawn DrawShowRaw(label, w, h, bg, fg, milliseconds);
+        return t.await() > 0;
+    }
+}
+
+class DrawEvent {
+    prop string kind;
+    prop int64 x;
+    prop int64 y;
+    prop int64 buttons;
+    prop int64 key;
+    prop int64 width;
+    prop int64 height;
+
+    method DrawEvent(string eventKind, int64 px, int64 py, int64 buttonMask, int64 keyCode, int64 eventWidth, int64 eventHeight) {
+        kind = eventKind;
+        x = px;
+        y = py;
+        buttons = buttonMask;
+        key = keyCode;
+        width = eventWidth;
+        height = eventHeight;
+    }
+
+    method string type() {
+        return kind;
+    }
+
+    method bool isMouse() {
+        return kind == "mouse";
+    }
+
+    method bool isKey() {
+        return kind == "key";
+    }
+
+    method bool isResize() {
+        return kind == "resize";
+    }
+}
+
+class DrawEventLoop {
+    recv chan<int64> events;
+    send chan<int64> commands;
+    prop bool active;
+    prop int64 handled;
+    prop int64 lastCode;
+    prop int64 lastX;
+    prop int64 lastY;
+    prop int64 lastButtons;
+    prop int64 lastKey;
+    prop int64 lastWidth;
+    prop int64 lastHeight;
+
+    method DrawEventLoop() {
+        active = false;
+        handled = 0;
+        lastCode = 0;
+        lastX = 0;
+        lastY = 0;
+        lastButtons = 0;
+        lastKey = 0;
+        lastWidth = 0;
+        lastHeight = 0;
+    }
+
+    method void start() {
+        active = true;
+    }
+
+    method void stop() {
+        active = false;
+        commands -> 0;
+    }
+
+    method bool running() {
+        return active;
+    }
+
+    method int64 count() {
+        return handled;
+    }
+
+    method void mouse(int64 x, int64 y, int64 buttons) {
+        if(active) {
+            events -> 1000000000000 + x * 100000000 + y * 10000 + buttons;
+        }
+    }
+
+    method void key(int64 keyCode) {
+        if(active) {
+            events -> 2000000000000 + keyCode;
+        }
+    }
+
+    method void resize(int64 width, int64 height) {
+        if(active) {
+            events -> 3000000000000 + width * 1000000 + height;
+        }
+    }
+
+    method int64 next() {
+        int64 packed;
+        int64 rest;
+        int64 code;
+
+        packed = <- events;
+        code = packed / 1000000000000;
+        rest = packed % 1000000000000;
+        lastCode = code;
+        lastX = 0;
+        lastY = 0;
+        lastButtons = 0;
+        lastKey = 0;
+        lastWidth = 0;
+        lastHeight = 0;
+        if(code == 1) {
+            lastX = rest / 100000000;
+            lastY = (rest / 10000) % 10000;
+            lastButtons = rest % 10000;
+        } else {
+            if(code == 2) {
+                lastKey = rest;
+            } else {
+                if(code == 3) {
+                    lastWidth = rest / 1000000;
+                    lastHeight = rest % 1000000;
+                }
+            }
+        }
+        handled = handled + 1;
+        return code;
+    }
+
+    method string eventType() {
+        if(lastCode == 1) {
+            return "mouse";
+        }
+        if(lastCode == 2) {
+            return "key";
+        }
+        if(lastCode == 3) {
+            return "resize";
+        }
+        return "unknown";
+    }
+
+    method int64 eventX() {
+        return lastX;
+    }
+
+    method int64 eventY() {
+        return lastY;
+    }
+
+    method int64 eventButtons() {
+        return lastButtons;
+    }
+
+    method int64 eventKey() {
+        return lastKey;
+    }
+
+    method int64 eventWidth() {
+        return lastWidth;
+    }
+
+    method int64 eventHeight() {
+        return lastHeight;
+    }
+
+    method int64 nextCommand() {
+        int64 cmd;
+        cmd = <- commands;
+        return cmd;
+    }
+}
+
+class DrawVisualProbe {
+    prop DrawWindow window;
+    prop int64 clicks;
+    prop int64 lx;
+    prop int64 ly;
+    prop bool down;
+    prop DrawEventLoop loop;
+
+    method DrawVisualProbe(string title, int64 width, int64 height) {
+        window = new DrawWindow(title, width, height);
+        clicks = 0;
+        lx = -1;
+        ly = -1;
+        down = false;
+        loop = new DrawEventLoop();
+        loop.start();
+    }
+
+    method int64 count() {
+        return clicks;
+    }
+
+    method bool pressed() {
+        return down;
+    }
+
+    method bool click(int64 x, int64 y) {
+        int64 barh;
+        int64 bw;
+        int64 bh;
+        int64 bx0;
+        int64 by0;
+
+        lx = x;
+        ly = y;
+        loop.mouse(x, y, 1);
+        barh = window.height() / 6;
+        if(barh < 8) {
+            barh = 8;
+        }
+        if(barh > window.height()) {
+            barh = window.height();
+        }
+        bw = window.width() / 2;
+        bh = window.height() / 4;
+        if(bw < 24) {
+            bw = 24;
+        }
+        if(bh < 14) {
+            bh = 14;
+        }
+        if(bw > window.width() - 8) {
+            bw = window.width() - 8;
+        }
+        if(bh > window.height() - barh - 8) {
+            bh = window.height() - barh - 8;
+        }
+        bx0 = (window.width() - bw) / 2;
+        by0 = barh + (window.height() - barh - bh) / 2;
+        if(x >= bx0 && x < bx0 + bw && y >= by0 && y < by0 + bh) {
+            clicks = clicks + 1;
+            down = !down;
+            return true;
+        }
+        down = false;
+        return false;
+    }
+
+    method int64 nextEvent() {
+        return loop.next();
+    }
+
+    method int64 eventCount() {
+        return loop.count();
+    }
+
+    method string eventType() {
+        return loop.eventType();
+    }
+
+    method int64 eventX() {
+        return loop.eventX();
+    }
+
+    method int64 eventY() {
+        return loop.eventY();
+    }
+
+    method int64 eventButtons() {
+        return loop.eventButtons();
+    }
+
+    method bool snapshot(string path) {
+        Task<int64> t = spawn DrawProbeSnapshotRaw(path, window.width(), window.height(), 0x203040, 0xe0c040, clicks, lx, ly, down);
+        return t.await() > 0;
+    }
+
+    method bool snapshotPng(string path) {
+        string image;
+        int64 ok;
+        Task<int64> snap;
+        Task<int64> png;
+        Task<int64> rm;
+
+        image = cat(path, ".img");
+        snap = spawn DrawProbeSnapshotRaw(image, window.width(), window.height(), 0x203040, 0xe0c040, clicks, lx, ly, down);
+        if(snap.await() <= 0) {
+            return false;
+        }
+        png = spawn DrawToPngRaw(image, path);
+        ok = png.await();
+        rm = spawn DrawRemoveRaw(image);
+        rm.await();
+        return ok > 0;
+    }
+}

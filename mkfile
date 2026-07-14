@@ -41,6 +41,12 @@ export-test:V:	o9c libo9.a
 session-test:V:	o9c libo9.a
 	rc ./o9c/test/run_session.rc
 
+session-stress-test:V:	o9c libo9.a
+	rc ./o9c/test/run_session_stress.rc
+
+draw-window-demo:V:	o9c libo9.a
+	rc ./o9c/test/run_draw_window.rc
+
 sessreuse-test:V:	o9c libo9.a
 	rc ./o9c/test/run_sessreuse.rc
 

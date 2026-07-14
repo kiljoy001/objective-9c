@@ -1,0 +1,10 @@
+class Echo {
+    method int64 id(int64 n) {
+        return n;
+    }
+}
+
+main {
+    Echo e = new Echo();
+    serve();
+}

@@ -1,0 +1,4 @@
+before 1 0 1 1
+click 1 1 1
+event mouse 64 42 1 1
+after 1 1 1

@@ -3811,6 +3811,109 @@ o9_slice_free(O9Slice *s)
 	if(s) free(s->data);
 }
 
+static void
+o9_chan_drop_string(void *p)
+{
+	O9String *s;
+
+	if(p == nil)
+		return;
+	s = *(O9String**)p;
+	o9_string_release(s);
+}
+
+static void
+o9_chan_drop_slice(void *p)
+{
+	O9Slice *s;
+
+	s = (O9Slice*)p;
+	if(s != nil)
+		free(s->data);
+}
+
+O9ChanMsg*
+o9_chan_pack(void *src, int n)
+{
+	O9ChanMsg *m;
+
+	if(n < 0)
+		n = 0;
+	m = mallocz(sizeof(O9ChanMsg) + n, 1);
+	if(m == nil)
+		return nil;
+	m->n = n;
+	if(src != nil && n > 0)
+		memmove(m->data, src, n);
+	return m;
+}
+
+O9ChanMsg*
+o9_chan_pack_string(O9String *s)
+{
+	O9String *r;
+	O9ChanMsg *m;
+
+	r = o9_string_retain(s);
+	m = o9_chan_pack(&r, sizeof r);
+	if(m == nil){
+		o9_string_release(r);
+		return nil;
+	}
+	m->drop = o9_chan_drop_string;
+	return m;
+}
+
+O9ChanMsg*
+o9_chan_pack_slice(O9Slice *s)
+{
+	O9Slice tmp;
+	vlong nbytes;
+	O9ChanMsg *m;
+
+	memset(&tmp, 0, sizeof tmp);
+	if(s != nil){
+		tmp.len = s->len;
+		tmp.cap = s->len;
+		tmp.elemsize = s->elemsize;
+		nbytes = tmp.len * tmp.elemsize;
+		if(nbytes > 0 && s->data != nil){
+			tmp.data = malloc(nbytes);
+			if(tmp.data == nil)
+				return nil;
+			memmove(tmp.data, s->data, nbytes);
+		}
+	}
+	m = o9_chan_pack(&tmp, sizeof tmp);
+	if(m == nil){
+		free(tmp.data);
+		return nil;
+	}
+	m->drop = o9_chan_drop_slice;
+	return m;
+}
+
+int
+o9_chan_take(O9ChanMsg *m, void *dst, int n)
+{
+	if(m == nil || dst == nil || n < 0 || n != m->n)
+		return -1;
+	if(n > 0)
+		memmove(dst, m->data, n);
+	m->taken = 1;
+	return 0;
+}
+
+void
+o9_chan_free(O9ChanMsg *m)
+{
+	if(m == nil)
+		return;
+	if(!m->taken && m->drop != nil)
+		m->drop(m->data);
+	free(m);
+}
+
 /*
  * o9_dict_init — initialize dict to empty.
  */

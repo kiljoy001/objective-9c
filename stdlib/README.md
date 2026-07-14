@@ -25,6 +25,7 @@ import "path.o9";
 import "process.o9";
 import "random.o9";
 import "time.o9";
+import "draw.o9";
 ```
 
 ## String
@@ -524,11 +525,90 @@ main {
 - `validate() bool`
 - `apply() bool`
 - `read() string`
-- `query(string column, string value) Tabula`
 
-The raw flag values mirror Plan 9: replace is `0`, before is `1`, after is
-`2`, and create is `4`. The value `3` is intentionally invalid because it
-sets both before and after.
+## Draw
+
+`DrawWindow` is the first libdraw-facing object. It keeps ordinary o9 state
+for title, size, and colors, then hides the raw C helpers behind object
+methods. Snapshot methods render through `libmemdraw`/`topng`, while `show`
+opens a live `libdraw` surface and paints an o9-owned title band inside the
+window.
+
+The e2e draw test leaves its latest PNG at
+`o9c/test/artifacts/o9_draw_snapshot.png` for inspection. Live windows are
+manual because they require rio/devdraw; run `mk draw-window-demo` from a rio
+session to open the demo window. `DrawVisualProbe` adds a headless visual
+interaction loop for testing: render a PNG, send a synthetic click, then render
+the next PNG.
+
+```o9
+import "draw.o9";
+
+main {
+    DrawWindow w = new DrawWindow("o9 draw snapshot", 96, 48);
+    w.background(0x203040);
+    w.accent(0xe0c040);
+    w.snapshotPng("/tmp/o9_draw_snapshot.png");
+    w.show(3000);
+
+    DrawVisualProbe p = new DrawVisualProbe("probe", 128, 72);
+    p.snapshotPng("/tmp/probe-before.png");
+    p.click(64, 42);
+    p.snapshotPng("/tmp/probe-after.png");
+}
+```
+
+Methods:
+
+- `DrawWindow(string title, int64 width, int64 height)`
+- `title() string`
+- `width() int64`
+- `height() int64`
+- `resize(int64 width, int64 height)`
+- `background(int64 rgb)`
+- `accent(int64 rgb)`
+- `snapshot(string path) bool`
+- `snapshotPng(string path) bool`
+- `show(int64 milliseconds) bool`
+
+`DrawVisualProbe` methods:
+
+- `DrawVisualProbe(string title, int64 width, int64 height)`
+- `click(int64 x, int64 y) bool`
+- `nextEvent() int64`
+- `eventType() string`
+- `eventX() int64`
+- `eventY() int64`
+- `eventButtons() int64`
+- `eventCount() int64`
+- `snapshot(string path) bool`
+- `snapshotPng(string path) bool`
+- `count() int64`
+- `pressed() bool`
+
+`DrawEventLoop` is the CSP event bus used by the probe and future live
+widgets. Inputs send one packed scalar event over a channel; `next()` decodes
+that event into accessor state on the loop. The channel runtime can carry
+typed o9 values; this loop still uses a compact scalar event code until the
+draw API grows a dedicated event value.
+
+`DrawEventLoop` methods:
+
+- `start()`
+- `stop()`
+- `running() bool`
+- `mouse(int64 x, int64 y, int64 buttons)`
+- `key(int64 keyCode)`
+- `resize(int64 width, int64 height)`
+- `next() int64`
+- `eventType() string`
+- `eventX() int64`
+- `eventY() int64`
+- `eventButtons() int64`
+- `eventKey() int64`
+- `eventWidth() int64`
+- `eventHeight() int64`
+- `count() int64`
 
 ## Net
 

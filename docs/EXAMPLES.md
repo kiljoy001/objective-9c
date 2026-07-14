@@ -126,6 +126,67 @@ main {
 `Namespace` is the normal API. `MountTable` is the lower-level Tabula-backed
 representation for storing or sending mount/bind parameters.
 
+## Draw Window
+
+`DrawWindow` can render deterministic PNG snapshots for tests, or show a live
+rio/libdraw surface for manual visual checks.
+
+```o9
+import "draw.o9";
+
+main {
+    DrawWindow w = new DrawWindow("o9 libdraw demo", 420, 260);
+    w.background(0x203040);
+    w.accent(0xe0c040);
+    w.snapshotPng("/tmp/o9_draw_snapshot.png");
+    w.show(3000);
+}
+```
+
+From a rio session, the built-in demo opens a separate window:
+
+```rc
+mk draw-window-demo
+```
+
+For headless visual interaction, render a frame, send a synthetic click, and
+render the next frame:
+
+```o9
+import "draw.o9";
+
+main {
+    DrawVisualProbe p = new DrawVisualProbe("probe", 128, 72);
+    p.snapshotPng("/tmp/probe-before.png");
+    p.click(64, 42);
+    p.nextEvent();
+    print("event ", p.eventType(), " ", p.eventX(), " ", p.eventY(), "\n");
+    p.snapshotPng("/tmp/probe-after.png");
+    print("clicks ", p.count(), "\n");
+}
+```
+
+The lower-level event bus can be used directly:
+
+```o9
+import "draw.o9";
+
+main {
+    DrawEventLoop loop = new DrawEventLoop();
+    loop.start();
+    loop.mouse(10, 20, 1);
+    loop.key(65);
+    loop.resize(320, 200);
+
+    loop.next();
+    print(loop.eventType(), " ", loop.eventX(), " ", loop.eventY(), "\n");
+    loop.next();
+    print(loop.eventType(), " ", loop.eventKey(), "\n");
+    loop.next();
+    print(loop.eventType(), " ", loop.eventWidth(), " ", loop.eventHeight(), "\n");
+}
+```
+
 ## Raw C Wrapper
 
 Raw C lives inside `function` bodies. This example uses Plan 9 `Biobuf`
