@@ -441,8 +441,8 @@ project folder.
 
 ## Tabula
 
-`Tabula` is the standard structured data object over libtab. A `.tab` file is
-text data with embedded semantics, not an executable object export.
+`Tabula` is the standard structured data object for `.tab` files. A `.tab`
+file is text data with embedded semantics, not an executable object export.
 
 ```o9
 main {
@@ -539,3 +539,5 @@ main {
 
 Another program can mount the app, read `exports/orders.tab`, import it as a
 `Tabula`, and act according to its own local logic.
+
+For the data format and design rules, read [TABULA.md](TABULA.md).

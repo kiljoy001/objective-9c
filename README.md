@@ -26,7 +26,7 @@ o9c/o9c < source.o9 > output.c
 6l -o output output.6 libo9.a /$objtype/lib/libndb.a
 ```
 
-`libo9.a` includes the o9 runtime plus libtab support from `../9lx/libtab`.
+`libo9.a` is the runtime library linked with generated o9 programs.
 
 ## A Small Program
 
@@ -73,5 +73,6 @@ echo close > /mnt/o9/$sid/ctl
 - [Language Guide](docs/LANGUAGE.md) - the canonical guide for writing o9.
 - [Examples](docs/EXAMPLES.md) - small complete programs.
 - [Standard Library](stdlib/README.md) - stdlib object reference.
+- [Tabula](docs/TABULA.md) - `.tab` files as structured, inert data.
 - [Architecture](docs/ARCHITECTURE.md) and
   [Touchstone](docs/TOUCHSTONE.md) - design record and current direction.

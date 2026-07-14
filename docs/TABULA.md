@@ -72,8 +72,8 @@ t.flush()
 
 - `write(id, col, value)` mutates the in-memory document, creating the
   `id` record when needed.
-- `query(col, value)` is a direct wrapper over libtab column/value
-  search and returns another `Tabula` with the same schema.
+- `query(col, value)` searches for records whose column matches the value and
+  returns another `Tabula` with the same schema.
 - `schema()` returns the semantic collection name from the file's
   `schema=` entry.
 - `has(col)` reports whether a column is declared in the schema.

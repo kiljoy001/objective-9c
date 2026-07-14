@@ -693,7 +693,7 @@ if(known.verifyOrPin("tcp!host!svc", id)) {
 ## Tabula
 
 `Tabula` is the standard structured data object. It is built into the runtime
-because it wraps libtab directly.
+as the first-class `.tab` data type.
 
 ```o9
 main {

@@ -10,9 +10,6 @@ Run these commands from the repository root on 9front:
 pwd
 ```
 
-The repository expects `../9lx/libtab` to exist because `libo9.a` links the
-runtime with libtab.
-
 ## Build The Toolchain
 
 ```rc
@@ -22,7 +19,7 @@ mk
 That builds:
 
 - `o9c/o9c` - the o9-to-C transpiler
-- `libo9.a` - the o9 runtime, crypto helpers, and libtab support
+- `libo9.a` - the runtime library linked with generated o9 programs
 
 ## First Program
 
