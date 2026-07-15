@@ -10,8 +10,8 @@ OFILES=\
 
 HFILES=node.h o9_type.h
 
-y.tab.h y.tab.c: o9.y o9_type.h
-	yacc -d o9.y
+y.tab.h y.tab.c: grammar.y o9_type.h
+	yacc -d grammar.y
 
 $TARG:V:	$OFILES
 	$LD -o $target $prereq

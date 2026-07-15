@@ -5,6 +5,10 @@
 #include <ctype.h>
 #include "o9_type.h"
 
+/* ========================================================================
+ * AST TYPES AND GLOBAL STATE
+ * ======================================================================== */
+
 typedef struct Node Node;
 typedef struct TypeBind TypeBind;
 typedef struct TypedMember TypedMember;
@@ -259,6 +263,10 @@ static void use_cdep(char *name, int line, int *errs);
 static void emit_cdeps(void);
 
 int is_subclass(char *sub, char *parent);
+
+/* ========================================================================
+ * SYMBOL TABLES AND NAME QUALIFICATION
+ * ======================================================================== */
 
 typedef struct TypeSym TypeSym;
 struct TypeSym {
@@ -970,6 +978,10 @@ pop_parse_class(void)
     current_parse_class_source = parse_class_stack[--parse_class_depth];
 }
 
+/* ========================================================================
+ * TYPE HELPERS
+ * ======================================================================== */
+
 char*
 type_storage_for_codegen(Type *t)
 {
@@ -1251,6 +1263,10 @@ typeinfo_from_legacy(char *t)
     return type_name(t);
 }
 %}
+
+/* ========================================================================
+ * YACC TOKENS AND GRAMMAR
+ * ======================================================================== */
 
 %union {
     Node *node;
@@ -2076,6 +2092,10 @@ call_arg:
 
 %%
 
+/* ========================================================================
+ * AST CONSTRUCTION
+ * ======================================================================== */
+
 Node*
 append_node(Node *list, Node *node)
 {
@@ -2224,6 +2244,10 @@ spawn_function_cname(char *name, Node *scope_class)
     source = qualify_source_name(current_module, name);
     return mangle_source_name(source);
 }
+
+/* ========================================================================
+ * LEXER
+ * ======================================================================== */
 
 void
 yyerror(char *s)
@@ -2743,7 +2767,9 @@ yylex(void)
     return 0;
 }
 
-/* --- Code Generator --- */
+/* ========================================================================
+ * CODEGEN
+ * ======================================================================== */
 
 char *local_vars[128];
 int num_locals = 0;
@@ -6436,6 +6462,10 @@ mono_scan_node(Node *n)
     }
 }
 
+/* ========================================================================
+ * APP FACADE GENERATION AND PROGRAM EMISSION
+ * ======================================================================== */
+
 void
 codegen(Node *root)
 {
@@ -7011,6 +7041,9 @@ codegen(Node *root)
     print("\tthreadexitsall(nil);\n}\n");
 }
 
+/* ========================================================================
+ * PRESCAN AND TYPE REGISTRATION
+ * ======================================================================== */
 /* Two-pass parser: prescan registers all type names, then yyparse() resolves them */
 
 static void
@@ -7200,6 +7233,10 @@ prescan(void)
     in_prescan = 0;
     input_pos = 0;
 }
+
+/* ========================================================================
+ * TYPECHECK
+ * ======================================================================== */
 
 static Node*
 type_decl_node(Type *t)
@@ -9524,6 +9561,10 @@ typecheck(Node *root)
     return errors;
 }
 
+/* ========================================================================
+ * AST DUMP
+ * ======================================================================== */
+
 static char*
 node_kind(int type)
 {
@@ -9686,6 +9727,9 @@ dump_ast(Node *root)
     dump_ast_nodes(root, 0, nil);
 }
 
+/* ========================================================================
+ * IMPORT RESOLUTION
+ * ======================================================================== */
 /* ---- import resolution (see docs/IMPORTS.md) ----
  *
  * Runs before prescan/parse. Scans the source for import lines, resolves
@@ -9761,6 +9805,10 @@ read_whole_file(char *path, long *len)
     *len = total;
     return buf;
 }
+
+/* ========================================================================
+ * C DEPENDENCY LOADING
+ * ======================================================================== */
 
 typedef struct CDepSpec CDepSpec;
 struct CDepSpec {
@@ -10185,6 +10233,10 @@ emit_cdeps(void)
         print("static int o9_draw_resized;\nstatic int o9_draw_width;\nstatic int o9_draw_height;\n\nvoid\neresized(int new)\n{\n\tif(new && getwindow(display, Refnone) < 0)\n\t\tsysfatal(\"cannot reattach draw window\");\n\tif(screen != nil){\n\t\to9_draw_resized = 1;\n\t\to9_draw_width = Dx(screen->r);\n\t\to9_draw_height = Dy(screen->r);\n\t}\n}\n\n");
 }
 
+/* ========================================================================
+ * IMPORT RESOLUTION CONTINUED
+ * ======================================================================== */
+
 static int
 o9_ident_char(int c)
 {
@@ -10357,6 +10409,10 @@ resolve_imports(void)
         return 0;
     }
 }
+
+/* ========================================================================
+ * COMPILER MAIN
+ * ======================================================================== */
 
 int
 main(int argc, char **argv)

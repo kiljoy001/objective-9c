@@ -73,7 +73,7 @@ if not{
 
 # Type compatibility: there should be one semantic assignability path, not
 # the old char* compatibility checker.
-grep -s 'is_type_compatible' o9c/o9.y
+grep -s 'is_type_compatible' o9c/grammar.y
 if(~ $status '')
 	failmsg 'type contract: stale is_type_compatible checker exists'
 

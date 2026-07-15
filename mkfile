@@ -13,8 +13,8 @@ CFILES=\
 	o9c/y.tab.$O\
 	o9c/o9_type.$O\
 
-o9c/y.tab.h o9c/y.tab.c: o9c/o9.y o9c/o9_type.h
-	cd o9c; yacc -d o9.y
+o9c/y.tab.h o9c/y.tab.c: o9c/grammar.y o9c/o9_type.h
+	cd o9c; yacc -d grammar.y
 
 o9c/y.tab.$O:	o9c/y.tab.c
 	cd o9c; $CC -o y.tab.$O y.tab.c

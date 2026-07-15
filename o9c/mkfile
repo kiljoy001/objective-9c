@@ -5,8 +5,8 @@ HFILES=node.h o9_type.h y.tab.h
 $TARG: $OFILES
 	9l -o $TARG $OFILES -lbio
 
-y.tab.c y.tab.h: o9.y o9_type.h
-        yacc -d o9.y
+y.tab.c y.tab.h: grammar.y o9_type.h
+        yacc -d grammar.y
 
 ast-test: $TARG
 	cd ..; rc ./o9c/test/production_ast.rc
