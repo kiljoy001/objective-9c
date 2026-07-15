@@ -36,6 +36,7 @@ o9_tab_serialize_into(Tab *tab, char *out, int nout)
 /* 9P encoding helpers — little-endian */
 #define PUT2(p, v) do{ (p)[0]=(v)&0xff; (p)[1]=((v)>>8)&0xff; }while(0)
 #define PUT4(p, v) do{ (p)[0]=(v)&0xff; (p)[1]=((v)>>8)&0xff; (p)[2]=((v)>>16)&0xff; (p)[3]=((v)>>24)&0xff; }while(0)
+#define GET2(p) ((u16int)(p)[0] | ((u16int)(p)[1]<<8))
 #define GET4(p) ((u32int)(p)[0] | ((u32int)(p)[1]<<8) | ((u32int)(p)[2]<<16) | ((u32int)(p)[3]<<24))
 #define NOFID 0xFFFFFFFFu
 
@@ -1586,18 +1587,22 @@ struct O9Tabula {
 	char *remote_addr;
 	char *remote_name;
 	int distance;
+	int remote_fd;
 };
 
 static void
-o9_tab_set_remote(O9Tabula *t, char *addr, char *name, int distance)
+o9_tab_set_remote(O9Tabula *t, char *addr, char *name, int distance, int fd)
 {
 	if(t == nil)
 		return;
+	if(t->remote_fd >= 0 && t->remote_fd != fd)
+		close(t->remote_fd);
 	free(t->remote_addr);
 	free(t->remote_name);
 	t->remote_addr = addr != nil ? strdup(addr) : nil;
 	t->remote_name = name != nil ? strdup(name) : nil;
 	t->distance = distance;
+	t->remote_fd = fd;
 }
 
 static int
@@ -1656,6 +1661,7 @@ o9_tab_new(O9String *name, O9String *cols)
 		return nil;
 	}
 	t->distance = -1;
+	t->remote_fd = -1;
 	/* column 0 is always "id" — the row head attr tab_add_row keys on,
 	 * matching the state-tab schema.  User columns follow. */
 	memset(&spec[0], 0, sizeof spec[0]);
@@ -1714,6 +1720,7 @@ o9_tab_open(O9String *path)
 		return nil;
 	}
 	t->distance = -1;
+	t->remote_fd = -1;
 	t->tab = tab_open(cpath);
 	if(t->tab == nil){
 		free(t);
@@ -1973,6 +1980,8 @@ o9_tab_query(O9Tabula *t, O9String *col, O9String *val)
 		free(cval);
 		return nil;
 	}
+	out->distance = -1;
+	out->remote_fd = -1;
 	schema = tab_schema_name(t->tab);
 	if(schema == nil)
 		schema = "tab";
@@ -2043,6 +2052,8 @@ o9_tab_close(O9Tabula *t)
 	free(t->path);
 	free(t->remote_addr);
 	free(t->remote_name);
+	if(t->remote_fd >= 0)
+		close(t->remote_fd);
 	free(t);
 }
 
@@ -2979,7 +2990,8 @@ static int
 o9_9p_rpc(int fd, uchar *tx, int ntx, uchar *rx, int nrx, int want)
 {
 	u32int size;
-	int n, r;
+	char err[ERRMAX];
+	int n, r, elen;
 
 	if(fd < 0 || tx == nil || rx == nil)
 		return -1;
@@ -3015,8 +3027,20 @@ o9_9p_rpc(int fd, uchar *tx, int ntx, uchar *rx, int nrx, int want)
 	}
 	if(n < 5)
 		return -1;
-	if(rx[4] == 107)	/* Rerror */
+	if(rx[4] == 107){	/* Rerror */
+		err[0] = '\0';
+		if(n >= 9){
+			elen = GET2(rx+7);
+			if(elen > sizeof err - 1)
+				elen = sizeof err - 1;
+			if(n >= 9+elen){
+				memmove(err, rx+9, elen);
+				err[elen] = '\0';
+			}
+		}
+		werrstr("%s", err[0] != '\0' ? err : "9P error");
 		return -1;
+	}
 	if(want != 0 && rx[4] != want)
 		return -1;
 	return size;
@@ -3349,46 +3373,35 @@ o9_tab_remote_name(char *dst, int ndst, char *name)
 	return 0;
 }
 
-O9Tabula*
-o9_tab_open_remote(O9String *addr, O9String *name, int distance)
+static O9Tabula*
+o9_tab_open_remote_fd(int fd9p, char *name)
 {
-	o9_Object obj;
 	O9String *pathstr;
 	O9Tabula *t;
-	char *caddr, *cname, *bytes;
+	char *bytes;
 	char fname[128], tmp[256];
 	u32int expfid, filefid;
 	int fd, nbytes, haveexp, havefile;
 
-	if(addr == nil || name == nil)
+	if(fd9p < 0 || name == nil)
 		return nil;
 	t = nil;
-	caddr = o9_string_cstr(addr);
-	cname = o9_string_cstr(name);
-	if(caddr == nil || cname == nil)
-		goto bad0;
-	if(o9_tab_remote_name(fname, sizeof fname, cname) < 0)
-		goto bad0;
-
-	memset(&obj, 0, sizeof obj);
-	obj.fd = -1;
-	if(o9_connect(&obj, caddr, "Tabula", distance) < 0)
-		goto bad0;
-
+	if(o9_tab_remote_name(fname, sizeof fname, name) < 0)
+		return nil;
 	expfid = 30;
 	filefid = 31;
 	haveexp = 0;
 	havefile = 0;
 	bytes = nil;
-	if(o9_9p_walk1(obj.fd, 1, expfid, "exports") < 0)
+	if(o9_9p_walk1(fd9p, 1, expfid, "exports") < 0)
 		goto out;
 	haveexp = 1;
-	if(o9_9p_walk1(obj.fd, expfid, filefid, fname) < 0)
+	if(o9_9p_walk1(fd9p, expfid, filefid, fname) < 0)
 		goto out;
 	havefile = 1;
-	if(o9_9p_open(obj.fd, filefid, OREAD) < 0)
+	if(o9_9p_open(fd9p, filefid, OREAD) < 0)
 		goto out;
-	if(o9_9p_read_file_all(obj.fd, filefid, &bytes, &nbytes) < 0)
+	if(o9_9p_read_file_all(fd9p, filefid, &bytes, &nbytes) < 0)
 		goto out;
 	snprint(tmp, sizeof tmp, "/tmp/o9tab.%d.%s", getpid(), fname);
 	fd = create(tmp, OWRITE, 0600);
@@ -3403,42 +3416,64 @@ o9_tab_open_remote(O9String *addr, O9String *name, int distance)
 	pathstr = o9_string_from_c(tmp);
 	t = o9_tab_open(pathstr);
 	o9_string_release(pathstr);
-	if(t != nil)
-		o9_tab_set_remote(t, caddr, fname, distance);
 out:
 	if(havefile)
-		o9_9p_clunk(obj.fd, filefid);
+		o9_9p_clunk(fd9p, filefid);
 	if(haveexp)
-		o9_9p_clunk(obj.fd, expfid);
+		o9_9p_clunk(fd9p, expfid);
+	free(bytes);
+	return t;
+}
+
+O9Tabula*
+o9_tab_open_remote(O9String *addr, O9String *name, int distance)
+{
+	o9_Object obj;
+	O9Tabula *t;
+	char *caddr, *cname, fname[128];
+
+	if(addr == nil || name == nil)
+		return nil;
+	t = nil;
+	caddr = o9_string_cstr(addr);
+	cname = o9_string_cstr(name);
+	if(caddr == nil || cname == nil)
+		goto out;
+	if(o9_tab_remote_name(fname, sizeof fname, cname) < 0)
+		goto out;
+
+	memset(&obj, 0, sizeof obj);
+	obj.fd = -1;
+	if(o9_connect(&obj, caddr, "Tabula", distance) < 0)
+		goto out;
+	t = o9_tab_open_remote_fd(obj.fd, fname);
+	if(t != nil){
+		o9_tab_set_remote(t, caddr, fname, distance, obj.fd);
+		obj.fd = -1;
+	}
 	if(obj.fd >= 0)
 		close(obj.fd);
-	free(bytes);
-bad0:
+out:
 	free(caddr);
 	free(cname);
 	return t;
 }
 
-int
-o9_tab_push_remote(O9String *addr, O9String *name, O9Tabula *t, int distance)
+static int
+o9_tab_push_remote_fd(int fd9p, char *name, O9Tabula *t)
 {
-	o9_Object obj;
 	O9String *bytes;
-	char *caddr, *cname, *cbytes;
+	char *cbytes;
 	char fname[128];
 	u32int dirfid, filefid;
 	int rv, nbytes, havedir, havefile, fileisdir;
 
-	if(addr == nil || name == nil || t == nil)
+	if(fd9p < 0 || name == nil || t == nil)
 		return -1;
 	rv = -1;
-	caddr = o9_string_cstr(addr);
-	cname = o9_string_cstr(name);
 	cbytes = nil;
 	bytes = nil;
-	if(caddr == nil || cname == nil)
-		goto out0;
-	if(o9_tab_remote_name(fname, sizeof fname, cname) < 0)
+	if(o9_tab_remote_name(fname, sizeof fname, name) < 0)
 		goto out0;
 	bytes = o9_tab_serialize(t);
 	if(bytes == nil)
@@ -3448,42 +3483,60 @@ o9_tab_push_remote(O9String *addr, O9String *name, O9Tabula *t, int distance)
 		goto out0;
 	nbytes = o9_string_len(bytes);
 
-	memset(&obj, 0, sizeof obj);
-	obj.fd = -1;
-	if(o9_connect(&obj, caddr, "Tabula", distance) < 0)
-		goto out0;
-
 	dirfid = 40;
 	filefid = 41;
 	havedir = 0;
 	havefile = 0;
 	fileisdir = 0;
-	if(o9_9p_walk1(obj.fd, 1, dirfid, "imports") < 0)
+	if(o9_9p_walk1(fd9p, 1, dirfid, "imports") < 0)
 		goto out;
 	havedir = 1;
-	if(o9_9p_walk1(obj.fd, dirfid, filefid, fname) == 0){
+	if(o9_9p_walk1(fd9p, dirfid, filefid, fname) == 0){
 		havefile = 1;
-		if(o9_9p_open(obj.fd, filefid, OWRITE|OTRUNC) < 0)
+		if(o9_9p_open(fd9p, filefid, OWRITE|OTRUNC) < 0)
 			goto out;
 	} else {
-		if(o9_9p_create(obj.fd, dirfid, fname, 0666, OWRITE) < 0)
+		if(o9_9p_create(fd9p, dirfid, fname, 0666, OWRITE) < 0)
 			goto out;
 		fileisdir = 1;
 	}
-	if(o9_9p_write_bytes_all(obj.fd, fileisdir ? dirfid : filefid, cbytes, nbytes) < 0)
+	if(o9_9p_write_bytes_all(fd9p, fileisdir ? dirfid : filefid, cbytes, nbytes) < 0)
 		goto out;
 	rv = 0;
 out:
 	if(havefile)
-		o9_9p_clunk(obj.fd, filefid);
+		o9_9p_clunk(fd9p, filefid);
 	if(havedir)
-		o9_9p_clunk(obj.fd, dirfid);
-	if(obj.fd >= 0)
-		close(obj.fd);
+		o9_9p_clunk(fd9p, dirfid);
 out0:
 	free(cbytes);
 	if(bytes != nil)
 		o9_string_release(bytes);
+	return rv;
+}
+
+int
+o9_tab_push_remote(O9String *addr, O9String *name, O9Tabula *t, int distance)
+{
+	o9_Object obj;
+	char *caddr, *cname;
+	int rv;
+
+	if(addr == nil || name == nil || t == nil)
+		return -1;
+	rv = -1;
+	caddr = o9_string_cstr(addr);
+	cname = o9_string_cstr(name);
+	if(caddr == nil || cname == nil)
+		goto out;
+	memset(&obj, 0, sizeof obj);
+	obj.fd = -1;
+	if(o9_connect(&obj, caddr, "Tabula", distance) < 0)
+		goto out;
+	rv = o9_tab_push_remote_fd(obj.fd, cname, t);
+	if(obj.fd >= 0)
+		close(obj.fd);
+out:
 	free(caddr);
 	free(cname);
 	return rv;
@@ -3497,6 +3550,8 @@ o9_tab_push(O9Tabula *t)
 
 	if(t == nil || t->remote_addr == nil || t->remote_name == nil || t->distance < 0)
 		return -1;
+	if(t->remote_fd >= 0)
+		return o9_tab_push_remote_fd(t->remote_fd, t->remote_name, t);
 	addr = o9_string_from_c(t->remote_addr);
 	name = o9_string_from_c(t->remote_name);
 	rv = o9_tab_push_remote(addr, name, t, t->distance);
@@ -3516,11 +3571,15 @@ o9_tab_sync(O9Tabula *t)
 
 	if(t == nil || t->remote_addr == nil || t->remote_name == nil || t->distance < 0)
 		return -1;
-	addr = o9_string_from_c(t->remote_addr);
-	name = o9_string_from_c(t->remote_name);
-	fresh = o9_tab_open_remote(addr, name, t->distance);
-	o9_string_release(addr);
-	o9_string_release(name);
+	if(t->remote_fd >= 0){
+		fresh = o9_tab_open_remote_fd(t->remote_fd, t->remote_name);
+	} else {
+		addr = o9_string_from_c(t->remote_addr);
+		name = o9_string_from_c(t->remote_name);
+		fresh = o9_tab_open_remote(addr, name, t->distance);
+		o9_string_release(addr);
+		o9_string_release(name);
+	}
 	if(fresh == nil)
 		return -1;
 

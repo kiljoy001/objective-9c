@@ -120,9 +120,9 @@ needs to exist first.
   per-session `ctl`/`data`/`status`). Objects are addressed by name through the
   facade or by in-process handles, not mounted as separate public object
   trees. Foundation for B/C/D — they all need "a program" to be one
-  addressable thing. Escape hatch: an object that needs a real trust
-  boundary is spawned `far` into its own app-process, paying 9P cost
-  exactly where isolation is wanted.
+  addressable thing. Escape hatch: behavior that needs a real trust boundary
+  runs as a separate app and exchanges Tabula data through `exports/` and
+  `imports/`, paying 9P cost exactly where isolation is wanted.
 
 - **B. ~~One `kind`-keyed ledger per app.~~  Abandoned (July 2026).**
   A unified store requires a query filter to answer "what methods does

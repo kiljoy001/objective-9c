@@ -1,0 +1,14 @@
+main {
+    listener Tabula orders = new Tabula("orders", "item,qty,status") @ "";
+
+    orders.write("a", "item", "widget");
+    orders.write("a", "qty", "8");
+    orders.write("a", "status", "paid");
+    orders.write("b", "item", "gadget");
+    orders.write("b", "qty", "3");
+    orders.write("b", "status", "open");
+    export("orders.tab", orders);
+
+    print("provider ready\n");
+    serve();
+}

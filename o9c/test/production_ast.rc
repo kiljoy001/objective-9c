@@ -370,6 +370,7 @@ require_error o9c/test/typecheck_bad_tuple_object_call.o9 'tuple field cannot be
 require_error o9c/test/typecheck_bad_remote_object.o9 'remote objects are not supported'
 require_error o9c/test/typecheck_bad_listener_object.o9 'remote objects are not supported'
 require_error o9c/test/typecheck_bad_new_near_object.o9 'remote objects are not supported'
+require_error o9c/test/typecheck_bad_new_far_object.o9 'remote objects are not supported'
 require_error o9c/test/typecheck_bad_tabula_locality_shape.o9 'near Tabula declaration requires new Tabula'
 require_error_project o9c/test/dep_bad bad.o9 'escapes the project root'
 require_error_project o9c/test/dep_bad_abs bad.o9 'is not project-relative'

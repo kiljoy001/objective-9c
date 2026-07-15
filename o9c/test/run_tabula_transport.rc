@@ -1,0 +1,161 @@
+#!/bin/rc
+# Tabula transport regression — 9front.
+# Proves the source-level network path over local /srv 9P:
+# provider listener Tabula -> exports/orders.tab,
+# consumer near Tabula -> read/query -> push(),
+# provider imports/orders.tab receives inert committed data.
+
+tool=./o9c/o9c
+app=o9tabtransport
+srv=/srv/o9.$app.$app.app
+prov_src=o9c/test/tabula_transport_provider.o9
+prov_c=/tmp/o9tabprov.$pid.c
+prov_o=/tmp/o9tabprov.$pid.6
+prov_bin=/tmp/o9tabprov.$pid
+prov_log=/tmp/o9tabprov.$pid.log
+cons_src=/tmp/o9tabcons.$pid.o9
+cons_c=/tmp/o9tabcons.$pid.c
+cons_o=/tmp/o9tabcons.$pid.6
+cons_bin=/tmp/o9tabcons.$pid
+cons_out=/tmp/o9tabcons.$pid.out
+mtpt=/n/o9tabtransport.$pid
+
+p=()
+guard=()
+fail=0
+
+fn cleanup {
+	unmount $mtpt >[2]/dev/null
+	if(! ~ $#p 0)
+		kill $p >[2]/dev/null
+	if(! ~ $#guard 0)
+		kill $guard >[2]/dev/null
+	rm -f $srv $prov_c $prov_o $prov_bin $prov_log $cons_src $cons_c $cons_o $cons_bin $cons_out
+}
+
+fn failmsg {
+	echo 'tabula-transport: FAIL:' $* >[1=2]
+	fail=1
+}
+
+fn check {
+	if(! ~ $1 '')
+		failmsg $2
+}
+
+if(! test -e $tool){
+	echo missing $tool >[1=2]
+	exit missing
+}
+if(! test -e libo9.a){
+	echo missing libo9.a >[1=2]
+	exit missing
+}
+
+rm -f $srv
+
+if(! $tool $prov_src > $prov_c){
+	echo 'tabula-transport: FAIL: provider transpile' >[1=2]
+	exit fail
+}
+if(! 6c -FVw -I. -o $prov_o $prov_c){
+	echo 'tabula-transport: FAIL: provider 6c' >[1=2]
+	exit fail
+}
+if(! 6l -o $prov_bin $prov_o libo9.a /$objtype/lib/libndb.a){
+	echo 'tabula-transport: FAIL: provider 6l' >[1=2]
+	exit fail
+}
+
+$prov_bin $app > $prov_log >[2=1] &
+p=$apid
+@{ sleep 20; kill $p >[2]/dev/null } &
+guard=$apid
+
+i=0
+while(! test -e $srv && test $i -lt 12){
+	sleep 1
+	i=`{echo $i+1|bc}
+}
+if(! test -e $srv){
+	echo 'tabula-transport: FAIL: no /srv post at' $srv >[1=2]
+	cat $prov_log >[1=2]
+	cleanup
+	exit fail
+}
+
+{
+	echo 'main {'
+	echo '    near Tabula orders = new Tabula("orders", "item,qty,status") @ "'$srv'";'
+	echo '    int64 pushed;'
+	echo '    print("first ", orders.first(), "\n");'
+	echo '    print("row ", orders.get("item"), " ", orders.get("qty"), " ", orders.get("status"), "\n");'
+	echo '    Tabula paid = orders.query("status", "paid");'
+	echo '    print("paid ", paid.first(), " ", paid.get("item"), " ", paid.get("qty"), "\n");'
+	echo '    orders.write("pushed", "item", "remote");'
+	echo '    orders.write("pushed", "qty", "9");'
+	echo '    orders.write("pushed", "status", "pushed");'
+	echo '    pushed = orders.push();'
+	echo '    print("push ", pushed, "\n");'
+	echo '}'
+} > $cons_src
+
+if(~ $fail 0 && ! $tool $cons_src > $cons_c){
+	echo 'tabula-transport: FAIL: consumer transpile' >[1=2]
+	cat $cons_src >[1=2]
+	fail=1
+}
+if(~ $fail 0 && ! 6c -FVw -I. -o $cons_o $cons_c){
+	echo 'tabula-transport: FAIL: consumer 6c' >[1=2]
+	fail=1
+}
+if(~ $fail 0 && ! 6l -o $cons_bin $cons_o libo9.a /$objtype/lib/libndb.a){
+	echo 'tabula-transport: FAIL: consumer 6l' >[1=2]
+	fail=1
+}
+if(~ $fail 0){
+	$cons_bin > $cons_out >[2=1]
+	if(! ~ $status ''){
+		echo 'tabula-transport: FAIL: consumer run' >[1=2]
+		cat $cons_out >[1=2]
+		fail=1
+	}
+	if not{
+		grep -s 'first 1' $cons_out; check $status 'consumer did not read first row'
+		grep -s 'row widget 8 paid' $cons_out; check $status 'consumer got wrong first row'
+		grep -s 'paid 1 widget 8' $cons_out; check $status 'consumer query failed'
+		grep -s 'push 0' $cons_out; check $status 'consumer push failed'
+		if(! ~ $fail 0){
+			echo 'tabula-transport: consumer output:' >[1=2]
+			cat $cons_out >[1=2]
+		}
+	}
+}
+
+if(~ $fail 0 && ! mount -c $srv $mtpt){
+	echo 'tabula-transport: FAIL: mount' $srv >[1=2]
+	cleanup
+	exit fail
+}
+if(~ $fail 0 && ! test -e $mtpt/exports/orders.tab)
+	failmsg 'provider missing exports/orders.tab'
+
+if(~ $fail 0){
+	if(! test -e $mtpt/imports/orders.tab){
+		failmsg 'provider missing imports/orders.tab after push'
+	}
+	if not{
+		got=`{cat $mtpt/imports/orders.tab}
+		echo $"got | grep -s widget ; check $status 'import missing original export data'
+		echo $"got | grep -s remote ; check $status 'import missing pushed row'
+		echo $"got | grep -s pushed ; check $status 'import missing pushed status'
+		echo $"got | grep -s '9' ; check $status 'import missing pushed qty'
+	}
+}
+
+cleanup
+
+if(~ $fail 0)
+	echo tabula-transport: OK
+if not
+	exit fail

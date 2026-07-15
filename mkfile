@@ -38,6 +38,9 @@ ext-test:V:	o9c libo9.a
 export-test:V:	o9c libo9.a
 	rc ./o9c/test/run_export.rc
 
+tabula-transport-test:V:	o9c libo9.a
+	rc ./o9c/test/run_tabula_transport.rc
+
 session-test:V:	o9c libo9.a
 	rc ./o9c/test/run_session.rc
 

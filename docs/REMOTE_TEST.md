@@ -1,15 +1,47 @@
-# Server and remote client test for o9 cross-machine dispatch
-#
-# Build and start the server:
-#   cd /tmp/o9
-#   mk
-#   o9c/o9c < o9c/test/counter_srv.o9 > srv.c
-#   6c -FVw -I. -o srv.6 srv.c
-#   6l -o counter_srv srv.6 libo9.a /$objtype/lib/libndb.a
-#   rm /srv/Counter >[2]/dev/null; counter_srv &
-#
-# Build and run the client (in another window):
-#   o9c/o9c < o9c/test/counter_client.o9 > cli.c
-#   6c -FVw -I. -o cli.6 cli.c
-#   6l -o counter_cli cli.6 libo9.a /$objtype/lib/libndb.a
-#   counter_cli
+# Tabula network facade test
+
+o9 no longer supports source-level remote object construction. Objects stay
+local; mounted applications exchange `.tab` data through the generated app
+facade:
+
+```text
+/mnt/app/
+    exports/    # app-owned published Tabula files
+    imports/    # inert inbound Tabula deposits
+```
+
+Run the source-level Tabula transport regression from the repository root:
+
+```rc
+mk tabula-transport-test
+```
+
+That test builds a provider app and a consumer app. The provider declares
+`listener Tabula`, publishes `exports/orders.tab`, and serves its app facade.
+The consumer declares `near Tabula` against the provider's `/srv` post, reads
+and queries the remote export, mutates its local copy, calls `push()`, and the
+provider receives `imports/orders.tab`.
+
+The lower-level facade regression is still:
+
+```rc
+mk export-test
+```
+
+It builds a small app, mounts its generated 9P facade from a separate
+namespace, then verifies:
+
+- `exports/orders.tab` is readable and not client-writable.
+- `imports/` accepts only `.tab` files.
+- import writes are staged per fid and become visible on clunk.
+- concurrent import writes commit whole files, not interleaved bytes.
+- failed oversized writes do not replace the last committed import.
+- another o9 program can open the exported `.tab` with `new Tabula(path)`.
+
+For source-level locality syntax, use only Tabula:
+
+```o9
+near Tabula lan = new Tabula("orders", "item,qty,status") @ "il!host!9999";
+far Tabula wan = new Tabula("orders", "item,qty,status") @ "tcp!host!9999";
+listener Tabula server = new Tabula("orders", "item,qty,status") @ "il!*!9999";
+```

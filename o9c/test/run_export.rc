@@ -20,6 +20,8 @@ cons_c=/tmp/o9exp_cons.$pid.c
 cons_o=/tmp/o9exp_cons.$pid.6
 cons_bin=/tmp/o9exp_cons.$pid
 cons_out=/tmp/o9exp_cons.$pid.out
+race_out=/tmp/o9exp_race.$pid.out
+big=/tmp/o9exp_big.$pid
 mtpt=/n/o9exp.$pid
 srvglob=/srv/o9.$app.$app.app
 
@@ -27,7 +29,7 @@ fn cleanup {
 	unmount $mtpt >[2]/dev/null
 	kill o9exp.$pid >[2]/dev/null
 	# only our own post — never a blanket /srv/o9.*.app wipe
-	rm -f $srvglob $cfile $ofile $bin $log $cons_src $cons_c $cons_o $cons_bin $cons_out
+	rm -f $srvglob $cfile $ofile $bin $log $cons_src $cons_c $cons_o $cons_bin $cons_out $race_out $big
 }
 
 fail=0
@@ -111,6 +113,20 @@ if(~ $status ''){
 	echo 'export: FAIL: imports accepted non-.tab name' >[1=2]
 	fail=1
 }
+@{ echo should-fail > $mtpt/imports/bad/name.tab } >[2]/dev/null
+if(~ $status ''){
+	echo 'export: FAIL: imports accepted nested name' >[1=2]
+	fail=1
+}
+@{ echo should-fail > $mtpt/imports/../escape.tab } >[2]/dev/null
+if(~ $status ''){
+	echo 'export: FAIL: imports accepted parent escape' >[1=2]
+	fail=1
+}
+if(test -e $mtpt/escape.tab){
+	echo 'export: FAIL: import ../escape.tab escaped imports' >[1=2]
+	fail=1
+}
 
 # assertion 5: import overwrite truncates through per-fid staging
 if(test -e $mtpt/imports/orders.tab){
@@ -122,14 +138,84 @@ if(test -e $mtpt/imports/orders.tab){
 	}
 }
 
-# assertion 6: exported files are read-only
+# assertion 6: reads see only committed import data while another fid is open
+if(test -d $mtpt/imports){
+	echo old > $mtpt/imports/pending.tab
+	@{ echo pending; sleep 2 } > $mtpt/imports/pending.tab &
+	sleep 1
+	igot=`{cat $mtpt/imports/pending.tab}
+	if(! ~ $"igot old){
+		echo 'export: FAIL: import exposed uncommitted staged data' >[1=2]
+		fail=1
+	}
+	sleep 2
+	igot=`{cat $mtpt/imports/pending.tab}
+	if(! ~ $"igot pending){
+		echo 'export: FAIL: import did not commit on clunk' >[1=2]
+		fail=1
+	}
+}
+
+# assertion 7: different imports can be written concurrently
+if(test -d $mtpt/imports){
+	@{ echo alpha > $mtpt/imports/a.tab } &
+	@{ echo beta > $mtpt/imports/b.tab } &
+	sleep 1
+	igot=`{cat $mtpt/imports/a.tab}
+	if(! ~ $"igot alpha){
+		echo 'export: FAIL: concurrent import a.tab corrupt' >[1=2]
+		fail=1
+	}
+	igot=`{cat $mtpt/imports/b.tab}
+	if(! ~ $"igot beta){
+		echo 'export: FAIL: concurrent import b.tab corrupt' >[1=2]
+		fail=1
+	}
+}
+
+# assertion 8: same-import races commit one whole staged file, never mixed bytes
+if(test -d $mtpt/imports){
+	@{ echo A-start; sleep 1; echo A-end } > $mtpt/imports/race.tab &
+	@{ echo B-start; sleep 1; echo B-end } > $mtpt/imports/race.tab &
+	sleep 3
+	cat $mtpt/imports/race.tab > $race_out
+	grep -s 'A-start' $race_out; hasa=$status
+	grep -s 'B-start' $race_out; hasb=$status
+	if(~ $hasa '' && ~ $hasb ''){
+		echo 'export: FAIL: same-import race interleaved writers' >[1=2]
+		cat $race_out >[1=2]
+		fail=1
+	}
+	if not{
+		if(~ $hasa ''){
+			grep -s 'A-end' $race_out; checkfail $status 'same-import race lost A end'
+		}
+		if(~ $hasb ''){
+			grep -s 'B-end' $race_out; checkfail $status 'same-import race lost B end'
+		}
+	}
+}
+
+# assertion 9: failed oversized writes do not replace committed import data
+if(test -e $mtpt/imports/orders.tab){
+	echo safe > $mtpt/imports/orders.tab
+	dd -if /dev/zero -of $big -bs 8192 -count 600 >[2]/dev/null
+	@{ cat $big > $mtpt/imports/orders.tab } >[2]/dev/null
+	igot=`{cat $mtpt/imports/orders.tab}
+	if(! ~ $"igot safe){
+		echo 'export: FAIL: failed oversized import replaced committed data' >[1=2]
+		fail=1
+	}
+}
+
+# assertion 10: exported files are read-only
 @{ echo should-fail > $mtpt/exports/orders.tab } >[2]/dev/null
 if(~ $status ''){
 	echo 'export: FAIL: exported file accepted write' >[1=2]
 	fail=1
 }
 
-# assertion 7: unsafe export names did not escape or create nested files
+# assertion 11: unsafe export names did not escape or create nested files
 if(test -e $mtpt/escape.tab){
 	echo 'export: FAIL: ../escape.tab escaped exports' >[1=2]
 	fail=1
@@ -139,7 +225,7 @@ if(test -e $mtpt/exports/bad){
 	fail=1
 }
 
-# assertion 8: a consumer can import the mounted .tab through new Tabula(path)
+# assertion 12: a consumer can import the mounted .tab through new Tabula(path)
 {
 	echo 'main {'
 	echo '    Tabula t = new Tabula("'$mtpt'/exports/orders.tab");'

@@ -218,11 +218,6 @@ static Node* synth_function_class(char *fname, Node *rettn, Node *params, Node *
 static void o9_note_registered(char *name);
 static int member_exists(Node *cnode, char *name);
 Node* append_node(Node *list, Node *node);
-char* map_type(char *t);
-char* get_sym_type(Node *c, char *name);
-char* get_sym_decl_type(Node *c, char *name);
-char* get_method_type(Node *c, char *name);
-char* get_expr_type(Node *e);
 static Type* typeinfo_from_legacy(char *t);
 static Node* type_decl_node(Type *t);
 static Type* decl_typeinfo(Node *n);
@@ -230,7 +225,7 @@ static Node* member_node(Node *cnode, char *name, int method);
 static int typed_member_lookup(Type *receiver, char *name, int method, TypedMember *out);
 static int method_has_body(Node *m);
 static Type* get_typeinfo_sym(char *name);
-static void add_type_sym_typed(char *name, char *typename, Type *typeinfo);
+static void add_type_sym_typed(char *name, Type *typeinfo);
 static char* type_slice(char *s, int n);
 static char* qualify_type_name(char *name);
 static char* qualify_source_name(char *module, char *name);
@@ -257,58 +252,36 @@ int   yylex(void);
 int   yyparse(void);
 ulong o9_hash(char *str);
 void  add_var_class(char *varname, char *classname);
-int   is_primitive(char *t);
 static void scan_file(char *path);
 static void load_builtin_cdeps(void);
 static void load_project_cdeps(void);
 static void use_cdep(char *name, int line, int *errs);
 static void emit_cdeps(void);
 
-void add_type_sym(char *name, char *typename);
-char* get_type_sym(char *name);
-void clear_type_syms(void);
 int is_subclass(char *sub, char *parent);
 
 typedef struct TypeSym TypeSym;
 struct TypeSym {
     char *name;
-    char *typename;
     Type *typeinfo;
     TypeSym *next;
 };
 TypeSym *type_syms;
 
-static void add_type_sym_typed(char *name, char *typename, Type *typeinfo) {
+static void add_type_sym_typed(char *name, Type *typeinfo) {
     TypeSym *s = malloc(sizeof(TypeSym));
     if(s == nil)
-        sysfatal("malloc: add_type_sym");
+        sysfatal("malloc: add_type_sym_typed");
     s->name = strdup(name);
-    s->typename = strdup(typename);
     s->typeinfo = typeinfo;
     s->next = type_syms;
     type_syms = s;
-}
-
-void add_type_sym(char *name, char *typename) {
-    add_type_sym_typed(name, typename, typeinfo_from_legacy(typename));
-}
-
-char* get_type_sym(char *name) {
-    TypeSym *s;
-    for(s = type_syms; s; s = s->next) if(strcmp(s->name, name) == 0) return s->typename;
-    return nil;
 }
 
 static Type* get_typeinfo_sym(char *name) {
     TypeSym *s;
     for(s = type_syms; s; s = s->next) if(strcmp(s->name, name) == 0) return s->typeinfo;
     return nil;
-}
-
-void clear_type_syms(void) {
-    TypeSym *s, *next;
-    for(s = type_syms; s; s = next){ next = s->next; free(s->name); free(s->typename); free(s); }
-    type_syms = nil;
 }
 
 static TypeSym*
@@ -328,7 +301,6 @@ restore_type_syms(TypeSym *mark)
         s = type_syms;
         type_syms = s->next;
         free(s->name);
-        free(s->typename);
         free(s);
     }
 }
@@ -425,38 +397,6 @@ method_owner(Node *c, char *name)
     }
     depth--;
     return r;
-}
-
-char* get_method_type(Node *c, char *name) {
-    Node *m;
-    if(c == nil || name == nil) return nil;
-    for(m = c->left; m; m = m->next){
-        if(m->type == NMethod && m->name && strcmp(m->name, name) == 0) return m->typename;
-        if(m->type == NInherit){ Node *p = find_class(m->name); if(p){ char *t = get_method_type(p, name); if(t) return t; } }
-    }
-    return nil;
-}
-
-char* get_expr_type(Node *e) {
-    if(e == nil) return "void";
-    if(e->type == NEnumVal && e->typename != nil) return e->typename;
-    if(e->typeinfo != nil) return legacy_type_name(e->typeinfo);
-    switch(e->type){
-    case NIntLit: return "int64";
-    case NDoubleLit: return "double";
-    case NStringLit: return "string";
-    case NBoolLit: return "bool";
-    case NClass: return e->name;
-    case NEnumVal: return e->typename;
-    case NIdent: { char *t = get_type_sym(e->name); if(t) return t; return "vlong"; }
-    case NPropRead: if(e->left){ char *lt = get_expr_type(e->left); Node *c = find_class(lt); if(c) return get_sym_type(c, e->name); } return "vlong";
-    case NMsgSend: if(e->left){ char *lt = get_expr_type(e->left); Node *c = find_class(lt); if(c) return get_method_type(c, e->name); } return "vlong";
-    case NSelfCall: if(gen_class != nil) return get_method_type(gen_class, e->name); return "vlong";
-    case NArrayGet: { char *lt = get_expr_type(e->left); if(strncmp(lt, "List:", 5) == 0) return lt + 5; if(strncmp(lt, "Dict:", 5) == 0) return strrchr(lt, ':') + 1; return "vlong"; }
-    case NCast: return e->typename != nil ? e->typename : "vlong";
-    case NAdd: case NSub: case NMul: case NDiv: case NMod: return "int64";
-    default: return "vlong";
-    }
 }
 
 Node *ast_root;
@@ -1242,156 +1182,22 @@ type_is_class_ref(Type *t)
     return d != nil && (d->type == NClass || d->type == NInterface);
 }
 
-char*
-map_type(char *t)
+static int
+type_declares_direct_storage(Type *t)
 {
-    return type_storage_for_codegen(typeinfo_from_legacy(t));
-}
-
-char*
-c_type_fmt(char *t)
-{
-    if(t == nil) return "%lld";
-    if(strcmp(t, "vlong") == 0) return "%lld";
-    if(strcmp(t, "uvlong") == 0) return "%llud";
-    if(strcmp(t, "long") == 0) return "%ld";
-    if(strcmp(t, "ulong") == 0) return "%lud";
-    if(strcmp(t, "int") == 0) return "%d";
-    if(strcmp(t, "uint") == 0) return "%ud";
-    if(strcmp(t, "double") == 0) return "%g";
-    if(strcmp(t, "short") == 0) return "%d";
-    if(strcmp(t, "ushort") == 0) return "%ud";
-    if(strcmp(t, "char") == 0) return "%d";
-    if(strcmp(t, "uchar") == 0) return "%ud";
-    if(strcmp(t, "char*") == 0) return "%s";
-    if(strcmp(t, "O9String*") == 0) return "%p";
-    return type_fmt_for_codegen(typeinfo_from_legacy(t));
-}
-
-char*
-type_cast(char *t)
-{
-    if(t == nil) return "vlong";
-    if(strcmp(t, "char*") == 0 || strcmp(t, "O9String*") == 0) return t;
-    if(strcmp(t, "vlong") == 0 || strcmp(t, "uvlong") == 0 ||
-       strcmp(t, "long") == 0 || strcmp(t, "ulong") == 0 ||
-       strcmp(t, "int") == 0 || strcmp(t, "uint") == 0 ||
-       strcmp(t, "double") == 0 ||
-       strcmp(t, "short") == 0 || strcmp(t, "ushort") == 0 ||
-       strcmp(t, "char") == 0 || strcmp(t, "uchar") == 0) return t;
-    if(find_class(t) && find_class(t)->type == NStruct) return "";
-    return type_cast_for_codegen(typeinfo_from_legacy(t));
-}
-
-int
-is_primitive(char *t)
-{
-    int len;
-
-    if(t == nil) return 1;
-    len = strlen(t);
-    if(len > 2 && strcmp(t + len - 2, "[]") == 0) return 1;
-    if(strncmp(t, "Dict:", 5) == 0 || strncmp(t, "List:", 5) == 0) return 1;
-    if(strcmp(t, "int64") == 0) return 1;
-    if(strcmp(t, "uint64") == 0) return 1;
-    if(strcmp(t, "int32") == 0) return 1;
-    if(strcmp(t, "uint32") == 0) return 1;
-    if(strcmp(t, "int16") == 0) return 1;
-    if(strcmp(t, "uint16") == 0) return 1;
-    if(strcmp(t, "int8") == 0) return 1;
-    if(strcmp(t, "uint8") == 0) return 1;
-    if(strcmp(t, "byte") == 0) return 1;
-    if(strcmp(t, "double") == 0) return 1;
-    if(strcmp(t, "bool") == 0) return 1;
-    if(strcmp(t, "string") == 0) return 1;
-    if(strcmp(t, "int") == 0) return 1;
-    if(strcmp(t, "char") == 0) return 1;
-    if(strcmp(t, "vlong") == 0) return 1;
-    if(strcmp(t, "uvlong") == 0) return 1;
-    if(strcmp(t, "ulong") == 0) return 1;
-    if(strcmp(t, "ushort") == 0) return 1;
-    if(strcmp(t, "uchar") == 0) return 1;
-    if(strcmp(t, "void") == 0) return 1;
-    if(strcmp(t, "Tabula") == 0) return 1;	/* handle type, primitive-like decl */
-    if(strcmp(t, "MountTable") == 0) return 1;	/* handle type, primitive-like decl */
-    if(find_class(t) && find_class(t)->type == NEnum) return 1;
-    if(find_class(t) && find_class(t)->type == NStruct) return 1;
-    return 0;
-}
-
-char*
-get_sym_type(Node *c, char *name)
-{
-    Node *m;
-    if(c == nil || name == nil) return "vlong";
-    for(m = c->left; m; m = m->next){
-        if(m->type == NInherit){
-            Node *p = find_class(m->name);
-            if(p){
-                char *t = get_sym_type(p, name);
-                if(t && strcmp(t, "vlong") != 0) return t;
-            }
-        }
-        if((m->type == NProp || m->type == NState) && m->name && strcmp(m->name, name) == 0){
-            return type_storage_for_codegen(m->typeinfo);
-        }
-        if(m->type == NStream && m->name && strcmp(m->name, name) == 0)
-            return "Channel*";
-    }
-    return "vlong";
-}
-
-char*
-get_sym_decl_type(Node *c, char *name)
-{
-    Node *m;
-
-    if(c == nil || name == nil)
-        return nil;
-    for(m = c->left; m; m = m->next){
-        if(m->type == NInherit){
-            Node *p = find_class(m->name);
-            char *t = get_sym_decl_type(p, name);
-            if(t != nil)
-                return t;
-        }
-        if((m->type == NProp || m->type == NState) && m->name && strcmp(m->name, name) == 0)
-            return m->typename;
-    }
-    return nil;
-}
-
-int
-is_enum_type(char *t)
-{
-    Node *n;
-
     if(t == nil)
+        return 1;
+    if(type_is_class_ref(t))
         return 0;
-    n = find_class(t);
-    return n != nil && n->type == NEnum;
+    return 1;
 }
 
-int
-is_class_type(char *t)
+static void
+note_var_class_type(char *varname, Type *t)
 {
-    Node *n;
-    if(t == nil) return 0;
-    n = find_class(t);
-    return n != nil && (n->type == NClass || n->type == NInterface);
-}
-
-char*
-storage_type(char *t)
-{
-    char *s;
-    if(is_class_type(t)){
-        s = malloc(strlen(t) + 8);
-        if(s == nil) sysfatal("malloc: storage_type");
-        snprint(s, strlen(t) + 8, "%s_Client", t);
-        return s;
-    }
-    return map_type(t);
+    if(varname == nil || !type_is_class_ref(t))
+        return;
+    add_var_class(varname, type_cname(t));
 }
 
 static char*
@@ -2071,13 +1877,13 @@ stmt_list:
     ;
 
 stmt:
-    typename member_name ';' { $$ = mk_typed(NLocalVar, $2->name, $1, nil, nil); if(is_class_type($1->name)) add_var_class($2->name, $1->name); }
-    | typename member_name TEQ expr ';' { $$ = mk_typed(NLocalVar, $2->name, $1, $4, nil); if(is_class_type($1->name)) add_var_class($2->name, $1->name); }
+    typename member_name ';' { $$ = mk_typed(NLocalVar, $2->name, $1, nil, nil); note_var_class_type($2->name, $1->typeinfo); }
+    | typename member_name TEQ expr ';' { $$ = mk_typed(NLocalVar, $2->name, $1, $4, nil); note_var_class_type($2->name, $1->typeinfo); }
     | locality typename member_name TEQ expr '@' expr ';' {
         $$ = mk_typed(NLocalVar, $3->name, $2, $5, nil);
         $$->cname = strdup($1->name);	/* locality tag for this declaration */
         $$->params = $7;		/* address expression after @ */
-        if(is_class_type($2->name)) add_var_class($3->name, $2->name);
+        note_var_class_type($3->name, $2->typeinfo);
     }
     | expr ';' { $$ = $1; }
     | TRETURN expr ';' { $$ = mk(NReturn, nil, nil, $2, nil); }
@@ -3335,7 +3141,8 @@ gen_expr(Node *e)
                 /* The receiver's frame slot must hold its shm_base (the
                  * Internal*), not the Client struct.  Works for a local
                  * handle (NIdent) and a class-typed field (NPropRead). */
-                char *rcls = e->left != nil ? get_expr_type(e->left) : nil;
+                Type *rtyp = e->left != nil ? e->left->typeinfo : nil;
+                char *rcls = (rtyp != nil && type_is_class_ref(rtyp)) ? type_cname(rtyp) : nil;
                 char *fcls = nil;
                 /* class-typed field of the current class? (motor.rev() in a
                  * method, where motor is a field, parses as bare NIdent) */
@@ -3345,7 +3152,7 @@ gen_expr(Node *e)
                     Node *fn = member_node(gen_class, e->left->name, 0);
                     Type *ft = fn != nil ? decl_typeinfo(fn) : nil;
                     if(ft != nil && type_is_class_ref(ft))
-                        fcls = fn->typename;	/* the field's declared class */
+                        fcls = type_cname(ft);	/* the field's declared class */
                 }
                 if(fcls != nil){
                     print("(vlong)((%s_Client*)&", fcls);
@@ -3356,7 +3163,7 @@ gen_expr(Node *e)
                     if(__cnx) print("(vlong)((%s_Client*)&", __cnx);
                     gen_expr(e->left);
                     if(__cnx) print(")->shm_base");
-                } else if(rcls != nil && is_class_type(rcls)){
+                } else if(rcls != nil){
                     print("(vlong)((%s_Client*)&", rcls);
                     gen_expr(e->left);
                     print(")->shm_base");
@@ -3417,22 +3224,37 @@ gen_expr(Node *e)
         break;
     case NPropRead:
         {
-            char *cn = get_expr_type(e->left);
-            Node *cnode = find_class(cn);
+            Type *rt = e->left != nil ? e->left->typeinfo : nil;
+            char *cn = rt != nil ? type_cname(rt) : nil;
+            Node *cnode = type_decl_node(rt);
             if(cnode != nil){
                 if(cnode->type == NClass || cnode->type == NInterface){
-                    char *t = get_sym_type(cnode, e->name);
-                    if(find_class(t) && find_class(t)->type == NStruct){
+                    TypedMember tm;
+                    Type *mt;
+                    char *st;
+                    Node *tn;
+
+                    mt = nil;
+                    st = nil;
+                    tn = nil;
+                    if(typed_member_lookup(rt, e->name, 0, &tm)){
+                        mt = tm.type;
+                        st = tm.node != nil && tm.node->type == NStream ?
+                            "Channel*" : type_storage_for_codegen(mt);
+                        tn = type_decl_node(mt);
+                    }
+                    if(tn != nil && tn->type == NStruct){
                         print("((%s_Internal*)((%s_Client*)&", cn, cn);
                         gen_expr(e->left);
                         print(")->shm_base)->%s", e->name);
-                    } else if(strcmp(t, "char*") == 0 || storage_is_o9string(t) ||
-                              strcmp(t, "O9Dict") == 0 || strcmp(t, "O9Slice") == 0 ||
-                              strcmp(t, "Channel*") == 0){
+                    } else if(st != nil &&
+                              (strcmp(st, "char*") == 0 || storage_is_o9string(st) ||
+                               strcmp(st, "O9Dict") == 0 || strcmp(st, "O9Slice") == 0 ||
+                               strcmp(st, "Channel*") == 0)){
                         print("((%s_Internal*)((%s_Client*)&", cn, cn);
                         gen_expr(e->left);
                         print(")->shm_base)->%s", e->name);
-                    } else if(type_is_double(member_node(cnode, e->name, 0) != nil ? member_node(cnode, e->name, 0)->typeinfo : nil)){
+                    } else if(type_is_double(mt)){
                         print("((%s_Internal*)((%s_Client*)&", cn, cn);
                         gen_expr(e->left);
                         print(")->shm_base)->%s", e->name);
@@ -3859,10 +3681,15 @@ gen_for_clause(Node *e)
 static char*
 alt_target_storage(Node *c, Node *target)
 {
+    Node *m;
+
     if(target != nil && target->typeinfo != nil)
         return type_storage_for_codegen(target->typeinfo);
-    if(target != nil && target->type == NIdent)
-        return get_sym_type(c, target->name);
+    if(target != nil && target->type == NIdent){
+        m = member_node(c, target->name, 0);
+        if(m != nil)
+            return type_storage_for_codegen(decl_typeinfo(m));
+    }
     return "vlong";
 }
 
@@ -3957,6 +3784,7 @@ check_channel_direction(Node *scope_class, Node *chanexpr, int recvop, int *errs
 static char*
 channel_box_storage(Node *c, Node *chanexpr, Node *fallback)
 {
+    Node *m;
     Type *et;
 
     et = channel_elem_type(c, chanexpr);
@@ -3964,8 +3792,11 @@ channel_box_storage(Node *c, Node *chanexpr, Node *fallback)
         return type_storage_for_codegen(et);
     if(fallback != nil && fallback->typeinfo != nil)
         return type_storage_for_codegen(fallback->typeinfo);
-    if(fallback != nil && fallback->type == NIdent)
-        return get_sym_type(c, fallback->name);
+    if(fallback != nil && fallback->type == NIdent){
+        m = member_node(c, fallback->name, 0);
+        if(m != nil)
+            return type_storage_for_codegen(decl_typeinfo(m));
+    }
     return "vlong";
 }
 
@@ -4315,7 +4146,7 @@ gen_stmt(Node *c, Node *s)
             }
             break;
         }
-        if(is_primitive(s->typename) || type_is_array(s->typeinfo)){
+        if(type_declares_direct_storage(s->typeinfo) || type_is_array(s->typeinfo)){
             print("\t%s %s;\n", type_storage_for_codegen(s->typeinfo), s->name);
             if(type_is_array(s->typeinfo)){
                 print("\to9_slice_init(&%s, sizeof(%s));\n", s->name,
@@ -4336,9 +4167,10 @@ gen_stmt(Node *c, Node *s)
                 print("\tmemset(&%s, 0, sizeof(%s));\n", s->name, type_storage_for_codegen(s->typeinfo));
             }
         } else {
-            char *cname = find_class(s->typename) ? s->typename : nil;
+            Node *cdecl = type_decl_node(s->typeinfo);
+            char *cname = type_is_class_ref(s->typeinfo) ? type_cname(s->typeinfo) : nil;
             int is_new = (s->left && s->left->type == NClass && s->left->name);
-            if(cname != nil && s->left != nil && s->left->type == NSelfCall &&
+            if(cdecl != nil && cname != nil && s->left != nil && s->left->type == NSelfCall &&
                s->left->name != nil && strcmp(s->left->name, "lookup") == 0){
                 /* Counter c = lookup("oid") — resolve through the rings:
                  * registry (in-process fast form) first, /srv fallback */
@@ -4349,7 +4181,7 @@ gen_stmt(Node *c, Node *s)
                 add_var_class(s->name, cname);
                 break;
             }
-            if(cname != nil && s->left != nil && !is_new && type_is_class_ref(s->typeinfo)){
+            if(cdecl != nil && cname != nil && s->left != nil && !is_new && type_is_class_ref(s->typeinfo)){
                 print("\t%s_Client %s;\n", cname, s->name);
                 print("\tmemset(&%s, 0, sizeof(%s));\n", s->name, s->name);
                 gen_reply_value_to(s->left, s->typeinfo, s->name);
@@ -4554,20 +4386,17 @@ gen_stmt(Node *c, Node *s)
         if(s->left != nil && s->left->type == NIdent && s->left->name != nil &&
            s->right != nil && s->right->type != NClass){
             Type *ltinfo = s->left->typeinfo;
-            char *lt = get_expr_type(s->left);
             Node *fieldnode = nil;
 
+            if(ltinfo == nil)
+                ltinfo = get_typeinfo_sym(s->left->name);
             if((ltinfo == nil || !type_is_class_ref(ltinfo)) &&
                in_method_body && gen_class != nil && !is_local(s->left->name) &&
                member_exists(gen_class, s->left->name)){
                 fieldnode = member_node(gen_class, s->left->name, 0);
                 ltinfo = fieldnode != nil ? decl_typeinfo(fieldnode) : nil;
-                lt = fieldnode != nil ? fieldnode->typename : lt;
             }
-            if((lt == nil || strcmp(lt, "vlong") == 0) && s->left->name != nil)
-                lt = get_var_class(s->left->name);
-            if((ltinfo != nil && type_is_class_ref(ltinfo)) ||
-               (lt != nil && is_class_type(lt))){
+            if(ltinfo != nil && type_is_class_ref(ltinfo)){
                 Node *rv = try_value_expr(s->right);
                 if(rv != nil && (rv->type == NMsgSend || rv->type == NSelfCall || rv->type == NIdent || rv->type == NPropRead)){
                     char dest[128];
@@ -4576,7 +4405,7 @@ gen_stmt(Node *c, Node *s)
                         snprint(dest, sizeof dest, "self->%s", s->left->name);
                     else
                         snprint(dest, sizeof dest, "%s", s->left->name);
-                    gen_reply_value_to(s->right, ltinfo != nil ? ltinfo : type_name(lt), dest);
+                    gen_reply_value_to(s->right, ltinfo, dest);
                     if(is_try(s->right))
                         gen_try_check();
                     break;
@@ -4585,10 +4414,9 @@ gen_stmt(Node *c, Node *s)
         }
         if(s->left != nil && s->left->type == NIdent && s->left->name != nil &&
            s->right != nil && s->right->type == NClass && s->right->name != nil){
-            char *lt = get_expr_type(s->left);
-            if(lt == nil || strcmp(lt, "vlong") == 0)
-                lt = get_var_class(s->left->name);
-            if(lt != nil && is_class_type(lt) && is_subclass(s->right->name, lt)){
+            Type *ltinfo = s->left->typeinfo != nil ? s->left->typeinfo : get_typeinfo_sym(s->left->name);
+            char *lt = ltinfo != nil ? type_cname(ltinfo) : nil;
+            if(ltinfo != nil && type_is_class_ref(ltinfo) && is_subclass(s->right->name, lt)){
                 /* If the LHS is a class-typed FIELD (member of the current
                  * class, not a local), store into self->field, not a
                  * dangling local. */
@@ -4605,16 +4433,21 @@ gen_stmt(Node *c, Node *s)
         }
         if(s->left != nil && s->left->type == NIdent && s->left->name != nil &&
            s->right != nil && s->right->type == NIdent && s->right->name != nil){
-            char *lt = get_expr_type(s->left);
-            char *rt = get_expr_type(s->right);
-            if(lt != nil && rt != nil && is_class_type(lt) && is_class_type(rt) && is_subclass(rt, lt)){
+            Type *ltinfo = s->left->typeinfo != nil ? s->left->typeinfo : get_typeinfo_sym(s->left->name);
+            Type *rtinfo = s->right->typeinfo != nil ? s->right->typeinfo : get_typeinfo_sym(s->right->name);
+            char *lt = ltinfo != nil ? type_cname(ltinfo) : nil;
+            char *rt = rtinfo != nil ? type_cname(rtinfo) : nil;
+            if(ltinfo != nil && rtinfo != nil &&
+               type_is_class_ref(ltinfo) && type_is_class_ref(rtinfo) &&
+               is_subclass(rt, lt)){
                 print("\tmemmove(&%s, &%s, sizeof(%s_Client));\n", s->left->name, s->right->name, lt);
                 break;
             }
         }
         if(s->left != nil && s->left->type == NPropRead && s->left->name != nil && s->left->left != nil){
-            char *owner = get_expr_type(s->left->left);
-            Node *cnode = find_class(owner);
+            Type *ownertype = s->left->left->typeinfo;
+            char *owner = ownertype != nil ? type_cname(ownertype) : nil;
+            Node *cnode = type_decl_node(ownertype);
             if(cnode != nil){
                 if(cnode->type == NClass || cnode->type == NInterface){
                     print("\t{ %s_Client *__c = (%s_Client*)&", owner, owner);
@@ -5413,6 +5246,7 @@ gen_prop_handlers(Node *c)
         }
         if(m->type == NProp){
             char *t = type_storage_for_codegen(m->typeinfo);
+            char *fmt = type_fmt_for_codegen(m->typeinfo);
             if(strcmp(t, "O9Dict") == 0){
                 /* Dict property: serialize to buf */
                 print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
@@ -5424,13 +5258,13 @@ gen_prop_handlers(Node *c)
                 print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
                 if(storage_is_o9string(t)){
                     print("\t\treadstr(r, o9_string_data(s->%s));\n", m->name);
-                } else if(strcmp(c_type_fmt(t), "%s") == 0){
+                } else if(strcmp(t, "char*") == 0 || strcmp(fmt, "%s") == 0){
                     /* String property */
                     print("\t\treadstr(r, s->%s ? s->%s : \"\");\n", m->name, m->name);
                 } else if(type_decl_node(m->typeinfo) != nil && type_decl_node(m->typeinfo)->type == NStruct) {
                     print("\t\treadstr(r, \"<struct>\");\n");
                 } else {
-                    print("\t\tsnprint(buf, sizeof buf, \"%s\\n\", (vlong)s->%s);\n", c_type_fmt(t), m->name);
+                    print("\t\tsnprint(buf, sizeof buf, \"%s\\n\", (vlong)s->%s);\n", fmt, m->name);
                     print("\t\treadstr(r, buf);\n");
                 }
             }
@@ -5451,6 +5285,8 @@ gen_write_handlers(Node *c)
         }
         if(m->type == NProp){
             char *t = type_storage_for_codegen(m->typeinfo);
+            char *fmt = type_fmt_for_codegen(m->typeinfo);
+            char *cast = type_cast_for_codegen(m->typeinfo);
             if(strcmp(t, "O9Dict") == 0){
                 /* Dict property: deserialize from write data */
                 print("\tif(strcmp(r->fid->file->name, \"%s\") == 0){\n", m->name);
@@ -5463,12 +5299,12 @@ gen_write_handlers(Node *c)
                 if(storage_is_o9string(t)){
                     print("\t\to9_string_release(s->%s);\n", m->name);
                     print("\t\ts->%s = o9_string_new(r->ifcall.data, r->ifcall.count);\n", m->name);
-                } else if(strcmp(c_type_fmt(t), "%s") == 0){
+                } else if(strcmp(t, "char*") == 0 || strcmp(fmt, "%s") == 0){
                     /* String property */
                     print("\t\tfree(s->%s);\n", m->name);
                     print("\t\ts->%s = strdup(r->ifcall.data);\n", m->name);
                 } else {
-                    print("\t\ts->%s = (%s)strtoll(r->ifcall.data, nil, 0);\n", m->name, type_cast(t));
+                    print("\t\ts->%s = (%s)strtoll(r->ifcall.data, nil, 0);\n", m->name, cast);
                 }
             }
             print("\t\tr->ofcall.count = r->ifcall.count;\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
@@ -6696,7 +6532,7 @@ codegen(Node *root)
      * field discriminates them (destroyfid only has the Fid). */
     print("enum { O9AUX_EXPORT = 1, O9AUX_SESSION = 2, O9AUX_IMPORT = 3, O9AUX_IMPORT_STAGE = 4 };\n");
     print("struct O9Export { int tag; QLock lock; char *data; int ndata; };\n\n");
-    print("struct O9ImportStage { int tag; O9Export *file; char *data; int ndata; int wrote; };\n\n");
+    print("struct O9ImportStage { int tag; O9Export *file; QLock lock; char *data; int ndata; int wrote; int commit; int failed; };\n\n");
     print("static int o9app_export_name_ok(char *s){\n");
     print("\tuchar *p;\n");
     print("\tif(s == nil || s[0] == '\\0' || strcmp(s, \".\") == 0 || strcmp(s, \"..\") == 0) return 0;\n");
@@ -6834,7 +6670,8 @@ codegen(Node *root)
     print("\tO9ImportStage *st; O9Export *imp; char *old;\n");
     print("\tif(f == nil || f->aux == nil || *(int*)f->aux != O9AUX_IMPORT_STAGE) return;\n");
     print("\tst = f->aux; f->aux = nil;\n");
-    print("\tif(st->wrote && st->file != nil){\n");
+    print("\tqlock(&st->lock);\n");
+    print("\tif(st->commit && !st->failed && st->file != nil){\n");
     print("\t\timp = st->file;\n");
     print("\t\tqlock(&imp->lock);\n");
     print("\t\told = imp->data;\n");
@@ -6845,6 +6682,7 @@ codegen(Node *root)
     print("\t\tqunlock(&imp->lock);\n");
     print("\t\tfree(old);\n");
     print("\t}\n");
+    print("\tqunlock(&st->lock);\n");
     print("\tfree(st->data);\n");
     print("\tfree(st);\n");
     print("}\n");
@@ -6859,18 +6697,20 @@ codegen(Node *root)
     print("\t}\n");
     print("\tst = r->fid->aux;\n");
     print("\toff = r->ifcall.offset; count = r->ifcall.count;\n");
-    print("\tif(off < 0 || count < 0 || off + count > 4*1024*1024){ respond(r, \"import too large\"); return; }\n");
+    print("\tqlock(&st->lock);\n");
+    print("\tif(off < 0 || count < 0 || off + count > 4*1024*1024){ st->failed = 1; qunlock(&st->lock); respond(r, \"import too large\"); return; }\n");
     print("\tneed = (int)(off + count);\n");
     print("\tif(need + 1 > st->ndata + 1){\n");
     print("\t\tnp = realloc(st->data, need + 1);\n");
-    print("\t\tif(np == nil){ respond(r, \"no memory\"); return; }\n");
+    print("\t\tif(np == nil){ st->failed = 1; qunlock(&st->lock); respond(r, \"no memory\"); return; }\n");
     print("\t\tif(off > st->ndata) memset(np + st->ndata, 0, (int)(off - st->ndata));\n");
     print("\t\tst->data = np;\n");
     print("\t}\n");
     print("\tif(count > 0) memmove(st->data + (int)off, r->ifcall.data, count);\n");
     print("\tif(need > st->ndata) st->ndata = need;\n");
     print("\tif(st->data != nil) st->data[st->ndata] = '\\0';\n");
-    print("\tst->wrote = 1;\n");
+    print("\tst->wrote = 1; st->commit = 1;\n");
+    print("\tqunlock(&st->lock);\n");
     print("\tr->ofcall.count = count;\n");
     print("\trespond(r, nil);\n");
     print("}\n");
@@ -6893,6 +6733,7 @@ codegen(Node *root)
     print("\t\tif(__m == OWRITE || __m == ORDWR || (r->ifcall.mode & OTRUNC)){\n");
     print("\t\t\tO9ImportStage *__st = o9app_import_stage_new(r->fid->file->aux, (r->ifcall.mode & OTRUNC) ? 0 : 1);\n");
     print("\t\t\tif(__st == nil){ respond(r, \"no memory\"); return; }\n");
+    print("\t\t\tif(r->ifcall.mode & OTRUNC) __st->commit = 1;\n");
     print("\t\t\tr->fid->aux = __st;\n");
     print("\t\t}\n");
     print("\t}\n");
@@ -6916,6 +6757,7 @@ codegen(Node *root)
     print("\tif(f == nil){ free(imp); respond(r, \"file exists\"); return; }\n");
     print("\tst = o9app_import_stage_new(imp, 0);\n");
     print("\tif(st == nil){ removefile(f); respond(r, \"no memory\"); return; }\n");
+    print("\tst->commit = 1;\n");
     print("\tr->fid->file = f;\n");
     print("\tr->fid->qid = f->qid;\n");
     print("\tr->fid->aux = st;\n");
@@ -8160,7 +8002,6 @@ annotate_expr_type(Node *e, Node *scope_class)
     Node *a;
     TypedMember tm;
     Type *lt, *rt, *t;
-    char *legacy;
 
     if(e == nil)
         return type_name("void");
@@ -8300,8 +8141,7 @@ annotate_expr_type(Node *e, Node *scope_class)
     case NArrayGet:
         lt = annotate_expr_type(e->left, scope_class);
         annotate_expr_type(e->right, scope_class);
-        legacy = get_expr_type(e->left);
-        return set_expr_type(e, collection_get_type(lt, legacy));
+        return set_expr_type(e, collection_get_type(lt, nil));
     case NAssign:
         lt = annotate_expr_type(e->left, scope_class);
         annotate_expr_type(e->right, scope_class);
@@ -8373,11 +8213,11 @@ add_decl_type_sym(Node *n)
 
     if(n == nil || n->name == nil || n->typename == nil)
         return;
-    add_type_sym_typed(n->name, n->typename, decl_typeinfo(n));
     t = decl_typeinfo(n);
+    add_type_sym_typed(n->name, t);
     d = type_decl_node(t);
     if(d != nil && (d->type == NClass || d->type == NInterface))
-        add_var_class(n->name, d->name);
+        add_var_class(n->name, type_cname(t));
 }
 
 static void
@@ -9534,11 +9374,10 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
             }
         } else if(e->left != nil && !type_assignable_semantic(e->typeinfo, e->left->typeinfo))
             type_mismatch_error("initialize", e->typeinfo, e->left->typeinfo, errs);
-        /* Check legacy-only typename is a known type if no structured type was attached. */
-        if(e->typeinfo == nil && e->typename && !is_primitive(e->typename) && find_class(e->typename) == nil){
-            fprint(2, "o9c: error: line %d: unknown type '%s'\n", sem_line, e->typename);
-            (*errs)++;
-        }
+        /* Legacy-only typename fallback: parse it into a Type and let the
+         * structured validator own the decision. */
+        if(e->typeinfo == nil && e->typename != nil)
+            validate_type(typeinfo_from_legacy(e->typename), errs);
         break;
     default:
         annotate_expr_type(e, scope_class);

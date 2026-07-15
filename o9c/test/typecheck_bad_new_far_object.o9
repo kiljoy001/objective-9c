@@ -1,0 +1,12 @@
+class Counter {
+    int64 val;
+
+    method Counter(int64 n) {
+        val = n;
+    }
+}
+
+main {
+    Counter c = new far Counter(0);
+    print(c.val, "\n");
+}

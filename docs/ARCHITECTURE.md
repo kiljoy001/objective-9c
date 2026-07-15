@@ -13,21 +13,21 @@
 > rejected.
 
 o9 is built on one premise: **the network is not a library, it is the
-execution model.** Every object is addressable; locality is a performance
-tier, not a semantic boundary. A program does not "use" the network — it
-inhabits a namespace that may span machines.
+application's namespace.** Objects are local CSP actors. The network-facing
+surface is the app facade: `exports/` publishes Tabula data, `imports/`
+accepts inert Tabula deposits, and `ctl` is an explicit command interface.
+Source-level object handles do not cross machines.
 
 ## The Four Rings
 
-Each ring uses the cheapest mechanism for its radius. Identity is uniform;
-only the transport changes.
+Each ring uses the cheapest mechanism for what is allowed to cross it.
 
 ```
  ring 0  SAME     inside one app process
                   shared memory (Internal structs), asm dispatch cache,
                   CSP channels; distance = -1; no 9P, no marshaling
  ring 1  MACHINE  other processes on this machine
-                  /srv posts + namespace binds (pipe-backed 9P)
+                  /srv posts + namespace binds; explicit app facade commands
  ring 2  NEAR     other machines, local network
                   Tabula data over 9P/IL
  ring 3  FAR      wide area
@@ -47,7 +47,7 @@ Every class compiles to:
 - an **Internal struct** (authoritative state, persisted per-field via
   libtab), owned by a **CSP actor proc** that serializes all method
   execution — one writer per object, no locks;
-- a **Client handle** callers hold: `(dispatch_chan, shm_base, table, distance, srvname)`;
+- a **local client handle** callers hold for in-process dispatch;
 - an **app 9P facade**: root `clone`, `methods`, `status`, `exports/`, `imports/`,
   and per-session `<id>/ctl`, `<id>/data`, `<id>/status`;
 - generated **impl functions**, asm-cache **thunks**, and same-class-call
@@ -65,8 +65,8 @@ each concrete instantiation (`Box<int64>` → `Box__int64`) is a real class.
                       pid-generation guard: a hit is always
                       a same-process pointer                   fill L1, retry
  3. CSP channel       O9Msg over dispatch_chan to the actor    in-process
- 4. 9P                ctl write + data read; "error: " prefix  cross-machine
-                      carries failures; werrstr locally
+ 4. app facade        explicit ctl write + data read over 9P;
+                      not generated source-level remote object dispatch
 ```
 
 Return values ride in per-call stack frames (`__o9fr[depth]`), so nested
@@ -76,15 +76,15 @@ calls cannot interfere. Errors propagate through every tier.
 
 One identity, two forms:
 
-- **universal**: the `oid` — resolves through the object registry,
-  method facade, or `/srv` mount protocol;
+- **process identity**: the `oid` — resolves through the in-process object
+  registry and debug/method metadata;
 - **local fast form**: `(dispatch_chan, shm_base, gen)` — valid only
   in-process, guarded by the generation counter.
 
 Channels carry typed o9 values through a generic byte envelope. Handles are
 CSP values too: sending one down a channel transfers the capability
-(channel mobility), not the actor memory. Crossing a process boundary
-degrades a handle to its oid; the far side re-resolves in its own ring.
+(channel mobility), not the actor memory. Crossing a process boundary uses
+Tabula data or explicit app facade commands, not object-handle rehydration.
 
 ## The Data Plane (libtab)
 
