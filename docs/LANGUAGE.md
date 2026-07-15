@@ -248,6 +248,10 @@ main {
 }
 ```
 
+Tuple fields are data-only for now. Object handles are rejected as tuple
+fields because tuples can escape through returns, tasks, and channels; pass
+object handles as named values instead.
+
 Structs are plain data aggregates:
 
 ```o9
@@ -515,6 +519,45 @@ close()
 
 `write` mutates a particular record by id. `set` mutates the current record
 after `add`, `first`, or `next`.
+
+### Tabula Locality
+
+`near`, `far`, and `listener` are data-locality forms for `Tabula` only.
+They do not construct remote objects.
+
+```o9
+main {
+    near Tabula lan = new Tabula("orders", "item,qty,status") @ "il!fileserver!9999";
+    far Tabula wan = new Tabula("orders", "item,qty,status") @ "tcp!remote.host!9999";
+    listener Tabula server = new Tabula("orders", "item,qty,status") @ "il!*!9999";
+}
+```
+
+- `near` reads `exports/orders.tab` from a 9P service over IL.
+- `far` reads `exports/orders.tab` from a 9P service over TCP.
+- `listener` exports the local Tabula under `exports/orders.tab` and serves
+  the app tree at the supplied address.
+- `push()` writes a remote Tabula copy back to `imports/orders.tab`.
+- `sync()` refreshes a remote Tabula copy from `exports/orders.tab`.
+
+Ordinary classes cannot be declared `near`, `far`, or `listener`. If data
+crosses a machine boundary, it crosses as `.tab` text with semantics embedded;
+the receiver decides what to do with it using its own local code.
+
+Generated app facades expose both directions:
+
+```text
+exports/    # app-owned published .tab files
+imports/    # inert inbound .tab deposits
+```
+
+`imports/` accepts only `.tab` file names. Writes are staged per open fid and
+become visible when that fid is closed; imported data never invokes methods by
+itself.
+
+Binary data stays text in Tabula. The standard binary payload column is `0x`,
+with bytes encoded as lowercase hex from `Bytes.hex()` and decoded with
+`Bytes.fromHex()`.
 
 ## Namespace And MountTable
 

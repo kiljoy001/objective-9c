@@ -78,6 +78,12 @@ if(! test -e $mtpt/exports/orders.tab){
 	ls -l $mtpt/exports >[1=2]
 	checkfail x 'missing exports/orders.tab'
 }
+# assertion 1b: imports/ exists for inert inbound .tab deposits
+if(! test -d $mtpt/imports){
+	echo 'export: FAIL: imports dir not present' >[1=2]
+	ls -l $mtpt >[1=2]
+	checkfail x 'missing imports dir'
+}
 # assertion 2: contents contain the re-exported row data (widget, qty 8)
 if(test -e $mtpt/exports/orders.tab){
 	got=`{cat $mtpt/exports/orders.tab}
@@ -85,14 +91,45 @@ if(test -e $mtpt/exports/orders.tab){
 	echo $"got | grep -s '8'        ; checkfail $status 'orders missing re-exported qty 8'
 }
 
-# assertion 3: exported files are read-only
+# assertion 3: imports accept committed .tab uploads and preserve bytes
+if(test -d $mtpt/imports && test -e $mtpt/exports/orders.tab){
+	cat $mtpt/exports/orders.tab > $mtpt/imports/orders.tab
+	if(! test -e $mtpt/imports/orders.tab){
+		echo 'export: FAIL: imports/orders.tab not created' >[1=2]
+		fail=1
+	}
+	if not{
+		igot=`{cat $mtpt/imports/orders.tab}
+		echo $"igot | grep -s widget ; checkfail $status 'import missing "widget"'
+		echo $"igot | grep -s '8'     ; checkfail $status 'import missing qty 8'
+	}
+}
+
+# assertion 4: import names must be .tab files, not arbitrary files
+@{ echo should-fail > $mtpt/imports/not-tab.txt } >[2]/dev/null
+if(~ $status ''){
+	echo 'export: FAIL: imports accepted non-.tab name' >[1=2]
+	fail=1
+}
+
+# assertion 5: import overwrite truncates through per-fid staging
+if(test -e $mtpt/imports/orders.tab){
+	echo replacement > $mtpt/imports/orders.tab
+	igot=`{cat $mtpt/imports/orders.tab}
+	if(! ~ $"igot replacement){
+		echo 'export: FAIL: import overwrite did not truncate' >[1=2]
+		fail=1
+	}
+}
+
+# assertion 6: exported files are read-only
 @{ echo should-fail > $mtpt/exports/orders.tab } >[2]/dev/null
 if(~ $status ''){
 	echo 'export: FAIL: exported file accepted write' >[1=2]
 	fail=1
 }
 
-# assertion 4: unsafe export names did not escape or create nested files
+# assertion 7: unsafe export names did not escape or create nested files
 if(test -e $mtpt/escape.tab){
 	echo 'export: FAIL: ../escape.tab escaped exports' >[1=2]
 	fail=1
@@ -102,7 +139,7 @@ if(test -e $mtpt/exports/bad){
 	fail=1
 }
 
-# assertion 5: a consumer can import the mounted .tab through new Tabula(path)
+# assertion 8: a consumer can import the mounted .tab through new Tabula(path)
 {
 	echo 'main {'
 	echo '    Tabula t = new Tabula("'$mtpt'/exports/orders.tab");'

@@ -1,0 +1,3 @@
+main {
+    near Tabula t = new Tabula("/tmp/orders.tab") @ "il!fileserver!9999";
+}

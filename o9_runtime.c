@@ -1583,7 +1583,22 @@ struct O9Tabula {
 	TabRow *cur;	/* current row: target of set/get, advanced by next */
 	TabIter *it;	/* active read iterator */
 	char *path;	/* nominal path (where a flush would write) */
+	char *remote_addr;
+	char *remote_name;
+	int distance;
 };
+
+static void
+o9_tab_set_remote(O9Tabula *t, char *addr, char *name, int distance)
+{
+	if(t == nil)
+		return;
+	free(t->remote_addr);
+	free(t->remote_name);
+	t->remote_addr = addr != nil ? strdup(addr) : nil;
+	t->remote_name = name != nil ? strdup(name) : nil;
+	t->distance = distance;
+}
 
 static int
 o9_tab_has_col(O9Tabula *t, char *col)
@@ -1640,6 +1655,7 @@ o9_tab_new(O9String *name, O9String *cols)
 		free(ccols);
 		return nil;
 	}
+	t->distance = -1;
 	/* column 0 is always "id" — the row head attr tab_add_row keys on,
 	 * matching the state-tab schema.  User columns follow. */
 	memset(&spec[0], 0, sizeof spec[0]);
@@ -1697,6 +1713,7 @@ o9_tab_open(O9String *path)
 		free(cpath);
 		return nil;
 	}
+	t->distance = -1;
 	t->tab = tab_open(cpath);
 	if(t->tab == nil){
 		free(t);
@@ -2024,6 +2041,8 @@ o9_tab_close(O9Tabula *t)
 		tab_close(t->tab);
 	}
 	free(t->path);
+	free(t->remote_addr);
+	free(t->remote_name);
 	free(t);
 }
 
@@ -2687,6 +2706,15 @@ o9_double_unpack(vlong v)
 	return d;
 }
 
+void
+o9_reply_free(O9Reply *r)
+{
+	if(r == nil)
+		return;
+	free(r->retbuf);
+	free(r);
+}
+
 vlong
 o9_task_await(O9Task *t)
 {
@@ -2736,7 +2764,7 @@ o9_task_close(O9Task *t)
 		return;
 	if(t->done != nil)
 		chanfree(t->done);
-	free(t->reply);
+	o9_reply_free(t->reply);
 	free(t);
 }
 
@@ -3155,6 +3183,63 @@ o9_9p_write_all(int fd, u32int fid, char *s)
 }
 
 static int
+o9_9p_write_bytes_all(int fd, u32int fid, char *data, int ndata)
+{
+	uchar tx[8192], rx[256];
+	uvlong off;
+	u32int got;
+	int n, m, chunk;
+
+	if(data == nil)
+		ndata = 0;
+	off = 0;
+	while((int)off < ndata){
+		chunk = ndata - (int)off;
+		if(chunk > (int)sizeof tx - 23)
+			chunk = sizeof tx - 23;
+		PUT4(tx, 23+chunk);
+		tx[4] = 118;	/* Twrite */
+		tx[5] = 0; tx[6] = 0;
+		PUT4(tx+7, fid);
+		PUT4(tx+11, off & 0xffffffffUL);
+		PUT4(tx+15, (off >> 32) & 0xffffffffUL);
+		PUT4(tx+19, chunk);
+		memmove(tx+23, data + (int)off, chunk);
+		m = o9_9p_rpc(fd, tx, 23+chunk, rx, sizeof rx, 119);
+		if(m < 11)
+			return -1;
+		got = rx[7] | (rx[8]<<8) | (rx[9]<<16) | (rx[10]<<24);
+		if(got == 0 || got > (u32int)chunk)
+			return -1;
+		off += got;
+	}
+	return 0;
+}
+
+static int
+o9_9p_create(int fd, u32int fid, char *name, u32int perm, int mode)
+{
+	uchar tx[512], rx[256];
+	int n, m;
+
+	if(name == nil)
+		return -1;
+	n = strlen(name);
+	if(n > 400)
+		return -1;
+	PUT4(tx, 18+n);
+	tx[4] = 114;	/* Tcreate */
+	tx[5] = 0; tx[6] = 0;
+	PUT4(tx+7, fid);
+	PUT2(tx+11, n);
+	memmove(tx+13, name, n);
+	PUT4(tx+13+n, perm);
+	tx[17+n] = mode;
+	m = o9_9p_rpc(fd, tx, 18+n, rx, sizeof rx, 115);
+	return m < 0 ? -1 : 0;
+}
+
+static int
 o9_9p_read_all(int fd, u32int fid, char *buf, int nbuf)
 {
 	uchar tx[32], rx[8192];
@@ -3185,6 +3270,279 @@ o9_9p_read_all(int fd, u32int fid, char *buf, int nbuf)
 	memmove(buf, rx+11, cnt);
 	buf[cnt] = '\0';
 	return cnt;
+}
+
+static int
+o9_9p_read_file_all(int fd, u32int fid, char **out, int *nout)
+{
+	uchar tx[32], rx[8192];
+	char *buf, *nbuf;
+	uvlong off;
+	u32int cnt;
+	int n, cap, len, max;
+
+	if(out == nil || nout == nil)
+		return -1;
+	*out = nil;
+	*nout = 0;
+	cap = 8192;
+	len = 0;
+	buf = malloc(cap);
+	if(buf == nil)
+		return -1;
+	off = 0;
+	for(;;){
+		max = sizeof rx - 12;
+		PUT4(tx, 23);
+		tx[4] = 116;	/* Tread */
+		tx[5] = 0; tx[6] = 0;
+		PUT4(tx+7, fid);
+		PUT4(tx+11, off & 0xffffffffUL);
+		PUT4(tx+15, (off >> 32) & 0xffffffffUL);
+		PUT4(tx+19, max);
+		n = o9_9p_rpc(fd, tx, 23, rx, sizeof rx, 117);
+		if(n < 11)
+			goto bad;
+		cnt = rx[7] | (rx[8]<<8) | (rx[9]<<16) | (rx[10]<<24);
+		if(cnt == 0)
+			break;
+		if(cnt > (u32int)max || n < 11+(int)cnt)
+			goto bad;
+		if(len + (int)cnt + 1 > cap){
+			cap = (len + cnt + 1) * 2;
+			nbuf = realloc(buf, cap);
+			if(nbuf == nil)
+				goto bad;
+			buf = nbuf;
+		}
+		memmove(buf + len, rx + 11, cnt);
+		len += cnt;
+		off += cnt;
+		if(len > 4*1024*1024)
+			goto bad;
+	}
+	buf[len] = '\0';
+	*out = buf;
+	*nout = len;
+	return 0;
+bad:
+	free(buf);
+	return -1;
+}
+
+static int
+o9_tab_remote_name(char *dst, int ndst, char *name)
+{
+	char *p;
+	int n;
+
+	if(dst == nil || ndst <= 0 || name == nil || name[0] == '\0')
+		return -1;
+	for(p = name; *p != '\0'; p++)
+		if(*p == '/' || *p < ' ' || *p == 0177)
+			return -1;
+	n = strlen(name);
+	if(n > 4 && strcmp(name + n - 4, ".tab") == 0)
+		snprint(dst, ndst, "%s", name);
+	else
+		snprint(dst, ndst, "%s.tab", name);
+	return 0;
+}
+
+O9Tabula*
+o9_tab_open_remote(O9String *addr, O9String *name, int distance)
+{
+	o9_Object obj;
+	O9String *pathstr;
+	O9Tabula *t;
+	char *caddr, *cname, *bytes;
+	char fname[128], tmp[256];
+	u32int expfid, filefid;
+	int fd, nbytes, haveexp, havefile;
+
+	if(addr == nil || name == nil)
+		return nil;
+	t = nil;
+	caddr = o9_string_cstr(addr);
+	cname = o9_string_cstr(name);
+	if(caddr == nil || cname == nil)
+		goto bad0;
+	if(o9_tab_remote_name(fname, sizeof fname, cname) < 0)
+		goto bad0;
+
+	memset(&obj, 0, sizeof obj);
+	obj.fd = -1;
+	if(o9_connect(&obj, caddr, "Tabula", distance) < 0)
+		goto bad0;
+
+	expfid = 30;
+	filefid = 31;
+	haveexp = 0;
+	havefile = 0;
+	bytes = nil;
+	if(o9_9p_walk1(obj.fd, 1, expfid, "exports") < 0)
+		goto out;
+	haveexp = 1;
+	if(o9_9p_walk1(obj.fd, expfid, filefid, fname) < 0)
+		goto out;
+	havefile = 1;
+	if(o9_9p_open(obj.fd, filefid, OREAD) < 0)
+		goto out;
+	if(o9_9p_read_file_all(obj.fd, filefid, &bytes, &nbytes) < 0)
+		goto out;
+	snprint(tmp, sizeof tmp, "/tmp/o9tab.%d.%s", getpid(), fname);
+	fd = create(tmp, OWRITE, 0600);
+	if(fd < 0)
+		goto out;
+	if(write(fd, bytes, nbytes) != nbytes){
+		close(fd);
+		remove(tmp);
+		goto out;
+	}
+	close(fd);
+	pathstr = o9_string_from_c(tmp);
+	t = o9_tab_open(pathstr);
+	o9_string_release(pathstr);
+	if(t != nil)
+		o9_tab_set_remote(t, caddr, fname, distance);
+out:
+	if(havefile)
+		o9_9p_clunk(obj.fd, filefid);
+	if(haveexp)
+		o9_9p_clunk(obj.fd, expfid);
+	if(obj.fd >= 0)
+		close(obj.fd);
+	free(bytes);
+bad0:
+	free(caddr);
+	free(cname);
+	return t;
+}
+
+int
+o9_tab_push_remote(O9String *addr, O9String *name, O9Tabula *t, int distance)
+{
+	o9_Object obj;
+	O9String *bytes;
+	char *caddr, *cname, *cbytes;
+	char fname[128];
+	u32int dirfid, filefid;
+	int rv, nbytes, havedir, havefile, fileisdir;
+
+	if(addr == nil || name == nil || t == nil)
+		return -1;
+	rv = -1;
+	caddr = o9_string_cstr(addr);
+	cname = o9_string_cstr(name);
+	cbytes = nil;
+	bytes = nil;
+	if(caddr == nil || cname == nil)
+		goto out0;
+	if(o9_tab_remote_name(fname, sizeof fname, cname) < 0)
+		goto out0;
+	bytes = o9_tab_serialize(t);
+	if(bytes == nil)
+		goto out0;
+	cbytes = o9_string_cstr(bytes);
+	if(cbytes == nil)
+		goto out0;
+	nbytes = o9_string_len(bytes);
+
+	memset(&obj, 0, sizeof obj);
+	obj.fd = -1;
+	if(o9_connect(&obj, caddr, "Tabula", distance) < 0)
+		goto out0;
+
+	dirfid = 40;
+	filefid = 41;
+	havedir = 0;
+	havefile = 0;
+	fileisdir = 0;
+	if(o9_9p_walk1(obj.fd, 1, dirfid, "imports") < 0)
+		goto out;
+	havedir = 1;
+	if(o9_9p_walk1(obj.fd, dirfid, filefid, fname) == 0){
+		havefile = 1;
+		if(o9_9p_open(obj.fd, filefid, OWRITE|OTRUNC) < 0)
+			goto out;
+	} else {
+		if(o9_9p_create(obj.fd, dirfid, fname, 0666, OWRITE) < 0)
+			goto out;
+		fileisdir = 1;
+	}
+	if(o9_9p_write_bytes_all(obj.fd, fileisdir ? dirfid : filefid, cbytes, nbytes) < 0)
+		goto out;
+	rv = 0;
+out:
+	if(havefile)
+		o9_9p_clunk(obj.fd, filefid);
+	if(havedir)
+		o9_9p_clunk(obj.fd, dirfid);
+	if(obj.fd >= 0)
+		close(obj.fd);
+out0:
+	free(cbytes);
+	if(bytes != nil)
+		o9_string_release(bytes);
+	free(caddr);
+	free(cname);
+	return rv;
+}
+
+int
+o9_tab_push(O9Tabula *t)
+{
+	O9String *addr, *name;
+	int rv;
+
+	if(t == nil || t->remote_addr == nil || t->remote_name == nil || t->distance < 0)
+		return -1;
+	addr = o9_string_from_c(t->remote_addr);
+	name = o9_string_from_c(t->remote_name);
+	rv = o9_tab_push_remote(addr, name, t, t->distance);
+	o9_string_release(addr);
+	o9_string_release(name);
+	return rv;
+}
+
+int
+o9_tab_sync(O9Tabula *t)
+{
+	O9Tabula *fresh;
+	O9String *addr, *name;
+	Tab *oldtab;
+	TabIter *oldit;
+	char *oldpath;
+
+	if(t == nil || t->remote_addr == nil || t->remote_name == nil || t->distance < 0)
+		return -1;
+	addr = o9_string_from_c(t->remote_addr);
+	name = o9_string_from_c(t->remote_name);
+	fresh = o9_tab_open_remote(addr, name, t->distance);
+	o9_string_release(addr);
+	o9_string_release(name);
+	if(fresh == nil)
+		return -1;
+
+	oldtab = t->tab;
+	oldit = t->it;
+	oldpath = t->path;
+	t->tab = fresh->tab;
+	t->cur = nil;
+	t->it = fresh->it;
+	t->path = fresh->path;
+	fresh->tab = nil;
+	fresh->it = nil;
+	fresh->path = nil;
+	if(oldit != nil)
+		tab_iter_close(oldit);
+	if(oldtab != nil){
+		o9_tab_discard(oldtab);
+		tab_close(oldtab);
+	}
+	free(oldpath);
+	o9_tab_close(fresh);
+	return 0;
 }
 
 static int
@@ -3312,7 +3670,7 @@ obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int narg
             ret = (void*)r->ret;
         }
         chanfree(m->replyc);
-        free(r);
+        o9_reply_free(r);
         free(m);
         return ret;
     }
@@ -3376,7 +3734,7 @@ obj9_msgSendDoubleN(void *receiver, char *method, ulong selector, void *args, in
             ret = r->dret;
         }
         chanfree(m->replyc);
-        free(r);
+        o9_reply_free(r);
         free(m);
         return ret;
     }
@@ -3398,6 +3756,73 @@ obj9_msgSendDoubleN(void *receiver, char *method, ulong selector, void *args, in
     }
 
     return 0.0;
+}
+
+int
+obj9_msgSendObjectN(void *receiver, char *method, ulong selector, void *args,
+	int nargs, void *out, uintptr outsiz)
+{
+    o9_Object *obj = receiver;
+    O9Handle h;
+    O9Msg *m;
+    O9Reply *r;
+    int ret;
+
+    if(obj == nil || out == nil || outsiz == 0){
+        werrstr("bad object return destination");
+        o9_set_call_err("bad object return destination");
+        return -1;
+    }
+    memset(out, 0, outsiz);
+
+    if(obj->dispatch_chan != nil){
+        if(o9_actor_self_send(obj->dispatch_chan, method)){
+            o9_set_call_err("self-send would deadlock");
+            return -1;
+        }
+        if(obj->oid[0] != '\0' && obj->gen != 0){
+            if(o9_registry_lookup(obj->oid, &h) < 0 ||
+               h.gen != obj->gen || h.chan != obj->dispatch_chan){
+                werrstr("stale object handle");
+                o9_set_call_err("stale object handle");
+                return -1;
+            }
+        }
+        m = mallocz(sizeof(O9Msg), 1);
+        m->sel = selector;
+        m->args = args;
+        m->nargs = nargs;
+        m->replyc = chancreate(sizeof(void*), 0);
+        sendp(obj->dispatch_chan, m);
+        r = recvp(m->replyc);
+        ret = -1;
+        if(r == nil){
+            werrstr("object method produced no reply");
+            o9_set_call_err("object method produced no reply");
+        } else if(r->err != nil){
+            werrstr("%s", r->err);
+            o9_set_call_err(r->err);
+        } else if(r->retbuf == nil || r->retsz == 0){
+            werrstr("object method returned no handle data");
+            o9_set_call_err("object method returned no handle data");
+        } else if(r->retsz > outsiz){
+            werrstr("object method returned oversized handle");
+            o9_set_call_err("object method returned oversized handle");
+        } else {
+            memmove(out, r->retbuf, r->retsz);
+            ((o9_Object*)out)->table = nil;	/* copied handles fall back to CSP */
+            o9_set_call_err(nil);
+            ret = 0;
+        }
+        chanfree(m->replyc);
+        o9_reply_free(r);
+        free(m);
+        return ret;
+    }
+
+    werrstr("object returns are local-only");
+    o9_set_call_err("object returns are local-only");
+    return -1;
 }
 
 void*

@@ -101,6 +101,27 @@ main {
 }
 ```
 
+Clients can also deposit inert `.tab` data into `imports/`; the receiving app
+decides later what the data means:
+
+```rc
+cat local-orders.tab > /mnt/o9/imports/local-orders.tab
+```
+
+Binary payloads stay text by using a `0x` column with hex from `Bytes`:
+
+```o9
+import "bytes.o9";
+
+main {
+    Bytes b = new Bytes("payload");
+    Tabula file = new Tabula("file", "name,kind,0x");
+    file.write("p", "name", "payload.bin");
+    file.write("p", "kind", "application/octet-stream");
+    file.write("p", "0x", b.hex());
+}
+```
+
 ## Namespace Setup
 
 ```o9

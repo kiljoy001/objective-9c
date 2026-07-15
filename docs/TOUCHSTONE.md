@@ -92,14 +92,11 @@ the test that the architecture is coherent:
 - **the object** = struct + the code that operates on it.
 - **the application** = many such structs served from one process under
   one `/srv/o9.<app>` (per-app fileserver; see roadmap A).
-- **distance tiers** = how far the struct is from the code touching it
-  (transport selection under one 9P interface; not separate dispatch
-  systems).  `same` = shm/channel/asm.  `near` = **9P over IL** (Plan 9's
-  reliable sequenced datagrams, built for 9P — the low-latency LAN-realm
-  transport).  `far` = **9P over TCP** (wide area).  o9 is a Plan 9 /
-  9front language and leans into it: `o9_connect` prepends `il!` for near
-  and `tcp!` for far unless the address already carries a transport.
-  Implemented; full suite green.
+- **distance tiers** = how far Tabula data travels.  `same` is an in-process
+  Tabula.  `near` reads a Tabula over **9P/IL**.  `far` reads a Tabula over
+  **9P/TCP**.  `listener` serves local Tabula exports/imports through the
+  app's 9P tree.  Remote objects are rejected; data crosses as `.tab` text and the
+  receiver's local code decides what to do.
 - **reference graph** = structs holding fids to other structs (an edge
   view of the ledger; roadmap C).
 - **live / REPL** = the struct (state) outlives the code (behavior)
@@ -119,8 +116,8 @@ needs to exist first.
 
 - **A. Per-application fileserver.**  Collapse the per-object fileserver
   to per-app: one process per app, one `/srv/o9.<app>` post, one shared
-  facade (`clone`, `methods`, `status`, `exports/`, and per-session
-  `ctl`/`data`/`status`). Objects are addressed by name through the
+  facade (`clone`, `methods`, `status`, `exports/`, `imports/`, and
+  per-session `ctl`/`data`/`status`). Objects are addressed by name through the
   facade or by in-process handles, not mounted as separate public object
   trees. Foundation for B/C/D — they all need "a program" to be one
   addressable thing. Escape hatch: an object that needs a real trust
@@ -137,6 +134,7 @@ needs to exist first.
     - `<class>.<inst>.tab` — per-instance field state when debug state
       snapshots are explicitly enabled
     - `exports/<name>.tab` — published Tabulae (written by `export()`)
+    - `imports/<name>.tab` — inert inbound Tabula deposits
   Persisted method/object copies are debug snapshots only.  Roadmap order
   collapses to **A (done) → C → D**.
 
@@ -166,9 +164,10 @@ code / rehydration path that was cut.
 
 ## Public Data Without Dispatch
 
-The public data interface is `exports/`: an app publishes Tabulae as
-readable files, and other programs mount/read/import them as data. That
-keeps transport inert while letting applications share useful state.
+The public data interface is `exports/` plus `imports/`: an app publishes
+Tabulae as readable files under `exports/`, and receives inert inbound Tabula
+deposits under `imports/`. That keeps transport inert while letting
+applications share useful state.
 
 Internal object state is not the normal public data interface. It lives
 in memory and may be mirrored through the debug-only `state` inspector
@@ -178,8 +177,8 @@ by editing metadata files.
 
 So the split is:
 
-- **Read data** — mount `exports/` or another produced file tree and read
-  Tabulae. Data is inert, signable, and cat-able.
+- **Read/write data** — mount `exports/` to read published Tabulae, or write
+  `.tab` files into `imports/`. Data is inert, signable, and cat-able.
 - **Invoke behavior** — write a method command to a session `ctl`, or use
   direct in-process dispatch. Required for side effects, arguments, and
   computed return values.

@@ -104,11 +104,15 @@ Methods:
 - `appendString(string s)`
 - `slice(int64 start, int64 count) string`
 - `hex() string`
+- `isHex(string hex) bool`
+- `fromHex(string hex) bool`
 - `compare(string other) int64`
 - `equals(string other) bool`
 
 Out-of-range byte reads return `0`; out-of-range writes leave the value
-unchanged.
+unchanged. `hex()` is the standard way to carry binary data through Tabula
+text. `fromHex()` accepts uppercase or lowercase hex, stores the decoded bytes
+in the receiver, and returns false for invalid or odd-length input.
 
 ## Buffer
 
@@ -808,7 +812,24 @@ Methods:
 - `serialize() string`
 - `query(string col, string val) Tabula`
 - `flush() int64`
+- `sync() int64`
+- `push() int64`
 - `close()`
 
 `write` mutates a specific record by id. `set` mutates the current record after
 `add`, `first`, or `next`.
+
+Binary data should be stored as hex text in a column named `0x`:
+
+```o9
+import "bytes.o9";
+
+main {
+    Bytes b = new Bytes("payload");
+    Tabula file = new Tabula("file", "name,kind,0x");
+
+    file.write("p", "name", "payload.bin");
+    file.write("p", "kind", "application/octet-stream");
+    file.write("p", "0x", b.hex());
+}
+```

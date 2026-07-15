@@ -121,6 +121,7 @@ compile o9c/test/selfcall.o9 selfcall
 compile o9c/test/e2e_text.o9 e2e_text
 compile o9c/test/e2e_delete.o9 e2e_delete
 compile o9c/test/e2e_plan9ctypes.o9 e2e_plan9ctypes
+compile o9c/test/tabula_locality.o9 tabula_locality
 compile_project o9c/test/dep_project good.o9 dep_project
 compile_project o9c/test/dep_chain good.o9 dep_chain
 
@@ -365,6 +366,11 @@ require_error o9c/test/typecheck_bad_use_main.o9 'C dependency use blocks are on
 require_error o9c/test/typecheck_bad_legacy_main.o9 'syntax error'
 require_error o9c/test/typecheck_bad_function_capture_field.o9 'function ''leak'' cannot resolve ''payload'''
 require_error o9c/test/typecheck_bad_function_capture_method.o9 'function ''leak'' cannot resolve call ''reveal'''
+require_error o9c/test/typecheck_bad_tuple_object_call.o9 'tuple field cannot be an object handle'
+require_error o9c/test/typecheck_bad_remote_object.o9 'remote objects are not supported'
+require_error o9c/test/typecheck_bad_listener_object.o9 'remote objects are not supported'
+require_error o9c/test/typecheck_bad_new_near_object.o9 'remote objects are not supported'
+require_error o9c/test/typecheck_bad_tabula_locality_shape.o9 'near Tabula declaration requires new Tabula'
 require_error_project o9c/test/dep_bad bad.o9 'escapes the project root'
 require_error_project o9c/test/dep_bad_abs bad.o9 'is not project-relative'
 require_error_project o9c/test/dep_bad_name bad.o9 'is not a simple identifier'

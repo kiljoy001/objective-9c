@@ -1,0 +1,6 @@
+main {
+    near Tabula lan = new Tabula("orders", "item,qty,status") @ "il!fileserver!9999";
+    far Tabula wan = new Tabula("orders", "item,qty,status") @ "tcp!remote.host!9999";
+    listener Tabula server = new Tabula("orders", "item,qty,status") @ "il!*!9999";
+    print("tabula locality\n");
+}

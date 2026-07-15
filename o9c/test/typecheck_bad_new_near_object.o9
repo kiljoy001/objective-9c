@@ -1,0 +1,8 @@
+class Counter {
+    int64 value;
+    method Counter(int64 n) { value = n; }
+}
+
+main {
+    Counter c = new near Counter(0);
+}

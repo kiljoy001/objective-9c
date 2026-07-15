@@ -1,0 +1,24 @@
+class Child {
+    method Child() {
+    }
+}
+
+class Box {
+    prop Child child;
+
+    method Box() {
+        child = new Child();
+    }
+
+    method Child item() {
+        return child;
+    }
+
+    method (Child, int64) bad() {
+        return (item(), 1);
+    }
+}
+
+main {
+    Box b = new Box();
+}

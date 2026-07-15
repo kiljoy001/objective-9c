@@ -16,6 +16,8 @@ struct O9Reply {
     int ok;
     uintptr ret;
     double dret;
+    void *retbuf;
+    uintptr retsz;
     char *err;
 };
 
@@ -88,6 +90,8 @@ extern void  o9_clunk(int fd);
 extern void* obj9_msgSend(void *receiver, char *method, ulong selector, void *args);
 extern void* obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int nargs);
 extern double obj9_msgSendDoubleN(void *receiver, char *method, ulong selector, void *args, int nargs);
+extern int   obj9_msgSendObjectN(void *receiver, char *method, ulong selector, void *args, int nargs, void *out, uintptr outsiz);
+extern void  o9_reply_free(O9Reply *r);
 extern vlong o9_double_pack(double d);
 extern double o9_double_unpack(vlong v);
 extern ulong o9_hash(char *s);
@@ -308,6 +312,8 @@ extern int      o9_state_serialize(O9State *s, char *out, int nout);	/* debug: d
 typedef struct O9Tabula O9Tabula;
 extern O9Tabula* o9_tab_new(O9String *name, O9String *cols);	/* cols = "a,b,c" */
 extern O9Tabula* o9_tab_open(O9String *path);
+extern O9Tabula* o9_tab_open_remote(O9String *addr, O9String *name, int distance);
+extern int       o9_tab_push_remote(O9String *addr, O9String *name, O9Tabula *t, int distance);
 extern O9String* o9_tab_schema(O9Tabula *t);
 extern int       o9_tab_has(O9Tabula *t, O9String *col);
 extern int       o9_tab_add(O9Tabula *t, O9String *key);	/* append row, becomes current */
@@ -320,6 +326,8 @@ extern O9String* o9_tab_read(O9Tabula *t);	/* whole tab as text */
 extern O9String* o9_tab_serialize(O9Tabula *t);	/* whole tab as text */
 extern O9Tabula* o9_tab_query(O9Tabula *t, O9String *col, O9String *val);
 extern int       o9_tab_flush(O9Tabula *t);
+extern int       o9_tab_sync(O9Tabula *t);
+extern int       o9_tab_push(O9Tabula *t);
 extern void      o9_tab_close(O9Tabula *t);
 
 /* MountTable - trusted local interpreter for schema=mounts Tabulae. */

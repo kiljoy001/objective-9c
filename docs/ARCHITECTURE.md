@@ -8,8 +8,9 @@
 > ctl line (method Class.inst method ...).  Objects are CSP actors, not
 > fileservers.  The namespace assembles apps into a tree; it is no longer
 > the object-composition mechanism.  (2) o9 is a Plan 9 / 9front language:
-> `near` = 9P over IL, `far` = 9P over TCP.  o9_connect prepends the
-> transport by distance.  (No QUIC / dual-substrate — lean into Plan 9.)
+> `near` = Tabula over 9P/IL, `far` = Tabula over 9P/TCP, and
+> `listener` = serve local Tabula exports/imports.  Remote objects are
+> rejected.
 
 o9 is built on one premise: **the network is not a library, it is the
 execution model.** Every object is addressable; locality is a performance
@@ -28,14 +29,15 @@ only the transport changes.
  ring 1  MACHINE  other processes on this machine
                   /srv posts + namespace binds (pipe-backed 9P)
  ring 2  NEAR     other machines, local network
-                  9P over IL (dial il!host!svc); distance = 0; new near
+                  Tabula data over 9P/IL
  ring 3  FAR      wide area
-                  9P over TCP; distance = 1; new far
+                  Tabula data over 9P/TCP
 ```
 
-The `distance` field selects transport for crossing machines only.
+The source-level distance forms select transport for Tabula data only.
+Remote class/object construction is intentionally rejected.
 Application composition is the app facade's job; the Plan 9 namespace
-composes mounted apps, sessions, exports, and lower-level namespace setup
+composes mounted apps, sessions, exports/imports, and lower-level namespace setup
 tables.
 
 ## Object Model
@@ -46,7 +48,7 @@ Every class compiles to:
   libtab), owned by a **CSP actor proc** that serializes all method
   execution — one writer per object, no locks;
 - a **Client handle** callers hold: `(dispatch_chan, shm_base, table, distance, srvname)`;
-- an **app 9P facade**: root `clone`, `methods`, `status`, `exports/`,
+- an **app 9P facade**: root `clone`, `methods`, `status`, `exports/`, `imports/`,
   and per-session `<id>/ctl`, `<id>/data`, `<id>/status`;
 - generated **impl functions**, asm-cache **thunks**, and same-class-call
   wrappers.
@@ -121,7 +123,7 @@ surface is the shared app fileserver facade:
  ├── actors (one proc per instance, CSP-serialized)
  ├── object/method stores     ← private runtime metadata
  ├── /srv/o9.<app>...         ← published app facade
- └── root files: clone, methods, status, exports, sessions
+ └── root files: clone, methods, status, exports, imports, sessions
 ```
 
 ### The Registry Actor (CSP as the intra-program bus)
@@ -181,5 +183,5 @@ generic instantiation.
 - [x] **Phase 3**: `function`/`spawn`/`Task<T>` and stdlib object layer
 - [x] **Phase 4**: `MountTable` data layer and `Namespace` object
 - [x] **Phase 5**: directional public channel endpoints for UI/event APIs
-- [ ] Next: produced-file namespace surface beyond `exports/`;
-      higher-level 9P/client helpers; IL placement for `new near`
+- [ ] Next: events/watch support for import/export changes;
+      higher-level 9P/client helpers

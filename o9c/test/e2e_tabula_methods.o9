@@ -13,6 +13,7 @@ main {
     print("paid ", paid.first(), " ", paid.get("item"), " ", paid.get("qty"), "\n");
     print("readcmp ", cmp(t.read(), t.serialize()), "\n");
     print("bad ", t.write("c", "missing", "x"), "\n");
+    print("remote ", t.sync(), " ", t.push(), "\n");
 
     writefile("/tmp/o9_tabula_methods.tab", t.read());
     Tabula disk = new Tabula("/tmp/o9_tabula_methods.tab");

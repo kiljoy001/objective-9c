@@ -736,6 +736,40 @@ mk_typed(int type, char *name, Node *tn, Node *l, Node *r)
     return n;
 }
 
+static int
+o9_locality_kind(char *s)
+{
+    if(s == nil)
+        return -1;
+    if(strcmp(s, "near") == 0)
+        return 0;
+    if(strcmp(s, "far") == 0)
+        return 1;
+    if(strcmp(s, "listener") == 0)
+        return 2;
+    return -1;
+}
+
+static int
+o9_locality_distance(char *s)
+{
+    int k;
+
+    k = o9_locality_kind(s);
+    if(k == 0)
+        return 0;
+    if(k == 1)
+        return 1;
+    return -1;
+}
+
+static int
+o9_type_is_tabula(Type *t)
+{
+    return t != nil && t->kind == TyName && t->name != nil &&
+        strcmp(t->name, "Tabula") == 0;
+}
+
 static void
 set_channel_dir(Node *n, Node *dir)
 {
@@ -1422,7 +1456,7 @@ typeinfo_from_legacy(char *t)
 %token <node> TIDENT TTYPE TQIDENT TTYPEIDENT TENUMIDENT
 %token <name> TINTLIT TSTRINGLIT TCHARLIT TRAWC
 %token <name> TDOUBLELIT
-%token TCLASS TINTERFACE TSTRUCT TENUM TMODULE TIMPORT TFUNC TFUNCTION TMAIN TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TDICT TLIST TTASK TNIL TABSTRACT TDELETE TSPAWN TCAST TUSE
+%token TCLASS TINTERFACE TSTRUCT TENUM TMODULE TIMPORT TFUNC TFUNCTION TMAIN TMETHOD TRETURN TCHAN TIF TELSE TELIF TWHILE TFOR TNEW TPRINT TNEAR TFAR TLISTENER TDICT TLIST TTASK TNIL TABSTRACT TDELETE TSPAWN TCAST TUSE
 %token TALT TCASE TDEFAULT
 %token TSTATE TPROP TATOMIC TSTREAM TSECRET TCAP TOBJECT TTRUE TFALSE TARROW
 %token TPUBLIC TPRIVATE
@@ -1447,7 +1481,7 @@ typeinfo_from_legacy(char *t)
 %right TTRY
 %left '.' '['
  
-%type <node> program top_levels top_level class_decl class_head interface_decl interface_head struct_decl struct_head enum_decl enum_vals enum_val module_decl module_head import_decl object_decl member_list member member_body var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename name_ref type_name_ref decl_name generic_name enum_name member_name spawn_name dep_name dep_list param_list param call_args call_arg main_decl func_top_level function_decl for_init for_cond for_step else_clause generic_opt generic_names abstract_opt alt_stmt alt_cases alt_case
+%type <node> program top_levels top_level class_decl class_head interface_decl interface_head struct_decl struct_head enum_decl enum_vals enum_val module_decl module_head import_decl object_decl member_list member member_body var_decl func_decl inherit_decl destructor_decl stmt_list stmt expr method_decl state_decl prop_decl atomic_decl stream_decl secret_decl cap_decl typename name_ref type_name_ref decl_name generic_name enum_name member_name spawn_name dep_name dep_list param_list param call_args call_arg main_decl func_top_level function_decl for_init for_cond for_step else_clause generic_opt generic_names abstract_opt alt_stmt alt_cases alt_case locality
 %type <type> type_expr type_primary
 %type <types> type_args type_args_opt
 
@@ -2039,6 +2073,12 @@ stmt_list:
 stmt:
     typename member_name ';' { $$ = mk_typed(NLocalVar, $2->name, $1, nil, nil); if(is_class_type($1->name)) add_var_class($2->name, $1->name); }
     | typename member_name TEQ expr ';' { $$ = mk_typed(NLocalVar, $2->name, $1, $4, nil); if(is_class_type($1->name)) add_var_class($2->name, $1->name); }
+    | locality typename member_name TEQ expr '@' expr ';' {
+        $$ = mk_typed(NLocalVar, $3->name, $2, $5, nil);
+        $$->cname = strdup($1->name);	/* locality tag for this declaration */
+        $$->params = $7;		/* address expression after @ */
+        if(is_class_type($2->name)) add_var_class($3->name, $2->name);
+    }
     | expr ';' { $$ = $1; }
     | TRETURN expr ';' { $$ = mk(NReturn, nil, nil, $2, nil); }
     | TDEFER expr ';' { $$ = mk(NDefer, nil, nil, $2, nil); }
@@ -2108,6 +2148,12 @@ else_clause:
         $$ = mk(NElseIf, nil, nil, $3, $6);
         $$->next = $8;
     }
+    ;
+
+locality:
+    TNEAR { $$ = mk(NIdent, "near", nil, nil, nil); }
+    | TFAR { $$ = mk(NIdent, "far", nil, nil, nil); }
+    | TLISTENER { $$ = mk(NIdent, "listener", nil, nil, nil); }
     ;
 
 expr:
@@ -2807,6 +2853,7 @@ yylex(void)
             if(strcmp(buf, "use") == 0) return TUSE;
             if(strcmp(buf, "new") == 0) return TNEW;
             if(strcmp(buf, "near") == 0) return TNEAR;
+            if(strcmp(buf, "listener") == 0) return TLISTENER;
             if(strcmp(buf, "delete") == 0) return TDELETE;
             if(strcmp(buf, "far") == 0) return TFAR;
             if(strcmp(buf, "Dict") == 0) return TDICT;
@@ -3191,6 +3238,8 @@ gen_expr(Node *e)
                 else if(strcmp(e->name, "serialize") == 0) fn = "o9_tab_serialize";
                 else if(strcmp(e->name, "query") == 0) fn = "o9_tab_query";
                 else if(strcmp(e->name, "flush") == 0) fn = "o9_tab_flush";
+                else if(strcmp(e->name, "sync") == 0) fn = "o9_tab_sync";
+                else if(strcmp(e->name, "push") == 0) fn = "o9_tab_push";
                 else if(strcmp(e->name, "close") == 0) fn = "o9_tab_close";
                 if(fn != nil){
                     Node *a;
@@ -3254,6 +3303,10 @@ gen_expr(Node *e)
                     print("o9_dict_hass(&"); gen_expr(e->left); print(", "); gen_expr(e->right); print(")");
                     break;
                 }
+            }
+            if(type_is_class_ref(e->typeinfo)){
+                print("O9_CLASS_RETURN_REQUIRES_OBJECT_TARGET");
+                break;
             }
         }
         /* c.method(args...) -> try o9_dispatch_call (asm), fallback to obj9_msgSend (CSP/9P) */
@@ -3562,6 +3615,47 @@ gen_expr(Node *e)
     }
 }
 
+static void
+gen_discard_expr_stmt(Node *e)
+{
+    Node *ve;
+    Type *lt;
+    int cvoid;
+
+    ve = e;
+    if(ve != nil && ve->type == NTry)
+        ve = ve->left;
+    lt = (ve != nil && ve->type == NMsgSend && ve->left != nil) ? ve->left->typeinfo : nil;
+    cvoid = 0;
+    if(ve == nil)
+        cvoid = 1;
+    else if(ve->type == NMsgSend){
+        /* Normal object sends always lower to a vlong dispatch expression,
+         * even when the o9 method type is void. Builtin handle methods
+         * (Tabula/MountTable) lower directly to C helpers, and their void
+         * methods are actual C void expressions. */
+        if(lt != nil && lt->kind == TyName && lt->name != nil &&
+           (strcmp(lt->name, "Tabula") == 0 || strcmp(lt->name, "MountTable") == 0) &&
+           type_is_void(ve->typeinfo))
+            cvoid = 1;
+    } else
+        cvoid = type_is_void(ve->typeinfo);
+
+    if(e != nil && ve != nil && !cvoid &&
+       (e->type == NMsgSend || e->type == NTry ||
+       e->type == NSpawn ||
+       (e->type == NFuncCall && e->name != nil && strcmp(e->name, "print") == 0))){
+        int id = new_tmp_id++;
+        print("\t{ vlong __o9discard%d = (vlong)(", id);
+        gen_expr(e);
+        print("); if(__o9discard%d){} }\n", id);
+    } else {
+        print("\t");
+        gen_expr(e);
+        print(";\n");
+    }
+}
+
 void gen_stmt(Node *c, Node *s);
 static int member_exists(Node *cnode, char *name);
 int count_state_cols(Node *c);
@@ -3631,7 +3725,7 @@ gen_assign_new_to(char *varname, char *target, int is_field, char *lhs_type, Nod
                 print(";\n");
                 ai++;
             }
-            print("\t\tobj9_msgSendN(&%s, \"%s\", 0x%lux, __args_%s, %d);\n", target, cn, o9_hash(cn), varname, rest);
+            print("\t\t(void)obj9_msgSendN(&%s, \"%s\", 0x%lux, __args_%s, %d);\n", target, cn, o9_hash(cn), varname, rest);
         }
         print("\t}\n");
         return;
@@ -3671,10 +3765,10 @@ gen_assign_new_to(char *varname, char *target, int is_field, char *lhs_type, Nod
             print(";\n");
             ai++;
         }
-        print("\tobj9_msgSendN(&%s, \"%s\", 0x%lux, __args_%s_%d, %d); }\n",
+        print("\t(void)obj9_msgSendN(&%s, \"%s\", 0x%lux, __args_%s_%d, %d); }\n",
             target, cn, o9_hash(cn), varname, id, nctor);
     } else {
-        print("\tobj9_msgSendN(&%s, \"%s\", 0x%lux, nil, 0);\n", target, cn, o9_hash(cn));
+        print("\t(void)obj9_msgSendN(&%s, \"%s\", 0x%lux, nil, 0);\n", target, cn, o9_hash(cn));
     }
 }
 
@@ -3721,9 +3815,9 @@ gen_local_new(Node *s, char *cn, int distance)
             print(";\n");
             ai++;
         }
-        print("\tobj9_msgSendN(&%s, \"%s\", 0x%lux, __args_%s, %d); }\n", s->name, cn, o9_hash(cn), s->name, nctor);
+        print("\t(void)obj9_msgSendN(&%s, \"%s\", 0x%lux, __args_%s, %d); }\n", s->name, cn, o9_hash(cn), s->name, nctor);
     } else {
-        print("\tobj9_msgSendN(&%s, \"%s\", 0x%lux, nil, 0);\n", s->name, cn, o9_hash(cn));
+        print("\t(void)obj9_msgSendN(&%s, \"%s\", 0x%lux, nil, 0);\n", s->name, cn, o9_hash(cn));
     }
 }
 
@@ -3954,6 +4048,114 @@ gen_channel_recv_assign(Node *target, char *boxname, char *storage, Type *boxtyp
     print(", sizeof(%s));", storage);
 }
 
+static int
+type_needs_reply_copy(Type *t)
+{
+    return type_is_class_ref(t) || type_is_struct_value(t) ||
+        type_is_slice_value(t);
+}
+
+static int
+tuple_field_is_object_handle(Node *e)
+{
+    if(e == nil)
+        return 0;
+    if(e->type == NTry)
+        e = e->left;
+    return e != nil && type_is_class_ref(e->typeinfo);
+}
+
+static Node*
+try_value_expr(Node *e)
+{
+    if(e != nil && e->type == NTry)
+        return e->left;
+    return e;
+}
+
+static void
+gen_msgsend_object_to(Node *call, char *dest)
+{
+    Node *a;
+    int id, nargs, i;
+    char argbuf[64], *argexpr;
+
+    if(call == nil || call->type != NMsgSend || dest == nil)
+        return;
+    id = new_tmp_id++;
+    nargs = 0;
+    for(a = call->right; a != nil; a = a->next)
+        nargs++;
+    if(nargs > 0){
+        snprint(argbuf, sizeof argbuf, "__o9args%d", id);
+        argexpr = argbuf;
+    } else
+        argexpr = "nil";
+    print("\t{\n");
+    if(nargs > 0){
+        print("\t\tvlong __o9args%d[%d];\n", id, nargs);
+        for(a = call->right, i = 0; a != nil; a = a->next, i++){
+            print("\t\t__o9args%d[%d] = ", id, i);
+            if(type_is_class_ref(a->typeinfo)){
+                print("(vlong)(uintptr)&(");
+                gen_expr(a);
+                print(")");
+            } else if(type_is_double(a->typeinfo)){
+                print("o9_double_pack(");
+                gen_expr(a);
+                print(")");
+            } else if(type_storage_pointerish(a->typeinfo)){
+                print("(vlong)(uintptr)(");
+                gen_expr(a);
+                print(")");
+            } else {
+                print("(vlong)(");
+                gen_expr(a);
+                print(")");
+            }
+            print(";\n");
+        }
+    }
+    print("\t\tobj9_msgSendObjectN(&");
+    gen_expr(call->left);
+    if(call->left != nil && call->left->type == NIdent)
+        print(", \"%s/%s\", 0x%lux, %s, %d, &%s, sizeof(%s));\n",
+            call->left->name, call->name, o9_hash(call->name),
+            argexpr, nargs, dest, dest);
+    else
+        print(", \"%s\", 0x%lux, %s, %d, &%s, sizeof(%s));\n",
+            call->name, o9_hash(call->name),
+            argexpr, nargs, dest, dest);
+    print("\t}\n");
+}
+
+static int
+gen_reply_value_to(Node *expr, Type *type, char *dest)
+{
+    Node *e;
+
+    if(expr == nil || type == nil || dest == nil)
+        return 0;
+    e = try_value_expr(expr);
+    if(type_is_class_ref(type) && e != nil && e->type == NMsgSend){
+        gen_msgsend_object_to(e, dest);
+        return 1;
+    }
+    if(type_is_class_ref(type) && e != nil && e->type == NSelfCall){
+        print("\t%s = ", dest);
+        gen_expr(e);
+        print(";\n");
+        print("\t((o9_Object*)&%s)->table = nil;\n", dest);
+        return 1;
+    }
+    print("\tmemmove(&%s, &", dest);
+    gen_expr(e);
+    print(", sizeof(%s));\n", dest);
+    if(type_is_class_ref(type))
+        print("\t((o9_Object*)&%s)->table = nil;\n", dest);
+    return 1;
+}
+
 static void
 gen_alt_stmt(Node *c, Node *s)
 {
@@ -4075,7 +4277,7 @@ gen_stmt(Node *c, Node *s)
                 o9_hash(parent->name));
         }
         print("o9_impl_%s_%s((%s_Internal*)self, &__superm); ", parent->name, parent->name, parent->name);
-        print("{ O9Reply *__sr = recvp(__superm.replyc); free(__sr); } chanfree(__superm.replyc); }\n");
+        print("{ O9Reply *__sr = recvp(__superm.replyc); o9_reply_free(__sr); } chanfree(__superm.replyc); }\n");
         return;
     }
     switch(s->type){
@@ -4087,6 +4289,32 @@ gen_stmt(Node *c, Node *s)
     case NUse:
         break;
     case NLocalVar:
+        if(o9_locality_kind(s->cname) >= 0 && o9_type_is_tabula(s->typeinfo)){
+            Node *namearg;
+            int dist;
+
+            namearg = s->left != nil ? s->left->right : nil;
+            print("\tO9Tabula* %s;\n", s->name);
+            if(strcmp(s->cname, "listener") == 0){
+                print("\t%s = ", s->name);
+                gen_expr(s->left);
+                print(";\n");
+                print("\to9_export_tab(o9_str_cat(");
+                gen_expr(namearg);
+                print(", o9_string_from_c(\".tab\")), %s);\n", s->name);
+                print("\to9_app_listen(");
+                gen_expr(s->params);
+                print(");\n");
+            } else {
+                dist = o9_locality_distance(s->cname);
+                print("\t%s = o9_tab_open_remote(", s->name);
+                gen_expr(s->params);
+                print(", ");
+                gen_expr(namearg);
+                print(", %d);\n", dist);
+            }
+            break;
+        }
         if(is_primitive(s->typename) || type_is_array(s->typeinfo)){
             print("\t%s %s;\n", type_storage_for_codegen(s->typeinfo), s->name);
             if(type_is_array(s->typeinfo)){
@@ -4118,6 +4346,15 @@ gen_stmt(Node *c, Node *s)
                 print("\to9_lookup_client(&%s, ", s->name);
                 gen_expr(s->left->right);
                 print(", sizeof %s);\n", s->name);
+                add_var_class(s->name, cname);
+                break;
+            }
+            if(cname != nil && s->left != nil && !is_new && type_is_class_ref(s->typeinfo)){
+                print("\t%s_Client %s;\n", cname, s->name);
+                print("\tmemset(&%s, 0, sizeof(%s));\n", s->name, s->name);
+                gen_reply_value_to(s->left, s->typeinfo, s->name);
+                if(is_try(s->left))
+                    gen_try_check();
                 add_var_class(s->name, cname);
                 break;
             }
@@ -4171,7 +4408,7 @@ gen_stmt(Node *c, Node *s)
                             print(";\n");
                             ai++;
                         }
-                        print("\t\tobj9_msgSendN(&%s, \"%s\", 0x%lux, __args_%s, %d);\n", s->name, cn, o9_hash(cname), s->name, rest);
+                        print("\t\t(void)obj9_msgSendN(&%s, \"%s\", 0x%lux, __args_%s, %d);\n", s->name, cn, o9_hash(cname), s->name, rest);
                     }
                     print("\t}\n");
                 } else {
@@ -4210,14 +4447,14 @@ gen_stmt(Node *c, Node *s)
                 break;
             }
         }
-        print("\t"); gen_expr(s); print(";\n");
+        gen_discard_expr_stmt(s);
         break;
     case NDelete:
         /* Run the destructor synchronously (actor replies after
          * teardown, then exits). Unregister first so new lookups cannot
          * acquire a handle while the actor is draining its destroy. */
         print("\to9_registry_unregister(\"%s\");\n", s->name);
-        print("\tobj9_msgSendN(&%s, nil, 0x%lux, nil, 0);\n", s->name, o9_hash("destroy"));
+        print("\t(void)obj9_msgSendN(&%s, nil, 0x%lux, nil, 0);\n", s->name, o9_hash("destroy"));
         print("\tmemset(&%s, 0, sizeof %s);\n", s->name, s->name);
         print("\t%s.fd = -1;\n", s->name);
         break;
@@ -4313,6 +4550,38 @@ gen_stmt(Node *c, Node *s)
                 print(");\n");
             }
             break;
+        }
+        if(s->left != nil && s->left->type == NIdent && s->left->name != nil &&
+           s->right != nil && s->right->type != NClass){
+            Type *ltinfo = s->left->typeinfo;
+            char *lt = get_expr_type(s->left);
+            Node *fieldnode = nil;
+
+            if((ltinfo == nil || !type_is_class_ref(ltinfo)) &&
+               in_method_body && gen_class != nil && !is_local(s->left->name) &&
+               member_exists(gen_class, s->left->name)){
+                fieldnode = member_node(gen_class, s->left->name, 0);
+                ltinfo = fieldnode != nil ? decl_typeinfo(fieldnode) : nil;
+                lt = fieldnode != nil ? fieldnode->typename : lt;
+            }
+            if((lt == nil || strcmp(lt, "vlong") == 0) && s->left->name != nil)
+                lt = get_var_class(s->left->name);
+            if((ltinfo != nil && type_is_class_ref(ltinfo)) ||
+               (lt != nil && is_class_type(lt))){
+                Node *rv = try_value_expr(s->right);
+                if(rv != nil && (rv->type == NMsgSend || rv->type == NSelfCall || rv->type == NIdent || rv->type == NPropRead)){
+                    char dest[128];
+                    if(in_method_body && gen_class != nil && !is_local(s->left->name) &&
+                       member_exists(gen_class, s->left->name))
+                        snprint(dest, sizeof dest, "self->%s", s->left->name);
+                    else
+                        snprint(dest, sizeof dest, "%s", s->left->name);
+                    gen_reply_value_to(s->right, ltinfo != nil ? ltinfo : type_name(lt), dest);
+                    if(is_try(s->right))
+                        gen_try_check();
+                    break;
+                }
+            }
         }
         if(s->left != nil && s->left->type == NIdent && s->left->name != nil &&
            s->right != nil && s->right->type == NClass && s->right->name != nil){
@@ -4483,6 +4752,20 @@ gen_stmt(Node *c, Node *s)
                 } else {
                     print("\t__o9r->dret = (double)("); gen_expr(s->left); print(");\n\tgoto done;\n");
                 }
+            } else if(type_needs_reply_copy(gen_return_type)){
+                char *st = type_storage_for_codegen(gen_return_type);
+                int id = new_tmp_id++;
+                char dest[64];
+                snprint(dest, sizeof dest, "__rv%d", id);
+                print("\t{ %s __rv%d;\n", st, id);
+                print("\tmemset(&__rv%d, 0, sizeof(__rv%d));\n", id, id);
+                gen_reply_value_to(s->left, gen_return_type, dest);
+                if(is_try(s->left))
+                    print("\t{ char *__ce = o9_get_call_err(); if(__ce != nil){ __o9r->err = __ce; goto done; } }\n");
+                print("\t__o9r->retbuf = malloc(sizeof(__rv%d));\n", id);
+                print("\tif(__o9r->retbuf == nil){ __o9r->err = \"out of memory\"; goto done; }\n");
+                print("\tmemmove(__o9r->retbuf, &__rv%d, sizeof(__rv%d));\n", id, id);
+                print("\t__o9r->retsz = sizeof(__rv%d); }\n\tgoto done;\n", id);
             } else if(is_try(s->left)){
                 /* return try f(): capture, check error, then set ret */
                 print("\t{ vlong __rv = (vlong)("); gen_expr(s->left); print(");\n");
@@ -4558,7 +4841,7 @@ gen_stmt(Node *c, Node *s)
         print("\t}\n");
         break;
     default:
-        print("\t"); gen_expr(s); print(";\n");
+        gen_discard_expr_stmt(s);
         if(is_try(s)) gen_try_check();	/* bare `try f();` */
         break;
     }
@@ -5330,6 +5613,7 @@ gen_class_server(Node *c)
                 }
             }
             print("static void o9_impl_%s_%s(%s_Internal *self, O9Msg *msg) {\n", c->name, m->name, c->name);
+            print("\tUSED(self);\n");
             print("\tO9Reply *__o9r = mallocz(sizeof(O9Reply), 1);\n");
             print("\tvlong __o9fr[%d][12];\n\tUSED(__o9fr);\n", O9_MSG_FRAMES);
             /* Unpack params from msg->args (packed as vlong array for now) */
@@ -5351,6 +5635,7 @@ gen_class_server(Node *c)
                         print("\t%s %s = (%s)(uintptr)((vlong*)msg->args)[%d];\n", st, p->name, st, pi);
                     else
                         print("\t%s %s = ((vlong*)msg->args)[%d];\n", st, p->name, pi);
+                    print("\tUSED(&%s);\n", p->name);
                     pi++;
                 }
             }
@@ -5370,7 +5655,7 @@ gen_class_server(Node *c)
                 Node *dn;
                 for(dn = defer_list; dn != nil; dn = dn->next){
                     msg_frame_reset();
-                    print("\t"); gen_expr(dn->left); print(";\n");
+                    gen_discard_expr_stmt(dn->left);
                 }
                 defer_list = nil;
             }
@@ -5385,6 +5670,7 @@ gen_class_server(Node *c)
 				for(pn = m->right; pn; pn = pn->next) np++;
 				print("static void o9_ctrl_%s_%s(void *__a){\n", c->name, m->name);
 				print("\t%s_Internal *self = (%s_Internal*)((vlong*)__a)[0];\n", c->name, c->name);
+				print("\tUSED(self);\n");
 				if(np > 0){
 						for(pn = m->right, pi = 0; pn; pn = pn->next, pi++){
 							char *st = type_storage_for_codegen(pn->typeinfo);
@@ -5418,7 +5704,7 @@ gen_class_server(Node *c)
 					print("\telse { o9_set_call_err(nil); ((vlong*)__a)[0] = o9_double_pack(__r->dret); }\n");
 				else
 					print("\telse { o9_set_call_err(nil); ((vlong*)__a)[0] = (vlong)(uintptr)__r->ret; }\n");
-				print("\tfree(__r); }\n");
+				print("\to9_reply_free(__r); }\n");
 				print("\tchanfree(__m.replyc);\n}\n\n");
 
 				/* Same-class call wrapper for bare (implicit-self) calls */
@@ -5438,6 +5724,8 @@ gen_class_server(Node *c)
 					for(pn = m->right, pi = 0; pn; pn = pn->next, pi++){
 						if(type_is_double(pn->typeinfo))
 							print("\t__args[%d] = o9_double_pack(__a%d);\n", pi, pi);
+						else if(type_is_class_ref(pn->typeinfo))
+							print("\t__args[%d] = (vlong)(uintptr)&__a%d;\n", pi, pi);
 						else if(type_storage_pointerish(pn->typeinfo))
 							print("\t__args[%d] = (vlong)(uintptr)__a%d;\n", pi, pi);
 						else
@@ -5449,14 +5737,24 @@ gen_class_server(Node *c)
 					print("\to9_impl_%s_%s(self, &__m);\n", c->name, m->name);
 					print("\t__r = recvp(__m.replyc);\n");
 					if(!isvoid){
-						print("\tif(__r->err != nil){ werrstr(\"%%s\", __r->err); o9_set_call_err(__r->err); __v = 0; }\n");
-						if(type_is_double(m->typeinfo))
+						if(type_needs_reply_copy(m->typeinfo)){
+							print("\tmemset(&__v, 0, sizeof(__v));\n");
+							print("\tif(__r->err != nil){ werrstr(\"%%s\", __r->err); o9_set_call_err(__r->err); }\n");
+							print("\telse if(__r->retbuf == nil || __r->retsz > sizeof(__v)){ werrstr(\"object method returned no handle data\"); o9_set_call_err(\"object method returned no handle data\"); }\n");
+							print("\telse { o9_set_call_err(nil); memmove(&__v, __r->retbuf, __r->retsz);");
+							if(type_is_class_ref(m->typeinfo))
+								print(" ((o9_Object*)&__v)->table = nil;");
+							print(" }\n");
+						} else {
+							print("\tif(__r->err != nil){ werrstr(\"%%s\", __r->err); o9_set_call_err(__r->err); __v = 0; }\n");
+							if(type_is_double(m->typeinfo))
 							print("\telse { o9_set_call_err(nil); __v = __r->dret; }\n");
-						else
+							else
 							print("\telse { o9_set_call_err(nil); __v = (%s)__r->ret; }\n", rst);
+						}
 					} else
 						print("\tif(__r->err != nil) werrstr(\"%%s\", __r->err);\n");
-					print("\tfree(__r);\n\tchanfree(__m.replyc);\n");
+					print("\to9_reply_free(__r);\n\tchanfree(__m.replyc);\n");
 					if(!isvoid)
 						print("\treturn __v;\n");
 					print("}\n\n");
@@ -5468,6 +5766,7 @@ gen_class_server(Node *c)
             num_locals = 0;
             mark_locals(m->left);
             print("static void o9_destruct_%s(%s_Internal *self) {\n", c->name, c->name);
+            print("\tUSED(self);\n");
             print("\tvlong __o9fr[%d][12];\n\tUSED(__o9fr);\n", O9_MSG_FRAMES);
             for(s = m->left; s; s = s->next) gen_stmt(c, s);
             print("}\n\n");
@@ -5510,6 +5809,7 @@ gen_class_server(Node *c)
 
     /* 3. CSP Dispatch Loop */
     print("static void %s_loop(void *v) {\n", c->name);
+    print("\tUSED(&v);\n");
     print("\t%s_Internal *self = v;\n\tO9Msg *m;\n", c->name);
     print("\to9_actor_enter(self->dispatch_chan, self->oid);\n");
     print("\tfor(;;){\n\t\tm = recvp(self->dispatch_chan);\n\t\tif(m == nil) continue;\n");
@@ -5610,7 +5910,7 @@ gen_class_server(Node *c)
     print("static void fsread_%s(Req *r, void *instv) {\n", c->name);
     print("\tchar buf[1024];\n");
     print("\tUSED(buf);\n");
-    print("#ifdef __GNUC__\n\tchar *name = r->fid->file->dir.name;\n#else\n\tchar *name = r->fid->file->name;\n#endif\n");
+    print("\tchar *name = r->fid->file->name;\n");
     print("\t%s_Internal *inst = instv;\n\n", c->name);
     print("\tif(strcmp(name, \"status\") == 0) {\n");
     print("\t\tchar statusbuf[8192];\n\t\tchar *p = statusbuf;\n\t\tint i;\n");
@@ -5661,11 +5961,13 @@ gen_class_server(Node *c)
                 print("\t\tsnprint(buf, sizeof buf, \"%%g\\n\", __o9rep->dret);\n");
             } else if(strcmp(fmt, "%s") == 0){
                 print("\t\tsnprint(buf, sizeof buf, \"%%s\\n\", (char*) __o9rep->ret);\n");
+            } else if(strcmp(fmt, "%p") == 0){
+                print("\t\tsnprint(buf, sizeof buf, \"%%p\\n\", (void*)__o9rep->ret);\n");
             } else {
                 print("\t\tsnprint(buf, sizeof buf, \"%s\\n\", (%s)__o9rep->ret);\n", fmt, cast);
             }
             print("\t\tr->fid->aux = nil;\n");
-            print("\t\tfree(__o9rep);\n");
+            print("\t\to9_reply_free(__o9rep);\n");
             print("\t\treadstr(r, buf); respond(r, nil); return;\n\t}\n");
         }
     }
@@ -5713,11 +6015,11 @@ gen_class_server(Node *c)
     print("\trespond(r, \"not found\");\n}\n\n");
 
     print("static void fswrite_%s(Req *r, void *instv) {\n", c->name);
-    print("#ifdef __GNUC__\n\tchar *name = r->fid->file->dir.name;\n#else\n\tchar *name = r->fid->file->name;\n#endif\n");
+    print("\tchar *name = r->fid->file->name;\n");
     print("\t%s_Internal *inst = instv;\n", c->name);
     print("\tif(strcmp(name, \"ctl\") == 0) {\n");
     print("\t\tchar cmd[1024], *f[16], *v;\n\t\tint nf;\n\t\t%s_Internal *target;\n", c->name);
-    print("\t\tUSED(v);\n");
+    print("\t\tUSED(&v);\n");
     print("\t\tsnprint(cmd, sizeof cmd, \"%%.*s\", (int)r->ifcall.count, (char*)r->ifcall.data);\n");
     print("\t\tnf = tokenize(cmd, f, nelem(f));\n");
     print("\t\tif(inst != nil) inst->error[0] = '\\0';\n");
@@ -5754,6 +6056,7 @@ gen_class_server(Node *c)
     for(m = c->left; m; m = m->next){
         if(m->type == NMethod && strcmp(m->name, "main") != 0){
             int np = 0;
+            int ctl_supported = 1;
             Node *p;
             /* SECURITY: do not emit a ctl-dispatch case for private
              * methods or the constructor — this is the seam that made
@@ -5764,13 +6067,23 @@ gen_class_server(Node *c)
                 continue;
             if(m->name != nil && c->name != nil && strcmp(m->name, c->name) == 0)
                 continue;	/* constructor: not re-invokable over 9P */
-            for(p = m->right; p; p = p->next) np++;
+            for(p = m->right; p; p = p->next){
+                char *pt = p->typename != nil ? p->typename : "vlong";
+                np++;
+                if(type_is_class_ref(p->typeinfo) || strcmp(pt, "Tabula") == 0)
+                    ctl_supported = 0;
+            }
             print("\t\t\tif(strcmp(f[2], \"%s\") == 0){\n", m->name);
             /* ARITY (finding #5): a network boundary must not silently
              * default missing args to 0 or ignore extras. Require exactly
              * np args after `method Class.inst name` (tokens f[3..]). */
             print("\t\t\t\tif(nf - 3 != %d){ char __ab[96]; snprint(__ab, sizeof __ab, \"error: %s takes %d arg(s), got %%d\\n\", nf-3); o9app_put_status(r, __ab); o9app_put_result(r, \"\"); respond(r, nil); return; }\n",
                 np, m->name, np);
+            if(!ctl_supported){
+                print("\t\t\t\to9app_put_status(r, \"error: %s: object arguments are not callable over ctl\\n\"); o9app_put_result(r, \"\"); respond(r, nil); return;\n", m->name);
+                print("\t\t\t}\n");
+                continue;
+            }
             if(np > 0){
                 int pi;
                 print("\t\t\t\tvlong __wargs[%d] = {0};\n", np);
@@ -5782,14 +6095,10 @@ gen_class_server(Node *c)
                 for(p = m->right, pi = 0; p; p = p->next, pi++){
                     char *pt = p->typename != nil ? p->typename : "vlong";
                     print("\t\t\t\tv = strchr(f[%d], '='); v = v ? v+1 : f[%d];\n", pi+3, pi+3);
-                    if(type_is_class_ref(p->typeinfo)){
-                        print("\t\t\t\t{ o9app_put_status(r, \"error: %s: object-handle args not callable over ctl\\n\"); o9app_put_result(r, \"\"); respond(r, nil); return; }\n", m->name);
-                    } else if(strcmp(pt, "string") == 0){
+                    if(strcmp(pt, "string") == 0){
                         print("\t\t\t\t__wargs[%d] = (vlong)(uintptr)o9_string_from_c(v);\n", pi);
                     } else if(strcmp(pt, "double") == 0){
                         print("\t\t\t\t__wargs[%d] = o9_double_pack(strtod(v, nil));\n", pi);
-                    } else if(strcmp(pt, "Tabula") == 0){
-                        print("\t\t\t\t{ o9app_put_status(r, \"error: %s: Tabula args not callable over ctl\\n\"); o9app_put_result(r, \"\"); respond(r, nil); return; }\n", m->name);
                     } else {
                         print("\t\t\t\t__wargs[%d] = strtoll(v, nil, 0);\n", pi);
                     }
@@ -5826,12 +6135,14 @@ gen_class_server(Node *c)
                     print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%g\\n\", __o9rep->dret);\n");
                 else if(strcmp(fmt, "%s") == 0)
                     print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%s\\n\", (char*)__o9rep->ret);\n");
+                else if(strcmp(fmt, "%p") == 0)
+                    print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%p\\n\", (void*)__o9rep->ret);\n");
                 else
                     print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%s\\n\", (%s)__o9rep->ret);\n", fmt, cast);
                 print("\t\t\t\t\to9app_put_result(r, __rb); }\n");
             }
             print("\t\t\t\t}\n");
-            print("\t\t\t\tfree(__o9rep); chanfree(__wm.replyc); }\n");
+            print("\t\t\t\to9_reply_free(__o9rep); chanfree(__wm.replyc); }\n");
             print("\t\t\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t\t\t}\n");
         }
     }
@@ -5872,7 +6183,7 @@ gen_class_server(Node *c)
                     print("\t\tr->fid->aux = __o9rep;\n");
                 } else {
                     /* Void method: discard reply */
-                    print("\t\trecvp(__wm.replyc);\n");
+                    print("\t\t{ O9Reply *__o9rep = recvp(__wm.replyc); o9_reply_free(__o9rep); }\n");
                 }
                 print("\t\tchanfree(__wm.replyc); }\n");
             }
@@ -6331,6 +6642,7 @@ codegen(Node *root)
     print("extern char o9app_mount[256];\n");
     print("extern char o9app_name[64];\n");
     print("extern File *o9app_exports_dir;\t/* served-tree exports/ dir */\n");
+    print("extern File *o9app_imports_dir;\t/* served-tree imports/ dir */\n");
     print("static void o9app_register_handler(char *name, void (*rd)(Req*,void*), void (*wr)(Req*,void*), void *(*find)(char*), int (*dump)(char*,int), int (*listinst)(char*,int)){\n");
     print("\tif(o9app_nclasses >= nelem(o9app_classes)) return;\n");
     print("\to9app_classes[o9app_nclasses].name = name;\n");
@@ -6374,20 +6686,29 @@ codegen(Node *root)
     print("char o9app_mount[256];\n");
     print("char o9app_name[64];\n");
     print("File *o9app_exports_dir;\t/* served-tree exports/ dir (mutable) */\n");
+    print("File *o9app_imports_dir;\t/* served-tree imports/ dir (mutable) */\n");
     print("int o9app_debug;\t/* set from O9DEBUG at startup */\n\n");
     /* One published Tabula: its serialized bytes live in the File's aux,
      * served ramfs-style on read.  This is the mutable part of the fs. */
     print("typedef struct O9Export O9Export;\n");
+    print("typedef struct O9ImportStage O9ImportStage;\n");
     /* aux tag: both O9Export and O9Session live in File->aux; the first
      * field discriminates them (destroyfid only has the Fid). */
-    print("enum { O9AUX_EXPORT = 1, O9AUX_SESSION = 2 };\n");
+    print("enum { O9AUX_EXPORT = 1, O9AUX_SESSION = 2, O9AUX_IMPORT = 3, O9AUX_IMPORT_STAGE = 4 };\n");
     print("struct O9Export { int tag; QLock lock; char *data; int ndata; };\n\n");
+    print("struct O9ImportStage { int tag; O9Export *file; char *data; int ndata; int wrote; };\n\n");
     print("static int o9app_export_name_ok(char *s){\n");
     print("\tuchar *p;\n");
     print("\tif(s == nil || s[0] == '\\0' || strcmp(s, \".\") == 0 || strcmp(s, \"..\") == 0) return 0;\n");
     print("\tfor(p = (uchar*)s; *p != '\\0'; p++)\n");
     print("\t\tif(*p < ' ' || *p == 0177 || *p == '/') return 0;\n");
     print("\treturn 1;\n");
+    print("}\n\n");
+    print("static int o9app_import_name_ok(char *s){\n");
+    print("\tint n;\n");
+    print("\tif(!o9app_export_name_ok(s)) return 0;\n");
+    print("\tn = strlen(s);\n");
+    print("\treturn n > 4 && strcmp(s+n-4, \".tab\") == 0;\n");
     print("}\n\n");
 
     /* exports/ is a served-tree DIRECTORY (part of the application file
@@ -6490,10 +6811,74 @@ codegen(Node *root)
     print("\tqlock(&s->lock); snprint(s->status, sizeof s->status, \"closed\\n\"); s->data[0] = '\\0'; qunlock(&s->lock);\n");
     print("\tqunlock(&o9app_pool_lock);\n");
     print("}\n");
+    print("static O9ImportStage *o9app_import_stage_new(O9Export *imp, int copy){\n");
+    print("\tO9ImportStage *st;\n");
+    print("\tst = mallocz(sizeof *st, 1);\n");
+    print("\tif(st == nil) return nil;\n");
+    print("\tst->tag = O9AUX_IMPORT_STAGE;\n");
+    print("\tst->file = imp;\n");
+    print("\tif(copy && imp != nil){\n");
+    print("\t\tqlock(&imp->lock);\n");
+    print("\t\tif(imp->ndata > 0){\n");
+    print("\t\t\tst->data = malloc(imp->ndata + 1);\n");
+    print("\t\t\tif(st->data == nil){ qunlock(&imp->lock); free(st); return nil; }\n");
+    print("\t\t\tmemmove(st->data, imp->data, imp->ndata);\n");
+    print("\t\t\tst->data[imp->ndata] = '\\0';\n");
+    print("\t\t\tst->ndata = imp->ndata;\n");
+    print("\t\t}\n");
+    print("\t\tqunlock(&imp->lock);\n");
+    print("\t}\n");
+    print("\treturn st;\n");
+    print("}\n");
+    print("static void o9app_import_commit(Fid *f){\n");
+    print("\tO9ImportStage *st; O9Export *imp; char *old;\n");
+    print("\tif(f == nil || f->aux == nil || *(int*)f->aux != O9AUX_IMPORT_STAGE) return;\n");
+    print("\tst = f->aux; f->aux = nil;\n");
+    print("\tif(st->wrote && st->file != nil){\n");
+    print("\t\timp = st->file;\n");
+    print("\t\tqlock(&imp->lock);\n");
+    print("\t\told = imp->data;\n");
+    print("\t\timp->data = st->data;\n");
+    print("\t\timp->ndata = st->ndata;\n");
+    print("\t\tst->data = nil;\n");
+    print("\t\tif(f->file != nil) f->file->length = imp->ndata;\n");
+    print("\t\tqunlock(&imp->lock);\n");
+    print("\t\tfree(old);\n");
+    print("\t}\n");
+    print("\tfree(st->data);\n");
+    print("\tfree(st);\n");
+    print("}\n");
+    print("static void o9app_import_write(Req *r){\n");
+    print("\tO9ImportStage *st; O9Export *imp; vlong off; long count; int need; char *np;\n");
+    print("\tif(r == nil || r->fid == nil || r->fid->file == nil || r->fid->file->aux == nil){ respond(r, \"not import\"); return; }\n");
+    print("\tif(*(int*)r->fid->file->aux != O9AUX_IMPORT){ respond(r, \"not import\"); return; }\n");
+    print("\tif(r->fid->aux == nil || *(int*)r->fid->aux != O9AUX_IMPORT_STAGE){\n");
+    print("\t\timp = r->fid->file->aux;\n");
+    print("\t\tr->fid->aux = o9app_import_stage_new(imp, 1);\n");
+    print("\t\tif(r->fid->aux == nil){ respond(r, \"no memory\"); return; }\n");
+    print("\t}\n");
+    print("\tst = r->fid->aux;\n");
+    print("\toff = r->ifcall.offset; count = r->ifcall.count;\n");
+    print("\tif(off < 0 || count < 0 || off + count > 4*1024*1024){ respond(r, \"import too large\"); return; }\n");
+    print("\tneed = (int)(off + count);\n");
+    print("\tif(need + 1 > st->ndata + 1){\n");
+    print("\t\tnp = realloc(st->data, need + 1);\n");
+    print("\t\tif(np == nil){ respond(r, \"no memory\"); return; }\n");
+    print("\t\tif(off > st->ndata) memset(np + st->ndata, 0, (int)(off - st->ndata));\n");
+    print("\t\tst->data = np;\n");
+    print("\t}\n");
+    print("\tif(count > 0) memmove(st->data + (int)off, r->ifcall.data, count);\n");
+    print("\tif(need > st->ndata) st->ndata = need;\n");
+    print("\tif(st->data != nil) st->data[st->ndata] = '\\0';\n");
+    print("\tst->wrote = 1;\n");
+    print("\tr->ofcall.count = count;\n");
+    print("\trespond(r, nil);\n");
+    print("}\n");
     /* destroyfid: DIAGNOSTICS ONLY (ref count). Clunking a fid does NOT
      * end the conversation — the client owns it until an explicit close.
      * This is what makes echo>ctl; cat data safe (ctl clunks first). */
     print("static void o9app_destroyfid(Fid *f){\n");
+    print("\to9app_import_commit(f);\n");
     print("\tif(f != nil && f->file != nil && f->file->aux != nil &&\n");
     print("\t   *(int*)f->file->aux == O9AUX_SESSION && f->omode != -1){\n");
     print("\t\tO9Session *s = f->file->aux;\n");
@@ -6503,14 +6888,42 @@ codegen(Node *root)
     /* open: ref++ (diagnostics; balanced by destroyfid). */
     print("static void o9app_open(Req *r){\n");
     print("\tif(r->fid != nil && r->fid->file != nil && r->fid->file->aux != nil &&\n");
+    print("\t   *(int*)r->fid->file->aux == O9AUX_IMPORT){\n");
+    print("\t\tint __m = r->ifcall.mode & 3;\n");
+    print("\t\tif(__m == OWRITE || __m == ORDWR || (r->ifcall.mode & OTRUNC)){\n");
+    print("\t\t\tO9ImportStage *__st = o9app_import_stage_new(r->fid->file->aux, (r->ifcall.mode & OTRUNC) ? 0 : 1);\n");
+    print("\t\t\tif(__st == nil){ respond(r, \"no memory\"); return; }\n");
+    print("\t\t\tr->fid->aux = __st;\n");
+    print("\t\t}\n");
+    print("\t}\n");
+    print("\tif(r->fid != nil && r->fid->file != nil && r->fid->file->aux != nil &&\n");
     print("\t   *(int*)r->fid->file->aux == O9AUX_SESSION){\n");
     print("\t\tO9Session *s = r->fid->file->aux;\n");
     print("#ifdef __GNUC__\n\t\t__sync_fetch_and_add(&s->ref, 1);\n#else\n\t\tainc(&s->ref);\n#endif\n");
     print("\t}\n");
     print("\trespond(r, nil);\n");
     print("}\n");
+    print("static void o9app_create(Req *r){\n");
+    print("\tFile *f; O9Export *imp; O9ImportStage *st;\n");
+    print("\tif(r == nil || r->fid == nil || r->fid->file == nil){ respond(r, \"bad fid\"); return; }\n");
+    print("\tif(r->fid->file != o9app_imports_dir){ respond(r, \"create prohibited\"); return; }\n");
+    print("\tif((r->ifcall.perm & DMDIR) != 0){ respond(r, \"imports accept files only\"); return; }\n");
+    print("\tif(!o9app_import_name_ok(r->ifcall.name)){ respond(r, \"bad import name\"); return; }\n");
+    print("\timp = mallocz(sizeof *imp, 1);\n");
+    print("\tif(imp == nil){ respond(r, \"no memory\"); return; }\n");
+    print("\timp->tag = O9AUX_IMPORT;\n");
+    print("\tf = createfile(o9app_imports_dir, r->ifcall.name, \"o9\", 0666, imp);\n");
+    print("\tif(f == nil){ free(imp); respond(r, \"file exists\"); return; }\n");
+    print("\tst = o9app_import_stage_new(imp, 0);\n");
+    print("\tif(st == nil){ removefile(f); respond(r, \"no memory\"); return; }\n");
+    print("\tr->fid->file = f;\n");
+    print("\tr->fid->qid = f->qid;\n");
+    print("\tr->fid->aux = st;\n");
+    print("\tr->ofcall.qid = f->qid;\n");
+    print("\trespond(r, nil);\n");
+    print("}\n");
     print("static void o9app_root_read(Req *r){\n");
-    print("#ifdef __GNUC__\n\tchar *name = r->fid->file->dir.name;\n#else\n\tchar *name = r->fid->file->name;\n#endif\n");
+    print("\tchar *name = r->fid->file->name;\n");
     print("\tchar buf[8192]; char *p = buf; int i;\n");
     /* clone: reading allocates a session and returns its id. */
     print("\tif(strcmp(name, \"clone\") == 0){\n");
@@ -6527,15 +6940,15 @@ codegen(Node *root)
     print("\t\tchar __sb[4096];\n");
     print("\t\tqlock(&__s->lock); snprint(__sb, sizeof __sb, \"%%s\", strcmp(name, \"data\") == 0 ? __s->data : __s->status); qunlock(&__s->lock);\n");
     print("\t\treadstr(r, __sb); respond(r, nil); return;\n\t}\n");
-    /* Export file: its aux holds an O9Export with the serialized bytes.
+    /* Export/import file: its aux holds committed serialized bytes.
      * Serve them ramfs-style (offset/count). */
-    print("\tif(r->fid->file->aux != nil && *(int*)r->fid->file->aux == O9AUX_EXPORT){\n");
+    print("\tif(r->fid->file->aux != nil && (*(int*)r->fid->file->aux == O9AUX_EXPORT || *(int*)r->fid->file->aux == O9AUX_IMPORT)){\n");
     print("\t\tO9Export *__ex = r->fid->file->aux;\n");
     print("\t\tvlong __off = r->ifcall.offset; long __cnt = r->ifcall.count;\n");
     print("\t\tqlock(&__ex->lock);\n");
     print("\t\tif(__off >= __ex->ndata){ qunlock(&__ex->lock); r->ofcall.count = 0; respond(r, nil); return; }\n");
     print("\t\tif(__off + __cnt > __ex->ndata) __cnt = __ex->ndata - __off;\n");
-    print("\t\tmemmove(r->ofcall.data, __ex->data + __off, __cnt);\n");
+    print("\t\tmemmove(r->ofcall.data, __ex->data + (int)__off, __cnt);\n");
     print("\t\tqunlock(&__ex->lock);\n");
     print("\t\tr->ofcall.count = __cnt; respond(r, nil); return;\n\t}\n");
     /* Root data: only the root-ctl (fire-and-forget/debug) reply. */
@@ -6576,8 +6989,9 @@ codegen(Node *root)
     print("\t\treadstr(r, __dbuf); free(__dbuf); respond(r, nil); return; }\n\t}\n");
     print("\trespond(r, \"not found\");\n}\n");
     print("static void o9app_root_write(Req *r){\n");
-    print("#ifdef __GNUC__\n\tchar *name = r->fid->file->dir.name;\n#else\n\tchar *name = r->fid->file->name;\n#endif\n");
+    print("\tchar *name = r->fid->file->name;\n");
     print("\tchar cmd[1024], *f[16]; int nf; char inst[64]; O9ClassH *ch;\n");
+    print("\tif(r->fid != nil && r->fid->file != nil && r->fid->file->aux != nil && *(int*)r->fid->file->aux == O9AUX_IMPORT){ o9app_import_write(r); return; }\n");
     print("\tif(strcmp(name, \"ctl\") != 0){ respond(r, \"read only\"); return; }\n");
     /* No global cur_session: the session is derived from r inside the
      * put_result/put_status helpers (o9app_req_session(r)), so concurrent
@@ -6637,6 +7051,14 @@ codegen(Node *root)
     print("\tfree(cname); o9_string_release(bytes);\n");
     print("}\n\n");
 
+    print("static void o9_app_listen(O9String *addr){\n");
+    print("\tchar *caddr;\n");
+    print("\tif(addr == nil) return;\n");
+    print("\tcaddr = o9_string_cstr(addr);\n");
+    print("\tif(caddr == nil || caddr[0] == '\\0'){ free(caddr); return; }\n");
+    print("\tthreadlistensrv(&o9app_srv, caddr);\t/* caddr intentionally lives for process lifetime */\n");
+    print("}\n\n");
+
     /* 1. Emit headers for ALL known classes/interfaces (local and imported) */
     for(cd = classes; cd; cd = cd->next){
         if(cd->node->type != NStruct && cd->node->type != NEnum)
@@ -6672,6 +7094,7 @@ codegen(Node *root)
     print("\to9app_tree = alloctree(nil, nil, DMDIR|0555, nil);\n");
     print("\to9app_srv.tree = o9app_tree;\n");
     print("\to9app_srv.read = o9app_root_read;\n\to9app_srv.write = o9app_root_write;\n");
+    print("\to9app_srv.create = o9app_create;\n");
     print("\to9app_srv.open = o9app_open;\n\to9app_srv.destroyfid = o9app_destroyfid;\t/* session fid diagnostics */\n");
     /* The four control files + state are a FIXED shape, built once, never
      * mutated (their content is live, their structure is frozen). */
@@ -6690,6 +7113,7 @@ codegen(Node *root)
      * dir (the authsrv/ramfs-proven safe pattern — no nested subtree, no
      * walkfile).  Reachable through the mount; ls reflects live objects. */
     print("\to9app_exports_dir = createfile(o9app_tree->root, \"exports\", \"o9\", DMDIR|0555, nil);\n");
+    print("\to9app_imports_dir = createfile(o9app_tree->root, \"imports\", \"o9\", DMDIR|0777, nil);\n");
     print("}\n");
     print("static void o9_app_post(void){\n");
     print("\t{ char __sp[160]; snprint(__sp, sizeof __sp, \"/srv/%%s\", o9app_srvname); remove(__sp); }\n");
@@ -7846,7 +8270,7 @@ annotate_expr_type(Node *e, Node *scope_class)
                 return set_expr_type(e, type_name("Tabula"));
             if(strcmp(e->name, "close") == 0)
                 return set_expr_type(e, type_name("void"));
-            /* has/add/write/set/first/next/flush return int64 (status / row-present) */
+            /* has/add/write/set/first/next/flush/sync/push return int64 */
             return set_expr_type(e, type_name("int64"));
         }
         if(lt != nil && lt->kind == TyName && lt->name != nil &&
@@ -8292,7 +8716,7 @@ typecheck_tabula_new(Node *e, Node *scope_class, int *errs)
         return;
     got = node_list_len(e->right);
     if(e->typename != nil && strcmp(e->typename, "same") != 0){
-        fprint(2, "o9c: error: line %d: Tabula does not support near/far construction\n",
+        fprint(2, "o9c: error: line %d: remote Tabula uses declaration syntax: near/far/listener Tabula name = new Tabula(...) @ address\n",
             sem_line);
         (*errs)++;
     }
@@ -8343,6 +8767,8 @@ typecheck_mount_table_new(Node *e, Node *scope_class, int *errs)
 static void
 typecheck_expr(Node *e, Node *scope_class, int *errs)
 {
+    Node *a;
+
     if(e == nil) return;
     if(e->line > 0)
         sem_line = e->line;
@@ -8424,6 +8850,20 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
         if(type_is_object_boundary_scope(scope_class))
             reject_address_boundary_type(e->typeinfo, errs, "method return", e->name);
         break;
+    case NTupleLit:
+        annotate_expr_type(e, scope_class);
+        for(a = e->left; a != nil; a = a->next){
+            if(a->line > 0)
+                sem_line = a->line;
+            typecheck_expr(a, scope_class, errs);
+            if(tuple_field_is_object_handle(a)){
+                fprint(2, "o9c: error: line %d: tuple field cannot be an object handle "
+                    "(bind the object to a named value and pass it separately; tuple payloads are data-only for now)\n",
+                    sem_line);
+                (*errs)++;
+            }
+        }
+        break;
     case NClass:
         validate_type(e->typeinfo, errs);
         if(is_tabula_new(e)){
@@ -8433,6 +8873,11 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
         if(is_mount_table_new(e)){
             typecheck_mount_table_new(e, scope_class, errs);
             break;
+        }
+        if(o9_locality_kind(e->typename) >= 0){
+            fprint(2, "o9c: error: line %d: remote objects are not supported; only Tabula data may be declared near/far/listener with @\n",
+                sem_line);
+            (*errs)++;
         }
         {
             Node *d = type_decl_node(e->typeinfo);
@@ -8671,10 +9116,12 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
                 else if(strcmp(e->name, "serialize") == 0) want = 0;
                 else if(strcmp(e->name, "query") == 0) want = 2;
                 else if(strcmp(e->name, "flush") == 0) want = 0;
+                else if(strcmp(e->name, "sync") == 0) want = 0;
+                else if(strcmp(e->name, "push") == 0) want = 0;
                 else if(strcmp(e->name, "close") == 0) want = 0;
                 if(want < 0){
                     fprint(2, "o9c: error: line %d: Tabula has no method '%s' "
-                        "(schema/has/add/write/set/get/first/next/read/serialize/query/flush/close)\n", sem_line, e->name);
+                        "(schema/has/add/write/set/get/first/next/read/serialize/query/flush/sync/push/close)\n", sem_line, e->name);
                     (*errs)++;
                 } else if(got != want){
                     fprint(2, "o9c: error: line %d: Tabula.%s takes %d argument%s, got %d\n",
@@ -9023,11 +9470,43 @@ typecheck_expr(Node *e, Node *scope_class, int *errs)
         validate_type(e->typeinfo, errs);
         add_decl_type_sym(e);
         annotate_expr_type(e->left, scope_class);
+        if(o9_locality_kind(e->cname) >= 0){
+            int got;
+
+            typecheck_expr(e->params, scope_class, errs);
+            if(e->params == nil || !type_assignable_semantic(type_name("string"), e->params->typeinfo)){
+                fprint(2, "o9c: error: line %d: %s declaration requires a string address after @\n",
+                    sem_line, e->cname);
+                (*errs)++;
+            }
+            if(!o9_type_is_tabula(e->typeinfo)){
+                fprint(2, "o9c: error: line %d: remote objects are not supported; only Tabula data may be declared near/far/listener with @\n",
+                    sem_line);
+                (*errs)++;
+            }
+            if(!is_tabula_new(e->left)){
+                fprint(2, "o9c: error: line %d: %s Tabula declaration requires new Tabula(name, columns) @ address\n",
+                    sem_line, e->cname);
+                (*errs)++;
+            } else {
+                got = node_list_len(e->left->right);
+                if(got != 2){
+                    fprint(2, "o9c: error: line %d: %s Tabula declaration requires new Tabula(name, columns) @ address\n",
+                        sem_line, e->cname);
+                    (*errs)++;
+                }
+            }
+        }
         if(e->left != nil && e->left->type == NClass){
             if(is_tabula_new(e->left))
                 typecheck_tabula_new(e->left, scope_class, errs);
             if(is_mount_table_new(e->left))
                 typecheck_mount_table_new(e->left, scope_class, errs);
+            if(o9_locality_kind(e->left->typename) >= 0 && !is_tabula_new(e->left)){
+                fprint(2, "o9c: error: line %d: remote objects are not supported; only Tabula data may be declared near/far/listener with @\n",
+                    sem_line);
+                (*errs)++;
+            }
             Node *d = type_decl_node(e->left->typeinfo);
             if(d != nil){
                 if(d->type == NInterface){
@@ -9465,6 +9944,7 @@ static CDepSpec builtin_cdep_specs[] = {
     { "control",  "<control.h>",  "/$objtype/lib/libcontrol.a", nil },
     { "disk",     "<disk.h>",     "/$objtype/lib/libdisk.a", nil },
     { "draw",     "<draw.h>",     "/$objtype/lib/libdraw.a", nil },
+    { "event",    "<event.h>",    nil, "draw" },
     { "dtracy",   "<dtracy.h>",   "/$objtype/lib/libdtracy.a", nil },
     { "fis",      "<fis.h>",      "/$objtype/lib/libfis.a", nil },
     { "flate",    "<flate.h>",    "/$objtype/lib/libflate.a", nil },
@@ -9835,8 +10315,12 @@ emit_cdeps(void)
 {
     CDep *d;
     char *x;
+    int hasevent;
 
+    hasevent = 0;
     for(d = used_cdeps; d != nil; d = d->usednext){
+        if(strcmp(d->name, "event") == 0)
+            hasevent = 1;
         print("/* o9: dep %s %s */\n", d->system ? "system" : "project", d->name);
         if(d->include != nil)
             print("/* o9: include %s */\n", d->include);
@@ -9858,6 +10342,8 @@ emit_cdeps(void)
     }
     if(used_cdeps != nil)
         print("\n");
+    if(hasevent)
+        print("static int o9_draw_resized;\nstatic int o9_draw_width;\nstatic int o9_draw_height;\n\nvoid\neresized(int new)\n{\n\tif(new && getwindow(display, Refnone) < 0)\n\t\tsysfatal(\"cannot reattach draw window\");\n\tif(screen != nil){\n\t\to9_draw_resized = 1;\n\t\to9_draw_width = Dx(screen->r);\n\t\to9_draw_height = Dy(screen->r);\n\t}\n}\n\n");
 }
 
 static int

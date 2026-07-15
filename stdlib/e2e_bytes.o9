@@ -15,6 +15,12 @@ main {
     print("set ", b.text(), "\n");
     print("slice ", b.slice(1, 2), " ", b.slice(9, 4), "\n");
     print("hex ", b.hex(), "\n");
+    print("ishex ", b.isHex("615a4364"), " ", b.isHex("615A4364"), " ", b.isHex("615x"), " ", b.isHex("123"), "\n");
+
+    Bytes decoded = new Bytes("");
+    print("fromhex ", decoded.fromHex("615A43"), " ", decoded.text(), " ", decoded.hex(), "\n");
+    print("badhex ", decoded.fromHex("615x"), " ", decoded.length(), "\n");
+
     print("eq ", b.equals("aZCd"), " cmp ", b.compare("zz"), "\n");
     b.clear();
     print("clear ", b.length(), " ", b.empty(), "\n");

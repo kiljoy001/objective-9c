@@ -539,14 +539,19 @@ print("after delete\n");</td>
             <td class="kw-code">Counter c = new Counter(10);</td>
           </tr>
           <tr>
-            <td class="kw">new near</td>
-            <td class="kw-desc">Connect to remote via IL (reliable datagram, LAN).</td>
-            <td class="kw-code">Counter b = new near Counter(2);</td>
+            <td class="kw">near</td>
+            <td class="kw-desc">Read exports/name.tab over IL. Data only; remote objects are rejected. sync/push refresh or upload Tabula text.</td>
+            <td class="kw-code">near Tabula t = new Tabula("orders", "item,qty") @ "il!host!9999";</td>
           </tr>
           <tr>
-            <td class="kw">new far</td>
-            <td class="kw-desc">Connect to remote via TCP (wide area).</td>
-            <td class="kw-code">Counter c = new far Counter(3);</td>
+            <td class="kw">far</td>
+            <td class="kw-desc">Read exports/name.tab over TCP. Data only; remote objects are rejected.</td>
+            <td class="kw-code">far Tabula t = new Tabula("orders", "item,qty") @ "tcp!host!9999";</td>
+          </tr>
+          <tr>
+            <td class="kw">listener</td>
+            <td class="kw-desc">Serve local Tabula exports and inert inbound imports through the app's 9P tree.</td>
+            <td class="kw-code">listener Tabula t = new Tabula("orders", "item,qty") @ "il!*!9999";</td>
           </tr>
           <tr>
             <td class="kw">spawn</td>
@@ -638,7 +643,7 @@ int64 v = t.await();  // 7</td>
           </tr>
           <tr>
             <td class="kw">(T,U)</td>
-            <td class="kw-desc">Tuple return value. Lowered to an immutable generated C struct pointer; destructure into declared locals.</td>
+            <td class="kw-desc">Tuple return value. Lowered to an immutable generated C struct pointer; object handles are rejected as tuple fields.</td>
             <td class="kw-code">method (int64, int64) pair(int64 x) {
     return (x, x + 1);
 }
@@ -649,7 +654,7 @@ int64 b;
           </tr>
           <tr>
             <td class="kw">Tabula</td>
-            <td class="kw-desc">First-class table type. libtab-backed. Text boundary.</td>
+            <td class="kw-desc">First-class table type. libtab-backed. Text boundary. Binary payloads use a 0x column with hex text.</td>
             <td class="kw-code">Tabula t = new Tabula("orders", "item,qty");
 t.add("a");
 t.set("item", "widget");
@@ -882,7 +887,7 @@ string pt = decrypt(k, blob);</td>
           <h3>9P Facade</h3>
         </div>
         <ul>
-          <li>• ONE server per app: <code>clone</code>, session <code>ctl</code>/<code>data</code>/<code>status</code>, global <code>methods</code>, <code>exports</code></li>
+          <li>• ONE server per app: <code>clone</code>, session <code>ctl</code>/<code>data</code>/<code>status</code>, global <code>methods</code>, <code>exports</code>, <code>imports</code></li>
           <li>• Session <code>ctl</code> receives method lines: <code>method Class.inst name arg0=5</code></li>
           <li>• Session <code>data</code> returns the result as text</li>
           <li>• Session pool uses explicit request state, not a global current session</li>
@@ -966,12 +971,13 @@ print(s.replace("beta", "rio"), "\n");</td>
           </tr>
           <tr>
             <td class="kw">bytes</td>
-            <td class="kw-desc">Byte-level operations on string data. Get, set, append, slice, hex, text, eq, cmp.</td>
+            <td class="kw-desc">Byte-level operations on string data. Get, set, append, slice, hex, fromHex, isHex, text, eq, cmp.</td>
             <td class="kw-code">import "bytes.o9";
 Bytes b = new Bytes("ab");
 b.append(67);                   // 'C'
 print(b.text(), "\n");           // abC
 print(b.hex(), "\n");            // 616243
+print(b.fromHex("615a43"), "\n");
 print(b.get(0), "\n");           // 97</td>
           </tr>
           <tr>
@@ -1096,17 +1102,19 @@ print(r.float(), "\n");</td>
           </tr>
           <tr>
             <td class="kw">draw</td>
-            <td class="kw-desc">First libdraw-facing object. DrawWindow renders snapshots, can show a live rio/libdraw surface, and supports headless visual probes.</td>
-            <td class="kw-code">import "draw.o9";
-DrawWindow w = new DrawWindow("o9 draw", 96, 48);
+            <td class="kw-desc">Libdraw-facing objects. DrawWindow owns a live draw handle, event loop, and reactive dirty-state widget tree.</td>
+            <td class="kw-code">import "stdlib/draw.o9";
+DrawWindow w = new DrawWindow("o9 draw", 320, 160);
 w.background(0x203040);
 w.accent(0xe0c040);
-w.snapshotPng("/tmp/o9_draw_snapshot.png");
-w.show(3000);
-DrawVisualProbe p = new DrawVisualProbe("probe", 128, 72);
-p.click(64, 42);
-p.nextEvent();
-print(p.eventType(), "\n");</td>
+if(w.open()) {
+    DrawButton b = new DrawButton("ok", 24, 48, 96, 30);
+    DrawScrollText s = new DrawScrollText("alpha\nbeta\ngamma", 140, 24, 150, 96);
+    w.add(b);
+    w.add(s);
+    w.update();
+    w.close();
+}</td>
           </tr>
         </tbody>
       </table>
@@ -1147,7 +1155,7 @@ print(p.eventType(), "\n");</td>
           <li>• <code>collections</code> — list&lt;T&gt;, array&lt;T&gt;, dictionary&lt;T&gt;</li>
           <li>• <code>math</code> — sqrt, sin, cos, pow, floor, ceil, log, exp, abs (double)</li>
           <li>• <code>random</code> — PRNG + true entropy (seed, next, bounded, float, truerand)</li>
-          <li>• <code>draw</code> — DrawWindow snapshots, live rio/libdraw display, CSP visual probes</li>
+          <li>• <code>draw</code> — DrawWindow, DrawCanvas, widgets, menus, snarf, snapshots, CSP visual probes</li>
         </ul>
       </div>
       <div class="card">
@@ -1156,16 +1164,29 @@ print(p.eventType(), "\n");</td>
           <h3>Draw Layer</h3>
         </div>
         <ul>
-          <li>• <code>DrawWindow</code> stores ordinary o9 state: title, size, colors</li>
+          <li>• <code>DrawWindow</code> stores ordinary o9 state: title, size, colors, live canvas handle, event loop</li>
           <li>• Snapshot tests write Plan 9 image files and convert them with <code>topng</code></li>
-          <li>• <code>show(ms)</code> paints a real <code>libdraw</code> surface with an o9 title band</li>
+          <li>• <code>open()</code> creates a real <code>libdraw</code> surface; <code>canvas()</code> returns the low-level drawing API handle</li>
+          <li>• <code>DrawCanvas</code> exposes clear, fillRect, borderRect, text, textBox, and flush</li>
+          <li>• <code>DrawFrame</code> batches widget draw commands before flushing to <code>DrawCanvas</code></li>
           <li>• <code>DrawVisualProbe</code> renders before/after PNG frames around synthetic clicks</li>
           <li>• <code>DrawEventLoop</code> routes mouse, key, and resize input through CSP channels</li>
-          <li>• Event channels currently carry one compact scalar code; <code>next()</code> exposes typed accessors</li>
+          <li>• Widgets are reactive by default; panels observe child dirtiness and <code>DrawWindow</code> auto-repaints routed events</li>
+          <li>• <code>setReactive(false)</code> on a window or widget switches to manual batching with <code>update()</code>/<code>repaint()</code></li>
+          <li>• <code>layoutFlow()</code> gives windows a responsive wrapping layout for resize-aware controls</li>
+          <li>• Event channels carry typed <code>DrawEvent</code> values; <code>next()</code> exposes accessor state</li>
+          <li>• <code>DrawBox</code> standardizes widget position, size, colors, hit testing, and box drawing</li>
+          <li>• <code>DrawLabel</code> gives widgets a reusable text object with frame drawing</li>
+          <li>• <code>DrawButton</code> owns label, geometry, hit testing, typed mouse activation, and frame drawing</li>
+          <li>• <code>DrawTextInput</code> provides a single-line focused text field with placeholder, cursor, insert, backspace, and delete</li>
+          <li>• <code>DrawTextView</code> provides clipped multi-line text; <code>DrawScrollText</code> integrates it with synchronized scrollbars</li>
+          <li>• <code>DrawTable</code> provides headers, cells, visible-row drawing, row selection, and keyboard movement</li>
+          <li>• <code>DrawScrollbar</code> provides vertical/horizontal range state, thumb dragging, keyboard stepping, and panel mouse capture</li>
+          <li>• <code>DrawMenu</code> wraps Plan 9 button menus; <code>DrawClipboard</code> reads/writes <code>/dev/snarf</code></li>
           <li>• Raw C wraps <code>libmemdraw</code>/<code>libdraw</code> without exposing image pointers</li>
           <li>• Test artifact: <code>o9c/test/artifacts/o9_draw_snapshot.png</code></li>
           <li>• Probe artifacts: <code>o9_draw_probe_before.png</code>, <code>o9_draw_probe_after.png</code></li>
-          <li>• Manual visual demo: <code>mk draw-window-demo</code></li>
+          <li>• Manual visual demos live under <code>demo/</code>: <code>mk draw-window-demo</code>, <code>mk draw-button-demo</code>, <code>mk draw-textinput-demo</code>, <code>mk draw-table-demo</code>, <code>mk draw-menu-demo</code>, <code>mk draw-scrollbar-demo</code></li>
         </ul>
       </div>
     </div>

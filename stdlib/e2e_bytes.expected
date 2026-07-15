@@ -5,5 +5,8 @@ get 97 67 0
 set aZCd
 slice ZC 
 hex 615a4364
+ishex 1 1 0 0
+fromhex 1 aZC 615a43
+badhex 0 0
 eq 1 cmp -1
 clear 0 1

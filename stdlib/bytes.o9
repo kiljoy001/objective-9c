@@ -88,6 +88,81 @@ function BytesHexRaw(string data) string {
     return out;
 }
 
+function BytesIsHexRaw(string hex) bool {
+    bool out;
+
+    c {
+        char *p;
+        vlong i, n;
+
+        out = 0;
+        if(hex != nil){
+            n = o9_string_len(hex);
+            p = o9_string_data(hex);
+            if((n & 1) == 0){
+                out = 1;
+                for(i = 0; i < n; i++){
+                    if(!((p[i] >= '0' && p[i] <= '9') ||
+                         (p[i] >= 'a' && p[i] <= 'f') ||
+                         (p[i] >= 'A' && p[i] <= 'F'))){
+                        out = 0;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    return out;
+}
+
+function BytesFromHexRaw(string hex) string {
+    string out;
+
+    c {
+        char *p, *q;
+        vlong i, n;
+        int hi, lo;
+
+        out = nil;
+        if(hex != nil){
+            n = o9_string_len(hex);
+            p = o9_string_data(hex);
+            if((n & 1) == 0){
+                out = o9_string_new(nil, n / 2);
+                if(out != nil){
+                    q = o9_string_data(out);
+                    for(i = 0; i < n; i += 2){
+                        if(p[i] >= '0' && p[i] <= '9')
+                            hi = p[i] - '0';
+                        else if(p[i] >= 'a' && p[i] <= 'f')
+                            hi = p[i] - 'a' + 10;
+                        else if(p[i] >= 'A' && p[i] <= 'F')
+                            hi = p[i] - 'A' + 10;
+                        else
+                            break;
+                        if(p[i+1] >= '0' && p[i+1] <= '9')
+                            lo = p[i+1] - '0';
+                        else if(p[i+1] >= 'a' && p[i+1] <= 'f')
+                            lo = p[i+1] - 'a' + 10;
+                        else if(p[i+1] >= 'A' && p[i+1] <= 'F')
+                            lo = p[i+1] - 'A' + 10;
+                        else
+                            break;
+                        q[i / 2] = (hi << 4) | lo;
+                    }
+                    if(i != n){
+                        o9_string_release(out);
+                        out = o9_string_new(nil, 0);
+                    }
+                }
+            }
+        }
+        if(out == nil)
+            out = o9_string_new(nil, 0);
+    }
+    return out;
+}
+
 class Bytes {
     prop string value;
 
@@ -142,6 +217,22 @@ class Bytes {
     method string hex() {
         Task<string> t = spawn BytesHexRaw(value);
         return t.await();
+    }
+
+    method bool isHex(string hex) {
+        Task<bool> t = spawn BytesIsHexRaw(hex);
+        return t.await();
+    }
+
+    method bool fromHex(string hex) {
+        if(!isHex(hex)) {
+            value = "";
+            return false;
+        }
+
+        Task<string> t = spawn BytesFromHexRaw(hex);
+        value = t.await();
+        return true;
     }
 
     method int64 compare(string other) {
