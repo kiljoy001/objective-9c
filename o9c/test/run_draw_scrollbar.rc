@@ -1,12 +1,12 @@
 #!/bin/rc
-# Manual visual demo: compile the DrawWindow live libdraw example and open it
+# Manual visual demo: compile the DrawScrollbar live libdraw example and open it
 # in a rio window when rio's window-control file is available.
 
 tool=./o9c/o9c
-src=demo/demo_draw_window.o9
-cfile=/tmp/o9_draw_window.$pid.c
-ofile=/tmp/o9_draw_window.$pid.6
-bin=/tmp/o9_draw_window.$pid
+src=demo/demo_draw_scrollbar.o9
+cfile=/tmp/o9_draw_scrollbar.$pid.c
+ofile=/tmp/o9_draw_scrollbar.$pid.6
+bin=/tmp/o9_draw_scrollbar.$pid
 mode=$1
 
 fn depincs {
@@ -26,33 +26,33 @@ if(! test -e libo9.a){
 	exit missing
 }
 if(! $tool < $src > $cfile){
-	echo draw-window-demo: transpile failed >[1=2]
+	echo draw-scrollbar-demo: transpile failed >[1=2]
 	rm -f $cfile $ofile $bin
 	exit transpile
 }
 incs=`{depincs $cfile}
 archs=`{deparchs $cfile}
 if(! 6c -FVw -I. $incs -o $ofile $cfile){
-	echo draw-window-demo: compile failed >[1=2]
+	echo draw-scrollbar-demo: compile failed >[1=2]
 	rm -f $cfile $ofile $bin
 	exit compile
 }
 if(! 6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a $archs){
-	echo draw-window-demo: link failed >[1=2]
+	echo draw-scrollbar-demo: link failed >[1=2]
 	rm -f $cfile $ofile $bin
 	exit link
 }
 
 if(~ $mode compileonly){
-	echo draw-window-demo: build OK
+	echo draw-scrollbar-demo: build OK
 	rm -f $cfile $ofile $bin
 	exit ''
 }
 
 if(test -e /dev/wctl){
 	echo 'opening rio window for '$bin
-	echo 'press q, Esc, or Del to close'
-	window -dx 420 -dy 260 -noscroll $bin
+	echo 'drag either scrollbar or use the wheel over the text; q, Esc, or Del closes'
+	window -dx 500 -dy 340 -noscroll $bin
 	exit ''
 }
 if not{

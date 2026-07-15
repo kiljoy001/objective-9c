@@ -1,0 +1,20 @@
+import "draw.o9";
+
+main {
+    DrawTextView v = new DrawTextView("abcdefghijklmnopqrstuvwxyz0123456789", 10, 20, 100, 60);
+
+    print("base ", v.role(), " ", v.rows(), " ", v.pageLines(), " ", v.visibleLines(), " ", v.visibleColumns(), " ", v.firstVisibleLine(), " ", v.firstVisibleColumn(), " ", v.maxFirstLine(), " ", v.contains(10, 20), " ", v.contains(109, 79), " ", v.contains(110, 79), "\n");
+
+    print("lines ", v.text(), " ", v.line(0), " ", v.line(2), " ", v.maxColumn(), " ", v.maxFirstColumn(), "\n");
+
+    v.setOffset(10, 50);
+    print("offset ", v.firstVisibleLine(), " ", v.firstVisibleColumn(), " ", v.visibleLines(), "\n");
+    print("scroll ", v.scrollLines(-1), " ", v.firstVisibleLine(), " ", v.scrollColumns(-5), " ", v.firstVisibleColumn(), "\n");
+
+    v.setWrap(false);
+    print("nowrap ", v.wrap(), " ", v.rows(), " ", v.maxFirstColumn(), " ", v.firstVisibleLine(), " ", v.firstVisibleColumn(), "\n");
+    v.setOffset(0, 50);
+    print("hscroll ", v.firstVisibleColumn(), " ", v.line(0), " ", v.scrollColumns(-5), " ", v.firstVisibleColumn(), "\n");
+    v.setText("short");
+    print("text ", v.text(), " ", v.rows(), " ", v.firstVisibleLine(), " ", v.firstVisibleColumn(), " ", v.maxFirstLine(), "\n");
+}

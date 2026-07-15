@@ -1,0 +1,35 @@
+import "stdlib/draw.o9";
+
+main {
+    DrawWindow w = new DrawWindow("o9 libdraw demo", 420, 260);
+    DrawLabel title = new DrawLabel("o9 libdraw window", 20, 28, 380, 34);
+    DrawLabel hint = new DrawLabel("press q, Esc, or Del to close", 20, 78, 380, 28);
+    int64 kind;
+    bool running;
+
+    w.background(0x203040);
+    w.accent(0xe0c040);
+    title.color(0x203040, 0xffffff);
+    title.border(0xe0c040);
+    hint.color(0x182838, 0xffffff);
+    hint.border(0x182838);
+    w.add(title);
+    w.add(hint);
+
+    print("opening draw window\n");
+    if(w.open()) {
+        w.update();
+        running = true;
+        while(running) {
+            kind = w.nextEvent();
+            if(kind == 2) {
+                if(w.eventKey() == 'q' || w.eventKey() == 'Q' || w.eventKey() == 0x1B || w.eventKey() == 0x7F) {
+                    running = false;
+                }
+            }
+        }
+        print("closed ", w.close(), "\n");
+    } else {
+        print("open failed\n");
+    }
+}

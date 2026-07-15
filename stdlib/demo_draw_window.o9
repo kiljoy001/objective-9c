@@ -1,9 +1,0 @@
-import "draw.o9";
-
-main {
-    DrawWindow w = new DrawWindow("o9 libdraw demo", 420, 260);
-    w.background(0x203040);
-    w.accent(0xe0c040);
-    print("opening draw window\n");
-    print("shown ", w.show(6000), "\n");
-}

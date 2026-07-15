@@ -1,0 +1,61 @@
+import "stdlib/draw.o9";
+
+main {
+    DrawWindow win = new DrawWindow("o9 draw text input", 520, 220);
+    DrawLabel title = new DrawLabel("DrawTextInput", 18, 18, 360, 30);
+    DrawLabel status = new DrawLabel("click the field and type", 18, 108, 460, 30);
+    DrawTextInput input = new DrawTextInput("", 18, 62, 360, 32);
+    bool running;
+    bool changed;
+    int64 kind;
+    int64 oldEdits;
+    int64 key;
+
+    win.background(0x203040);
+    win.accent(0xe0c040);
+    title.color(0x203040, 0xffffff);
+    title.border(0x203040);
+    status.color(0x182838, 0xffffff);
+    status.border(0xe0c040);
+    input.color(0x182838, 0xffffff);
+    input.border(0xe0c040);
+    input.setPlaceholder("machine-name");
+
+    win.add(title);
+    win.add(input);
+    win.add(status);
+
+    if(win.open()) {
+        win.update();
+        oldEdits = input.count();
+        running = true;
+        while(running) {
+            kind = win.nextEvent();
+            if(kind == 1) {
+                changed = win.routeEvent();
+                if(changed) {
+                    win.update();
+                }
+            }
+            if(kind == 2) {
+                key = win.eventKey();
+                if(key == 0x1B || key == 17) {
+                    running = false;
+                } else {
+                    changed = win.routeEvent();
+                    if(input.count() != oldEdits) {
+                        oldEdits = input.count();
+                        status.setText(cat("value: ", input.text()));
+                        changed = true;
+                    }
+                    if(changed) {
+                        win.update();
+                    }
+                }
+            }
+        }
+        win.close();
+    } else {
+        print("open failed\n");
+    }
+}

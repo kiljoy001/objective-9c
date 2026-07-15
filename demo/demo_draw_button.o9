@@ -1,0 +1,9 @@
+import "stdlib/draw.o9";
+
+main {
+    DrawButtonDemo demo = new DrawButtonDemo("click text test", 460, 300);
+    demo.background(0x203040);
+    demo.accent(0xe0c040);
+    print("opening draw button demo\n");
+    print("closed ", demo.show(), "\n");
+}

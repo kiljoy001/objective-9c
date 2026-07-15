@@ -1,0 +1,12 @@
+base table 3 4 60 3 0 -1 1 1 0
+hit 0 0 1 -1 0 1 3
+headers 1 1 0 name addr []
+cells 1 1 1 0 cpu0 10.0.0.2 ready []
+select 1 2 0
+select2 1 3 1 1 3
+mouse 1 2 1
+key 1 3 1 1 2 1
+scroll 1 1 0 1
+clear [] -1 0
+panelclean 0
+panel 1 0 1 1 1 2

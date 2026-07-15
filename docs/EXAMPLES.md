@@ -153,28 +153,66 @@ representation for storing or sending mount/bind parameters.
 rio/libdraw surface for manual visual checks.
 
 ```o9
-import "draw.o9";
+import "stdlib/draw.o9";
 
 main {
     DrawWindow w = new DrawWindow("o9 libdraw demo", 420, 260);
     w.background(0x203040);
     w.accent(0xe0c040);
     w.snapshotPng("/tmp/o9_draw_snapshot.png");
-    w.show(3000);
 }
 ```
 
-From a rio session, the built-in demo opens a separate window:
+Manual demo sources live under `demo/`; keep future live visual demos there
+instead of in `stdlib/`. From a rio session, the built-in window demo opens a
+separate window:
 
 ```rc
 mk draw-window-demo
+```
+
+There is also a live button demo. It opens a libdraw window, changes the
+visible status text each time the button is clicked, and exits on `q`, Esc, or
+Del:
+
+```rc
+mk draw-button-demo
+```
+
+The text input demo opens a focused single-line field. Click the field, type,
+use backspace/delete, and close with Esc or Ctrl-Q:
+
+```rc
+mk draw-textinput-demo
+```
+
+The table demo opens a fixed-column table with selectable rows. Click rows or
+use `j`/`k` after the table has focus:
+
+```rc
+mk draw-table-demo
+```
+
+The menu demo shows the Plan 9 button-menu path for draw apps. Button 3 opens
+a menu with snarf, paste, clear, and quit actions backed by `/dev/snarf`:
+
+```rc
+mk draw-menu-demo
+```
+
+The scrollbar demo uses `DrawScrollText`, a reactive text viewport with
+integrated scrollbars. Drag either bar, resize the viewport, or use
+`j`/`k`/`h`/`l` to move the visible text:
+
+```rc
+mk draw-scrollbar-demo
 ```
 
 For headless visual interaction, render a frame, send a synthetic click, and
 render the next frame:
 
 ```o9
-import "draw.o9";
+import "stdlib/draw.o9";
 
 main {
     DrawVisualProbe p = new DrawVisualProbe("probe", 128, 72);
@@ -190,21 +228,69 @@ main {
 The lower-level event bus can be used directly:
 
 ```o9
-import "draw.o9";
+import "stdlib/draw.o9";
 
 main {
     DrawEventLoop loop = new DrawEventLoop();
+    DrawEvent e;
+
     loop.start();
     loop.mouse(10, 20, 1);
     loop.key(65);
     loop.resize(320, 200);
 
-    loop.next();
-    print(loop.eventType(), " ", loop.eventX(), " ", loop.eventY(), "\n");
-    loop.next();
-    print(loop.eventType(), " ", loop.eventKey(), "\n");
-    loop.next();
-    print(loop.eventType(), " ", loop.eventWidth(), " ", loop.eventHeight(), "\n");
+    e = <- loop.events;
+    print(e.kind, " ", e.x, " ", e.y, "\n");
+    e = <- loop.events;
+    print(e.kind, " ", e.key, "\n");
+    e = <- loop.events;
+    print(e.kind, " ", e.width, " ", e.height, "\n");
+}
+```
+
+The first reusable widget object is `DrawButton`, which handles hit testing and
+typed mouse events. Normal UI code adds widgets to a `DrawWindow`; the window
+routes input through the widget tree and repaints through a batched `DrawFrame`.
+`DrawCanvas` remains the low-level drawing surface for custom work:
+
+```o9
+import "stdlib/draw.o9";
+
+main {
+    DrawWindow win = new DrawWindow("widgets", 320, 160);
+    DrawButton b = new DrawButton("ok", 10, 20, 64, 24);
+    DrawLabel label = new DrawLabel("status", 10, 54, 120, 20);
+    DrawTextInput input = new DrawTextInput("", 10, 86, 160, 28);
+    DrawScrollText scroll = new DrawScrollText("alpha\nbeta\ngamma", 150, 20, 150, 80);
+    DrawEvent e;
+
+    b.position(10, 20);
+    b.size(64, 24);
+    b.color(0x466080, 0xffffff);
+    label.color(0x203040, 0xffffff);
+    input.setPlaceholder("name");
+    scroll.setWrap(false);
+    scroll.setValue(40);
+
+    e.kind = 1;
+    e.x = 16;
+    e.y = 24;
+    e.buttons = 1;
+    b.handleMouse(e.x, e.y, e.buttons);
+    label.setText("clicked");
+
+    print(b.text(), " ", b.count(), " ", b.pressed(), " ", label.text(), "\n");
+
+    win.add(b);
+    win.add(label);
+    win.add(input);
+    win.add(scroll);
+    if(win.open()) {
+        win.update();
+        label.setText("changed through reactive dirty state");
+        win.update();
+        win.close();
+    }
 }
 ```
 
@@ -221,7 +307,6 @@ function countbytes(string path) int64 {
     c {
         Biobuf *b;
         char *cpath;
-        int ch;
 
         n = 0;
         cpath = o9_string_cstr(path);
@@ -230,7 +315,7 @@ function countbytes(string path) int64 {
         if(b == nil)
             n = -1;
         else {
-            while((ch = Bgetc(b)) >= 0)
+            while(Bgetc(b) >= 0)
                 n++;
             Bterm(b);
         }

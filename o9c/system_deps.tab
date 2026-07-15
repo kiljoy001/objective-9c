@@ -62,6 +62,11 @@ name=draw
 	archive=/$objtype/lib/libdraw.a
 	kind=system
 
+name=event
+	header=<event.h>
+	requires=draw
+	kind=system
+
 name=dtracy
 	header=<dtracy.h>
 	archive=/$objtype/lib/libdtracy.a

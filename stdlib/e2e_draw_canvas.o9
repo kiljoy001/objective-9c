@@ -1,0 +1,19 @@
+import "draw.o9";
+
+main {
+    DrawCanvas canvas = new DrawCanvas();
+    DrawBox box = new DrawBox(1, 2, 30, 10);
+    DrawLabel label = new DrawLabel("status", 3, 4, 40, 12);
+    DrawButton button = new DrawButton("ok", 5, 6, 50, 16);
+    DrawWindow window = new DrawWindow("canvas", 120, 80);
+    DrawCanvas windowCanvas = window.canvas();
+    DrawEventLoop loop = window.events();
+
+    print("canvas ", canvas.id(), " ", canvas.ready(), " ", canvas.clear(1), " ", canvas.flush(), "\n");
+    print("draw ", box.draw(canvas), " ", label.draw(canvas), " ", button.draw(canvas), "\n");
+    print("window ", window.title(), " ", window.width(), " ", window.height(), " ", window.isOpen(), " ", window.canvasId(), " ", windowCanvas.ready(), " ", window.clear(), " ", window.flush(), "\n");
+
+    loop.start();
+    loop.mouse(7, 8, 1);
+    print("event ", loop.next(), " ", loop.eventX(), " ", loop.eventY(), " ", loop.eventButtons(), "\n");
+}

@@ -1,0 +1,17 @@
+import "draw.o9";
+
+main {
+    DrawLabel label = new DrawLabel("name", 4, 5, 60, 12);
+
+    print("label ", label.text(), " ", label.x(), " ", label.y(), " ", label.width(), " ", label.height(), " ", label.visible(), " ", label.contains(4, 5), " ", label.contains(64, 5), "\n");
+
+    label.setText("next");
+    label.position(10, 11);
+    label.size(70, 14);
+    label.color(7, 8);
+    label.border(9);
+    print("set ", label.text(), " ", label.x(), " ", label.y(), " ", label.width(), " ", label.height(), " ", label.background(), " ", label.foreground(), " ", label.borderColor(), "\n");
+
+    label.setVisible(false);
+    print("hidden ", label.visible(), " ", label.contains(10, 11), "\n");
+}

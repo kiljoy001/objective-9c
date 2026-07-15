@@ -1,0 +1,27 @@
+import "draw.o9";
+
+main {
+    DrawTable t = new DrawTable(10, 20, 180, 90, 3, 4);
+    DrawPanel p = new DrawPanel(0, 0, 220, 140);
+
+    print("base ", t.role(), " ", t.columns(), " ", t.rows(), " ", t.columnWidth(), " ", t.visibleRows(), " ", t.firstVisibleRow(), " ", t.selectedRow(), " ", t.contains(10, 20), " ", t.contains(189, 109), " ", t.contains(190, 109), "\n");
+    print("hit ", t.columnAt(10), " ", t.columnAt(69), " ", t.columnAt(70), " ", t.rowAt(41), " ", t.rowAt(42), " ", t.rowAt(64), " ", t.rowAt(108), "\n");
+
+    print("headers ", t.setHeader(0, "name"), " ", t.setHeader(1, "addr"), " ", t.setHeader(3, "bad"), " ", t.header(0), " ", t.header(1), " [", t.header(3), "]\n");
+    print("cells ", t.setCell(0, 0, "cpu0"), " ", t.setCell(0, 1, "10.0.0.2"), " ", t.setCell(3, 2, "ready"), " ", t.setCell(4, 0, "bad"), " ", t.cell(0, 0), " ", t.cell(0, 1), " ", t.cell(3, 2), " [", t.cell(4, 0), "]\n");
+
+    print("select ", t.select(2), " ", t.selectedRow(), " ", t.firstVisibleRow(), "\n");
+    print("select2 ", t.select(3), " ", t.selectedRow(), " ", t.firstVisibleRow(), " ", t.rowAt(42), " ", t.rowAt(86), "\n");
+    print("mouse ", t.handleMouse(20, 64, 1), " ", t.selectedRow(), " ", t.firstVisibleRow(), "\n");
+    print("key ", t.handleKey('j'), " ", t.selectedRow(), " ", t.firstVisibleRow(), " ", t.handleKey('k'), " ", t.selectedRow(), " ", t.firstVisibleRow(), "\n");
+    t.setFirstRow(0);
+    print("scroll ", t.scrollRows(1), " ", t.firstVisibleRow(), " ", t.scrollRows(5), " ", t.firstVisibleRow(), "\n");
+
+    t.clear();
+    print("clear [", t.cell(0, 0), "] ", t.selectedRow(), " ", t.firstVisibleRow(), "\n");
+
+    p.add(t);
+    p.clearDirty();
+    print("panelclean ", p.isDirty(), "\n");
+    print("panel ", p.routeMouse(20, 64, 1), " ", p.focusIndex(), " ", t.focused(), " ", t.selectedRow(), " ", p.routeKey('j'), " ", t.selectedRow(), "\n");
+}

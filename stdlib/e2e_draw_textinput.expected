@@ -1,0 +1,12 @@
+base textinput hi 2 10 20 120 24 1 1 0
+insert hi! 3 1
+mid hi?! 3
+back hi! 2
+del hi 2
+ends >hi< 4 6
+clear  name 0 7
+keys a 1 10
+delete  0 11
+panelclean 0
+mouse 1 0 1
+routekey 1 z 1

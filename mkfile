@@ -47,6 +47,21 @@ session-stress-test:V:	o9c libo9.a
 draw-window-demo:V:	o9c libo9.a
 	rc ./o9c/test/run_draw_window.rc
 
+draw-button-demo:V:	o9c libo9.a
+	rc ./o9c/test/run_draw_button.rc
+
+draw-textinput-demo:V:	o9c libo9.a
+	rc ./o9c/test/run_draw_textinput.rc
+
+draw-table-demo:V:	o9c libo9.a
+	rc ./o9c/test/run_draw_table.rc
+
+draw-menu-demo:V:	o9c libo9.a
+	rc ./o9c/test/run_draw_menu.rc
+
+draw-scrollbar-demo:V:	o9c libo9.a
+	rc ./o9c/test/run_draw_scrollbar.rc
+
 sessreuse-test:V:	o9c libo9.a
 	rc ./o9c/test/run_sessreuse.rc
 
@@ -158,4 +173,7 @@ install:V: o9c libo9.a
 	@ echo '  6l out.6 -lo9'
 
 clean:V:
-	rm -f o9c/y.tab.* o9c/type.tab.* o9c/o9c o9c/o9type *.[$O] libo9.a
+	rm -f o9c/y.tab.* o9c/type.tab.* o9c/o9c o9c/o9type o9c/*.[$O]
+	rm -f *.[$O] *.9 libo9.a
+	rm -f o9c/test/*.[$O] o9c/test/crypto_test o9c/test/tab_test
+	rm -f o9c/test/artifacts/o9_draw_*.img o9c/test/artifacts/o9_draw_*.png

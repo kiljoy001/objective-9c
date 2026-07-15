@@ -1,0 +1,99 @@
+import "stdlib/draw.o9";
+
+main {
+    DrawWindow win = new DrawWindow("o9 draw table", 560, 320);
+    DrawLabel title = new DrawLabel("DrawTable", 18, 18, 260, 30);
+    DrawLabel status = new DrawLabel("click rows; j/k moves selection", 18, 270, 420, 30);
+    DrawTable table = new DrawTable(18, 58, 500, 198, 3, 8);
+    bool running;
+    bool changed;
+    bool selectedChanged;
+    int64 kind;
+    int64 oldSelected;
+    int64 key;
+
+    win.background(0x203040);
+    win.accent(0xe0c040);
+    title.color(0x203040, 0xffffff);
+    title.border(0x203040);
+    status.color(0x182838, 0xffffff);
+    status.border(0xe0c040);
+    table.color(0x182838, 0xffffff);
+    table.border(0xe0c040);
+    table.grid(0x466080);
+    table.headerColor(0x284050);
+    table.selectedColor(0x5f7fa7);
+
+    table.setHeader(0, "machine");
+    table.setHeader(1, "address");
+    table.setHeader(2, "role");
+    table.setCell(0, 0, "cpu0");
+    table.setCell(0, 1, "10.0.0.2");
+    table.setCell(0, 2, "cpu");
+    table.setCell(1, 0, "auth0");
+    table.setCell(1, 1, "10.0.0.3");
+    table.setCell(1, 2, "auth");
+    table.setCell(2, 0, "fs0");
+    table.setCell(2, 1, "10.0.0.4");
+    table.setCell(2, 2, "file");
+    table.setCell(3, 0, "draw0");
+    table.setCell(3, 1, "10.0.0.5");
+    table.setCell(3, 2, "draw");
+    table.setCell(4, 0, "term0");
+    table.setCell(4, 1, "10.0.0.6");
+    table.setCell(4, 2, "terminal");
+    table.setCell(5, 0, "build0");
+    table.setCell(5, 1, "10.0.0.7");
+    table.setCell(5, 2, "build");
+    table.setCell(6, 0, "db0");
+    table.setCell(6, 1, "10.0.0.8");
+    table.setCell(6, 2, "tab");
+    table.setCell(7, 0, "web0");
+    table.setCell(7, 1, "10.0.0.9");
+    table.setCell(7, 2, "gateway");
+
+    win.add(title);
+    win.add(table);
+    win.add(status);
+
+    if(win.open()) {
+        win.update();
+        oldSelected = table.selectedRow();
+        running = true;
+        while(running) {
+            kind = win.nextEvent();
+            if(kind == 1) {
+                changed = win.routeEvent();
+                selectedChanged = table.selectedRow() != oldSelected;
+                if(selectedChanged) {
+                    oldSelected = table.selectedRow();
+                    status.setText("row selected");
+                    changed = true;
+                }
+                if(changed) {
+                    win.update();
+                }
+            }
+            if(kind == 2) {
+                key = win.eventKey();
+                if(key == 'q' || key == 'Q' || key == 0x1B || key == 0x7F) {
+                    running = false;
+                } else {
+                    changed = win.routeEvent();
+                    selectedChanged = table.selectedRow() != oldSelected;
+                    if(selectedChanged) {
+                        oldSelected = table.selectedRow();
+                        status.setText("keyboard selection");
+                        changed = true;
+                    }
+                    if(changed) {
+                        win.update();
+                    }
+                }
+            }
+        }
+        win.close();
+    } else {
+        print("open failed\n");
+    }
+}

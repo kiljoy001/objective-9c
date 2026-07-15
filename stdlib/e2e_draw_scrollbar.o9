@@ -1,0 +1,28 @@
+import "draw.o9";
+
+main {
+    DrawScrollbar s = new DrawScrollbar(10, 20, 12, 100);
+    DrawPanel p = new DrawPanel(0, 0, 150, 40);
+
+    print("base ", s.role(), " ", s.x(), " ", s.y(), " ", s.width(), " ", s.height(), " ", s.value(), " ", s.minimum(), " ", s.maximum(), " ", s.pageSize(), " ", s.isVertical(), " ", s.thumbStart(), " ", s.thumbLength(), " ", s.contains(10, 20), " ", s.contains(21, 119), " ", s.contains(22, 119), "\n");
+
+    s.setRange(0, 200, 20);
+    s.setValue(50);
+    print("range ", s.value(), " ", s.thumbLength(), " ", s.thumbStart(), "\n");
+    print("hit ", s.thumbContains(15, 45), " ", s.thumbContains(15, 52), " ", s.thumbContains(9, 45), "\n");
+    print("drag ", s.handleMouse(15, 80, 1), " ", s.value(), " ", s.thumbStart(), " ", s.isDragging(), " ", s.capturesMouse(), "\n");
+    print("move ", s.handleMouse(15, 100, 1), " ", s.value(), " ", s.thumbStart(), " ", s.isDragging(), "\n");
+    print("up ", s.handleMouse(15, 100, 0), " ", s.value(), " ", s.isDragging(), " ", s.capturesMouse(), "\n");
+    print("key ", s.handleKey('k'), " ", s.value(), " ", s.handleKey('d'), " ", s.value(), "\n");
+    print("wheel ", s.handleMouse(15, 60, 16), " ", s.value(), " ", s.handleMouse(15, 60, 8), " ", s.value(), " ", s.handleMouse(140, 60, 16), " ", s.value(), "\n");
+
+    s.setVertical(false);
+    s.position(5, 6);
+    s.size(100, 12);
+    s.setRange(0, 100, 25);
+    s.setValue(40);
+    print("horiz ", s.isVertical(), " ", s.value(), " ", s.thumbStart(), " ", s.thumbLength(), " ", s.contains(5, 6), " ", s.contains(104, 17), " ", s.contains(105, 17), "\n");
+
+    p.add(s);
+    print("panel ", p.routeMouse(40, 10, 1), " ", p.focusIndex(), " ", s.value(), " ", s.isDragging(), " ", p.routeMouse(140, 10, 1), " ", s.value(), " ", s.thumbStart(), " ", p.routeMouse(140, 10, 0), " ", s.isDragging(), "\n");
+}

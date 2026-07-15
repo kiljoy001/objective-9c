@@ -1,0 +1,145 @@
+import "stdlib/draw.o9";
+
+main {
+    DrawWindow win = new DrawWindow("o9 draw menu", 500, 320);
+    DrawMenu menu = new DrawMenu();
+    DrawClipboard clip = new DrawClipboard();
+    DrawLabel title = new DrawLabel("button 3 opens a Plan 9 menu", 18, 18, 464, 30);
+    DrawLabel status = new DrawLabel("choose snarf, paste, clear, or quit", 18, 58, 464, 34);
+    DrawButton one = new DrawButton("Click me", 42, 128, 150, 36);
+    DrawButton two = new DrawButton("Disable me", 222, 128, 150, 36);
+    bool running;
+    bool changed;
+    int64 kind;
+    int64 pick;
+    int64 oneClicks;
+    int64 twoClicks;
+    int64 fullw;
+    int64 btnw;
+    string pasted;
+
+    win.background(0x203040);
+    win.accent(0xe0c040);
+    title.color(0x203040, 0xffffff);
+    title.border(0x203040);
+    status.color(0x182838, 0xffffff);
+    status.border(0xe0c040);
+    one.color(0x466080, 0xffffff);
+    one.border(0xe0c040);
+    two.color(0x5a6650, 0xffffff);
+    two.border(0xe0c040);
+
+    menu.add("snarf status");
+    menu.add("paste snarf");
+    menu.add("clear");
+    menu.add("quit");
+
+    win.add(title);
+    win.add(status);
+    win.add(one);
+    win.add(two);
+
+    if(win.open()) {
+        fullw = win.width() - 36;
+        if(fullw < 40) {
+            fullw = 40;
+        }
+        btnw = (win.width() - 66) / 2;
+        if(btnw < 80) {
+            btnw = 80;
+        }
+        if(btnw > 150) {
+            btnw = 150;
+        }
+        title.size(fullw, 30);
+        status.size(fullw, 34);
+        one.size(btnw, 36);
+        two.size(btnw, 36);
+        win.layoutFlow(18, 12);
+        win.update();
+        oneClicks = one.count();
+        twoClicks = two.count();
+        running = true;
+        while(running) {
+            kind = win.nextEvent();
+            if(kind == 1) {
+                if(win.eventButtons() == 4) {
+                    pick = menu.hit(win.canvasId(), 3, win.eventX(), win.eventY(), win.eventButtons());
+                    changed = false;
+                    if(pick == 0) {
+                        clip.write(status.text());
+                        status.setText("status copied to /dev/snarf");
+                        changed = true;
+                    }
+                    if(pick == 1) {
+                        pasted = clip.read();
+                        if(len(pasted) > 0) {
+                            status.setText(pasted);
+                        } else {
+                            status.setText("snarf buffer is empty");
+                        }
+                        changed = true;
+                    }
+                    if(pick == 2) {
+                        status.setText("cleared");
+                        one.setText("Click me");
+                        two.setText("Disable me");
+                        two.setEnabled(true);
+                        changed = true;
+                    }
+                    if(pick == 3) {
+                        running = false;
+                    }
+                    if(changed) {
+                        win.update();
+                    }
+                } else {
+                    changed = win.routeEvent();
+                    if(one.count() != oneClicks) {
+                        oneClicks = one.count();
+                        status.setText("left button clicked");
+                        one.setText("Clicked");
+                        changed = true;
+                    }
+                    if(two.count() != twoClicks) {
+                        twoClicks = two.count();
+                        status.setText("second button disabled");
+                        two.setText("Disabled");
+                        two.setEnabled(false);
+                        changed = true;
+                    }
+                    if(changed) {
+                        win.update();
+                    }
+                }
+            }
+            if(kind == 2) {
+                if(win.eventKey() == 'q' || win.eventKey() == 'Q' || win.eventKey() == 0x1B || win.eventKey() == 0x7F) {
+                    running = false;
+                }
+            }
+            if(kind == 3) {
+                fullw = win.width() - 36;
+                if(fullw < 40) {
+                    fullw = 40;
+                }
+                title.size(fullw, 30);
+                status.size(fullw, 34);
+                btnw = (win.width() - 66) / 2;
+                if(btnw < 80) {
+                    btnw = 80;
+                }
+                if(btnw > 150) {
+                    btnw = 150;
+                }
+                one.size(btnw, 36);
+                two.size(btnw, 36);
+                win.layoutFlow(18, 12);
+                win.update();
+            }
+        }
+        win.close();
+    } else {
+        print("open failed\n");
+    }
+}

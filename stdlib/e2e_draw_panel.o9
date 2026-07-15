@@ -1,0 +1,47 @@
+import "draw.o9";
+
+main {
+    DrawPanel p = new DrawPanel(0, 0, 100, 80);
+    DrawPanel flow = new DrawPanel(0, 0, 70, 100);
+    DrawLabel l = new DrawLabel("name", 5, 5, 40, 12);
+    DrawButton b = new DrawButton("ok", 10, 10, 30, 12);
+    DrawBox a = new DrawBox(0, 0, 20, 10);
+    DrawBox c = new DrawBox(0, 0, 20, 10);
+    DrawBox d = new DrawBox(0, 0, 20, 10);
+
+    b.setAction("accept");
+    p.add(l);
+    p.add(b);
+
+    print("panel ", p.count(), " ", p.hitIndex(12, 12), " ", p.hitIndex(6, 6), " ", p.hitIndex(99, 79), "\n");
+    print("routes ", len(p.routeTable()) > 0, "\n");
+    p.clearDirty();
+    print("clean ", p.isDirty(), " ", l.isDirty(), " ", b.isDirty(), "\n");
+    l.setText("ready");
+    print("reactive ", p.isDirty(), " ", l.isDirty(), "\n");
+    p.clearDirty();
+    print("clean2 ", p.isDirty(), " ", l.isDirty(), "\n");
+    l.setReactive(false);
+    l.setText("manual");
+    print("reactiveoff ", l.reactive(), " ", l.isDirty(), " ", p.isDirty(), "\n");
+    l.setReactive(true);
+    print("reactiveon ", l.reactive(), " ", l.isDirty(), " ", p.isDirty(), "\n");
+    p.clearDirty();
+    print("mouse ", p.routeMouse(12, 12, 1), " ", p.focusIndex(), " ", b.count(), " ", b.focused(), "\n");
+    print("up ", p.routeMouse(12, 12, 0), " ", b.pressed(), " ", b.hovered(), "\n");
+
+    p.layoutVertical(2, 3);
+    print("layout ", l.x(), " ", l.y(), " ", l.width(), " ", b.x(), " ", b.y(), " ", b.width(), "\n");
+
+    b.setEnabled(false);
+    print("disabled ", p.hitIndex(b.x(), b.y()), " ", p.routeMouse(b.x(), b.y(), 1), " ", p.focusIndex(), "\n");
+
+    flow.add(a);
+    flow.add(c);
+    flow.add(d);
+    flow.layoutFlow(5, 3);
+    print("flow ", a.x(), " ", a.y(), " ", c.x(), " ", c.y(), " ", d.x(), " ", d.y(), "\n");
+    flow.size(45, 100);
+    flow.layoutFlow(5, 3);
+    print("flow2 ", a.x(), " ", a.y(), " ", c.x(), " ", c.y(), " ", d.x(), " ", d.y(), "\n");
+}

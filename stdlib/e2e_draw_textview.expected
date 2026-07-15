@@ -1,0 +1,7 @@
+base textview 4 2 2 11 0 0 2 1 1 0
+lines abcdefghijklmnopqrstuvwxyz0123456789 abcdefghijk wxyz0123456 36 0
+offset 2 0 2
+scroll 1 1 0 0
+nowrap 0 1 25 0 0
+hscroll 25 z0123456789 1 20
+text short 1 0 0 0

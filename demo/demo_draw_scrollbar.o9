@@ -1,0 +1,98 @@
+import "stdlib/draw.o9";
+
+main {
+    DrawWindow win = new DrawWindow("o9 draw scrollbar", 500, 340);
+    DrawLabel title = new DrawLabel("DrawScrollbar", 18, 18, 300, 30);
+    DrawLabel status = new DrawLabel("drag a thumb to scroll the text", 18, 282, 390, 30);
+    DrawScrollText text = new DrawScrollText("", 18, 92, 430, 178);
+    bool running;
+    bool changed;
+    int64 kind;
+    int64 oldv;
+    int64 oldh;
+    int64 key;
+    int64 ww;
+    int64 hh;
+    int64 textw;
+    int64 texth;
+
+    win.background(0x203040);
+    win.accent(0xe0c040);
+    title.color(0x203040, 0xffffff);
+    title.border(0x203040);
+    status.color(0x182838, 0xffffff);
+    status.border(0xe0c040);
+    text.color(0x182838, 0xffffff);
+    text.border(0x5f7fa7);
+    text.grid(0x284050);
+    text.setWrap(false);
+    text.setText("Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor.\nUt enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip.\nDuis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore.\nExcepteur sint occaecat cupidatat non proident, sunt in culpa qui officia.\nPlan 9 programs are small pieces connected through names, files, and messages.\nThe scrollbar changes the text viewport instead of moving a decorative thumb.\nHorizontal scrolling reveals the rest of each long line inside the clipped view.\nVertical scrolling moves through the paragraph one visible row at a time.\nReactive widgets mark themselves dirty; this demo batches the final repaint.\nA later text editor can build from this same text and offset primitive.\nUse the mouse to drag the bars, or j/k/h/l for keyboard scrolling.\nPress q, Esc, or Del to close the window when you are done testing.");
+
+    win.add(title);
+    win.add(status);
+    win.add(text);
+
+    if(win.open()) {
+        win.update();
+        oldv = text.firstVisibleLine();
+        oldh = text.firstVisibleColumn();
+        running = true;
+        while(running) {
+            kind = win.nextEvent();
+            if(kind == 1) {
+                changed = win.routeEvent();
+                if(text.firstVisibleLine() != oldv || text.firstVisibleColumn() != oldh) {
+                    oldv = text.firstVisibleLine();
+                    oldh = text.firstVisibleColumn();
+                    status.setText("mouse scroll moved the text");
+                    changed = true;
+                }
+                if(changed) {
+                    win.update();
+                }
+            }
+            if(kind == 2) {
+                key = win.eventKey();
+                if(key == 'q' || key == 'Q' || key == 0x1B || key == 0x7F) {
+                    running = false;
+                } else {
+                    changed = win.routeEvent();
+                    if(text.firstVisibleLine() != oldv || text.firstVisibleColumn() != oldh) {
+                        oldv = text.firstVisibleLine();
+                        oldh = text.firstVisibleColumn();
+                        status.setText("keyboard scroll moved the text");
+                        changed = true;
+                    }
+                    if(changed) {
+                        win.update();
+                    }
+                }
+            }
+            if(kind == 3) {
+                ww = win.eventWidth();
+                hh = win.eventHeight();
+                textw = ww - 70;
+                texth = hh - 162;
+                if(textw < 120) {
+                    textw = 120;
+                }
+                if(texth < 72) {
+                    texth = 72;
+                }
+                title.size(textw, 30);
+                text.position(18, 92);
+                text.size(textw, texth);
+                status.position(18, 92 + texth + 12);
+                status.size(textw, 30);
+                status.setText("window resized; text viewport relaid out");
+                oldv = text.firstVisibleLine();
+                oldh = text.firstVisibleColumn();
+                win.routeEvent();
+                win.update();
+            }
+        }
+        win.close();
+    } else {
+        print("open failed\n");
+    }
+}

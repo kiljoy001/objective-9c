@@ -1,0 +1,43 @@
+import "draw.o9";
+
+main {
+    DrawButton b = new DrawButton("ok", 10, 20, 30, 12);
+    DrawEvent e;
+
+    print("geom ", b.text(), " ", b.x(), " ", b.y(), " ", b.width(), " ", b.height(), "\n");
+    b.color(4, 5);
+    b.border(6);
+    print("style ", b.background(), " ", b.foreground(), " ", b.borderColor(), "\n");
+    print("contains ", b.contains(10, 20), " ", b.contains(39, 31), " ", b.contains(40, 31), " ", b.contains(39, 32), "\n");
+    print("hover ", b.hover(12, 22), " ", b.hovered(), "\n");
+    print("click ", b.click(12, 22), " ", b.count(), " ", b.pressed(), "\n");
+    b.release();
+    print("release ", b.pressed(), " ", b.count(), "\n");
+
+    e.kind = 1;
+    e.x = 11;
+    e.y = 21;
+    e.buttons = 1;
+    e.key = 0;
+    e.width = 0;
+    e.height = 0;
+    print("handle ", b.handleMouse(e.x, e.y, e.buttons), " ", b.count(), " ", b.pressed(), "\n");
+    print("hold ", b.handleMouse(e.x, e.y, e.buttons), " ", b.count(), " ", b.pressed(), "\n");
+
+    e.buttons = 0;
+    print("handleup ", b.handleMouse(e.x, e.y, e.buttons), " ", b.count(), " ", b.pressed(), " ", b.hovered(), "\n");
+
+    b.setEnabled(false);
+    print("disabled ", b.isEnabled(), " ", b.click(12, 22), " ", b.count(), " ", b.pressed(), " ", b.contains(12, 22), "\n");
+
+    b.setEnabled(true);
+    b.position(0, 0);
+    b.size(5, 5);
+    b.setText("go");
+    print("moved ", b.text(), " ", b.contains(4, 4), " ", b.contains(5, 5), " ", b.x(), " ", b.y(), " ", b.width(), " ", b.height(), "\n");
+
+    b.position(3, 4);
+    b.size(8, 9);
+    b.color(10, 11);
+    print("caption ", b.text(), " ", b.x(), " ", b.y(), " ", b.width(), " ", b.height(), " ", b.background(), " ", b.foreground(), "\n");
+}

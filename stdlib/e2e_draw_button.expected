@@ -1,0 +1,12 @@
+geom ok 10 20 30 12
+style 4 5 6
+contains 1 1 0 0
+hover 1 1
+click 1 1 1
+release 0 1
+handle 1 2 1
+hold 0 2 1
+handleup 1 2 0 1
+disabled 0 0 2 0 0
+moved go 1 0 0 0 5 5
+caption go 3 4 8 9 10 11

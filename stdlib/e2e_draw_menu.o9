@@ -1,0 +1,12 @@
+import "draw.o9";
+
+main {
+    DrawMenu m = new DrawMenu();
+
+    print("empty ", m.count(), " ", m.last(), "\n");
+    print("add ", m.add("snarf status"), " ", m.add("paste snarf"), " ", m.add("clear"), " ", m.add("quit"), "\n");
+    print("menu ", m.count(), " ", cmp(m.label(1), "paste snarf"), " ", cmp(m.label(9), ""), "\n");
+    print("nohit ", m.hit(0, 3, 0, 0, 4), " ", m.last(), "\n");
+    m.clear();
+    print("clear ", m.count(), " ", m.last(), "\n");
+}

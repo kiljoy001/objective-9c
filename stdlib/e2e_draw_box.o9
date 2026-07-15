@@ -1,0 +1,13 @@
+import "draw.o9";
+
+main {
+    DrawBox box = new DrawBox(2, 3, 4, 5);
+
+    print("box ", box.x(), " ", box.y(), " ", box.width(), " ", box.height(), " ", box.right(), " ", box.bottom(), " ", box.contains(2, 3), " ", box.contains(5, 7), " ", box.contains(6, 7), " ", box.contains(5, 8), "\n");
+
+    box.position(10, 20);
+    box.size(30, 40);
+    box.color(1, 2);
+    box.border(3);
+    print("set ", box.x(), " ", box.y(), " ", box.width(), " ", box.height(), " ", box.background(), " ", box.foreground(), " ", box.borderColor(), "\n");
+}

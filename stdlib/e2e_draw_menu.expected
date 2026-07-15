@@ -1,0 +1,5 @@
+empty 0 -1
+add 1 1 1 1
+menu 4 0 0
+nohit -1 -1
+clear 0 -1

@@ -1,0 +1,41 @@
+import "draw.o9";
+
+main {
+    DrawTextInput t = new DrawTextInput("hi", 10, 20, 120, 24);
+    DrawPanel p = new DrawPanel(0, 0, 200, 80);
+
+    print("base ", t.role(), " ", t.text(), " ", t.cursorIndex(), " ", t.x(), " ", t.y(), " ", t.width(), " ", t.height(), " ", t.contains(10, 20), " ", t.contains(129, 43), " ", t.contains(130, 43), "\n");
+
+    t.insertKey('!');
+    print("insert ", t.text(), " ", t.cursorIndex(), " ", t.count(), "\n");
+    t.moveLeft();
+    t.insertKey('?');
+    print("mid ", t.text(), " ", t.cursorIndex(), "\n");
+    t.backspace();
+    print("back ", t.text(), " ", t.cursorIndex(), "\n");
+    t.deleteForward();
+    print("del ", t.text(), " ", t.cursorIndex(), "\n");
+    t.home();
+    t.insertKey('>');
+    t.end();
+    t.insertKey('<');
+    print("ends ", t.text(), " ", t.cursorIndex(), " ", t.count(), "\n");
+
+    t.clear();
+    t.setPlaceholder("name");
+    print("clear ", t.text(), " ", t.placeholder(), " ", t.cursorIndex(), " ", t.count(), "\n");
+
+    t.handleKey('a');
+    t.handleKey('b');
+    t.handleKey(8);
+    print("keys ", t.text(), " ", t.cursorIndex(), " ", t.count(), "\n");
+    t.setCursor(0);
+    t.handleKey(4);
+    print("delete ", t.text(), " ", t.cursorIndex(), " ", t.count(), "\n");
+
+    p.add(t);
+    p.clearDirty();
+    print("panelclean ", p.isDirty(), "\n");
+    print("mouse ", p.routeMouse(12, 22, 1), " ", p.focusIndex(), " ", t.focused(), "\n");
+    print("routekey ", p.routeKey('z'), " ", t.text(), " ", t.cursorIndex(), "\n");
+}

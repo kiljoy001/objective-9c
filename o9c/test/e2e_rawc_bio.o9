@@ -5,7 +5,6 @@ function countbytes(string path) int64 {
     c {
         Biobuf *b;
         char *cpath;
-        int ch;
 
         n = 0;
         cpath = o9_string_cstr(path);
@@ -14,7 +13,7 @@ function countbytes(string path) int64 {
         if(b == nil)
             n = -1;
         else {
-            while((ch = Bgetc(b)) >= 0)
+            while(Bgetc(b) >= 0)
                 n++;
             Bterm(b);
         }

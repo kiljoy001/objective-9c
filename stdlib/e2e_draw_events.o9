@@ -2,9 +2,16 @@ import "draw.o9";
 
 main {
     DrawEventLoop loop = new DrawEventLoop();
+    DrawEventLoop direct = new DrawEventLoop();
+    DrawEvent e;
     int64 a;
     int64 b;
     int64 c;
+
+    direct.start();
+    direct.mouse(7, 8, 3);
+    e = <- direct.events;
+    print("direct ", e.kind, " ", e.x, " ", e.y, " ", e.buttons, "\n");
 
     loop.start();
     loop.mouse(10, 20, 1);

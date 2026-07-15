@@ -1,0 +1,17 @@
+import "draw.o9";
+
+main {
+    DrawFrame f = new DrawFrame();
+    DrawCanvas c = new DrawCanvas();
+
+    print("empty ", f.count(), "\n");
+    f.clear(7);
+    f.fillRect(1, 2, 30, 40, 11);
+    f.borderRectN(1, 2, 30, 40, 2, 12);
+    f.textBox("ok", 1, 2, 30, 12, 13);
+    print("cmds ", f.count(), "\n");
+
+    print("flushclosed ", f.flush(c), " ", f.count(), "\n");
+    f.reset(3);
+    print("reset ", f.count(), "\n");
+}

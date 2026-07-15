@@ -1,0 +1,18 @@
+import "draw.o9";
+
+main {
+    DrawScrollText s = new DrawScrollText("abcdefghijklmnopqrstuvwxyz0123456789", 10, 20, 120, 80);
+
+    print("base ", s.role(), " ", s.rows(), " ", s.visibleLines(), " ", s.visibleColumns(), " ", s.maxFirstLine(), " ", s.maxFirstColumn(), " ", s.firstVisibleLine(), " ", s.firstVisibleColumn(), " ", s.contains(10, 20), " ", s.contains(129, 99), " ", s.contains(130, 99), "\n");
+    print("wheel ", s.handleMouse(20, 30, 16), " ", s.firstVisibleLine(), " ", s.handleMouse(20, 30, 8), " ", s.firstVisibleLine(), " ", s.handleMouse(200, 30, 16), " ", s.firstVisibleLine(), "\n");
+    print("scroll ", s.scrollLines(1), " ", s.firstVisibleLine(), " ", s.scrollColumns(1), " ", s.firstVisibleColumn(), "\n");
+    s.setWrap(false);
+    print("nowrap ", s.wrap(), " ", s.rows(), " ", s.maxFirstColumn(), " ", s.firstVisibleLine(), " ", s.firstVisibleColumn(), "\n");
+    s.setOffset(0, 50);
+    print("offset ", s.firstVisibleLine(), " ", s.firstVisibleColumn(), "\n");
+    print("key ", s.handleKey('h'), " ", s.firstVisibleColumn(), " ", s.handleKey('j'), " ", s.firstVisibleLine(), "\n");
+    s.size(200, 100);
+    print("resize ", s.visibleLines(), " ", s.visibleColumns(), " ", s.maxFirstColumn(), " ", s.firstVisibleColumn(), "\n");
+    s.setWrap(true);
+    print("wrap ", s.wrap(), " ", s.rows(), " ", s.visibleLines(), " ", s.maxFirstLine(), " ", s.maxFirstColumn(), " ", s.firstVisibleColumn(), "\n");
+}

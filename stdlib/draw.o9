@@ -138,6 +138,260 @@ function DrawRemoveRaw(string path) int64 {
     return out;
 }
 
+function DrawIntTextRaw(int64 value) string {
+    string out;
+
+    c {
+        char buf[64];
+
+        snprint(buf, sizeof buf, "%lld", value);
+        out = o9_string_from_c(buf);
+    }
+    return out;
+}
+
+function DrawParseIntRaw(string value) int64 {
+    int64 out;
+
+    c {
+        char *s;
+
+        out = 0;
+        s = o9_string_cstr(value);
+        if(s != nil){
+            out = strtoll(s, nil, 0);
+            free(s);
+        }
+    }
+    return out;
+}
+
+function DrawTextSliceRaw(string value, int64 start, int64 count) string {
+    string out;
+
+    c {
+        out = o9_string_slice(value, start, count);
+    }
+    return out;
+}
+
+function DrawTextLineCountRaw(string value, int64 columns, bool wrapText) int64 {
+    int64 out;
+
+    c {
+        char *s;
+        vlong n, i, j, seg, cols;
+
+        s = o9_string_data(value);
+        n = o9_string_len(value);
+        cols = columns;
+        if(cols < 1)
+            cols = 1;
+        out = 0;
+        if(n > 0){
+            i = 0;
+            while(i <= n){
+                j = i;
+                while(j < n && s[j] != '\n')
+                    j++;
+                seg = j - i;
+                if(wrapText){
+                    if(seg == 0)
+                        out++;
+                    else
+                        out += (seg + cols - 1) / cols;
+                }else{
+                    out++;
+                }
+                if(j >= n)
+                    break;
+                i = j + 1;
+                if(i == n)
+                    out++;
+            }
+        }
+    }
+    return out;
+}
+
+function DrawTextMaxLineRaw(string value) int64 {
+    int64 out;
+
+    c {
+        char *s;
+        vlong n, i, cur;
+
+        s = o9_string_data(value);
+        n = o9_string_len(value);
+        out = 0;
+        cur = 0;
+        for(i = 0; i < n; i++){
+            if(s[i] == '\n'){
+                if(cur > out)
+                    out = cur;
+                cur = 0;
+            }else{
+                cur++;
+            }
+        }
+        if(cur > out)
+            out = cur;
+    }
+    return out;
+}
+
+function DrawTextLineRaw(string value, int64 columns, bool wrapText, int64 line, int64 firstColumn) string {
+    string out;
+
+    c {
+        O9String *res;
+        char *s;
+        vlong n, i, j, seg, cols, k, pieces, start, len, col;
+
+        s = o9_string_data(value);
+        n = o9_string_len(value);
+        cols = columns;
+        if(cols < 1)
+            cols = 1;
+        res = nil;
+        if(line >= 0 && n > 0){
+            i = 0;
+            k = 0;
+            while(i <= n){
+                j = i;
+                while(j < n && s[j] != '\n')
+                    j++;
+                seg = j - i;
+                if(wrapText){
+                    pieces = seg == 0 ? 1 : (seg + cols - 1) / cols;
+                    if(line >= k && line < k + pieces){
+                        start = i + (line - k) * cols;
+                        len = cols;
+                        if(start + len > j)
+                            len = j - start;
+                        if(len < 0)
+                            len = 0;
+                        res = o9_string_new(s + start, len);
+                        break;
+                    }
+                    k += pieces;
+                }else{
+                    if(line == k){
+                        col = firstColumn;
+                        if(col < 0)
+                            col = 0;
+                        if(col > seg)
+                            col = seg;
+                        res = o9_string_new(s + i + col, seg - col);
+                        break;
+                    }
+                    k++;
+                }
+                if(j >= n)
+                    break;
+                i = j + 1;
+                if(i == n && line == k){
+                    res = o9_string_from_c("");
+                    break;
+                }
+            }
+        }
+        if(res == nil)
+            res = o9_string_from_c("");
+        out = res;
+    }
+    return out;
+}
+
+function DrawTextInsertRaw(string value, int64 index, int64 key) string {
+    string out;
+
+    c {
+        O9String *r;
+        char *src, *dst;
+        vlong n;
+
+        src = o9_string_data(value);
+        n = o9_string_len(value);
+        if(index < 0)
+            index = 0;
+        if(index > n)
+            index = n;
+        if(key < 32 || key > 126){
+            out = o9_string_new(src, n);
+        }else{
+            r = o9_string_new(nil, n + 1);
+            dst = o9_string_data(r);
+            if(index > 0)
+                memmove(dst, src, index);
+            dst[index] = (char)key;
+            if(index < n)
+                memmove(dst + index + 1, src + index, n - index);
+            dst[n + 1] = 0;
+            out = r;
+        }
+    }
+    return out;
+}
+
+function DrawTextEraseBeforeRaw(string value, int64 index) string {
+    string out;
+
+    c {
+        O9String *r;
+        char *src, *dst;
+        vlong n;
+
+        src = o9_string_data(value);
+        n = o9_string_len(value);
+        if(index < 0)
+            index = 0;
+        if(index > n)
+            index = n;
+        if(index <= 0 || n <= 0){
+            out = o9_string_new(src, n);
+        }else{
+            r = o9_string_new(nil, n - 1);
+            dst = o9_string_data(r);
+            if(index - 1 > 0)
+                memmove(dst, src, index - 1);
+            if(index < n)
+                memmove(dst + index - 1, src + index, n - index);
+            dst[n - 1] = 0;
+            out = r;
+        }
+    }
+    return out;
+}
+
+function DrawTextEraseAtRaw(string value, int64 index) string {
+    string out;
+
+    c {
+        O9String *r;
+        char *src, *dst;
+        vlong n;
+
+        src = o9_string_data(value);
+        n = o9_string_len(value);
+        if(index < 0)
+            index = 0;
+        if(index >= n || n <= 0){
+            out = o9_string_new(src, n);
+        }else{
+            r = o9_string_new(nil, n - 1);
+            dst = o9_string_data(r);
+            if(index > 0)
+                memmove(dst, src, index);
+            if(index + 1 < n)
+                memmove(dst + index, src + index + 1, n - index - 1);
+            dst[n - 1] = 0;
+            out = r;
+        }
+    }
+    return out;
+}
+
 function DrawShowRaw(string title, int64 width, int64 height, int64 background, int64 accent, int64 milliseconds) int64 {
     use { draw }
 
@@ -221,6 +475,164 @@ function DrawShowRaw(string title, int64 width, int64 height, int64 background, 
                     sleep(ms);
                     out = 1;
                 }
+                if(edge != nil)
+                    freeimage(edge);
+                if(panel != nil)
+                    freeimage(panel);
+                if(shade != nil)
+                    freeimage(shade);
+                if(ink != nil)
+                    freeimage(ink);
+                if(bar != nil)
+                    freeimage(bar);
+                if(bg != nil)
+                    freeimage(bg);
+                closedisplay(display);
+            }
+        }
+        free(t);
+    }
+    return out;
+}
+
+function DrawButtonDemoRaw(string title, int64 width, int64 height, int64 background, int64 accent) int64 {
+    use { draw event }
+
+    int64 out;
+    c {
+        char *t;
+        char label[192];
+        char status[192];
+        Image *bg, *bar, *ink, *shade, *panel, *edge, *button, *buttonhot, *buttondown;
+        Rectangle wr, titlebar, body, buttonr;
+        Event ev;
+        Point p;
+        ulong bgc, acc, shadec, panelc, buttonc, hotc, downc;
+        int fd, barh, pad, bw, bh, et, hot, down, clicks, tw;
+
+        out = 0;
+        t = o9_string_cstr(title);
+        if(t != nil && width > 0 && height > 0 && width <= 4096 && height <= 4096){
+            bgc = (ulong)background;
+            acc = (ulong)accent;
+            if((bgc & 0xFF000000UL) == 0)
+                bgc = ((bgc & 0xFFFFFFUL) << 8) | 0xFFUL;
+            if((acc & 0xFF000000UL) == 0)
+                acc = ((acc & 0xFFFFFFUL) << 8) | 0xFFUL;
+            shadec = (((bgc >> 1) & 0x7F7F7F00UL) | 0xFFUL) ^ 0x20283000UL;
+            panelc = (((bgc >> 1) & 0x7F7F7F00UL) | 0xFFUL) ^ 0x10182000UL;
+            buttonc = 0x466080FFUL;
+            hotc = 0x5F7FA7FFUL;
+            downc = 0xE0C040FFUL;
+
+            fd = open("/dev/wctl", OWRITE);
+            if(fd >= 0){
+                fprint(fd, "resize -dx %lld -dy %lld", width, height);
+                close(fd);
+            }
+            fd = open("/dev/label", OWRITE);
+            if(fd >= 0){
+                fprint(fd, "%s", t);
+                close(fd);
+            }
+
+            if(initdraw(nil, nil, t) >= 0){
+                bg = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, bgc);
+                bar = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, acc);
+                ink = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, 0xFFFFFFFFUL);
+                shade = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, shadec);
+                panel = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, panelc);
+                edge = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, 0xD0D8E0FFUL);
+                button = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, buttonc);
+                buttonhot = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, hotc);
+                buttondown = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, downc);
+                if(bg != nil && bar != nil && ink != nil && shade != nil && panel != nil &&
+                   edge != nil && button != nil && buttonhot != nil && buttondown != nil){
+                    einit(Emouse|Ekeyboard);
+                    hot = 0;
+                    down = 0;
+                    clicks = 0;
+                    out = 1;
+                    for(;;){
+                        wr = screen->r;
+                        barh = font->height + 14;
+                        if(barh < 28)
+                            barh = 28;
+                        if(barh > Dy(wr))
+                            barh = Dy(wr);
+                        pad = 12;
+
+                        bw = Dx(wr) / 3;
+                        if(bw < 96)
+                            bw = 96;
+                        if(bw > Dx(wr) - pad * 2)
+                            bw = Dx(wr) - pad * 2;
+                        bh = font->height + 18;
+                        if(bh < 32)
+                            bh = 32;
+                        body = Rect(wr.min.x + pad, wr.min.y + barh + pad, wr.max.x - pad, wr.max.y - pad);
+                        buttonr = Rect(wr.min.x + (Dx(wr) - bw) / 2,
+                            body.min.y + (Dy(body) - bh) / 2,
+                            wr.min.x + (Dx(wr) - bw) / 2 + bw,
+                            body.min.y + (Dy(body) - bh) / 2 + bh);
+
+                        draw(screen, wr, bg, nil, ZP);
+                        titlebar = Rect(wr.min.x, wr.min.y, wr.max.x, wr.min.y + barh);
+                        draw(screen, titlebar, bar, nil, ZP);
+                        border(screen, insetrect(wr, 1), 1, edge, ZP);
+
+                        snprint(label, sizeof label, "o9 button demo: %s", t);
+                        p = Pt(wr.min.x + pad, wr.min.y + (barh - font->height) / 2);
+                        string(screen, addpt(p, Pt(1, 1)), shade, ZP, font, label);
+                        string(screen, p, ink, ZP, font, label);
+
+                        if(Dx(body) > 8 && Dy(body) > 8){
+                            draw(screen, body, shade, nil, ZP);
+                            draw(screen, insetrect(body, 8), panel, nil, ZP);
+                        }
+
+                        if(clicks == 0)
+                            snprint(status, sizeof status, "waiting for click");
+                        else if(clicks == 1)
+                            snprint(status, sizeof status, "button clicked once");
+                        else
+                            snprint(status, sizeof status, "button clicked %d times", clicks);
+                        tw = stringwidth(font, status);
+                        p = Pt(wr.min.x + (Dx(wr) - tw) / 2, buttonr.min.y - font->height - 12);
+                        string(screen, p, ink, ZP, font, status);
+
+                        if(down)
+                            draw(screen, buttonr, buttondown, nil, ZP);
+                        else if(hot)
+                            draw(screen, buttonr, buttonhot, nil, ZP);
+                        else
+                            draw(screen, buttonr, button, nil, ZP);
+                        border(screen, buttonr, 1, edge, ZP);
+                        snprint(label, sizeof label, "%s", down ? "Pressed" : "Click me");
+                        tw = stringwidth(font, label);
+                        p = Pt(buttonr.min.x + (Dx(buttonr) - tw) / 2,
+                            buttonr.min.y + (Dy(buttonr) - font->height) / 2);
+                        string(screen, p, ink, ZP, font, label);
+                        flushimage(display, 1);
+
+                        et = event(&ev);
+                        if(et == Emouse){
+                            hot = ptinrect(ev.mouse.xy, buttonr);
+                            if((ev.mouse.buttons & 1) && !down && hot)
+                                clicks++;
+                            down = ((ev.mouse.buttons & 1) != 0) && hot;
+                        } else if(et == Ekeyboard){
+                            if(ev.kbdc == 'q' || ev.kbdc == 'Q' || ev.kbdc == 0x1B || ev.kbdc == 0x7F)
+                                break;
+                        }
+                    }
+                }
+                if(buttondown != nil)
+                    freeimage(buttondown);
+                if(buttonhot != nil)
+                    freeimage(buttonhot);
+                if(button != nil)
+                    freeimage(button);
                 if(edge != nil)
                     freeimage(edge);
                 if(panel != nil)
@@ -344,114 +756,979 @@ function DrawProbeSnapshotRaw(string path, int64 width, int64 height, int64 back
     return out;
 }
 
-class DrawWindow {
-    prop string label;
-    prop int64 w;
-    prop int64 h;
-    prop int64 bg;
-    prop int64 fg;
+function DrawCanvasOpenRaw(string title, int64 width, int64 height) int64 {
+    use { draw event }
 
-    method DrawWindow(string title, int64 width, int64 height) {
-        label = title;
-        w = width;
-        h = height;
-        bg = 0x203040;
-        fg = 0xe0c040;
+    int64 out;
+    c {
+        char *t;
+        int fd;
+
+        out = 0;
+        t = o9_string_cstr(title);
+        if(t != nil && width > 0 && height > 0 && width <= 4096 && height <= 4096){
+            fd = open("/dev/wctl", OWRITE);
+            if(fd >= 0){
+                fprint(fd, "resize -dx %lld -dy %lld", width, height);
+                close(fd);
+            }
+            fd = open("/dev/label", OWRITE);
+            if(fd >= 0){
+                fprint(fd, "%s", t);
+                close(fd);
+            }
+            if(initdraw(nil, nil, t) >= 0){
+                einit(Emouse|Ekeyboard);
+                if(screen != nil){
+                    o9_draw_resized = 0;
+                    o9_draw_width = Dx(screen->r);
+                    o9_draw_height = Dy(screen->r);
+                }
+                out = 1;
+            }
+        }
+        free(t);
+    }
+    return out;
+}
+
+function DrawCanvasCloseRaw(int64 handle) int64 {
+    use { draw }
+
+    int64 out;
+    c {
+        out = 0;
+        if(handle > 0 && display != nil){
+            closedisplay(display);
+            display = nil;
+            screen = nil;
+            out = 1;
+        }
+    }
+    return out;
+}
+
+function DrawCanvasClearRaw(int64 handle, int64 color) int64 {
+    use { draw }
+
+    int64 out;
+    c {
+        Image *img;
+        ulong c;
+
+        out = 0;
+        if(handle > 0 && display != nil && screen != nil){
+            c = (ulong)color;
+            if((c & 0xFF000000UL) == 0)
+                c = ((c & 0xFFFFFFUL) << 8) | 0xFFUL;
+            img = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, c);
+            if(img != nil){
+                draw(screen, screen->r, img, nil, ZP);
+                freeimage(img);
+                out = 1;
+            }
+        }
+    }
+    return out;
+}
+
+function DrawCanvasFillRectRaw(int64 handle, int64 x, int64 y, int64 width, int64 height, int64 color) int64 {
+    use { draw }
+
+    int64 out;
+    c {
+        Image *img;
+        Rectangle r;
+        ulong c;
+
+        out = 0;
+        if(handle > 0 && display != nil && screen != nil && width > 0 && height > 0){
+            c = (ulong)color;
+            if((c & 0xFF000000UL) == 0)
+                c = ((c & 0xFFFFFFUL) << 8) | 0xFFUL;
+            r = Rect(screen->r.min.x + x, screen->r.min.y + y,
+                screen->r.min.x + x + width, screen->r.min.y + y + height);
+            img = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, c);
+            if(img != nil){
+                draw(screen, r, img, nil, ZP);
+                freeimage(img);
+                out = 1;
+            }
+        }
+    }
+    return out;
+}
+
+function DrawCanvasBorderRectRaw(int64 handle, int64 x, int64 y, int64 width, int64 height, int64 thickness, int64 color) int64 {
+    use { draw }
+
+    int64 out;
+    c {
+        Image *img;
+        Rectangle r;
+        ulong c;
+        int n;
+
+        out = 0;
+        if(handle > 0 && display != nil && screen != nil && width > 0 && height > 0){
+            c = (ulong)color;
+            if((c & 0xFF000000UL) == 0)
+                c = ((c & 0xFFFFFFUL) << 8) | 0xFFUL;
+            n = thickness;
+            if(n <= 0)
+                n = 1;
+            r = Rect(screen->r.min.x + x, screen->r.min.y + y,
+                screen->r.min.x + x + width, screen->r.min.y + y + height);
+            img = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, c);
+            if(img != nil){
+                border(screen, r, n, img, ZP);
+                freeimage(img);
+                out = 1;
+            }
+        }
+    }
+    return out;
+}
+
+function DrawCanvasTextRaw(int64 handle, string text, int64 x, int64 y, int64 color) int64 {
+    use { draw }
+
+    int64 out;
+    c {
+        char *s;
+        Image *img;
+        ulong c;
+
+        out = 0;
+        s = o9_string_cstr(text);
+        if(handle > 0 && display != nil && screen != nil && font != nil && s != nil){
+            c = (ulong)color;
+            if((c & 0xFF000000UL) == 0)
+                c = ((c & 0xFFFFFFUL) << 8) | 0xFFUL;
+            img = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, c);
+            if(img != nil){
+                string(screen, Pt(screen->r.min.x + x, screen->r.min.y + y), img, ZP, font, s);
+                freeimage(img);
+                out = 1;
+            }
+        }
+        free(s);
+    }
+    return out;
+}
+
+function DrawCanvasTextBoxRaw(int64 handle, string text, int64 x, int64 y, int64 width, int64 height, int64 color) int64 {
+    use { draw }
+
+    int64 out;
+    c {
+        char *s;
+        Image *img;
+        Rectangle clip, oldclip;
+        Point p;
+        ulong c;
+        int tw;
+
+        out = 0;
+        s = o9_string_cstr(text);
+        if(handle > 0 && display != nil && screen != nil && font != nil && s != nil && width > 0 && height > 0){
+            c = (ulong)color;
+            if((c & 0xFF000000UL) == 0)
+                c = ((c & 0xFFFFFFUL) << 8) | 0xFFUL;
+            img = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, c);
+            if(img != nil){
+                clip = Rect(screen->r.min.x + x, screen->r.min.y + y,
+                    screen->r.min.x + x + width, screen->r.min.y + y + height);
+                oldclip = screen->clipr;
+                if(rectclip(&clip, screen->r)){
+                    replclipr(screen, 0, clip);
+                    tw = stringwidth(font, s);
+                    p = Pt(screen->r.min.x + x + (width - tw) / 2,
+                        screen->r.min.y + y + (height - font->height) / 2);
+                    if(p.x < screen->r.min.x + x)
+                        p.x = screen->r.min.x + x;
+                    if(p.y < screen->r.min.y + y)
+                        p.y = screen->r.min.y + y;
+                    string(screen, p, img, ZP, font, s);
+                    replclipr(screen, 0, oldclip);
+                    out = 1;
+                }
+                freeimage(img);
+            }
+        }
+        free(s);
+    }
+    return out;
+}
+
+function DrawFrameFlush2Raw(int64 handle, bool clearFirst, bool flushNow, int64 clearColor, int64 count,
+                            int64 k0, int64 x0, int64 y0, int64 w0, int64 h0, int64 n0, int64 c0, string s0,
+                            int64 k1, int64 x1, int64 y1, int64 w1, int64 h1, int64 n1, int64 c1, string s1) int64 {
+    use { draw }
+
+    int64 out;
+    c {
+        int kind[2];
+        vlong xs[2], ys[2], ws[2], hs[2], ns[2], colors[2];
+        O9String *texts[2];
+        char *text;
+        Image *img;
+        Rectangle r, clip, oldclip;
+        Point p;
+        ulong col;
+        int i, lim, tw, thick;
+
+        out = 0;
+        if(handle > 0 && display != nil && screen != nil){
+            kind[0] = k0; xs[0] = x0; ys[0] = y0; ws[0] = w0; hs[0] = h0; ns[0] = n0; colors[0] = c0; texts[0] = s0;
+            kind[1] = k1; xs[1] = x1; ys[1] = y1; ws[1] = w1; hs[1] = h1; ns[1] = n1; colors[1] = c1; texts[1] = s1;
+
+            if(clearFirst){
+                col = (ulong)clearColor;
+                if((col & 0xFF000000UL) == 0)
+                    col = ((col & 0xFFFFFFUL) << 8) | 0xFFUL;
+                img = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, col);
+                if(img != nil){
+                    draw(screen, screen->r, img, nil, ZP);
+                    freeimage(img);
+                }
+            }
+
+            lim = count;
+            if(lim < 0)
+                lim = 0;
+            if(lim > 2)
+                lim = 2;
+            for(i = 0; i < lim; i++){
+                if(kind[i] <= 0 || ws[i] <= 0 || hs[i] <= 0)
+                    continue;
+                col = (ulong)colors[i];
+                if((col & 0xFF000000UL) == 0)
+                    col = ((col & 0xFFFFFFUL) << 8) | 0xFFUL;
+                img = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, col);
+                if(img == nil)
+                    continue;
+                r = Rect(screen->r.min.x + xs[i], screen->r.min.y + ys[i],
+                    screen->r.min.x + xs[i] + ws[i], screen->r.min.y + ys[i] + hs[i]);
+                if(kind[i] == 1){
+                    draw(screen, r, img, nil, ZP);
+                } else if(kind[i] == 2){
+                    thick = ns[i];
+                    if(thick <= 0)
+                        thick = 1;
+                    border(screen, r, thick, img, ZP);
+                } else if(kind[i] == 3 && font != nil){
+                    text = o9_string_cstr(texts[i]);
+                    if(text != nil){
+                        string(screen, Pt(screen->r.min.x + xs[i], screen->r.min.y + ys[i]), img, ZP, font, text);
+                        free(text);
+                    }
+                } else if(kind[i] == 4 && font != nil){
+                    text = o9_string_cstr(texts[i]);
+                    if(text != nil){
+                        clip = r;
+                        oldclip = screen->clipr;
+                        if(rectclip(&clip, screen->r)){
+                            replclipr(screen, 0, clip);
+                            tw = stringwidth(font, text);
+                            p = Pt(r.min.x + (Dx(r) - tw) / 2, r.min.y + (Dy(r) - font->height) / 2);
+                            if(p.x < r.min.x)
+                                p.x = r.min.x;
+                            if(p.y < r.min.y)
+                                p.y = r.min.y;
+                            string(screen, p, img, ZP, font, text);
+                            replclipr(screen, 0, oldclip);
+                        }
+                        free(text);
+                    }
+                } else if(kind[i] == 5 && font != nil){
+                    text = o9_string_cstr(texts[i]);
+                    if(text != nil){
+                        clip = r;
+                        oldclip = screen->clipr;
+                        if(rectclip(&clip, screen->r)){
+                            replclipr(screen, 0, clip);
+                            p = Pt(r.min.x, r.min.y + (Dy(r) - font->height) / 2);
+                            if(p.y < r.min.y)
+                                p.y = r.min.y;
+                            string(screen, p, img, ZP, font, text);
+                            replclipr(screen, 0, oldclip);
+                        }
+                        free(text);
+                    }
+                }
+                freeimage(img);
+            }
+            if(flushNow)
+                flushimage(display, 1);
+            out = 1;
+        }
+    }
+    return out;
+}
+
+function DrawCanvasTextWidthRaw(int64 handle, string text) int64 {
+    use { draw }
+
+    int64 out;
+    c {
+        char *s;
+
+        out = 0;
+        s = o9_string_cstr(text);
+        if(handle > 0 && display != nil && font != nil && s != nil)
+            out = stringwidth(font, s);
+        free(s);
+    }
+    return out;
+}
+
+function DrawCanvasFontHeightRaw(int64 handle) int64 {
+    use { draw }
+
+    int64 out;
+    c {
+        out = 0;
+        if(handle > 0 && display != nil && font != nil)
+            out = font->height;
+    }
+    return out;
+}
+
+function DrawCanvasFlushRaw(int64 handle) int64 {
+    use { draw }
+
+    int64 out;
+    c {
+        out = 0;
+        if(handle > 0 && display != nil){
+            flushimage(display, 1);
+            out = 1;
+        }
+    }
+    return out;
+}
+
+function DrawCanvasReadEventRaw(int64 handle) int64 {
+    use { draw event }
+
+    int64 out;
+    c {
+        Event ev;
+        int et;
+        vlong x, y, buttons, key;
+
+        out = 0;
+        if(handle > 0 && display != nil){
+            if(o9_draw_resized){
+                o9_draw_resized = 0;
+                x = o9_draw_width & 0x3FFFF;
+                y = o9_draw_height & 0x3FFFF;
+                out = (y << 46) | (x << 28) | 3;
+            } else {
+                et = event(&ev);
+                if(o9_draw_resized){
+                    o9_draw_resized = 0;
+                    x = o9_draw_width & 0x3FFFF;
+                    y = o9_draw_height & 0x3FFFF;
+                    out = (y << 46) | (x << 28) | 3;
+                } else if(et == Emouse){
+                    x = (ev.mouse.xy.x - screen->r.min.x) & 0x3FFFF;
+                    y = (ev.mouse.xy.y - screen->r.min.y) & 0x3FFFF;
+                    buttons = ev.mouse.buttons & 0xFF;
+                    out = (y << 46) | (x << 28) | (buttons << 4) | 1;
+                } else if(et == Ekeyboard){
+                    key = ev.kbdc & 0xFFFF;
+                    out = (key << 12) | 2;
+                }
+            }
+        }
+    }
+    return out;
+}
+
+function DrawSnarfReadRaw() string {
+    string out;
+
+    c {
+        char tmp[512];
+        char *buf, *nbuf;
+        int fd, n, len, cap;
+
+        out = o9_string_from_c("");
+        fd = open("/dev/snarf", OREAD);
+        if(fd >= 0){
+            cap = 1024;
+            len = 0;
+            buf = malloc(cap);
+            if(buf != nil){
+                while((n = read(fd, tmp, sizeof tmp)) > 0){
+                    if(len + n + 1 > cap){
+                        cap = (len + n + 1) * 2;
+                        nbuf = realloc(buf, cap);
+                        if(nbuf == nil)
+                            break;
+                        buf = nbuf;
+                    }
+                    memmove(buf + len, tmp, n);
+                    len += n;
+                }
+                buf[len] = '\0';
+                out = o9_string_from_c(buf);
+                free(buf);
+            }
+            close(fd);
+        }
+    }
+    return out;
+}
+
+function DrawSnarfWriteRaw(string value) int64 {
+    int64 out;
+
+    c {
+        char *s;
+        int fd, n;
+
+        out = 0;
+        s = o9_string_cstr(value);
+        fd = open("/dev/snarf", OWRITE|OTRUNC);
+        if(fd >= 0){
+            if(s != nil){
+                n = strlen(s);
+                if(write(fd, s, n) == n)
+                    out = 1;
+            }
+            close(fd);
+        }
+        free(s);
+    }
+    return out;
+}
+
+function DrawMenuHitRaw(int64 handle, int64 button, int64 x, int64 y, int64 buttons, int64 count,
+                        string item0, string item1, string item2, string item3,
+                        string item4, string item5, string item6, string item7) int64 {
+    use { draw event }
+
+    int64 out;
+    c {
+        char *s0, *s1, *s2, *s3, *s4, *s5, *s6, *s7;
+        char *items[9];
+        Menu menu;
+        Mouse m;
+        int want;
+
+        out = -1;
+        s0 = o9_string_cstr(item0);
+        s1 = o9_string_cstr(item1);
+        s2 = o9_string_cstr(item2);
+        s3 = o9_string_cstr(item3);
+        s4 = o9_string_cstr(item4);
+        s5 = o9_string_cstr(item5);
+        s6 = o9_string_cstr(item6);
+        s7 = o9_string_cstr(item7);
+        if(handle > 0 && display != nil && screen != nil && count > 0 && button >= 1 && button <= 3){
+            if(count > 8)
+                count = 8;
+            want = 1 << (button - 1);
+            if((buttons & want) != 0){
+                items[0] = s0 != nil ? s0 : "";
+                items[1] = s1 != nil ? s1 : "";
+                items[2] = s2 != nil ? s2 : "";
+                items[3] = s3 != nil ? s3 : "";
+                items[4] = s4 != nil ? s4 : "";
+                items[5] = s5 != nil ? s5 : "";
+                items[6] = s6 != nil ? s6 : "";
+                items[7] = s7 != nil ? s7 : "";
+                items[count] = nil;
+                menu.item = items;
+                menu.gen = nil;
+                menu.lasthit = 0;
+                m.xy = Pt(screen->r.min.x + x, screen->r.min.y + y);
+                m.buttons = buttons;
+                m.msec = 0;
+                out = emenuhit(button, &m, &menu);
+                flushimage(display, 1);
+            }
+        }
+        free(s0);
+        free(s1);
+        free(s2);
+        free(s3);
+        free(s4);
+        free(s5);
+        free(s6);
+        free(s7);
+    }
+    return out;
+}
+
+class DrawCanvas {
+    prop int64 handle;
+
+    method DrawCanvas() {
+        handle = 0;
     }
 
-    method string title() {
-        return label;
+    method void attach(int64 value) {
+        handle = value;
     }
 
-    method int64 width() {
-        return w;
+    method int64 id() {
+        return handle;
     }
 
-    method int64 height() {
-        return h;
+    method bool ready() {
+        return handle > 0;
     }
 
-    method void resize(int64 width, int64 height) {
-        w = width;
-        h = height;
-    }
+    method bool clear(int64 color) {
+        Task<int64> t;
 
-    method void background(int64 rgb) {
-        bg = rgb;
-    }
-
-    method void accent(int64 rgb) {
-        fg = rgb;
-    }
-
-    method bool snapshot(string path) {
-        Task<int64> t = spawn DrawSnapshotRaw(path, w, h, bg, fg);
+        if(!ready()) {
+            return false;
+        }
+        t = spawn DrawCanvasClearRaw(handle, color);
         return t.await() > 0;
     }
 
-    method bool snapshotPng(string path) {
-        string image;
-        int64 ok;
-        Task<int64> snap;
-        Task<int64> png;
-        Task<int64> rm;
+    method bool fillRect(int64 x, int64 y, int64 width, int64 height, int64 color) {
+        Task<int64> t;
 
-        image = cat(path, ".img");
-        snap = spawn DrawSnapshotRaw(image, w, h, bg, fg);
-        if(snap.await() <= 0) {
+        if(!ready()) {
             return false;
         }
-        png = spawn DrawToPngRaw(image, path);
-        ok = png.await();
-        rm = spawn DrawRemoveRaw(image);
-        rm.await();
-        return ok > 0;
+        t = spawn DrawCanvasFillRectRaw(handle, x, y, width, height, color);
+        return t.await() > 0;
     }
 
-    method bool show(int64 milliseconds) {
-        Task<int64> t = spawn DrawShowRaw(label, w, h, bg, fg, milliseconds);
+    method bool borderRect(int64 x, int64 y, int64 width, int64 height, int64 color) {
+        Task<int64> t;
+
+        if(!ready()) {
+            return false;
+        }
+        t = spawn DrawCanvasBorderRectRaw(handle, x, y, width, height, 1, color);
+        return t.await() > 0;
+    }
+
+    method bool borderRectN(int64 x, int64 y, int64 width, int64 height, int64 thickness, int64 color) {
+        Task<int64> t;
+
+        if(!ready()) {
+            return false;
+        }
+        t = spawn DrawCanvasBorderRectRaw(handle, x, y, width, height, thickness, color);
+        return t.await() > 0;
+    }
+
+    method bool text(string value, int64 x, int64 y, int64 color) {
+        Task<int64> t;
+
+        if(!ready()) {
+            return false;
+        }
+        t = spawn DrawCanvasTextRaw(handle, value, x, y, color);
+        return t.await() > 0;
+    }
+
+    method bool textBox(string value, int64 x, int64 y, int64 width, int64 height, int64 color) {
+        Task<int64> t;
+
+        if(!ready()) {
+            return false;
+        }
+        t = spawn DrawCanvasTextBoxRaw(handle, value, x, y, width, height, color);
+        return t.await() > 0;
+    }
+
+    method int64 textWidth(string value) {
+        Task<int64> t;
+
+        if(!ready()) {
+            return 0;
+        }
+        t = spawn DrawCanvasTextWidthRaw(handle, value);
+        return t.await();
+    }
+
+    method int64 fontHeight() {
+        Task<int64> t;
+
+        if(!ready()) {
+            return 0;
+        }
+        t = spawn DrawCanvasFontHeightRaw(handle);
+        return t.await();
+    }
+
+    method bool flush() {
+        Task<int64> t;
+
+        if(!ready()) {
+            return false;
+        }
+        t = spawn DrawCanvasFlushRaw(handle);
+        return t.await() > 0;
+    }
+
+    method int64 readEventCode() {
+        Task<int64> t;
+
+        if(!ready()) {
+            return 0;
+        }
+        t = spawn DrawCanvasReadEventRaw(handle);
+        return t.await();
+    }
+}
+
+struct DrawCommand {
+    int64 kind;
+    int64 x;
+    int64 y;
+    int64 width;
+    int64 height;
+    int64 thickness;
+    int64 color;
+    string text;
+}
+
+class DrawFrame {
+    prop bool clearPending;
+    prop int64 clearColor;
+    prop int64 ncmd;
+    prop int64[] kinds;
+    prop int64[] xs;
+    prop int64[] ys;
+    prop int64[] widths;
+    prop int64[] heights;
+    prop int64[] thicknesses;
+    prop int64[] colors;
+    prop string[] texts;
+
+    method DrawFrame() {
+        clearPending = false;
+        clearColor = 0x203040;
+        ncmd = 0;
+    }
+
+    method void reset(int64 color) {
+        clearPending = true;
+        clearColor = color;
+        ncmd = 0;
+    }
+
+    method void clear(int64 color) {
+        reset(color);
+    }
+
+    method int64 count() {
+        return ncmd;
+    }
+
+    private method bool addRaw(int64 kind, int64 x, int64 y, int64 width, int64 height, int64 thickness, int64 color, string text) {
+        if(width <= 0 || height <= 0) {
+            return false;
+        }
+        kinds[ncmd] = kind;
+        xs[ncmd] = x;
+        ys[ncmd] = y;
+        widths[ncmd] = width;
+        heights[ncmd] = height;
+        thicknesses[ncmd] = thickness;
+        colors[ncmd] = color;
+        texts[ncmd] = text;
+        ncmd = ncmd + 1;
+        return true;
+    }
+
+    method bool fillRect(int64 x, int64 y, int64 width, int64 height, int64 color) {
+        return addRaw(1, x, y, width, height, 0, color, "");
+    }
+
+    method bool borderRect(int64 x, int64 y, int64 width, int64 height, int64 color) {
+        return addRaw(2, x, y, width, height, 1, color, "");
+    }
+
+    method bool borderRectN(int64 x, int64 y, int64 width, int64 height, int64 thickness, int64 color) {
+        return addRaw(2, x, y, width, height, thickness, color, "");
+    }
+
+    method bool text(string value, int64 x, int64 y, int64 color) {
+        return addRaw(3, x, y, 1, 1, 0, color, value);
+    }
+
+    method bool textBox(string value, int64 x, int64 y, int64 width, int64 height, int64 color) {
+        return addRaw(4, x, y, width, height, 0, color, value);
+    }
+
+    method bool textLeft(string value, int64 x, int64 y, int64 width, int64 height, int64 color) {
+        return addRaw(5, x, y, width, height, 0, color, value);
+    }
+
+    private method int64 kindAt(int64 index) {
+        if(index >= 0 && index < ncmd) {
+            return kinds[index];
+        }
+        return 0;
+    }
+
+    private method int64 xAt(int64 index) {
+        if(index >= 0 && index < ncmd) {
+            return xs[index];
+        }
+        return 0;
+    }
+
+    private method int64 yAt(int64 index) {
+        if(index >= 0 && index < ncmd) {
+            return ys[index];
+        }
+        return 0;
+    }
+
+    private method int64 widthAt(int64 index) {
+        if(index >= 0 && index < ncmd) {
+            return widths[index];
+        }
+        return 0;
+    }
+
+    private method int64 heightAt(int64 index) {
+        if(index >= 0 && index < ncmd) {
+            return heights[index];
+        }
+        return 0;
+    }
+
+    private method int64 thicknessAt(int64 index) {
+        if(index >= 0 && index < ncmd) {
+            return thicknesses[index];
+        }
+        return 0;
+    }
+
+    private method int64 colorAt(int64 index) {
+        if(index >= 0 && index < ncmd) {
+            return colors[index];
+        }
+        return 0;
+    }
+
+    private method string textAt(int64 index) {
+        if(index >= 0 && index < ncmd) {
+            return texts[index];
+        }
+        return "";
+    }
+
+    private method bool flushChunk(DrawCanvas canvas, int64 start, int64 count, bool clearFirst, bool flushNow) {
+        Task<int64> t;
+
+        t = spawn DrawFrameFlush2Raw(canvas.id(), clearFirst, flushNow, clearColor, count,
+            kindAt(start), xAt(start), yAt(start), widthAt(start), heightAt(start), thicknessAt(start), colorAt(start), textAt(start),
+            kindAt(start + 1), xAt(start + 1), yAt(start + 1), widthAt(start + 1), heightAt(start + 1), thicknessAt(start + 1), colorAt(start + 1), textAt(start + 1));
+        return t.await() > 0;
+    }
+
+    method bool flush(DrawCanvas canvas) {
+        bool ok;
+        bool first;
+        int64 i;
+        int64 n;
+
+        if(!canvas.ready()) {
+            return false;
+        }
+        if(ncmd == 0) {
+            if(clearPending) {
+                ok = flushChunk(canvas, 0, 0, true, true);
+                clearPending = false;
+                return ok;
+            }
+            return true;
+        }
+        ok = true;
+        first = true;
+        i = 0;
+        while(i < ncmd) {
+            n = ncmd - i;
+            if(n > 2) {
+                n = 2;
+            }
+            if(!flushChunk(canvas, i, n, clearPending && first, i + n >= ncmd)) {
+                ok = false;
+            }
+            first = false;
+            i = i + n;
+        }
+        clearPending = false;
+        ncmd = 0;
+        return ok;
+    }
+}
+
+class DrawClipboard {
+    method DrawClipboard() {
+    }
+
+    method string read() {
+        Task<string> t;
+
+        t = spawn DrawSnarfReadRaw();
+        return t.await();
+    }
+
+    method bool write(string value) {
+        Task<int64> t;
+
+        t = spawn DrawSnarfWriteRaw(value);
         return t.await() > 0;
     }
 }
 
-class DrawEvent {
-    prop string kind;
-    prop int64 x;
-    prop int64 y;
-    prop int64 buttons;
-    prop int64 key;
-    prop int64 width;
-    prop int64 height;
+class DrawMenu {
+    prop string item0;
+    prop string item1;
+    prop string item2;
+    prop string item3;
+    prop string item4;
+    prop string item5;
+    prop string item6;
+    prop string item7;
+    prop int64 nitems;
+    prop int64 lastChoice;
 
-    method DrawEvent(string eventKind, int64 px, int64 py, int64 buttonMask, int64 keyCode, int64 eventWidth, int64 eventHeight) {
-        kind = eventKind;
-        x = px;
-        y = py;
-        buttons = buttonMask;
-        key = keyCode;
-        width = eventWidth;
-        height = eventHeight;
+    method DrawMenu() {
+        item0 = "";
+        item1 = "";
+        item2 = "";
+        item3 = "";
+        item4 = "";
+        item5 = "";
+        item6 = "";
+        item7 = "";
+        nitems = 0;
+        lastChoice = -1;
     }
 
-    method string type() {
-        return kind;
+    method bool add(string label) {
+        if(nitems == 0) {
+            item0 = label;
+            nitems = 1;
+            return true;
+        }
+        if(nitems == 1) {
+            item1 = label;
+            nitems = 2;
+            return true;
+        }
+        if(nitems == 2) {
+            item2 = label;
+            nitems = 3;
+            return true;
+        }
+        if(nitems == 3) {
+            item3 = label;
+            nitems = 4;
+            return true;
+        }
+        if(nitems == 4) {
+            item4 = label;
+            nitems = 5;
+            return true;
+        }
+        if(nitems == 5) {
+            item5 = label;
+            nitems = 6;
+            return true;
+        }
+        if(nitems == 6) {
+            item6 = label;
+            nitems = 7;
+            return true;
+        }
+        if(nitems == 7) {
+            item7 = label;
+            nitems = 8;
+            return true;
+        }
+        return false;
     }
 
-    method bool isMouse() {
-        return kind == "mouse";
+    method void clear() {
+        item0 = "";
+        item1 = "";
+        item2 = "";
+        item3 = "";
+        item4 = "";
+        item5 = "";
+        item6 = "";
+        item7 = "";
+        nitems = 0;
+        lastChoice = -1;
     }
 
-    method bool isKey() {
-        return kind == "key";
+    method int64 count() {
+        return nitems;
     }
 
-    method bool isResize() {
-        return kind == "resize";
+    method int64 last() {
+        return lastChoice;
     }
+
+    method string label(int64 index) {
+        if(index == 0) {
+            return item0;
+        }
+        if(index == 1) {
+            return item1;
+        }
+        if(index == 2) {
+            return item2;
+        }
+        if(index == 3) {
+            return item3;
+        }
+        if(index == 4) {
+            return item4;
+        }
+        if(index == 5) {
+            return item5;
+        }
+        if(index == 6) {
+            return item6;
+        }
+        if(index == 7) {
+            return item7;
+        }
+        return "";
+    }
+
+    method int64 hit(int64 handle, int64 button, int64 x, int64 y, int64 buttons) {
+        Task<int64> t;
+
+        t = spawn DrawMenuHitRaw(handle, button, x, y, buttons, nitems,
+            item0, item1, item2, item3, item4, item5, item6, item7);
+        lastChoice = t.await();
+        return lastChoice;
+    }
+}
+
+struct DrawEvent {
+    int64 kind;
+    int64 x;
+    int64 y;
+    int64 buttons;
+    int64 key;
+    int64 width;
+    int64 height;
 }
 
 class DrawEventLoop {
-    recv chan<int64> events;
+    recv chan<DrawEvent> events;
     send chan<int64> commands;
     prop bool active;
     prop int64 handled;
@@ -493,54 +1770,63 @@ class DrawEventLoop {
     }
 
     method void mouse(int64 x, int64 y, int64 buttons) {
+        DrawEvent e;
+
         if(active) {
-            events -> 1000000000000 + x * 100000000 + y * 10000 + buttons;
+            e.kind = 1;
+            e.x = x;
+            e.y = y;
+            e.buttons = buttons;
+            e.key = 0;
+            e.width = 0;
+            e.height = 0;
+            events -> e;
         }
     }
 
     method void key(int64 keyCode) {
+        DrawEvent e;
+
         if(active) {
-            events -> 2000000000000 + keyCode;
+            e.kind = 2;
+            e.x = 0;
+            e.y = 0;
+            e.buttons = 0;
+            e.key = keyCode;
+            e.width = 0;
+            e.height = 0;
+            events -> e;
         }
     }
 
     method void resize(int64 width, int64 height) {
+        DrawEvent e;
+
         if(active) {
-            events -> 3000000000000 + width * 1000000 + height;
+            e.kind = 3;
+            e.x = 0;
+            e.y = 0;
+            e.buttons = 0;
+            e.key = 0;
+            e.width = width;
+            e.height = height;
+            events -> e;
         }
     }
 
     method int64 next() {
-        int64 packed;
-        int64 rest;
-        int64 code;
+        DrawEvent e;
 
-        packed = <- events;
-        code = packed / 1000000000000;
-        rest = packed % 1000000000000;
-        lastCode = code;
-        lastX = 0;
-        lastY = 0;
-        lastButtons = 0;
-        lastKey = 0;
-        lastWidth = 0;
-        lastHeight = 0;
-        if(code == 1) {
-            lastX = rest / 100000000;
-            lastY = (rest / 10000) % 10000;
-            lastButtons = rest % 10000;
-        } else {
-            if(code == 2) {
-                lastKey = rest;
-            } else {
-                if(code == 3) {
-                    lastWidth = rest / 1000000;
-                    lastHeight = rest % 1000000;
-                }
-            }
-        }
+        e = <- events;
+        lastCode = e.kind;
+        lastX = e.x;
+        lastY = e.y;
+        lastButtons = e.buttons;
+        lastKey = e.key;
+        lastWidth = e.width;
+        lastHeight = e.height;
         handled = handled + 1;
-        return code;
+        return e.kind;
     }
 
     method string eventType() {
@@ -587,72 +1873,3422 @@ class DrawEventLoop {
     }
 }
 
-class DrawVisualProbe {
-    prop DrawWindow window;
-    prop int64 clicks;
-    prop int64 lx;
-    prop int64 ly;
-    prop bool down;
-    prop DrawEventLoop loop;
+class DrawWidget {
+    prop int64 wx;
+    prop int64 wy;
+    prop int64 ww;
+    prop int64 wh;
+    prop int64 wbg;
+    prop int64 wfg;
+    prop int64 wedge;
+    prop bool wshown;
+    prop bool wenabled;
+    prop bool wdirty;
+    prop bool wlayoutdirty;
+    prop bool wreactive;
+    prop bool wfocusable;
+    prop bool wfocused;
+    prop int64 wprefw;
+    prop int64 wprefh;
+    prop string wrole;
+    prop string waction;
 
-    method DrawVisualProbe(string title, int64 width, int64 height) {
-        window = new DrawWindow(title, width, height);
-        clicks = 0;
-        lx = -1;
-        ly = -1;
-        down = false;
-        loop = new DrawEventLoop();
-        loop.start();
+    method DrawWidget(int64 x, int64 y, int64 width, int64 height) {
+        wx = x;
+        wy = y;
+        ww = width;
+        wh = height;
+        wbg = 0x203040;
+        wfg = 0xffffff;
+        wedge = 0xd0d8e0;
+        wshown = true;
+        wenabled = true;
+        wdirty = true;
+        wlayoutdirty = true;
+        wreactive = true;
+        wfocusable = false;
+        wfocused = false;
+        wprefw = width;
+        wprefh = height;
+        wrole = "widget";
+        waction = "";
     }
 
-    method int64 count() {
-        return clicks;
+    method void position(int64 x, int64 y) {
+        wx = x;
+        wy = y;
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method void size(int64 width, int64 height) {
+        ww = width;
+        wh = height;
+        wprefw = width;
+        wprefh = height;
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method void bounds(int64 x, int64 y, int64 width, int64 height) {
+        wx = x;
+        wy = y;
+        ww = width;
+        wh = height;
+        wprefw = width;
+        wprefh = height;
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method void preferred(int64 width, int64 height) {
+        wprefw = width;
+        wprefh = height;
+        wlayoutdirty = true;
+    }
+
+    method int64 preferredWidth() {
+        return wprefw;
+    }
+
+    method int64 preferredHeight() {
+        return wprefh;
+    }
+
+    method void color(int64 background, int64 foreground) {
+        wbg = background;
+        wfg = foreground;
+        wdirty = true;
+    }
+
+    method void border(int64 rgb) {
+        wedge = rgb;
+        wdirty = true;
+    }
+
+    method int64 x() {
+        return wx;
+    }
+
+    method int64 y() {
+        return wy;
+    }
+
+    method int64 width() {
+        return ww;
+    }
+
+    method int64 height() {
+        return wh;
+    }
+
+    method int64 right() {
+        return wx + ww;
+    }
+
+    method int64 bottom() {
+        return wy + wh;
+    }
+
+    method int64 background() {
+        return wbg;
+    }
+
+    method int64 foreground() {
+        return wfg;
+    }
+
+    method int64 borderColor() {
+        return wedge;
+    }
+
+    method void setVisible(bool value) {
+        wshown = value;
+        wdirty = true;
+    }
+
+    method bool visible() {
+        return wshown;
+    }
+
+    method void setEnabled(bool value) {
+        wenabled = value;
+        if(!wenabled) {
+            wfocused = false;
+        }
+        wdirty = true;
+    }
+
+    method bool isEnabled() {
+        return wenabled;
+    }
+
+    method void setFocusable(bool value) {
+        wfocusable = value;
+    }
+
+    method bool focusable() {
+        return wfocusable && wenabled && wshown;
+    }
+
+    method void setFocused(bool value) {
+        if(focusable()) {
+            wfocused = value;
+        } else {
+            wfocused = false;
+        }
+        wdirty = true;
+    }
+
+    method bool focused() {
+        return wfocused;
+    }
+
+    method void setRole(string value) {
+        wrole = value;
+        wdirty = true;
+    }
+
+    method string role() {
+        return wrole;
+    }
+
+    method void setAction(string value) {
+        waction = value;
+        wdirty = true;
+    }
+
+    method string action() {
+        return waction;
+    }
+
+    method void setReactive(bool value) {
+        wreactive = value;
+        if(wreactive) {
+            wdirty = true;
+            wlayoutdirty = true;
+        }
+    }
+
+    method bool reactive() {
+        return wreactive;
+    }
+
+    method void markDirty() {
+        wdirty = true;
+    }
+
+    method void invalidate() {
+        markDirty();
+    }
+
+    method void requestLayout() {
+        wlayoutdirty = true;
+        wdirty = true;
+    }
+
+    method void clearDirty() {
+        wdirty = false;
+    }
+
+    method void clearLayout() {
+        wlayoutdirty = false;
+    }
+
+    method bool isDirty() {
+        return wreactive && wdirty;
+    }
+
+    method bool needsLayout() {
+        return wreactive && wlayoutdirty;
+    }
+
+    method bool contains(int64 x, int64 y) {
+        return wshown && x >= wx && x < wx + ww && y >= wy && y < wy + wh;
+    }
+
+    method bool capturesMouse() {
+        return false;
+    }
+
+    method bool draw(DrawCanvas canvas) {
+        return false;
+    }
+
+    method bool drawFrame(DrawFrame frame) {
+        return false;
+    }
+
+    method bool handleMouse(int64 x, int64 y, int64 buttons) {
+        return false;
+    }
+
+    method bool handleKey(int64 key) {
+        return false;
+    }
+}
+
+class DrawBox {
+    DrawWidget;
+    prop int64 x0;
+    prop int64 y0;
+    prop int64 w;
+    prop int64 h;
+    prop int64 bg;
+    prop int64 fg;
+    prop int64 edge;
+
+    method DrawBox(int64 x, int64 y, int64 width, int64 height) {
+        super(x, y, width, height);
+        x0 = x;
+        y0 = y;
+        w = width;
+        h = height;
+        bg = 0x466080;
+        fg = 0xffffff;
+        edge = 0xd0d8e0;
+        wbg = bg;
+        wfg = fg;
+        wedge = edge;
+        wrole = "box";
+    }
+
+    method void position(int64 x, int64 y) {
+        x0 = x;
+        y0 = y;
+        wx = x;
+        wy = y;
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method void size(int64 width, int64 height) {
+        w = width;
+        h = height;
+        ww = width;
+        wh = height;
+        wprefw = width;
+        wprefh = height;
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method void color(int64 background, int64 foreground) {
+        bg = background;
+        fg = foreground;
+        wbg = background;
+        wfg = foreground;
+        wdirty = true;
+    }
+
+    method void border(int64 rgb) {
+        edge = rgb;
+        wedge = rgb;
+        wdirty = true;
+    }
+
+    method int64 x() {
+        return x0;
+    }
+
+    method int64 y() {
+        return y0;
+    }
+
+    method int64 width() {
+        return w;
+    }
+
+    method int64 height() {
+        return h;
+    }
+
+    method int64 right() {
+        return x0 + w;
+    }
+
+    method int64 bottom() {
+        return y0 + h;
+    }
+
+    method int64 background() {
+        return bg;
+    }
+
+    method int64 foreground() {
+        return fg;
+    }
+
+    method int64 borderColor() {
+        return edge;
+    }
+
+    method bool contains(int64 x, int64 y) {
+        return wshown && x >= x0 && x < x0 + w && y >= y0 && y < y0 + h;
+    }
+
+    method bool draw(DrawCanvas canvas) {
+        if(!wshown || !canvas.ready()) {
+            return false;
+        }
+        canvas.fillRect(x0, y0, w, h, bg);
+        canvas.borderRect(x0, y0, w, h, edge);
+        wdirty = false;
+        wlayoutdirty = false;
+        return true;
+    }
+
+    method bool drawFrame(DrawFrame frame) {
+        if(!wshown) {
+            return false;
+        }
+        frame.fillRect(x0, y0, w, h, bg);
+        frame.borderRect(x0, y0, w, h, edge);
+        wdirty = false;
+        wlayoutdirty = false;
+        return true;
+    }
+}
+
+class DrawLabel {
+    DrawWidget;
+    prop string value;
+    prop DrawBox box;
+    prop bool shown;
+
+    method DrawLabel(string text, int64 x, int64 y, int64 width, int64 height) {
+        super(x, y, width, height);
+        value = text;
+        box = new DrawBox(x, y, width, height);
+        box.color(0x203040, 0xffffff);
+        shown = true;
+        wbg = box.background();
+        wfg = box.foreground();
+        wedge = box.borderColor();
+        wrole = "label";
+    }
+
+    method string text() {
+        return value;
+    }
+
+    method void setText(string text) {
+        value = text;
+        wdirty = true;
+    }
+
+    method void position(int64 x, int64 y) {
+        box.position(x, y);
+        wx = x;
+        wy = y;
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method void size(int64 width, int64 height) {
+        box.size(width, height);
+        ww = width;
+        wh = height;
+        wprefw = width;
+        wprefh = height;
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method void color(int64 background, int64 foreground) {
+        box.color(background, foreground);
+        wbg = background;
+        wfg = foreground;
+        wdirty = true;
+    }
+
+    method void border(int64 rgb) {
+        box.border(rgb);
+        wedge = rgb;
+        wdirty = true;
+    }
+
+    method void setVisible(bool value) {
+        shown = value;
+        wshown = value;
+        wdirty = true;
+    }
+
+    method bool visible() {
+        return shown;
+    }
+
+    method int64 x() {
+        return box.x();
+    }
+
+    method int64 y() {
+        return box.y();
+    }
+
+    method int64 width() {
+        return box.width();
+    }
+
+    method int64 height() {
+        return box.height();
+    }
+
+    method int64 background() {
+        return box.background();
+    }
+
+    method int64 foreground() {
+        return box.foreground();
+    }
+
+    method int64 borderColor() {
+        return box.borderColor();
+    }
+
+    method bool contains(int64 x, int64 y) {
+        return shown && box.contains(x, y);
+    }
+
+    method bool draw(DrawCanvas canvas) {
+        if(!shown || !canvas.ready()) {
+            return false;
+        }
+        canvas.fillRect(box.x(), box.y(), box.width(), box.height(), box.background());
+        canvas.borderRect(box.x(), box.y(), box.width(), box.height(), box.borderColor());
+        canvas.textBox(value, box.x(), box.y(), box.width(), box.height(), box.foreground());
+        wdirty = false;
+        wlayoutdirty = false;
+        return true;
+    }
+
+    method bool drawText(DrawCanvas canvas) {
+        if(!shown || !canvas.ready()) {
+            return false;
+        }
+        canvas.textBox(value, box.x(), box.y(), box.width(), box.height(), box.foreground());
+        wdirty = false;
+        wlayoutdirty = false;
+        return true;
+    }
+
+    method bool drawFrame(DrawFrame frame) {
+        if(!shown) {
+            return false;
+        }
+        frame.fillRect(box.x(), box.y(), box.width(), box.height(), box.background());
+        frame.borderRect(box.x(), box.y(), box.width(), box.height(), box.borderColor());
+        frame.textBox(value, box.x(), box.y(), box.width(), box.height(), box.foreground());
+        wdirty = false;
+        wlayoutdirty = false;
+        return true;
+    }
+}
+
+class DrawButton {
+    DrawWidget;
+    prop DrawBox box;
+    prop DrawLabel caption;
+    prop bool enabled;
+    prop bool over;
+    prop bool down;
+    prop int64 clicks;
+
+    method DrawButton(string text, int64 x, int64 y, int64 width, int64 height) {
+        super(x, y, width, height);
+        box = new DrawBox(x, y, width, height);
+        caption = new DrawLabel(text, x, y, width, height);
+        caption.color(box.background(), box.foreground());
+        caption.border(box.borderColor());
+        enabled = true;
+        over = false;
+        down = false;
+        clicks = 0;
+        wbg = box.background();
+        wfg = box.foreground();
+        wedge = box.borderColor();
+        wfocusable = true;
+        wrole = "button";
+    }
+
+    method string text() {
+        return caption.text();
+    }
+
+    method void setText(string text) {
+        caption.setText(text);
+        wdirty = true;
+    }
+
+    method void move(int64 x, int64 y) {
+        box.position(x, y);
+        caption.position(x, y);
+        wx = x;
+        wy = y;
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method void position(int64 x, int64 y) {
+        box.position(x, y);
+        caption.position(x, y);
+        wx = x;
+        wy = y;
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method void resize(int64 width, int64 height) {
+        box.size(width, height);
+        caption.size(width, height);
+        ww = width;
+        wh = height;
+        wprefw = width;
+        wprefh = height;
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method void size(int64 width, int64 height) {
+        box.size(width, height);
+        caption.size(width, height);
+        ww = width;
+        wh = height;
+        wprefw = width;
+        wprefh = height;
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method void color(int64 background, int64 foreground) {
+        box.color(background, foreground);
+        caption.color(background, foreground);
+        wbg = background;
+        wfg = foreground;
+        wdirty = true;
+    }
+
+    method void border(int64 rgb) {
+        box.border(rgb);
+        caption.border(rgb);
+        wedge = rgb;
+        wdirty = true;
+    }
+
+    method int64 x() {
+        return box.x();
+    }
+
+    method int64 y() {
+        return box.y();
+    }
+
+    method int64 width() {
+        return box.width();
+    }
+
+    method int64 height() {
+        return box.height();
+    }
+
+    method int64 background() {
+        return box.background();
+    }
+
+    method int64 foreground() {
+        return box.foreground();
+    }
+
+    method int64 borderColor() {
+        return box.borderColor();
+    }
+
+    method void setEnabled(bool value) {
+        enabled = value;
+        wenabled = value;
+        if(!enabled) {
+            over = false;
+            down = false;
+            wfocused = false;
+        }
+        wdirty = true;
+    }
+
+    method bool isEnabled() {
+        return enabled;
+    }
+
+    method bool contains(int64 x, int64 y) {
+        return wshown && enabled && box.contains(x, y);
+    }
+
+    method bool hover(int64 x, int64 y) {
+        over = wshown && enabled && box.contains(x, y);
+        return over;
+    }
+
+    method bool hovered() {
+        return over;
     }
 
     method bool pressed() {
         return down;
     }
 
+    method bool capturesMouse() {
+        return down;
+    }
+
+    method int64 count() {
+        return clicks;
+    }
+
+    method void release() {
+        if(down) {
+            wdirty = true;
+        }
+        down = false;
+    }
+
     method bool click(int64 x, int64 y) {
+        over = wshown && enabled && box.contains(x, y);
+        if(over) {
+            if(!down) {
+                clicks = clicks + 1;
+            }
+            down = true;
+            wdirty = true;
+            return true;
+        }
+        down = false;
+        wdirty = true;
+        return false;
+    }
+
+    method bool handleMouse(int64 x, int64 y, int64 buttons) {
+        bool oldOver;
+        bool oldDown;
+        int64 oldClicks;
+
+        oldOver = over;
+        oldDown = down;
+        oldClicks = clicks;
+        if(buttons == 0) {
+            release();
+            over = wshown && enabled && box.contains(x, y);
+            return oldDown || oldOver != over;
+        }
+        if((buttons & 1) == 0) {
+            over = wshown && enabled && box.contains(x, y);
+            if(down) {
+                down = false;
+                wdirty = true;
+            }
+            if(oldOver != over || oldDown != down) {
+                wdirty = true;
+            }
+            return oldOver != over || oldDown != down;
+        }
+        click(x, y);
+        return oldOver != over || oldDown != down || oldClicks != clicks;
+    }
+
+    method bool draw(DrawCanvas canvas) {
+        if(!wshown || !canvas.ready()) {
+            return false;
+        }
+        if(down) {
+            canvas.fillRect(box.x(), box.y(), box.width(), box.height(), box.borderColor());
+            canvas.borderRect(box.x(), box.y(), box.width(), box.height(), box.foreground());
+        } else {
+            box.draw(canvas);
+        }
+        if(wfocused) {
+            canvas.borderRectN(box.x() + 2, box.y() + 2, box.width() - 4, box.height() - 4, 1, box.foreground());
+        }
+        caption.drawText(canvas);
+        wdirty = false;
+        wlayoutdirty = false;
+        return true;
+    }
+
+    method bool drawFrame(DrawFrame frame) {
+        if(!wshown) {
+            return false;
+        }
+        if(down) {
+            frame.fillRect(box.x(), box.y(), box.width(), box.height(), box.borderColor());
+            frame.borderRect(box.x(), box.y(), box.width(), box.height(), box.foreground());
+        } else {
+            frame.fillRect(box.x(), box.y(), box.width(), box.height(), box.background());
+            frame.borderRect(box.x(), box.y(), box.width(), box.height(), box.borderColor());
+        }
+        if(wfocused) {
+            frame.borderRectN(box.x() + 2, box.y() + 2, box.width() - 4, box.height() - 4, 1, box.foreground());
+        }
+        frame.textBox(caption.text(), box.x(), box.y(), box.width(), box.height(), box.foreground());
+        wdirty = false;
+        wlayoutdirty = false;
+        return true;
+    }
+}
+
+class DrawTextInput {
+    DrawWidget;
+    prop DrawBox box;
+    prop string value;
+    prop string hint;
+    prop bool enabled;
+    prop bool over;
+    prop int64 cursor;
+    prop int64 edits;
+    prop int64 pad;
+    prop int64 caretColor;
+
+    method DrawTextInput(string text, int64 x, int64 y, int64 width, int64 height) {
+        super(x, y, width, height);
+        box = new DrawBox(x, y, width, height);
+        box.color(0x182838, 0xffffff);
+        box.border(0xe0c040);
+        value = text;
+        hint = "";
+        enabled = true;
+        over = false;
+        cursor = len(text);
+        edits = 0;
+        pad = 6;
+        caretColor = 0xe0c040;
+        wbg = box.background();
+        wfg = box.foreground();
+        wedge = box.borderColor();
+        wfocusable = true;
+        wrole = "textinput";
+    }
+
+    private method int64 clampCursor(int64 index) {
+        if(index < 0) {
+            return 0;
+        }
+        if(index > len(value)) {
+            return len(value);
+        }
+        return index;
+    }
+
+    method string text() {
+        return value;
+    }
+
+    method void setText(string text) {
+        value = text;
+        cursor = len(value);
+        edits = edits + 1;
+        wdirty = true;
+    }
+
+    method string placeholder() {
+        return hint;
+    }
+
+    method void setPlaceholder(string text) {
+        hint = text;
+        wdirty = true;
+    }
+
+    method int64 cursorIndex() {
+        return cursor;
+    }
+
+    method void setCursor(int64 index) {
+        cursor = clampCursor(index);
+        wdirty = true;
+    }
+
+    method int64 count() {
+        return edits;
+    }
+
+    method string beforeCursor() {
+        Task<string> t;
+
+        t = spawn DrawTextSliceRaw(value, 0, cursor);
+        return t.await();
+    }
+
+    method bool moveLeft() {
+        if(cursor <= 0) {
+            return false;
+        }
+        cursor = cursor - 1;
+        wdirty = true;
+        return true;
+    }
+
+    method bool moveRight() {
+        if(cursor >= len(value)) {
+            return false;
+        }
+        cursor = cursor + 1;
+        wdirty = true;
+        return true;
+    }
+
+    method bool home() {
+        if(cursor == 0) {
+            return false;
+        }
+        cursor = 0;
+        wdirty = true;
+        return true;
+    }
+
+    method bool end() {
+        if(cursor == len(value)) {
+            return false;
+        }
+        cursor = len(value);
+        wdirty = true;
+        return true;
+    }
+
+    method bool insertKey(int64 key) {
+        Task<string> t;
+
+        if(key < 32 || key > 126 || !enabled) {
+            return false;
+        }
+        t = spawn DrawTextInsertRaw(value, cursor, key);
+        value = t.await();
+        cursor = cursor + 1;
+        edits = edits + 1;
+        wdirty = true;
+        return true;
+    }
+
+    method bool backspace() {
+        Task<string> t;
+
+        if(cursor <= 0 || !enabled) {
+            return false;
+        }
+        t = spawn DrawTextEraseBeforeRaw(value, cursor);
+        value = t.await();
+        cursor = cursor - 1;
+        edits = edits + 1;
+        wdirty = true;
+        return true;
+    }
+
+    method bool deleteForward() {
+        Task<string> t;
+
+        if(cursor >= len(value) || !enabled) {
+            return false;
+        }
+        t = spawn DrawTextEraseAtRaw(value, cursor);
+        value = t.await();
+        edits = edits + 1;
+        wdirty = true;
+        return true;
+    }
+
+    method bool clear() {
+        if(len(value) == 0 || !enabled) {
+            return false;
+        }
+        value = "";
+        cursor = 0;
+        edits = edits + 1;
+        wdirty = true;
+        return true;
+    }
+
+    method void position(int64 x, int64 y) {
+        box.position(x, y);
+        wx = x;
+        wy = y;
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method void size(int64 width, int64 height) {
+        box.size(width, height);
+        ww = width;
+        wh = height;
+        wprefw = width;
+        wprefh = height;
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method void color(int64 background, int64 foreground) {
+        box.color(background, foreground);
+        wbg = background;
+        wfg = foreground;
+        wdirty = true;
+    }
+
+    method void border(int64 rgb) {
+        box.border(rgb);
+        wedge = rgb;
+        wdirty = true;
+    }
+
+    method int64 x() {
+        return box.x();
+    }
+
+    method int64 y() {
+        return box.y();
+    }
+
+    method int64 width() {
+        return box.width();
+    }
+
+    method int64 height() {
+        return box.height();
+    }
+
+    method int64 background() {
+        return box.background();
+    }
+
+    method int64 foreground() {
+        return box.foreground();
+    }
+
+    method int64 borderColor() {
+        return box.borderColor();
+    }
+
+    method void setEnabled(bool value) {
+        enabled = value;
+        wenabled = value;
+        if(!enabled) {
+            over = false;
+            wfocused = false;
+        }
+        wdirty = true;
+    }
+
+    method bool isEnabled() {
+        return enabled;
+    }
+
+    method bool contains(int64 x, int64 y) {
+        return wshown && enabled && box.contains(x, y);
+    }
+
+    method bool hover(int64 x, int64 y) {
+        over = wshown && enabled && box.contains(x, y);
+        return over;
+    }
+
+    method bool hovered() {
+        return over;
+    }
+
+    method bool handleMouse(int64 x, int64 y, int64 buttons) {
+        bool oldOver;
+
+        oldOver = over;
+        if(!wshown || !enabled) {
+            return false;
+        }
+        over = box.contains(x, y);
+        if(buttons == 0) {
+            if(oldOver != over) {
+                wdirty = true;
+            }
+            return oldOver != over;
+        }
+        if((buttons & 1) == 0) {
+            if(oldOver != over) {
+                wdirty = true;
+            }
+            return oldOver != over;
+        }
+        if(over) {
+            cursor = len(value);
+            wdirty = true;
+            return true;
+        }
+        return false;
+    }
+
+    method bool handleKey(int64 key) {
+        if(!wshown || !enabled) {
+            return false;
+        }
+        if(key == 8 || key == 127) {
+            return backspace();
+        }
+        if(key == 4) {
+            return deleteForward();
+        }
+        if(key == 1) {
+            return home();
+        }
+        if(key == 5) {
+            return end();
+        }
+        if(key == 2) {
+            return moveLeft();
+        }
+        if(key == 6) {
+            return moveRight();
+        }
+        if(key == 21) {
+            return clear();
+        }
+        if(key >= 32 && key <= 126) {
+            return insertKey(key);
+        }
+        return false;
+    }
+
+    method bool draw(DrawCanvas canvas) {
+        if(!wshown || !canvas.ready()) {
+            return false;
+        }
+        canvas.fillRect(box.x(), box.y(), box.width(), box.height(), box.background());
+        canvas.borderRect(box.x(), box.y(), box.width(), box.height(), box.borderColor());
+        if(len(value) > 0) {
+            canvas.textBox(value, box.x(), box.y(), box.width(), box.height(), box.foreground());
+        } else if(len(hint) > 0) {
+            canvas.textBox(hint, box.x(), box.y(), box.width(), box.height(), box.borderColor());
+        }
+        wdirty = false;
+        wlayoutdirty = false;
+        return true;
+    }
+
+    method bool drawFrame(DrawFrame frame) {
+        int64 innerw;
+        int64 cx;
+        int64 ch;
+
+        if(!wshown) {
+            return false;
+        }
+        frame.fillRect(box.x(), box.y(), box.width(), box.height(), box.background());
+        frame.borderRect(box.x(), box.y(), box.width(), box.height(), box.borderColor());
+        if(wfocused) {
+            frame.borderRectN(box.x() + 2, box.y() + 2, box.width() - 4, box.height() - 4, 1, box.foreground());
+        }
+        innerw = box.width() - pad - pad;
+        if(innerw < 1) {
+            innerw = 1;
+        }
+        if(len(value) > 0) {
+            frame.textLeft(value, box.x() + pad, box.y(), innerw, box.height(), box.foreground());
+        } else if(len(hint) > 0) {
+            frame.textLeft(hint, box.x() + pad, box.y(), innerw, box.height(), box.borderColor());
+        }
+        if(wfocused && enabled) {
+            cx = box.x() + pad + cursor * 8;
+            if(cx > box.x() + box.width() - pad) {
+                cx = box.x() + box.width() - pad;
+            }
+            if(cx < box.x() + pad) {
+                cx = box.x() + pad;
+            }
+            ch = box.height() - 8;
+            if(ch < 1) {
+                ch = 1;
+            }
+            frame.fillRect(cx, box.y() + 4, 1, ch, caretColor);
+        }
+        wdirty = false;
+        wlayoutdirty = false;
+        return true;
+    }
+}
+
+class DrawTextView {
+    DrawWidget;
+    prop string value;
+    prop int64 firstLine;
+    prop int64 firstColumn;
+    prop int64 lineH;
+    prop int64 pad;
+    prop int64 gridColor;
+    prop bool wrapText;
+
+    method DrawTextView(string text, int64 x, int64 y, int64 width, int64 height) {
+        super(x, y, width, height);
+        value = text;
+        firstLine = 0;
+        firstColumn = 0;
+        lineH = 18;
+        pad = 6;
+        wbg = 0x182838;
+        wfg = 0xffffff;
+        wedge = 0xe0c040;
+        gridColor = 0x284050;
+        wrapText = true;
+        wrole = "textview";
+    }
+
+    private method int64 clamp(int64 value, int64 low, int64 high) {
+        if(value < low) {
+            return low;
+        }
+        if(value > high) {
+            return high;
+        }
+        return value;
+    }
+
+    method string text() {
+        return value;
+    }
+
+    method void setText(string text) {
+        value = text;
+        setOffset(firstLine, firstColumn);
+        wdirty = true;
+    }
+
+    method void setWrap(bool value) {
+        wrapText = value;
+        setOffset(firstLine, firstColumn);
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method bool wrap() {
+        return wrapText;
+    }
+
+    method void color(int64 background, int64 foreground) {
+        wbg = background;
+        wfg = foreground;
+        wdirty = true;
+    }
+
+    method void border(int64 rgb) {
+        wedge = rgb;
+        wdirty = true;
+    }
+
+    method void grid(int64 rgb) {
+        gridColor = rgb;
+        wdirty = true;
+    }
+
+    method void setLineHeight(int64 height) {
+        lineH = height;
+        if(lineH < 8) {
+            lineH = 8;
+        }
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method int64 rows() {
+        Task<int64> t;
+
+        t = spawn DrawTextLineCountRaw(value, visibleColumns(), wrapText);
+        return t.await();
+    }
+
+    method string line(int64 row) {
+        Task<string> t;
+
+        t = spawn DrawTextLineRaw(value, visibleColumns(), wrapText, row, firstColumn);
+        return t.await();
+    }
+
+    method int64 visibleLines() {
+        int64 space;
+        int64 n;
+
+        space = wh - pad - pad;
+        if(space <= 0 || lineH <= 0) {
+            return 0;
+        }
+        n = space / lineH;
+        if(n > rows() - firstLine) {
+            n = rows() - firstLine;
+        }
+        if(n < 0) {
+            return 0;
+        }
+        return n;
+    }
+
+    method int64 pageLines() {
+        int64 space;
+        int64 n;
+
+        space = wh - pad - pad;
+        if(space <= 0 || lineH <= 0) {
+            return 0;
+        }
+        n = space / lineH;
+        if(n < 1) {
+            return 1;
+        }
+        return n;
+    }
+
+    method int64 visibleColumns() {
+        int64 space;
+        int64 n;
+
+        space = ww - pad - pad;
+        if(space <= 0) {
+            return 0;
+        }
+        n = space / 8;
+        if(n < 1) {
+            return 1;
+        }
+        return n;
+    }
+
+    method int64 maxColumn() {
+        Task<int64> t;
+
+        t = spawn DrawTextMaxLineRaw(value);
+        return t.await();
+    }
+
+    method int64 maxFirstLine() {
+        int64 max;
+
+        max = rows() - pageLines();
+        if(max < 0) {
+            return 0;
+        }
+        return max;
+    }
+
+    method int64 maxFirstColumn() {
+        int64 max;
+
+        if(wrapText) {
+            return 0;
+        }
+        max = maxColumn() - visibleColumns();
+        if(max < 0) {
+            return 0;
+        }
+        return max;
+    }
+
+    method void setOffset(int64 row, int64 column) {
+        firstLine = clamp(row, 0, maxFirstLine());
+        firstColumn = clamp(column, 0, maxFirstColumn());
+        wdirty = true;
+    }
+
+    method int64 firstVisibleLine() {
+        return firstLine;
+    }
+
+    method int64 firstVisibleColumn() {
+        return firstColumn;
+    }
+
+    method bool scrollLines(int64 delta) {
+        int64 old;
+
+        old = firstLine;
+        setOffset(firstLine + delta, firstColumn);
+        return old != firstLine;
+    }
+
+    method bool scrollColumns(int64 delta) {
+        int64 old;
+
+        old = firstColumn;
+        setOffset(firstLine, firstColumn + delta);
+        return old != firstColumn;
+    }
+
+    method bool contains(int64 x, int64 y) {
+        return wshown && wenabled && x >= wx && x < wx + ww && y >= wy && y < wy + wh;
+    }
+
+    method bool draw(DrawCanvas canvas) {
+        int64 i;
+        int64 row;
+        int64 y0;
+        string text;
+
+        if(!wshown || !canvas.ready()) {
+            return false;
+        }
+        canvas.fillRect(wx, wy, ww, wh, wbg);
+        canvas.borderRect(wx, wy, ww, wh, wedge);
+        i = 0;
+        while(i < visibleLines()) {
+            row = firstLine + i;
+            y0 = wy + pad + i * lineH;
+            text = line(row);
+            if(len(text) > 0) {
+                canvas.text(text, wx + pad, y0, wfg);
+            }
+            i = i + 1;
+        }
+        canvas.flush();
+        wdirty = false;
+        wlayoutdirty = false;
+        return true;
+    }
+
+    method bool drawFrame(DrawFrame frame) {
+        int64 i;
+        int64 row;
+        int64 y0;
+        int64 innerw;
+        string text;
+
+        if(!wshown) {
+            return false;
+        }
+        innerw = ww - pad - pad;
+        if(innerw < 1) {
+            innerw = 1;
+        }
+        frame.fillRect(wx, wy, ww, wh, wbg);
+        frame.borderRect(wx, wy, ww, wh, wedge);
+        i = 0;
+        while(i < visibleLines()) {
+            row = firstLine + i;
+            y0 = wy + pad + i * lineH;
+            frame.fillRect(wx + 1, y0, ww - 2, lineH, wbg);
+            text = line(row);
+            if(len(text) > 0) {
+                frame.textLeft(text, wx + pad, y0, innerw, lineH, wfg);
+            }
+            i = i + 1;
+        }
+        wdirty = false;
+        wlayoutdirty = false;
+        return true;
+    }
+}
+
+class DrawTable {
+    DrawWidget;
+    prop int64 ncols;
+    prop int64 nrows;
+    prop int64 rowH;
+    prop int64 headerH;
+    prop int64 firstRow;
+    prop int64 selected;
+    prop int64 gridColor;
+    prop int64 headerBg;
+    prop int64 selectedBg;
+    prop int64 altBg;
+    prop int64 pad;
+    prop string[] heads;
+    prop string[] cells;
+
+    method DrawTable(int64 x, int64 y, int64 width, int64 height, int64 columns, int64 rows) {
+        super(x, y, width, height);
+        ncols = columns;
+        if(ncols < 1) {
+            ncols = 1;
+        }
+        nrows = rows;
+        if(nrows < 0) {
+            nrows = 0;
+        }
+        rowH = 22;
+        headerH = 22;
+        firstRow = 0;
+        selected = -1;
+        wbg = 0x182838;
+        wfg = 0xffffff;
+        wedge = 0xe0c040;
+        gridColor = 0x466080;
+        headerBg = 0x203040;
+        selectedBg = 0x5f7fa7;
+        altBg = 0x1f3448;
+        pad = 5;
+        wfocusable = true;
+        wrole = "table";
+    }
+
+    private method int64 clamp(int64 value, int64 low, int64 high) {
+        if(value < low) {
+            return low;
+        }
+        if(value > high) {
+            return high;
+        }
+        return value;
+    }
+
+    private method bool validColumn(int64 col) {
+        return col >= 0 && col < ncols;
+    }
+
+    private method bool validRow(int64 row) {
+        return row >= 0 && row < nrows;
+    }
+
+    private method int64 cellIndex(int64 row, int64 col) {
+        return row * ncols + col;
+    }
+
+    method int64 columns() {
+        return ncols;
+    }
+
+    method int64 rows() {
+        return nrows;
+    }
+
+    method void setRows(int64 rows) {
+        nrows = rows;
+        if(nrows < 0) {
+            nrows = 0;
+        }
+        if(selected >= nrows) {
+            selected = -1;
+        }
+        if(firstRow >= nrows) {
+            firstRow = nrows - 1;
+        }
+        if(firstRow < 0) {
+            firstRow = 0;
+        }
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method void setRowHeight(int64 height) {
+        rowH = height;
+        if(rowH < 8) {
+            rowH = 8;
+        }
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method void setHeaderHeight(int64 height) {
+        headerH = height;
+        if(headerH < 0) {
+            headerH = 0;
+        }
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method void color(int64 background, int64 foreground) {
+        wbg = background;
+        wfg = foreground;
+        wdirty = true;
+    }
+
+    method void border(int64 rgb) {
+        wedge = rgb;
+        wdirty = true;
+    }
+
+    method void grid(int64 rgb) {
+        gridColor = rgb;
+        wdirty = true;
+    }
+
+    method void headerColor(int64 background) {
+        headerBg = background;
+        wdirty = true;
+    }
+
+    method void selectedColor(int64 background) {
+        selectedBg = background;
+        wdirty = true;
+    }
+
+    method bool setHeader(int64 col, string text) {
+        if(!validColumn(col)) {
+            return false;
+        }
+        heads[col] = text;
+        wdirty = true;
+        return true;
+    }
+
+    method string header(int64 col) {
+        if(!validColumn(col)) {
+            return "";
+        }
+        return heads[col];
+    }
+
+    method bool setCell(int64 row, int64 col, string text) {
+        if(!validRow(row) || !validColumn(col)) {
+            return false;
+        }
+        cells[cellIndex(row, col)] = text;
+        wdirty = true;
+        return true;
+    }
+
+    method string cell(int64 row, int64 col) {
+        if(!validRow(row) || !validColumn(col)) {
+            return "";
+        }
+        return cells[cellIndex(row, col)];
+    }
+
+    method void clear() {
+        int64 i;
+        int64 total;
+
+        total = nrows * ncols;
+        i = 0;
+        while(i < total) {
+            cells[i] = "";
+            i = i + 1;
+        }
+        selected = -1;
+        firstRow = 0;
+        wdirty = true;
+    }
+
+    method int64 columnWidth() {
+        if(ncols <= 0) {
+            return ww;
+        }
+        return ww / ncols;
+    }
+
+    method int64 visibleRows() {
+        int64 space;
+        int64 n;
+
+        space = wh - headerH;
+        if(space <= 0 || rowH <= 0) {
+            return 0;
+        }
+        n = space / rowH;
+        if(n > nrows - firstRow) {
+            n = nrows - firstRow;
+        }
+        if(n < 0) {
+            return 0;
+        }
+        return n;
+    }
+
+    method void setFirstRow(int64 row) {
+        int64 maxFirst;
+
+        maxFirst = nrows - visibleRows();
+        if(maxFirst < 0) {
+            maxFirst = 0;
+        }
+        firstRow = clamp(row, 0, maxFirst);
+        wdirty = true;
+    }
+
+    method int64 firstVisibleRow() {
+        return firstRow;
+    }
+
+    method bool scrollRows(int64 delta) {
+        int64 old;
+
+        old = firstRow;
+        setFirstRow(firstRow + delta);
+        return old != firstRow;
+    }
+
+    method bool select(int64 row) {
+        if(!validRow(row)) {
+            selected = -1;
+            wdirty = true;
+            return false;
+        }
+        selected = row;
+        if(selected < firstRow) {
+            setFirstRow(selected);
+        }
+        if(selected >= firstRow + visibleRows()) {
+            setFirstRow(selected - visibleRows() + 1);
+        }
+        wdirty = true;
+        return true;
+    }
+
+    method int64 selectedRow() {
+        return selected;
+    }
+
+    method int64 rowAt(int64 y) {
+        int64 rel;
+        int64 row;
+
+        if(y < wy + headerH || y >= wy + wh || rowH <= 0) {
+            return -1;
+        }
+        rel = y - wy - headerH;
+        row = firstRow + rel / rowH;
+        if(!validRow(row)) {
+            return -1;
+        }
+        return row;
+    }
+
+    method int64 columnAt(int64 x) {
+        int64 colw;
+        int64 col;
+
+        if(x < wx || x >= wx + ww) {
+            return -1;
+        }
+        colw = columnWidth();
+        if(colw <= 0) {
+            return -1;
+        }
+        col = (x - wx) / colw;
+        if(col >= ncols) {
+            col = ncols - 1;
+        }
+        return col;
+    }
+
+    method bool contains(int64 x, int64 y) {
+        return wshown && wenabled && x >= wx && x < wx + ww && y >= wy && y < wy + wh;
+    }
+
+    method bool handleMouse(int64 x, int64 y, int64 buttons) {
+        int64 row;
+
+        if(!(wshown && wenabled && x >= wx && x < wx + ww && y >= wy && y < wy + wh)) {
+            return false;
+        }
+        if((buttons & 1) == 0) {
+            return false;
+        }
+        row = rowAt(y);
+        if(row < 0) {
+            return false;
+        }
+        return select(row);
+    }
+
+    method bool handleKey(int64 key) {
+        if(key == 'k') {
+            if(selected < 0) {
+                return select(0);
+            }
+            return select(selected - 1);
+        }
+        if(key == 'j') {
+            if(selected < 0) {
+                return select(0);
+            }
+            return select(selected + 1);
+        }
+        if(key == 'u') {
+            return scrollRows(0 - visibleRows());
+        }
+        if(key == 'd') {
+            return scrollRows(visibleRows());
+        }
+        return false;
+    }
+
+    method bool draw(DrawCanvas canvas) {
+        int64 col;
+        int64 row;
+        int64 vis;
+        int64 colw;
+        int64 x0;
+        int64 y0;
+        int64 bg;
+        string text;
+
+        if(!wshown || !canvas.ready()) {
+            return false;
+        }
+        colw = columnWidth();
+        if(colw <= 0) {
+            return false;
+        }
+
+        canvas.fillRect(wx, wy, ww, wh, wbg);
+        canvas.borderRect(wx, wy, ww, wh, wedge);
+
+        if(headerH > 0) {
+            canvas.fillRect(wx, wy, ww, headerH, headerBg);
+            col = 0;
+            while(col < ncols) {
+                x0 = wx + col * colw;
+                canvas.borderRect(x0, wy, colw, headerH, gridColor);
+                text = header(col);
+                if(len(text) > 0) {
+                    canvas.textBox(text, x0 + pad, wy, colw - pad - pad, headerH, wfg);
+                }
+                col = col + 1;
+            }
+        }
+
+        vis = visibleRows();
+        row = 0;
+        while(row < vis) {
+            y0 = wy + headerH + row * rowH;
+            if(firstRow + row == selected) {
+                bg = selectedBg;
+            } else if(((firstRow + row) & 1) == 1) {
+                bg = altBg;
+            } else {
+                bg = wbg;
+            }
+            canvas.fillRect(wx, y0, ww, rowH, bg);
+            col = 0;
+            while(col < ncols) {
+                x0 = wx + col * colw;
+                canvas.borderRect(x0, y0, colw, rowH, gridColor);
+                text = cell(firstRow + row, col);
+                if(len(text) > 0) {
+                    canvas.textBox(text, x0 + pad, y0, colw - pad - pad, rowH, wfg);
+                }
+                col = col + 1;
+            }
+            row = row + 1;
+        }
+        canvas.flush();
+        wdirty = false;
+        wlayoutdirty = false;
+        return true;
+    }
+
+    method bool drawFrame(DrawFrame frame) {
+        int64 col;
+        int64 row;
+        int64 vis;
+        int64 colw;
+        int64 x0;
+        int64 y0;
+        int64 bg;
+        string text;
+
+        if(!wshown) {
+            return false;
+        }
+        colw = columnWidth();
+        if(colw <= 0) {
+            return false;
+        }
+
+        frame.fillRect(wx, wy, ww, wh, wbg);
+        frame.borderRect(wx, wy, ww, wh, wedge);
+
+        if(headerH > 0) {
+            frame.fillRect(wx, wy, ww, headerH, headerBg);
+            col = 0;
+            while(col < ncols) {
+                x0 = wx + col * colw;
+                frame.borderRect(x0, wy, colw, headerH, gridColor);
+                text = header(col);
+                if(len(text) > 0) {
+                    frame.textLeft(text, x0 + pad, wy, colw - pad - pad, headerH, wfg);
+                }
+                col = col + 1;
+            }
+        }
+
+        vis = visibleRows();
+        row = 0;
+        while(row < vis) {
+            y0 = wy + headerH + row * rowH;
+            if(firstRow + row == selected) {
+                bg = selectedBg;
+            } else if(((firstRow + row) & 1) == 1) {
+                bg = altBg;
+            } else {
+                bg = wbg;
+            }
+            frame.fillRect(wx, y0, ww, rowH, bg);
+            col = 0;
+            while(col < ncols) {
+                x0 = wx + col * colw;
+                frame.borderRect(x0, y0, colw, rowH, gridColor);
+                text = cell(firstRow + row, col);
+                if(len(text) > 0) {
+                    frame.textLeft(text, x0 + pad, y0, colw - pad - pad, rowH, wfg);
+                }
+                col = col + 1;
+            }
+            row = row + 1;
+        }
+        wdirty = false;
+        wlayoutdirty = false;
+        return true;
+    }
+}
+
+class DrawScrollbar {
+    DrawWidget;
+    prop bool vertical;
+    prop int64 smin;
+    prop int64 smax;
+    prop int64 spage;
+    prop int64 sval;
+    prop bool dragging;
+    prop bool over;
+    prop int64 dragOffset;
+    prop int64 thumbColor;
+    prop int64 thumbHotColor;
+    prop int64 thumbDownColor;
+
+    method DrawScrollbar(int64 x, int64 y, int64 width, int64 height) {
+        super(x, y, width, height);
+        vertical = height >= width;
+        smin = 0;
+        smax = 100;
+        spage = 10;
+        sval = 0;
+        dragging = false;
+        over = false;
+        dragOffset = 0;
+        wbg = 0x182838;
+        wfg = 0xd0d8e0;
+        wedge = 0xe0c040;
+        thumbColor = 0x466080;
+        thumbHotColor = 0x5f7fa7;
+        thumbDownColor = 0xe0c040;
+        wfocusable = true;
+        wrole = "scrollbar";
+    }
+
+    private method int64 clamp(int64 value, int64 low, int64 high) {
+        if(value < low) {
+            return low;
+        }
+        if(value > high) {
+            return high;
+        }
+        return value;
+    }
+
+    private method int64 innerLength() {
+        int64 n;
+
+        if(vertical) {
+            n = wh - 4;
+        } else {
+            n = ww - 4;
+        }
+        if(n < 0) {
+            return 0;
+        }
+        return n;
+    }
+
+    private method int64 trackStart() {
+        if(vertical) {
+            return wy + 2;
+        }
+        return wx + 2;
+    }
+
+    private method int64 axisPosition(int64 x, int64 y) {
+        if(vertical) {
+            return y;
+        }
+        return x;
+    }
+
+    private method int64 crossPosition(int64 x, int64 y) {
+        if(vertical) {
+            return x;
+        }
+        return y;
+    }
+
+    private method int64 crossStart() {
+        if(vertical) {
+            return wx + 2;
+        }
+        return wy + 2;
+    }
+
+    private method int64 crossLength() {
+        int64 n;
+
+        if(vertical) {
+            n = ww - 4;
+        } else {
+            n = wh - 4;
+        }
+        if(n < 1) {
+            return 1;
+        }
+        return n;
+    }
+
+    method void setVertical(bool value) {
+        vertical = value;
+        dragging = false;
+        over = false;
+        wdirty = true;
+    }
+
+    method bool isVertical() {
+        return vertical;
+    }
+
+    method void setRange(int64 low, int64 high, int64 page) {
+        smin = low;
+        smax = high;
+        if(smax < smin) {
+            smax = smin;
+        }
+        spage = page;
+        if(spage < 1) {
+            spage = 1;
+        }
+        setValue(sval);
+        wdirty = true;
+    }
+
+    method void setValue(int64 value) {
+        sval = clamp(value, smin, smax);
+        wdirty = true;
+    }
+
+    method bool scrollBy(int64 delta) {
+        int64 old;
+
+        old = sval;
+        setValue(sval + delta);
+        return old != sval;
+    }
+
+    method bool pageBackward() {
+        return scrollBy(0 - spage);
+    }
+
+    method bool pageForward() {
+        return scrollBy(spage);
+    }
+
+    method int64 value() {
+        return sval;
+    }
+
+    method int64 minimum() {
+        return smin;
+    }
+
+    method int64 maximum() {
+        return smax;
+    }
+
+    method int64 pageSize() {
+        return spage;
+    }
+
+    method bool isDragging() {
+        return dragging;
+    }
+
+    method bool hovered() {
+        return over;
+    }
+
+    method int64 thumbLength() {
+        int64 track;
+        int64 range;
+        int64 n;
+
+        track = innerLength();
+        if(track <= 0) {
+            return 0;
+        }
+        range = smax - smin;
+        if(range <= 0) {
+            return track;
+        }
+        n = (spage * track) / (range + spage);
+        if(n < 8) {
+            n = 8;
+        }
+        if(n > track) {
+            n = track;
+        }
+        return n;
+    }
+
+    method int64 thumbStart() {
+        int64 track;
+        int64 thumb;
+        int64 span;
+        int64 range;
+
+        track = innerLength();
+        thumb = thumbLength();
+        span = track - thumb;
+        range = smax - smin;
+        if(track <= 0 || thumb <= 0 || span <= 0 || range <= 0) {
+            return trackStart();
+        }
+        return trackStart() + ((sval - smin) * span) / range;
+    }
+
+    method int64 thumbEnd() {
+        return thumbStart() + thumbLength();
+    }
+
+    method bool thumbContains(int64 x, int64 y) {
+        int64 a;
+        int64 c;
+        int64 start;
+        int64 end;
+
+        if(!(wshown && wenabled && x >= wx && x < wx + ww && y >= wy && y < wy + wh)) {
+            return false;
+        }
+        a = axisPosition(x, y);
+        c = crossPosition(x, y);
+        start = thumbStart();
+        end = thumbEnd();
+        return a >= start && a < end && c >= crossStart() && c < crossStart() + crossLength();
+    }
+
+    private method int64 valueForStart(int64 start) {
+        int64 track;
+        int64 thumb;
+        int64 span;
+        int64 range;
+        int64 rel;
+
+        track = innerLength();
+        thumb = thumbLength();
+        span = track - thumb;
+        range = smax - smin;
+        if(track <= 0 || thumb <= 0 || span <= 0 || range <= 0) {
+            return smin;
+        }
+        rel = clamp(start - trackStart(), 0, span);
+        return smin + (rel * range) / span;
+    }
+
+    method bool contains(int64 x, int64 y) {
+        return wshown && wenabled && x >= wx && x < wx + ww && y >= wy && y < wy + wh;
+    }
+
+    method bool capturesMouse() {
+        return dragging;
+    }
+
+    method bool handleMouse(int64 x, int64 y, int64 buttons) {
+        int64 old;
+        int64 axis;
+
+        old = sval;
+        if(!wshown || !wenabled) {
+            return false;
+        }
+        if((buttons & 8) != 0) {
+            if(!(wshown && wenabled && x >= wx && x < wx + ww && y >= wy && y < wy + wh)) {
+                return false;
+            }
+            dragging = false;
+            over = true;
+            scrollBy(-1);
+            return old != sval;
+        }
+        if((buttons & 16) != 0) {
+            if(!(wshown && wenabled && x >= wx && x < wx + ww && y >= wy && y < wy + wh)) {
+                return false;
+            }
+            dragging = false;
+            over = true;
+            scrollBy(1);
+            return old != sval;
+        }
+        if(buttons == 0) {
+            if(dragging || over) {
+                dragging = false;
+                over = wshown && wenabled && x >= wx && x < wx + ww && y >= wy && y < wy + wh;
+                wdirty = true;
+                return true;
+            }
+            return false;
+        }
+        if((buttons & 1) == 0) {
+            return false;
+        }
+        if(!dragging && !(wshown && wenabled && x >= wx && x < wx + ww && y >= wy && y < wy + wh)) {
+            over = false;
+            return false;
+        }
+        axis = axisPosition(x, y);
+        if(!dragging) {
+            dragging = true;
+            if(thumbContains(x, y)) {
+                dragOffset = axis - thumbStart();
+                over = true;
+                wdirty = true;
+                return true;
+            } else {
+                dragOffset = thumbLength() / 2;
+            }
+        }
+        setValue(valueForStart(axis - dragOffset));
+        over = true;
+        wdirty = true;
+        return old != sval || dragging;
+    }
+
+    method bool handleKey(int64 key) {
+        if(key == 'k' || key == 'h') {
+            return scrollBy(-1);
+        }
+        if(key == 'j' || key == 'l') {
+            return scrollBy(1);
+        }
+        if(key == 'u') {
+            return pageBackward();
+        }
+        if(key == 'd') {
+            return pageForward();
+        }
+        return false;
+    }
+
+    method bool draw(DrawCanvas canvas) {
+        int64 tx;
+        int64 ty;
+        int64 tw;
+        int64 th;
+        int64 color;
+
+        if(!wshown || !canvas.ready()) {
+            return false;
+        }
+        canvas.fillRect(wx, wy, ww, wh, wbg);
+        canvas.borderRect(wx, wy, ww, wh, wedge);
+        if(dragging) {
+            color = thumbDownColor;
+        } else if(over || wfocused) {
+            color = thumbHotColor;
+        } else {
+            color = thumbColor;
+        }
+        if(vertical) {
+            tx = crossStart();
+            ty = thumbStart();
+            tw = crossLength();
+            th = thumbLength();
+        } else {
+            tx = thumbStart();
+            ty = crossStart();
+            tw = thumbLength();
+            th = crossLength();
+        }
+        if(tw > 0 && th > 0) {
+            canvas.fillRect(tx, ty, tw, th, color);
+            canvas.borderRect(tx, ty, tw, th, wfg);
+        }
+        wdirty = false;
+        wlayoutdirty = false;
+        return true;
+    }
+
+    method bool drawFrame(DrawFrame frame) {
+        int64 tx;
+        int64 ty;
+        int64 tw;
+        int64 th;
+        int64 color;
+
+        if(!wshown) {
+            return false;
+        }
+        frame.fillRect(wx, wy, ww, wh, wbg);
+        frame.borderRect(wx, wy, ww, wh, wedge);
+        if(dragging) {
+            color = thumbDownColor;
+        } else if(over || wfocused) {
+            color = thumbHotColor;
+        } else {
+            color = thumbColor;
+        }
+        if(vertical) {
+            tx = crossStart();
+            ty = thumbStart();
+            tw = crossLength();
+            th = thumbLength();
+        } else {
+            tx = thumbStart();
+            ty = crossStart();
+            tw = thumbLength();
+            th = crossLength();
+        }
+        if(tw > 0 && th > 0) {
+            frame.fillRect(tx, ty, tw, th, color);
+            frame.borderRect(tx, ty, tw, th, wfg);
+        }
+        wdirty = false;
+        wlayoutdirty = false;
+        return true;
+    }
+}
+
+class DrawScrollText {
+    DrawWidget;
+    prop DrawTextView view;
+    prop DrawScrollbar vertical;
+    prop DrawScrollbar horizontal;
+    prop int64 barSize;
+    prop bool wrapped;
+
+    method DrawScrollText(string text, int64 x, int64 y, int64 width, int64 height) {
+        super(x, y, width, height);
+        barSize = 18;
+        view = new DrawTextView(text, x, y, width - barSize, height - barSize);
+        vertical = new DrawScrollbar(x + width - barSize, y, barSize, height - barSize);
+        horizontal = new DrawScrollbar(x, y + height - barSize, width - barSize, barSize);
+        horizontal.setVertical(false);
+        wrapped = true;
+        wbg = 0x182838;
+        wfg = 0xffffff;
+        wedge = 0xe0c040;
+        wfocusable = true;
+        wrole = "scrolltext";
+        relayout();
+        vertical.setRange(0, 0, 1);
+        horizontal.setRange(0, 0, 1);
+    }
+
+    private method int64 innerWidth() {
+        int64 n;
+
+        n = ww - barSize;
+        if(n < 1) {
+            return 1;
+        }
+        return n;
+    }
+
+    private method int64 innerHeight() {
+        int64 n;
+
+        n = wh - barSize;
+        if(n < 1) {
+            return 1;
+        }
+        return n;
+    }
+
+    private method void relayout() {
+        view.position(wx, wy);
+        view.size(innerWidth(), innerHeight());
+        vertical.position(wx + innerWidth(), wy);
+        vertical.size(barSize, innerHeight());
+        vertical.setVertical(true);
+        horizontal.position(wx, wy + innerHeight());
+        horizontal.size(innerWidth(), barSize);
+        horizontal.setVertical(false);
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    private method void syncBars() {
+        view.setOffset(view.firstVisibleLine(), view.firstVisibleColumn());
+        vertical.setRange(0, view.maxFirstLine(), view.pageLines());
+        vertical.setValue(view.firstVisibleLine());
+        horizontal.setRange(0, view.maxFirstColumn(), view.visibleColumns());
+        horizontal.setValue(view.firstVisibleColumn());
+        wdirty = true;
+    }
+
+    private method bool applyBars() {
+        int64 oldRow;
+        int64 oldColumn;
+
+        oldRow = view.firstVisibleLine();
+        oldColumn = view.firstVisibleColumn();
+        view.setOffset(vertical.value(), horizontal.value());
+        syncBars();
+        return oldRow != view.firstVisibleLine() || oldColumn != view.firstVisibleColumn();
+    }
+
+    method string text() {
+        return view.text();
+    }
+
+    method void setText(string text) {
+        view.setText(text);
+        syncBars();
+    }
+
+    method void setWrap(bool value) {
+        wrapped = value;
+        view.setWrap(value);
+        syncBars();
+    }
+
+    method bool wrap() {
+        return wrapped;
+    }
+
+    method void position(int64 x, int64 y) {
+        wx = x;
+        wy = y;
+        relayout();
+        syncBars();
+    }
+
+    method void size(int64 width, int64 height) {
+        ww = width;
+        wh = height;
+        wprefw = width;
+        wprefh = height;
+        relayout();
+        syncBars();
+    }
+
+    method void color(int64 background, int64 foreground) {
+        wbg = background;
+        wfg = foreground;
+        view.color(background, foreground);
+        vertical.color(background, foreground);
+        horizontal.color(background, foreground);
+        wdirty = true;
+    }
+
+    method void border(int64 rgb) {
+        wedge = rgb;
+        view.border(rgb);
+        vertical.border(rgb);
+        horizontal.border(rgb);
+        wdirty = true;
+    }
+
+    method void grid(int64 rgb) {
+        view.grid(rgb);
+        wdirty = true;
+    }
+
+    method void setLineHeight(int64 height) {
+        view.setLineHeight(height);
+        syncBars();
+    }
+
+    method int64 firstVisibleLine() {
+        return view.firstVisibleLine();
+    }
+
+    method int64 firstVisibleColumn() {
+        return view.firstVisibleColumn();
+    }
+
+    method int64 rows() {
+        return view.rows();
+    }
+
+    method int64 maxFirstLine() {
+        return view.maxFirstLine();
+    }
+
+    method int64 maxFirstColumn() {
+        return view.maxFirstColumn();
+    }
+
+    method int64 visibleLines() {
+        return view.visibleLines();
+    }
+
+    method int64 visibleColumns() {
+        return view.visibleColumns();
+    }
+
+    method void setOffset(int64 row, int64 column) {
+        view.setOffset(row, column);
+        syncBars();
+    }
+
+    method bool scrollLines(int64 delta) {
+        bool changed;
+
+        changed = view.scrollLines(delta);
+        syncBars();
+        return changed;
+    }
+
+    method bool scrollColumns(int64 delta) {
+        bool changed;
+
+        changed = view.scrollColumns(delta);
+        syncBars();
+        return changed;
+    }
+
+    method bool contains(int64 x, int64 y) {
+        return wshown && wenabled && x >= wx && x < wx + ww && y >= wy && y < wy + wh;
+    }
+
+    method bool capturesMouse() {
+        return vertical.capturesMouse() || horizontal.capturesMouse();
+    }
+
+    method bool handleMouse(int64 x, int64 y, int64 buttons) {
+        bool changed;
+
+        syncBars();
+        changed = false;
+        if((buttons & 8) != 0) {
+            if(!(wshown && wenabled && x >= wx && x < wx + ww && y >= wy && y < wy + wh)) {
+                return false;
+            }
+            changed = vertical.scrollBy(-1);
+        } else if((buttons & 16) != 0) {
+            if(!(wshown && wenabled && x >= wx && x < wx + ww && y >= wy && y < wy + wh)) {
+                return false;
+            }
+            changed = vertical.scrollBy(1);
+        } else if(vertical.capturesMouse() || vertical.contains(x, y)) {
+            changed = vertical.handleMouse(x, y, buttons);
+        } else if(horizontal.capturesMouse() || horizontal.contains(x, y)) {
+            changed = horizontal.handleMouse(x, y, buttons);
+        } else if(wshown && wenabled && x >= wx && x < wx + ww && y >= wy && y < wy + wh) {
+            changed = buttons > 0;
+        }
+        if(applyBars()) {
+            changed = true;
+        }
+        if(changed) {
+            wdirty = true;
+        }
+        return changed;
+    }
+
+    method bool handleKey(int64 key) {
+        bool changed;
+
+        syncBars();
+        changed = false;
+        if(key == 'k') {
+            changed = vertical.scrollBy(-1);
+        } else if(key == 'j') {
+            changed = vertical.scrollBy(1);
+        } else if(key == 'u') {
+            changed = vertical.pageBackward();
+        } else if(key == 'd') {
+            changed = vertical.pageForward();
+        } else if(key == 'h') {
+            changed = horizontal.scrollBy(-1);
+        } else if(key == 'l') {
+            changed = horizontal.scrollBy(1);
+        }
+        if(applyBars()) {
+            changed = true;
+        }
+        if(changed) {
+            wdirty = true;
+        }
+        return changed;
+    }
+
+    method bool draw(DrawCanvas canvas) {
+        if(!wshown || !canvas.ready()) {
+            return false;
+        }
+        syncBars();
+        view.draw(canvas);
+        vertical.draw(canvas);
+        horizontal.draw(canvas);
+        wdirty = false;
+        wlayoutdirty = false;
+        return true;
+    }
+
+    method bool drawFrame(DrawFrame frame) {
+        if(!wshown) {
+            return false;
+        }
+        syncBars();
+        view.drawFrame(frame);
+        vertical.drawFrame(frame);
+        horizontal.drawFrame(frame);
+        wdirty = false;
+        wlayoutdirty = false;
+        return true;
+    }
+}
+
+class DrawPanel {
+    DrawWidget;
+    prop List<DrawWidget> children;
+    prop Tabula routes;
+    prop int64 focusSlot;
+    prop bool paintBackground;
+    prop bool routesDirty;
+
+    method DrawPanel(int64 x, int64 y, int64 width, int64 height) {
+        super(x, y, width, height);
+        routes = new Tabula("draw_routes", "slot,type,x,y,w,h,z,visible,enabled,focusable,focused,dirty,action");
+        focusSlot = -1;
+        paintBackground = false;
+        routesDirty = true;
+        wbg = 0x203040;
+        wfg = 0xffffff;
+        wedge = 0x203040;
+        wrole = "panel";
+    }
+
+    method bool add(DrawWidget child) {
+        children.Add(child);
+        routesDirty = true;
+        wdirty = true;
+        return true;
+    }
+
+    method int64 count() {
+        return children.Length();
+    }
+
+    method bool valid(int64 index) {
+        return index >= 0 && index < count();
+    }
+
+    method void backgroundVisible(bool value) {
+        paintBackground = value;
+        wdirty = true;
+    }
+
+    private method string numberText(int64 value) {
+        Task<string> t;
+
+        t = spawn DrawIntTextRaw(value);
+        return t.await();
+    }
+
+    private method int64 parseNumber(string value) {
+        Task<int64> t;
+
+        t = spawn DrawParseIntRaw(value);
+        return t.await();
+    }
+
+    private method string flag(bool value) {
+        if(value) {
+            return "1";
+        }
+        return "0";
+    }
+
+    private method string routeId(int64 index) {
+        return numberText(index);
+    }
+
+    private method void syncRoute(int64 index) {
+        string id;
+        DrawWidget child;
+
+        if(valid(index)) {
+            id = routeId(index);
+            child = children[index];
+            routes.write(id, "slot", id);
+            routes.write(id, "type", child.role());
+            routes.write(id, "x", numberText(child.x()));
+            routes.write(id, "y", numberText(child.y()));
+            routes.write(id, "w", numberText(child.width()));
+            routes.write(id, "h", numberText(child.height()));
+            routes.write(id, "z", numberText(index));
+            routes.write(id, "visible", flag(child.visible()));
+            routes.write(id, "enabled", flag(child.isEnabled()));
+            routes.write(id, "focusable", flag(child.focusable()));
+            routes.write(id, "focused", flag(child.focused()));
+            routes.write(id, "dirty", flag(child.isDirty()));
+            routes.write(id, "action", child.action());
+        }
+    }
+
+    private method void syncRoutes() {
+        int64 i;
+
+        i = 0;
+        while(i < count()) {
+            syncRoute(i);
+            i = i + 1;
+        }
+        routesDirty = false;
+    }
+
+    method string routeTable() {
+        if(routesDirty) {
+            syncRoutes();
+        }
+        return routes.read();
+    }
+
+    method bool isDirty() {
+        int64 i;
+        DrawWidget child;
+
+        if(!wreactive) {
+            return false;
+        }
+        if(wdirty || wlayoutdirty) {
+            return true;
+        }
+        i = 0;
+        while(i < count()) {
+            child = children[i];
+            if(child.isDirty() || child.needsLayout()) {
+                return true;
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    method void clearDirty() {
+        int64 i;
+        DrawWidget child;
+
+        wdirty = false;
+        i = 0;
+        while(i < count()) {
+            child = children[i];
+            child.clearDirty();
+            child.clearLayout();
+            i = i + 1;
+        }
+        routesDirty = true;
+        wlayoutdirty = false;
+    }
+
+    method int64 focusIndex() {
+        return focusSlot;
+    }
+
+    method void setFocus(int64 index) {
+        int64 i;
+        DrawWidget child;
+
+        focusSlot = -1;
+        i = 0;
+        while(i < count()) {
+            child = children[i];
+            if(i == index && child.focusable()) {
+                child.setFocused(true);
+                focusSlot = i;
+            } else {
+                child.setFocused(false);
+            }
+            i = i + 1;
+        }
+        routesDirty = true;
+        wdirty = true;
+    }
+
+    method void clearFocus() {
+        setFocus(-1);
+    }
+
+    method int64 hitIndex(int64 x, int64 y) {
+        int64 i;
+        DrawWidget child;
+
+        i = count() - 1;
+        while(i >= 0) {
+            child = children[i];
+            if(child.visible() && child.isEnabled() && child.contains(x, y)) {
+                return i;
+            }
+            i = i - 1;
+        }
+        return -1;
+    }
+
+    method bool routeMouse(int64 x, int64 y, int64 buttons) {
+        int64 index;
+        DrawWidget child;
+        bool changed;
+
+        if(valid(focusSlot)) {
+            child = children[focusSlot];
+            if(child.capturesMouse()) {
+                changed = child.handleMouse(x, y, buttons);
+                if(changed || child.isDirty()) {
+                    routesDirty = true;
+                    wdirty = true;
+                    return true;
+                }
+                return false;
+            }
+        }
+
+        index = hitIndex(x, y);
+        if(index < 0) {
+            if(buttons > 0) {
+                clearFocus();
+                return true;
+            }
+            return false;
+        }
+
+        child = children[index];
+        if(buttons > 0 && child.focusable()) {
+            setFocus(index);
+        }
+        changed = child.handleMouse(x, y, buttons);
+        if(changed || child.isDirty()) {
+            routesDirty = true;
+            wdirty = true;
+            return true;
+        }
+        return false;
+    }
+
+    method bool routeKey(int64 key) {
+        DrawWidget child;
+        bool changed;
+
+        if(!valid(focusSlot)) {
+            return false;
+        }
+        child = children[focusSlot];
+        changed = child.handleKey(key);
+        if(changed || child.isDirty()) {
+            routesDirty = true;
+            wdirty = true;
+            return true;
+        }
+        return false;
+    }
+
+    method void layoutVertical(int64 padding, int64 spacing) {
+        int64 i;
+        int64 ycur;
+        int64 innerw;
+        DrawWidget child;
+
+        ycur = wy + padding;
+        innerw = ww - padding - padding;
+        if(innerw < 0) {
+            innerw = 0;
+        }
+
+        i = 0;
+        while(i < count()) {
+            child = children[i];
+            child.position(wx + padding, ycur);
+            child.size(innerw, child.height());
+            child.clearLayout();
+            ycur = ycur + child.height() + spacing;
+            i = i + 1;
+        }
+        routesDirty = true;
+        wlayoutdirty = false;
+        wdirty = true;
+    }
+
+    method void layoutHorizontal(int64 padding, int64 spacing) {
+        int64 i;
+        int64 xcur;
+        int64 innerh;
+        DrawWidget child;
+
+        xcur = wx + padding;
+        innerh = wh - padding - padding;
+        if(innerh < 0) {
+            innerh = 0;
+        }
+
+        i = 0;
+        while(i < count()) {
+            child = children[i];
+            child.position(xcur, wy + padding);
+            child.size(child.width(), innerh);
+            child.clearLayout();
+            xcur = xcur + child.width() + spacing;
+            i = i + 1;
+        }
+        routesDirty = true;
+        wlayoutdirty = false;
+        wdirty = true;
+    }
+
+    method void layoutFlow(int64 padding, int64 spacing) {
+        int64 i;
+        int64 xcur;
+        int64 ycur;
+        int64 rowh;
+        int64 innerw;
+        int64 limit;
+        int64 cw;
+        int64 ch;
+        DrawWidget child;
+
+        innerw = ww - padding - padding;
+        if(innerw < 0) {
+            innerw = 0;
+        }
+        limit = wx + padding + innerw;
+        xcur = wx + padding;
+        ycur = wy + padding;
+        rowh = 0;
+
+        i = 0;
+        while(i < count()) {
+            child = children[i];
+            cw = child.width();
+            ch = child.height();
+            if(cw > innerw) {
+                cw = innerw;
+            }
+            if(xcur > wx + padding && xcur + cw > limit) {
+                xcur = wx + padding;
+                ycur = ycur + rowh + spacing;
+                rowh = 0;
+            }
+            child.position(xcur, ycur);
+            child.size(cw, ch);
+            child.clearLayout();
+            xcur = xcur + cw + spacing;
+            if(ch > rowh) {
+                rowh = ch;
+            }
+            i = i + 1;
+        }
+        routesDirty = true;
+        wlayoutdirty = false;
+        wdirty = true;
+    }
+
+    method bool draw(DrawCanvas canvas) {
+        int64 i;
+        DrawWidget child;
+
+        if(!wshown || !canvas.ready()) {
+            return false;
+        }
+        if(paintBackground) {
+            canvas.fillRect(wx, wy, ww, wh, wbg);
+            canvas.borderRect(wx, wy, ww, wh, wedge);
+        }
+
+        i = 0;
+        while(i < count()) {
+            child = children[i];
+            child.draw(canvas);
+            child.clearDirty();
+            child.clearLayout();
+            i = i + 1;
+        }
+        routesDirty = true;
+        wdirty = false;
+        wlayoutdirty = false;
+        return true;
+    }
+
+    method bool drawFrame(DrawFrame frame) {
+        int64 i;
+        DrawWidget child;
+
+        if(!wshown) {
+            return false;
+        }
+        if(paintBackground) {
+            frame.fillRect(wx, wy, ww, wh, wbg);
+            frame.borderRect(wx, wy, ww, wh, wedge);
+        }
+
+        i = 0;
+        while(i < count()) {
+            child = children[i];
+            child.drawFrame(frame);
+            child.clearDirty();
+            child.clearLayout();
+            i = i + 1;
+        }
+        routesDirty = true;
+        wdirty = false;
+        wlayoutdirty = false;
+        return true;
+    }
+}
+
+class DrawWindow {
+    prop string label;
+    prop int64 w;
+    prop int64 h;
+    prop int64 bg;
+    prop int64 fg;
+    prop bool live;
+    prop bool autoRepaint;
+    prop DrawCanvas surface;
+    prop DrawFrame frame;
+    prop DrawEventLoop loop;
+    prop DrawPanel root;
+
+    method DrawWindow(string title, int64 width, int64 height) {
+        label = title;
+        w = width;
+        h = height;
+        bg = 0x203040;
+        fg = 0xe0c040;
+        live = false;
+        autoRepaint = true;
+        surface = new DrawCanvas();
+        frame = new DrawFrame();
+        loop = new DrawEventLoop();
+        root = new DrawPanel(0, 0, width, height);
+        root.color(bg, 0xffffff);
+        root.border(bg);
+    }
+
+    method string title() {
+        return label;
+    }
+
+    method int64 width() {
+        return w;
+    }
+
+    method int64 height() {
+        return h;
+    }
+
+    method void resize(int64 width, int64 height) {
+        w = width;
+        h = height;
+        root.size(width, height);
+    }
+
+    method void background(int64 rgb) {
+        bg = rgb;
+        root.color(rgb, root.foreground());
+    }
+
+    method void accent(int64 rgb) {
+        fg = rgb;
+    }
+
+    method void setReactive(bool value) {
+        autoRepaint = value;
+    }
+
+    method bool reactive() {
+        return autoRepaint;
+    }
+
+    method bool open() {
+        Task<int64> t = spawn DrawCanvasOpenRaw(label, w, h);
+        live = t.await() > 0;
+        if(live) {
+            surface.attach(1);
+            loop.start();
+        }
+        return live;
+    }
+
+    method bool close() {
+        Task<int64> t;
+
+        if(!live) {
+            return false;
+        }
+        t = spawn DrawCanvasCloseRaw(surface.id());
+        live = false;
+        surface.attach(0);
+        return t.await() > 0;
+    }
+
+    method bool isOpen() {
+        return live;
+    }
+
+    method int64 canvasId() {
+        return surface.id();
+    }
+
+    method DrawCanvas canvas() {
+        return surface;
+    }
+
+    method DrawEventLoop events() {
+        return loop;
+    }
+
+    method void bindCanvas(DrawCanvas canvas) {
+        canvas.attach(surface.id());
+    }
+
+    method bool add(DrawWidget widget) {
+        root.add(widget);
+        if(live && autoRepaint) {
+            update();
+        }
+        return true;
+    }
+
+    method int64 widgets() {
+        return root.count();
+    }
+
+    method bool needsRepaint() {
+        return root.isDirty();
+    }
+
+    method bool repaint() {
+        if(!live) {
+            return false;
+        }
+        frame.reset(bg);
+        root.drawFrame(frame);
+        return frame.flush(surface);
+    }
+
+    method bool update() {
+        if(!live) {
+            return false;
+        }
+        if(root.isDirty()) {
+            return repaint();
+        }
+        return false;
+    }
+
+    method bool routeEvent() {
+        bool changed;
+        bool needs;
+
+        changed = false;
+        if(cmp(loop.eventType(), "mouse") == 0) {
+            changed = root.routeMouse(loop.eventX(), loop.eventY(), loop.eventButtons());
+        }
+        if(cmp(loop.eventType(), "key") == 0) {
+            changed = root.routeKey(loop.eventKey());
+        }
+        if(cmp(loop.eventType(), "resize") == 0) {
+            changed = true;
+        }
+        needs = changed || root.isDirty();
+        if(autoRepaint && needs) {
+            update();
+        }
+        return needs;
+    }
+
+    method int64 nextRoutedEvent() {
+        int64 kind;
+
+        kind = nextEvent();
+        if(kind > 0) {
+            routeEvent();
+        }
+        return kind;
+    }
+
+    method void focus(int64 index) {
+        root.setFocus(index);
+    }
+
+    method int64 focusIndex() {
+        return root.focusIndex();
+    }
+
+    method void layoutVertical(int64 padding, int64 spacing) {
+        root.layoutVertical(padding, spacing);
+        if(live && autoRepaint) {
+            update();
+        }
+    }
+
+    method void layoutHorizontal(int64 padding, int64 spacing) {
+        root.layoutHorizontal(padding, spacing);
+        if(live && autoRepaint) {
+            update();
+        }
+    }
+
+    method void layoutFlow(int64 padding, int64 spacing) {
+        root.layoutFlow(padding, spacing);
+        if(live && autoRepaint) {
+            update();
+        }
+    }
+
+    method int64 poll() {
+        int64 code;
+        int64 kind;
+        int64 buttons;
+        int64 x;
+        int64 y;
+        int64 key;
+
+        code = surface.readEventCode();
+        kind = code & 15;
+        if(kind == 1) {
+            buttons = (code >> 4) & 255;
+            x = (code >> 28) & 262143;
+            y = (code >> 46) & 262143;
+            loop.mouse(x, y, buttons);
+            return 1;
+        }
+        if(kind == 2) {
+            key = (code >> 12) & 65535;
+            loop.key(key);
+            return 2;
+        }
+        if(kind == 3) {
+            x = (code >> 28) & 262143;
+            y = (code >> 46) & 262143;
+            resize(x, y);
+            loop.resize(x, y);
+            return 3;
+        }
+        return 0;
+    }
+
+    method int64 nextEvent() {
+        int64 kind;
+
+        if(autoRepaint) {
+            update();
+        }
+        kind = poll();
+        if(kind == 0) {
+            return 0;
+        }
+        kind = loop.next();
+        if(kind == 3 && autoRepaint) {
+            update();
+        }
+        return kind;
+    }
+
+    method bool clear() {
+        return surface.clear(bg);
+    }
+
+    method bool flush() {
+        return surface.flush();
+    }
+
+    method string eventType() {
+        return loop.eventType();
+    }
+
+    method int64 eventX() {
+        return loop.eventX();
+    }
+
+    method int64 eventY() {
+        return loop.eventY();
+    }
+
+    method int64 eventButtons() {
+        return loop.eventButtons();
+    }
+
+    method int64 eventKey() {
+        return loop.eventKey();
+    }
+
+    method int64 eventWidth() {
+        return loop.eventWidth();
+    }
+
+    method int64 eventHeight() {
+        return loop.eventHeight();
+    }
+
+    method bool snapshot(string path) {
+        Task<int64> t = spawn DrawSnapshotRaw(path, w, h, bg, fg);
+        return t.await() > 0;
+    }
+
+    method bool snapshotPng(string path) {
+        string image;
+        int64 ok;
+        Task<int64> snap;
+        Task<int64> png;
+        Task<int64> rm;
+
+        image = cat(path, ".img");
+        snap = spawn DrawSnapshotRaw(image, w, h, bg, fg);
+        if(snap.await() <= 0) {
+            return false;
+        }
+        png = spawn DrawToPngRaw(image, path);
+        ok = png.await();
+        rm = spawn DrawRemoveRaw(image);
+        rm.await();
+        return ok > 0;
+    }
+
+    method bool show(int64 milliseconds) {
+        Task<int64> t = spawn DrawShowRaw(label, w, h, bg, fg, milliseconds);
+        return t.await() > 0;
+    }
+}
+
+class DrawButtonDemo {
+    prop string label;
+    prop int64 w;
+    prop int64 h;
+    prop int64 bg;
+    prop int64 fg;
+    prop DrawWindow window;
+    prop DrawCanvas canvas;
+    prop DrawButton button;
+    prop DrawLabel status;
+
+    method DrawButtonDemo(string title, int64 width, int64 height) {
+        int64 bw;
+        int64 bh;
+        int64 bx;
+        int64 by;
+
+        label = title;
+        w = width;
+        h = height;
+        bg = 0x203040;
+        fg = 0xe0c040;
+        window = new DrawWindow(title, width, height);
+        canvas = new DrawCanvas();
+
+        bw = w / 3;
+        if(bw < 96) {
+            bw = 96;
+        }
+        if(bw > w - 24) {
+            bw = w - 24;
+        }
+        bh = 32;
+        bx = (w - bw) / 2;
+        by = (h - bh) / 2;
+
+        button = new DrawButton("Click me", bx, by, bw, bh);
+        button.color(0x466080, 0xffffff);
+        button.border(fg);
+        status = new DrawLabel("waiting for click", 16, by - 42, w - 32, 28);
+        status.color(bg, 0xffffff);
+        status.border(bg);
+    }
+
+    method void background(int64 rgb) {
+        bg = rgb;
+        window.background(rgb);
+        status.color(bg, 0xffffff);
+        status.border(bg);
+    }
+
+    method void accent(int64 rgb) {
+        fg = rgb;
+        window.accent(rgb);
+        button.border(fg);
+    }
+
+    method bool show() {
+        int64 kind;
+        bool running;
+
+        window.background(bg);
+        window.accent(fg);
+        if(!window.open()) {
+            return false;
+        }
+        canvas = window.canvas();
+
+        running = true;
+        while(running) {
+            window.clear();
+            status.draw(canvas);
+            button.draw(canvas);
+            window.flush();
+
+            kind = window.nextEvent();
+            if(kind == 1) {
+                button.handleMouse(window.eventX(), window.eventY(), window.eventButtons());
+                if(button.count() > 0) {
+                    status.setText("button clicked");
+                    if(button.pressed()) {
+                        button.setText("Pressed");
+                    } else {
+                        button.setText("Click me");
+                    }
+                }
+            }
+            if(kind == 2) {
+                if(window.eventKey() == 'q' || window.eventKey() == 'Q' || window.eventKey() == 0x1B || window.eventKey() == 0x7F) {
+                    running = false;
+                }
+            }
+        }
+
+        window.close();
+        return true;
+    }
+}
+
+class DrawVisualProbe {
+    prop DrawWindow window;
+    prop int64 lx;
+    prop int64 ly;
+    prop DrawButton button;
+    prop DrawEventLoop loop;
+
+    method DrawVisualProbe(string title, int64 width, int64 height) {
         int64 barh;
         int64 bw;
         int64 bh;
         int64 bx0;
         int64 by0;
 
-        lx = x;
-        ly = y;
-        loop.mouse(x, y, 1);
-        barh = window.height() / 6;
+        window = new DrawWindow(title, width, height);
+        lx = -1;
+        ly = -1;
+        barh = height / 6;
         if(barh < 8) {
             barh = 8;
         }
-        if(barh > window.height()) {
-            barh = window.height();
+        if(barh > height) {
+            barh = height;
         }
-        bw = window.width() / 2;
-        bh = window.height() / 4;
+        bw = width / 2;
+        bh = height / 4;
         if(bw < 24) {
             bw = 24;
         }
         if(bh < 14) {
             bh = 14;
         }
-        if(bw > window.width() - 8) {
-            bw = window.width() - 8;
+        if(bw > width - 8) {
+            bw = width - 8;
         }
-        if(bh > window.height() - barh - 8) {
-            bh = window.height() - barh - 8;
+        if(bh > height - barh - 8) {
+            bh = height - barh - 8;
         }
-        bx0 = (window.width() - bw) / 2;
-        by0 = barh + (window.height() - barh - bh) / 2;
-        if(x >= bx0 && x < bx0 + bw && y >= by0 && y < by0 + bh) {
-            clicks = clicks + 1;
-            down = !down;
-            return true;
-        }
-        down = false;
-        return false;
+        bx0 = (width - bw) / 2;
+        by0 = barh + (height - barh - bh) / 2;
+        button = new DrawButton("probe", bx0, by0, bw, bh);
+        loop = new DrawEventLoop();
+        loop.start();
+    }
+
+    method int64 count() {
+        return button.count();
+    }
+
+    method bool pressed() {
+        return button.pressed();
+    }
+
+    method bool click(int64 x, int64 y) {
+        lx = x;
+        ly = y;
+        loop.mouse(x, y, 1);
+        return button.click(x, y);
     }
 
     method int64 nextEvent() {
@@ -680,7 +5316,7 @@ class DrawVisualProbe {
     }
 
     method bool snapshot(string path) {
-        Task<int64> t = spawn DrawProbeSnapshotRaw(path, window.width(), window.height(), 0x203040, 0xe0c040, clicks, lx, ly, down);
+        Task<int64> t = spawn DrawProbeSnapshotRaw(path, window.width(), window.height(), 0x203040, 0xe0c040, button.count(), lx, ly, button.pressed());
         return t.await() > 0;
     }
 
@@ -692,7 +5328,7 @@ class DrawVisualProbe {
         Task<int64> rm;
 
         image = cat(path, ".img");
-        snap = spawn DrawProbeSnapshotRaw(image, window.width(), window.height(), 0x203040, 0xe0c040, clicks, lx, ly, down);
+        snap = spawn DrawProbeSnapshotRaw(image, window.width(), window.height(), 0x203040, 0xe0c040, button.count(), lx, ly, button.pressed());
         if(snap.await() <= 0) {
             return false;
         }

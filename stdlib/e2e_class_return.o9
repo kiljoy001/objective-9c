@@ -1,0 +1,54 @@
+class Child {
+    prop int64 val;
+
+    method Child(int64 n) {
+        val = n;
+    }
+
+    method int64 get() {
+        return val;
+    }
+
+    method void set(int64 n) {
+        val = n;
+    }
+}
+
+class Box {
+    prop Child child;
+
+    method Box() {
+        child = new Child(41);
+    }
+
+    method Child item() {
+        return child;
+    }
+
+    method Child itemSelf() {
+        return item();
+    }
+
+    method void replaceFrom(Box other) {
+        child = other.item();
+    }
+
+    method int64 childValue() {
+        return child.get();
+    }
+}
+
+main {
+    Box b = new Box();
+    Child c = b.item();
+    Child d;
+    Box b2 = new Box();
+
+    print("class-return ", c.get(), "\n");
+    d = b.itemSelf();
+    print("self-return ", d.get(), "\n");
+    c.set(42);
+    print("shared ", b.childValue(), "\n");
+    b2.replaceFrom(b);
+    print("assign-return ", b2.childValue(), "\n");
+}
