@@ -61,7 +61,9 @@ build on both — proof the dual-target approach holds.
    **Law:** the local fast path must faithfully realize the 9P
    semantics — same effect on the same `.tab`, only faster — and must
    never become a literal 9P round-trip for `same`, nor diverge from
-   what a remote caller would see.
+   what a remote caller would see.  The asm tier is documented in
+   [ASM_DISPATCH.md](ASM_DISPATCH.md); it is a cache over local
+   dispatch, not a separate semantic path.
 
 3. **The network carries data only; it is inert on arrival.**  A
    Tabula that crosses the wire is read like any file.  It is never an
@@ -97,8 +99,9 @@ the test that the architecture is coherent:
   **9P/TCP**.  `listener` serves local Tabula exports/imports through the
   app's 9P tree.  Remote objects are rejected; data crosses as `.tab` text and the
   receiver's local code decides what to do.
-- **reference graph** = structs holding fids to other structs (an edge
-  view of the ledger; roadmap C).
+- **object relationships** = names, registry lookup, namespace reachability,
+  and explicit handles passed through local CSP. A stored reference graph
+  was cut; relationships are enacted at call time.
 - **live / REPL** = the struct (state) outlives the code (behavior)
   because they were never the same bytes (roadmap D).
 - **"no rehydration"** = never send the code, only the struct; a struct
@@ -159,8 +162,9 @@ needs to exist first.
   reach (see 9P section) — o9 being compelling to someone who doesn't
   already believe in the substrate.
 
-Order is unambiguous: **A → B → C → D.**  None requires the transmitted
-code / rehydration path that was cut.
+The old A/B/C sequence has converged: A is built, B and C were cut, and
+D remains gated on an honest 9front code-loading story. None requires the
+transmitted code / rehydration path that was cut.
 
 ## Public Data Without Dispatch
 

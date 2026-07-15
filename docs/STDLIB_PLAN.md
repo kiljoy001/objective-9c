@@ -70,6 +70,7 @@ Current application shape:
     methods
     status
     exports/
+    imports/
     <session-id>/
         ctl
         data

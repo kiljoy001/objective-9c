@@ -783,13 +783,13 @@ function rawadd(int64 a) int64 {
           </tr>
           <tr>
             <td class="kw">send</td>
-            <td class="kw-desc">Fire a ctl line at any handle. Code as data.</td>
-            <td class="kw-code">send(handle, "method Counter inc arg0=5");</td>
+            <td class="kw-desc">Fire a ctl line at a local object handle. Code as data.</td>
+            <td class="kw-code">send(counter, "method c inc arg0=5");</td>
           </tr>
           <tr>
             <td class="kw">lookup</td>
-            <td class="kw-desc">Resolve a handle by OID through registry or /srv.</td>
-            <td class="kw-code">lookup(client, "Counter.main");</td>
+            <td class="kw-desc">Resolve a local handle by OID through the process registry.</td>
+            <td class="kw-code">Counter h = lookup("c");</td>
           </tr>
           <tr>
             <td class="kw">serve</td>

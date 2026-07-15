@@ -34,6 +34,9 @@ pipeline, which is what this OS already knows how to compose.
 - The method table (`o9_runtime.c`) proves the pattern: dispatch
   already runs off libtab rows — "the dispatch source of truth".
   This design does for *compile time* what that did for *run time*.
+- `Tabula` is now a first-class runtime-backed o9 type for `.tab` data
+  (`write`, `query`, `read`, `flush`, iteration, and network
+  sync/push). Code-as-table has not been built on top of it yet.
 - libtab files are text: a code table is cat-able, grep-able,
   diff-able, and signable like every other value in the stack.
 
@@ -75,6 +78,8 @@ Two flags beside the existing `-ast`:
   afterward anyway.)
 - `o9c -t < prog.code.tab > prog.c` — skip lexer/parser, rebuild the
   Node graph from rows, then run the normal typecheck + codegen.
+
+These flags are design targets, not current command-line options.
 
 The invariant that makes the whole design testable:
 
@@ -148,9 +153,9 @@ expansion — and removable by deleting one pipeline stage.
 2. **-t**: rows → Node graph (two passes: allocate by id, then link).
    Gate: roundtrip identity over the whole e2e corpus, `mk table-test`.
 3. **expand_secret** as the first macro + e2e case; TUTORIAL section.
-4. Later, if wanted: Tabula as a first-class o9 type (open/iter/set,
-   including on code tables), signed-expansion verification in mk
-   rules, pretty-printer (table → .o9 source) for debugging macros.
+4. Later, if wanted: use the existing `Tabula` object for code-table
+   editing, add signed-expansion verification in mk rules, and build a
+   pretty-printer (table → .o9 source) for debugging macros.
 
 ## Naming: Tabula
 

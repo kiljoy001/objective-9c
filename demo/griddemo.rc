@@ -1,26 +1,49 @@
 #!/bin/rc
 cd /mnt/term/home/scott/Repo/objective-9c
-auth/factotum >[2]/dev/null
+host=babyFileServer.rentonsoftworks.coin
+rcpupid=()
+fn cleanup {
+	if(! ~ $#rcpupid 0)
+		kill $rcpupid >[2]/dev/null
+}
+fn sigexit {
+	cleanup
+}
+if(! test -e /mnt/factotum/ctl)
+	auth/factotum >[2]/dev/null
 echo 'key proto=dp9ik dom=rentonsoftworks.coin user=scott !password=$Master001' > /mnt/factotum/ctl
-./o9c/o9c < o9c/test/demo_grid.o9 > /tmp/demo.c || exit transpile
-6c -FVw -I. -o /tmp/demo.6 /tmp/demo.c || exit 6c
-6l -o $home/tmp/o9demo /tmp/demo.6 libo9.a /$objtype/lib/libndb.a || exit 6l
-echo '=== starting server on babyFileserver:'
-rcpu -h babyFileserver -c 'sleep 25 | /usr/scott/tmp/o9demo' &
+
+./o9c/o9c < demo/demo_grid_provider.o9 > /tmp/o9tabprov.c || exit provider-transpile
+6c -FVw -I. -o /tmp/o9tabprov.6 /tmp/o9tabprov.c || exit provider-6c
+6l -o $home/tmp/o9tabdemo /tmp/o9tabprov.6 libo9.a /$objtype/lib/libndb.a || exit provider-6l
+
+./o9c/o9c < demo/demo_grid_consumer.o9 > /tmp/o9tabcons.c || exit consumer-transpile
+6c -FVw -I. -o /tmp/o9tabcons.6 /tmp/o9tabcons.c || exit consumer-6c
+6l -o /tmp/o9tabcons /tmp/o9tabcons.6 libo9.a /$objtype/lib/libndb.a || exit consumer-6l
+
+echo '=== starting Tabula provider on babyFileserver:'
+cd /
+rm -f /tmp/o9tabdemo_provider.log
+rcpu -h $host -c 'sleep 20 | /mnt/term/usr/scott/tmp/o9tabdemo o9tabdemo' >/tmp/o9tabdemo_provider.log >[2=1] &
+rcpupid=$apid
 sleep 6
-echo '=== importing remote app namespace:'
-rimport babyFileserver /srv /n/bfsrv || exit rimport
-mkdir /n/o9demo >[2]/dev/null
-mount /n/bfsrv/o9.Counter.Counter.app /n/o9demo || exit mount
-ls /n/o9demo
-echo '=== remote status:'
-sed 3q /n/o9demo/status
-echo '=== remote method calls over the wire:'
-sid=`{cat /n/o9demo/clone}
-echo 'method Counter inc arg0=23' > /n/o9demo/$sid/ctl
-echo 'method Counter get' > /n/o9demo/$sid/ctl
-cat /n/o9demo/$sid/data
-echo close > /n/o9demo/$sid/ctl
-echo '=== assembly recipe written by the remote server:'
-cat /n/o9demo/status
+
+echo '=== importing remote /srv namespace:'
+rimport $host /srv /n/bfsrv || exit rimport
+srv=/n/bfsrv/o9.o9tabdemo.o9tabdemo.app
+
+echo '=== local consumer reads remote exports/orders.tab and pushes imports/orders.tab:'
+/tmp/o9tabcons o9tabconsumer $srv || exit consumer-run
+
+echo '=== inspecting provider facade:'
+unmount /n/o9tabdemo >[2]/dev/null
+mkdir /n/o9tabdemo >[2]/dev/null
+mount -c $srv /n/o9tabdemo || exit mount
+ls /n/o9tabdemo
+echo '=== provider exports/orders.tab:'
+cat /n/o9tabdemo/exports/orders.tab
+echo '=== provider imports/orders.tab after push:'
+cat /n/o9tabdemo/imports/orders.tab
+unmount /n/o9tabdemo >[2]/dev/null
+cleanup
 echo demo done

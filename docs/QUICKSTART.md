@@ -141,10 +141,12 @@ The main native checks are:
 mk ast-test
 mk run-test
 mk export-test
+mk tabula-transport-test
 mk session-test
 mk sessreuse-test
 mk ctlargs-test
 mk ctlquote-test
+mk issue-test
 ```
 
 For a full local pass, start with:

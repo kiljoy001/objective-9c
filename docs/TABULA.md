@@ -9,7 +9,7 @@ never actionable on arrival.
 
 ## The four properties
 
-- **Ordered** — rows carry sequence, so a Tabula can hold structure
+- **Ordered** — records carry sequence, so a Tabula can hold structure
   (sequences, trees via parent/seq), not just an unordered bag of
   key-values.
 - **Schematic** — columns are declared and travel *with* the data. A
@@ -18,7 +18,7 @@ never actionable on arrival.
   in a separate file you must already hold. Here the schema is in the
   bytes.)
 - **Loose / user-defined** — you declare the columns. The format
-  imposes no data model: relational when you want rows, tree-shaped
+  imposes no data model: relational when you want records, tree-shaped
   when you want parent/edge/seq, a single sealed cell when you want a
   secret.
 - **Persistent** — the wire form, the at-rest form, and the serialized

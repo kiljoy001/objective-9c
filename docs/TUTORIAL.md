@@ -249,7 +249,7 @@ examples.
 
 ```
 Counter c = new Counter(77);
-Counter h = lookup("c");             // registry first, /srv fallback
+Counter h = lookup("c");             // local registry handle
 print(h.get(), "\n");                // → 77
 ```
 
@@ -263,11 +263,11 @@ send(c, "method c add arg0=2");       // same line as: echo ... > ctl
 print(send(c, "method c get"), "\n"); // reply as text → 42
 ```
 
-Far handles get the raw line written to their ctl file and the data
-file read back verbatim; in-process handles parse it into the same
-selector+frame a compiled call site uses, with the reply formatted by
-the method table's ret column. Construct calls at runtime from
-strings — dispatch is text all the way down.
+`send` is for local object handles. In-process handles parse the text into
+the same selector+frame a compiled call site uses, with the reply formatted
+by the method table's ret column. Across a mounted app facade, use clone
+sessions from the shell or another client. Source-level network data uses
+Tabula `near`/`far`/`listener`, not remote object handles.
 
 ## 8. Your app from the shell — one fileserver, no client code
 
@@ -278,7 +278,7 @@ line (like factotum or plumber, not procfs). A method that ran needs
 `serve()` in `main` to keep the app alive.
 
 ```rc
-mount /srv/o9.Counter.Counter.app /mnt/o9
+mount -c /srv/o9.Counter.Counter.app /mnt/o9
 cat /mnt/o9/status                   # live objects: which classes/instances exist
 cat /mnt/o9/methods                  # the public method surface (private omitted)
 sid=`{cat /mnt/o9/clone}
@@ -297,19 +297,22 @@ and are rejected (pass objects in-process instead).
 
 The root files: `clone` (allocate a conversation), `status` (service
 state), `methods` (the public API — this *is* the contract, generated
-from the actual public methods, so it never drifts), and `exports/` (a
-dir where objects can publish `.tab` data files). Each session directory
-has its own `ctl`, `data`, and `status`.
+from the actual public methods, so it never drifts), `exports/` (app-owned
+published `.tab` data), and `imports/` (inert inbound `.tab` deposits).
+Each session directory has its own `ctl`, `data`, and `status`.
 
-A public method **is** the network API — no REST/gRPC/schema layer to
-author. The shell, a script, another o9 program, and a remote machine
-all call it the same way: allocate a session, write text to its `ctl`,
-then read that session's `status`/`data`. (e2e_twoclass.o9 serves two
-classes as peers from one post; session tests prove outside processes
-drive it over real 9P without sharing result buffers.)
+A public method is an explicit app-facade command — no REST/gRPC/schema
+layer to author. The shell, a script, another o9 program, and a remote
+machine all call it the same way: allocate a session, write text to its
+`ctl`, then read that session's `status`/`data`. Source-level `near` and
+`far` still move Tabula data only; they do not create remote object
+handles. (e2e_twoclass.o9 serves two classes as peers from one post;
+session tests prove outside processes drive it over real 9P without
+sharing result buffers.)
 
 Across machines it's the same, plus one import
-(demo/TWO_MACHINE_DEMO.md): `rimport host /srv /n/x` then mount.
+(demo/TWO_MACHINE_DEMO.md): `rimport host /srv /n/x`, then use `near Tabula`
+to read `exports/` and `push()` to deposit data into `imports/`.
 
 ### Inspecting live state — debug only
 
@@ -322,7 +325,7 @@ Off by default, encapsulation is preserved:
 
 ```rc
 O9DEBUG=1 /tmp/myapp &
-mount /srv/o9.Counter.Counter.app /mnt/o9
+mount -c /srv/o9.Counter.Counter.app /mnt/o9
 cat /mnt/o9/state                    # metadata + live state (debug only)
 ```
 
@@ -359,4 +362,5 @@ data without making mounted data executable.
    `delete` it and watch the destructor fire.
 3. `Box<string>` holding `readline()` input, echoed back via a
    `lookup`-resolved handle.
-4. Re-run demo/TWO_MACHINE_DEMO.md, but drive *your* Stack remotely.
+4. Re-run demo/TWO_MACHINE_DEMO.md, but publish your own `.tab` data and
+   push an inert response back into `imports/`.

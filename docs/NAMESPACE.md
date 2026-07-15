@@ -17,9 +17,9 @@ o9 changed architectures partway through, and a feature was left behind:
   mechanism — it built the app.
 - **SHIPPED model (the facade):** an app is ONE fileserver in a fixed
   SHAPE that exports a schema of virtual files — flat `/srv/o9.<app>`
-  with ctl/data/status/methods/clone/exports/. Objects live INSIDE it as
-  named participants addressed through ctl, NOT as mountable parts. The
-  app is a shape, not an assembly.
+  with ctl/data/status/methods/clone/exports/imports. Objects live INSIDE
+  it as named participants addressed through ctl, NOT as mountable parts.
+  The app is a shape, not an assembly.
 
 The facade replaced namespace-composition-of-objects. So the old `link`
 feature (which binds `<root>/obj/<name>` paths) is ORPHANED: it composes
@@ -79,9 +79,9 @@ syscall-shaped parameters, and `MountTable` validates policy
 (`allowRoot`) before applying them. Use it directly when the `.tab`
 transport representation matters.
 
-`replace`/`union` MIGHT survive — not to bind objects, but to compose
-OUTPUT REGIONS (union several produced trees at a path; replace a region).
-Decide when the produce-into-namespace surface is designed.
+The old `link`/`replace`/`union` keywords do not survive. If output-region
+composition returns later, it should be an explicit `Namespace` or
+`MountTable` operation, not resurrected object-composition syntax.
 
 ## Open design questions (resolve before build)
 
@@ -92,8 +92,8 @@ Decide when the produce-into-namespace surface is designed.
   standalone served region a client mounts directly?
 - Where do produced files live — the app's served tree (like exports/,
   synthetic in-memory) or optionally persisted?
-- Do replace/union survive as output-region composition, or drop with
-  link?
+- If output-region composition is needed, is it a `Namespace` method, a
+  `MountTable` entry, or an app-facade export helper?
 - Relationship to sessions: is a session's file set a produced namespace
   too (unifying clone/exports under one "produced namespace" concept)?
 
@@ -118,9 +118,9 @@ must prove:
 - replacing / re-exporting a file is ATOMIC from a reader's view (a
   concurrent reader sees the old bytes or the new bytes, never a torn
   half). Current o9_export_tab swaps aux->data — check the swap ordering.
-- dead `link` behavior is REMOVED or FAILS CLOSED — never silently
-  fabricates /obj/ paths and binds phantom regions (it currently
-  o9_ns_ensure_dir's a source dir and binds unchecked = fails OPEN).
+- dead `link` behavior stays REMOVED — never silently fabricate `/obj/`
+  paths or bind phantom regions from the abandoned object-composition
+  model.
 
 The distinction to preserve HARD: clone is NOT object composition — it is
 a per-client PRODUCED namespace. exports/ is NOT object export — it is

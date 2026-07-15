@@ -122,7 +122,16 @@ main {
 }
 ```
 
+For the grid version of this flow, see
+[../demo/TWO_MACHINE_DEMO.md](../demo/TWO_MACHINE_DEMO.md): one machine
+publishes `exports/orders.tab`, another reads it with `near Tabula`, then
+pushes an inert response into `imports/orders.tab`.
+
 ## Namespace Setup
+
+`Namespace` is the normal way to make a private application namespace. The
+example below builds a root, creates `cache`, binds `/tmp` into that root, then
+applies the recipe to the current process namespace.
 
 ```o9
 import "namespace.o9";
@@ -145,7 +154,25 @@ main {
 ```
 
 `Namespace` is the normal API. `MountTable` is the lower-level Tabula-backed
-representation for storing or sending mount/bind parameters.
+representation for storing, querying, exporting, or sending mount/bind
+parameters. The data stays inert until the receiving program deliberately
+loads, validates, and applies it.
+
+The recipe itself is text:
+
+```o9
+import "namespace.o9";
+
+main {
+    Namespace ns = new Namespace();
+
+    ns.root("/tmp/o9_namespace_root");
+    ns.dir("cache", 493);
+    ns.bindReplace("/tmp", "tmp");
+
+    print(ns.read());
+}
+```
 
 ## Draw Window
 

@@ -487,7 +487,8 @@ Tabula-backed transport data; `Namespace` is the object that builds and applies
 that table.
 
 Use `Namespace` for normal application code. Drop to `MountTable` only when
-you want the lower-level `.tab` data representation.
+you want the lower-level `.tab` data representation. A namespace recipe is
+inert data until local code validates and applies it.
 
 ```o9
 import "namespace.o9";
@@ -529,6 +530,7 @@ main {
 - `validate() bool`
 - `apply() bool`
 - `read() string`
+- `query(string column, string value) Tabula`
 
 ## Draw
 
@@ -1209,8 +1211,8 @@ main {
 Constructors:
 
 - `new Tabula(path)` opens an existing `.tab` file.
-- `new Tabula(schema, "col1,col2")` creates an in-memory table whose first
-  column is the row identity column `id`.
+- `new Tabula(schema, "col1,col2")` creates an in-memory document whose
+  first column is the record identity column `id`.
 
 Methods:
 

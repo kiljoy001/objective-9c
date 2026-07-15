@@ -1,16 +1,11 @@
 # o9: A Network-Native Language — Architecture
 
 > **See TOUCHSTONE.md for the architecture of record.**  This document
-> is detail under those decisions.  Two things below are superseded:
-> (1) composition is the *application fileserver's* job, not the
-> namespace's — an app is ONE 9P server with a FLAT interface
-> (ctl/data/status/methods); objects are NOT paths, they are named in the
-> ctl line (method Class.inst method ...).  Objects are CSP actors, not
-> fileservers.  The namespace assembles apps into a tree; it is no longer
-> the object-composition mechanism.  (2) o9 is a Plan 9 / 9front language:
-> `near` = Tabula over 9P/IL, `far` = Tabula over 9P/TCP, and
-> `listener` = serve local Tabula exports/imports.  Remote objects are
-> rejected.
+> is detail under those decisions.  Current architecture: an app is one
+> 9P server with a fixed facade (`clone`, session `ctl`/`data`/`status`,
+> `methods`, `exports/`, `imports/`). Objects are local CSP actors inside
+> that process. `near`, `far`, and `listener` move Tabula data only;
+> source-level remote objects are rejected.
 
 o9 is built on one premise: **the network is not a library, it is the
 application's namespace.** Objects are local CSP actors. The network-facing
@@ -71,6 +66,9 @@ each concrete instantiation (`Box<int64>` → `Box__int64`) is a real class.
 
 Return values ride in per-call stack frames (`__o9fr[depth]`), so nested
 calls cannot interfere. Errors propagate through every tier.
+
+See [ASM_DISPATCH.md](ASM_DISPATCH.md) for the fixed client ABI, cache
+layout, miss/refill behavior, and fallback invariants.
 
 ## Handles
 
@@ -166,17 +164,17 @@ type* — PascalCase members, locals, and bare self-access all work.
 
 ## Testing
 
-Compile-and-grep suites (`type_ast.rc`, `production_ast.rc`: AST dumps,
-generated-C requires, ~50 rejection fixtures) plus **execute-and-assert**
-(`mk run-test`): real binaries run on 9front, stdout compared —
-dispatch/frames/self-calls, builtin file roundtrip, destructor ordering,
-generic instantiation.
+Compile-and-grep suites (`production_ast.rc`: AST dumps, generated-C
+requires, rejection fixtures) plus **execute-and-assert** (`mk run-test`):
+real binaries run on 9front, stdout compared — dispatch/frames/self-calls,
+builtins, destructors, generics, channels, Tabula transport, stdlib, and
+libdraw headless checks.
 
 ## Roadmap
 
 - [x] Type* metadata, line diagnostics, registry lexing, monomorphization
 - [x] Method/object stores; methods file; error propagation; delete;
-      Text/Fs/IO builtins; execute-and-assert harness
+      stdlib object layer; execute-and-assert harness
 - [x] **Phase 1**: idempotent unique `/srv` posts — verified across the
       grid (demo/TWO_MACHINE_DEMO.md)
 - [x] **Phase 2**: clone/session facade with per-request session state

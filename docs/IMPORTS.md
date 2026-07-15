@@ -1,12 +1,11 @@
 # o9 imports — design (July 2026)
 
-Status: BUILT (July 2026). Both forms work end-to-end; the imported
-class's full body is spliced into the compilation and transpiled. The
-subtree boundary is enforced. Tests: e2e_import (from-import runs),
-production_ast escape.o9 (../ rejected). Selective filtering by name is
-advisory for now — the whole imported file is spliced (main stripped);
-unused decls are inert. Tightening to true name-selection + transitive
-closure is a future refinement.
+Status: BUILT (July 2026). The supported form is `import "path";`.
+The imported file's full body is spliced into the compilation and
+transpiled. The subtree boundary is enforced. Tests: `e2e_import`
+(`import` runs), `production_ast.rc` import escape fixtures (`../`
+rejected), and a negative `from ... import` fixture. Selective import was
+removed until it can honestly filter declarations.
 
 Compile with a PATH for imports: `o9c FILE.o9` (imports resolve relative
 to FILE's dir). `o9c < FILE.o9` still works (resolves relative to cwd).
@@ -30,9 +29,8 @@ o9 imports are HONEST:
   "importable." You point at a FILE; it reads THAT file.
 - Grouping/namespacing is `module` (in the source, visible), NOT a
   filesystem convention.
-- The dependency is legible from the text alone: `from "path" import
-  A, B;` names the file AND the names — no need to run a resolver to
-  know what a file depends on.
+- The dependency is legible from the text alone: `import "path";` names
+  the exact file. No resolver search is needed to know what opens.
 
 This matches the rest of o9's honesty theme (try/defer make control flow
 visible; super() is explicit; errors are values). Import makes
@@ -47,10 +45,10 @@ matter where o9c is invoked).
 AND it may only reach that directory or its SUBDIRECTORIES. Never
 upward, never sideways, never absolute:
 
-- `from "db.o9" import X;`        same folder            OK
-- `from "lib/db.o9" import X;`    a subfolder            OK
-- `from "../other/db.o9" ...;`    escapes subtree        ERROR
-- `from "/usr/lib/foo.o9" ...;`   absolute/system path   ERROR
+- `import "db.o9";`               same folder            OK
+- `import "lib/db.o9";`           a subfolder            OK
+- `import "../other/db.o9";`      escapes subtree        ERROR
+- `import "/usr/lib/foo.o9";`     absolute/system path   ERROR
 
 Enforcement (compile time): resolve `<importing-dir>/<import-path>`,
 canonicalize (fold `.`/`..`), and verify the result is still a
@@ -81,24 +79,23 @@ actually filters — not before.
 
 ## Mechanism: splice into one compilation
 
-Decided: the compiler FULLY PARSES the imported file (not just a name
-prescan), pulls the named decls — and the decls THEY transitively depend
-on — into THIS compilation's class table, and transpiles them into the
-SAME output C. One o9c invocation, one .c, one binary. No separate
-compile/link step, no build convention needed. (Recompiles imported code
-each build; fine for now.)
+Decided: the compiler reads the imported file, strips any imported
+`main { ... }`, splices the remaining declarations into THIS compilation,
+and transpiles them into the SAME output C. One o9c invocation, one .c,
+one binary. No separate compile/link step, no build convention needed.
+(Recompiles imported code each build; fine for now.)
 
-The current gap this fixes: prescan registers names with nil members
-(mk(type, cn, nil, nil, nil)). Real import must bring the COMPLETE class
-node (members + method bodies) so it both typechecks and generates code.
+The key bug this fixed: prescan registered imported names with nil
+members. Real import brings the complete source text, so classes have
+members and method bodies when typecheck and codegen run.
 
 ## Build steps
 
-1. This doc.
-2. Grammar: `from STRINGLIT import name_list ;` (new form) alongside the
-   existing `import STRINGLIT ;`.
-3. Path resolution + project-subtree boundary check (the firm rule).
-4. Full-parse + splice of imported decls (bodies, not just names) into
-   the compilation; transitive-dependency closure for the selective form.
-5. Tests: two-file import (from + import-all), a negative test for a
-   path that escapes the subtree.
+Implemented:
+
+1. `import STRINGLIT ;` only.
+2. Path resolution + project-subtree boundary check.
+3. Full source splice of imported declarations, with imported `main`
+   stripped so only the root file owns program entry.
+4. Tests: two-file import, rejected `from`, rejected path escape, and
+   legacy imported `func main()` failure.

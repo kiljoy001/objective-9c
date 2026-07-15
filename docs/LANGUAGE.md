@@ -561,7 +561,8 @@ with bytes encoded as lowercase hex from `Bytes.hex()` and decoded with
 
 ## Namespace And MountTable
 
-`Namespace` is the user-facing object for programmatic namespace setup:
+`Namespace` is the user-facing object for programmatic namespace setup. It is
+for building private or application-specific Plan 9 namespaces from o9 code:
 
 ```o9
 import "namespace.o9";
@@ -575,9 +576,21 @@ main {
 }
 ```
 
-`MountTable` is the lower-level Tabula-backed mount/bind data object. Use
-`Namespace` in normal code; use `MountTable` when the app needs to persist or
-exchange syscall-shaped mount data directly.
+`MountTable` is the lower-level Tabula-backed mount/bind data object. It stores
+the parameters needed by Plan 9 `bind` and `mount` in a `schema=mounts` Tabula.
+Use `Namespace` in normal code; use `MountTable` when the app needs to persist,
+inspect, query, export, or exchange syscall-shaped mount data directly.
+
+This gives o9 three namespace layers:
+
+- `Namespace` applies a controlled namespace to the current process.
+- `MountTable` is the inert `.tab` recipe for those namespace operations.
+- the served app facade exposes a public namespace of virtual files:
+  `clone`, session dirs, `methods`, `exports/`, and `imports/`.
+
+Reading or receiving a `MountTable` does not execute it. Local code must load
+the data, set policy with `allowRoot`, validate it, and call `apply`. See
+[MOUNTTABLE.md](MOUNTTABLE.md) for the syscall-shaped storage format.
 
 ## 9P Facade Usage
 
@@ -588,6 +601,7 @@ clone
 methods
 status
 exports/
+imports/
 <session-id>/ctl
 <session-id>/data
 <session-id>/status

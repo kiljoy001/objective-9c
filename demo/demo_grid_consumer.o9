@@ -1,0 +1,27 @@
+import "stdlib/process.o9";
+
+main {
+    Process p = new Process();
+
+    if(p.argc() < 3) {
+        print("usage: demo_grid_consumer appname /n/hostsrv/o9.app.app.app\n");
+    } else {
+        string srv = p.arg(2);
+        near Tabula orders = new Tabula("orders", "item,qty,status") @ srv;
+        Tabula paid;
+        int64 pushed;
+
+        print("first ", orders.first(), "\n");
+        print("order ", orders.get("item"), " ", orders.get("qty"), " ", orders.get("status"), "\n");
+
+        paid = orders.query("status", "paid");
+        print("paid ", paid.first(), " ", paid.get("item"), " ", paid.get("qty"), "\n");
+
+        orders.write("pushed", "item", "remote");
+        orders.write("pushed", "qty", "9");
+        orders.write("pushed", "status", "pushed");
+
+        pushed = orders.push();
+        print("push ", pushed, "\n");
+    }
+}

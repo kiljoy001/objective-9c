@@ -30,12 +30,13 @@ PATH.
         methods      # GLOBAL: public API surface (describes the service)
         status       # GLOBAL: app/service state (running, classes) — the SERVICE
         exports/     # GLOBAL: published .tab data products
+        imports/     # GLOBAL: inert inbound .tab deposits
         17/          # a session (created by reading clone)
             ctl      # write-only: this session's commands
             data     # read-only: this session's result (NO race — owned by the session)
             status   # read-only: THIS conversation's success/error/pending
 
-Only the CONVERSATION is cloned. methods/status/exports stay global —
+Only the CONVERSATION is cloned. methods/status/exports/imports stay global —
 they describe the service and its data products. ctl/data/status become
 session-local because they carry per-client interaction.
 

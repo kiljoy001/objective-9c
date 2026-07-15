@@ -3,8 +3,9 @@
 objective-9c is a small 9front language that transpiles o9 source to Plan 9 C.
 
 o9 is built for Plan 9-style programs: objects are CSP actors, public methods
-can be served through a 9P facade, structured data moves as `.tab` text, and
-raw Plan 9 C interop is isolated inside spawnable `function` blocks.
+can be served through a 9P facade, structured data moves as `.tab` text,
+programs can shape their own namespaces, and raw Plan 9 C interop is isolated
+inside spawnable `function` blocks.
 
 ## Status
 
@@ -74,5 +75,8 @@ echo close > /mnt/o9/$sid/ctl
 - [Examples](docs/EXAMPLES.md) - small complete programs.
 - [Standard Library](stdlib/README.md) - stdlib object reference.
 - [Tabula](docs/TABULA.md) - `.tab` files as structured, inert data.
+- [Two-Machine Demo](demo/TWO_MACHINE_DEMO.md) - Tabula over a 9P grid.
+- [MountTable](docs/MOUNTTABLE.md) - namespace recipes as Tabula data.
+- [Assembly Dispatch](docs/ASM_DISPATCH.md) - same-process asm cache design.
 - [Architecture](docs/ARCHITECTURE.md) and
   [Touchstone](docs/TOUCHSTONE.md) - design record and current direction.
