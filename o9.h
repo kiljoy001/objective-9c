@@ -166,15 +166,29 @@ extern O9ChanMsg* o9_chan_pack_slice(O9Slice *s);
 extern int        o9_chan_take(O9ChanMsg *m, void *dst, int n);
 extern void       o9_chan_free(O9ChanMsg *m);
 
-/* Dict operations — chained hash table, serialized as "key:value\n" */
+/* Dict operations — chained hash table.  Dict<K,V> stores typed key/value
+ * bytes; string cells are retained by value so string keys compare by
+ * contents rather than O9String* address. */
+enum {
+	O9DICT_RAW,
+	O9DICT_STRING,
+	O9DICT_CSTR,
+	O9DICT_INT,
+	O9DICT_DOUBLE
+};
+
 typedef struct O9DictEntry {
-	O9String *key;
-	void *val;		/* generic carrier */
+	void *key;
+	void *val;
 	struct O9DictEntry *next;
 } O9DictEntry;
 
 typedef struct {
 	O9DictEntry *buckets[64];
+	int keysz;
+	int valsz;
+	int keykind;
+	int valkind;
 } O9Dict;
 
 extern void*  o9_dict_get(O9Dict *d, char *key);
@@ -183,9 +197,19 @@ extern int    o9_dict_has(O9Dict *d, char *key);
 extern void*  o9_dict_gets(O9Dict *d, O9String *key);
 extern void   o9_dict_sets(O9Dict *d, O9String *key, void *val);
 extern int    o9_dict_hass(O9Dict *d, O9String *key);
+extern void*  o9_dict_getp(O9Dict *d, void *key);
+extern int    o9_dict_getv(O9Dict *d, void *key, void *out);
+extern void   o9_dict_setv(O9Dict *d, void *key, void *val);
+extern int    o9_dict_hask(O9Dict *d, void *key);
+extern void*  o9_dict_getsk(O9Dict *d, O9String *key);
+extern void*  o9_dict_geti(O9Dict *d, vlong key);
+extern int    o9_dict_hasi(O9Dict *d, vlong key);
+extern void*  o9_dict_getd(O9Dict *d, double key);
+extern int    o9_dict_hasd(O9Dict *d, double key);
 extern char*  o9_dict_serialize(O9Dict *d);
 extern void   o9_dict_deserialize(O9Dict *d, char *buf);
 extern void   o9_dict_init(O9Dict *d);
+extern void   o9_dict_init_typed(O9Dict *d, int keysz, int valsz, int keykind, int valkind);
 extern void   o9_dict_free(O9Dict *d);
 
 /* Object ledger backed by a private in-memory libtab.

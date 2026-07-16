@@ -7,6 +7,8 @@
 *.tab.o
 *.new
 *.bak
+__pycache__/
+*.pyc
 out.c
 t.c
 */out.c

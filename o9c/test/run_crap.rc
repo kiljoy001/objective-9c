@@ -1,0 +1,84 @@
+#!/bin/rc
+# Run transpiler coverage for CRAP scoring.
+#
+# Generate the instrumented source from the host first:
+#   python3 tools/o9crap.py instrument
+#
+# Then run this on 9front:
+#   mk crap-test
+#
+# Report from the host:
+#   python3 tools/o9crap.py report
+
+root=`{pwd}
+inst=o9c/test/artifacts/y.tab.crap.c
+counts=o9c/test/artifacts/o9crap_counts.tsv
+bakc=/tmp/o9_crap_y.tab.$pid.c
+bakbin=/tmp/o9_crap_o9c.$pid
+hadbin=0
+fail=0
+
+fn cleanup {
+	if(test -e $bakc)
+		cp $bakc o9c/y.tab.c
+	if(~ $hadbin 1 && test -e $bakbin)
+		cp $bakbin o9c/o9c
+	rm -f $bakc $bakbin
+}
+
+fn sigexit {
+	cleanup
+}
+
+if(! test -e $inst){
+	echo 'crap-test: missing '^$inst >[1=2]
+	echo 'crap-test: run: python3 tools/o9crap.py instrument' >[1=2]
+	exit missing
+}
+
+if(! test -e o9c/y.tab.c){
+	echo 'crap-test: missing o9c/y.tab.c; run mk once first' >[1=2]
+	exit missing
+}
+
+cp o9c/y.tab.c $bakc || exit backup
+if(test -e o9c/o9c){
+	cp o9c/o9c $bakbin || exit backup
+	hadbin=1
+}
+
+cp $inst o9c/y.tab.c || exit instrument
+rm -f $counts
+
+if(! @{ cd o9c; $CC -o y.tab.$O y.tab.c && $CC -o o9_type.$O o9_type.c && $LD -o o9c y.tab.$O o9_type.$O }){
+	echo 'crap-test: instrumented o9c build failed' >[1=2]
+	cleanup
+	exit build
+}
+
+O9_CRAP_OUT=$root^/$counts
+
+if(! mk ast-test)
+	fail=1
+if(~ $fail 0 && ! mk run-test)
+	fail=1
+if(~ $fail 0 && ! mk export-test)
+	fail=1
+if(~ $fail 0 && ! mk tabula-transport-test)
+	fail=1
+if(~ $fail 0 && ! mk session-test)
+	fail=1
+if(~ $fail 0 && ! mk ctlargs-test)
+	fail=1
+if(~ $fail 0 && ! mk ctlquote-test)
+	fail=1
+if(~ $fail 0 && ! mk issue-test)
+	fail=1
+
+cleanup
+
+if(! ~ $fail 0)
+	exit fail
+
+echo 'crap-test: wrote '^$counts
+echo 'crap-test: run: python3 tools/o9crap.py report'

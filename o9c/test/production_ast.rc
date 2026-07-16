@@ -52,6 +52,18 @@ fn reject_file {
 	}
 }
 
+fn reject_source {
+	pattern=$1
+	file=$2
+	grep $"pattern $file > /dev/null
+	if(~ $status ''){
+		echo forbidden source pattern in $file: $pattern >[1=2]
+		grep $"pattern $file >[1=2]
+		rm -f $ast $err $meta
+		exit fail
+	}
+}
+
 fn require_error {
 	src=$1
 	pattern=$2
@@ -124,6 +136,22 @@ compile o9c/test/e2e_plan9ctypes.o9 e2e_plan9ctypes
 compile o9c/test/tabula_locality.o9 tabula_locality
 compile_project o9c/test/dep_project good.o9 dep_project
 compile_project o9c/test/dep_chain good.o9 dep_chain
+
+# Type-system invariant: type semantics must flow through Type*, never
+# through Node.typename metadata strings. typename remains available for
+# locality tags, enum generated names, and status/debug display text.
+reject_source 'typeinfo_from_legacy' o9c/grammar.y
+reject_source 'legacy_type_name' o9c/grammar.y
+reject_source 'Dict:' o9c/grammar.y
+reject_source 'List:' o9c/grammar.y
+reject_source 'type_assignable\(' o9c/grammar.y
+reject_source 'strcmp.*type_storage_for_codegen' o9c/grammar.y
+reject_source 'strcmp.*type_fmt_for_codegen' o9c/grammar.y
+
+$tool -ast < o9c/test/type_metadata_invariant.o9 > $ast || exit type-metadata-ast
+require 'NClass name=Counter typename=same.*type=Counter'
+require 'NLocalVar name=names typename=Dict__int64__string.*type=Dict<int64,string>'
+rm -f $ast
 
 # builtins lower to runtime helpers
 $tool < o9c/test/e2e_text.o9 > $meta >[2] $err || exit builtin-meta
@@ -306,6 +334,7 @@ require_error o9c/test/typecheck_bad_list_type_arity.o9 'List needs 1 type argum
 require_error o9c/test/typecheck_bad_list_add_type.o9 'cannot pass string to int64'
 require_error o9c/test/typecheck_bad_list_length_arg.o9 'List.Length needs 0 arguments'
 require_error o9c/test/typecheck_bad_dict_type_arity.o9 'Dict needs 2 type arguments'
+require_error o9c/test/typecheck_bad_dict_key_type.o9 'Dict key type must be string or scalar'
 require_error o9c/test/typecheck_bad_dict_has_key.o9 'cannot pass int64 to string'
 require_error o9c/test/typecheck_bad_dict_has_arity.o9 'Dict.Has needs 1 argument'
 require_error o9c/test/typecheck_bad_method_as_property.o9 '''inc'' is a method, not a property'
@@ -361,6 +390,8 @@ require_error o9c/test/typecheck_bad_rawc_object_param.o9 'raw C functions canno
 require_error o9c/test/typecheck_bad_rawc_object_local.o9 'raw C functions cannot declare object handle'
 require_error o9c/test/typecheck_bad_rawc_internal_type.o9 'forbidden o9 internal symbol'
 require_error o9c/test/typecheck_bad_rawc_find_instance.o9 'forbidden o9 internal symbol'
+require_error o9c/test/typecheck_bad_rawc_prefix.o9 'forbidden o9 internal symbol'
+require_error o9c/test/typecheck_bad_rawc_exact.o9 'forbidden o9 internal symbol'
 require_error o9c/test/typecheck_bad_use_unknown.o9 'unknown C dependency ''nosuchdep'''
 require_error o9c/test/typecheck_bad_use_main.o9 'C dependency use blocks are only allowed inside function bodies'
 require_error o9c/test/typecheck_bad_legacy_main.o9 'syntax error'

@@ -78,5 +78,7 @@ echo close > /mnt/o9/$sid/ctl
 - [Two-Machine Demo](demo/TWO_MACHINE_DEMO.md) - Tabula over a 9P grid.
 - [MountTable](docs/MOUNTTABLE.md) - namespace recipes as Tabula data.
 - [Assembly Dispatch](docs/ASM_DISPATCH.md) - same-process asm cache design.
+- [Transpiler CRAP Score](docs/CRAP.md) - complexity plus real test coverage.
+- [Testing Strategy](docs/TESTING.md) - regression, property, fuzz, and mutation testing.
 - [Architecture](docs/ARCHITECTURE.md) and
   [Touchstone](docs/TOUCHSTONE.md) - design record and current direction.

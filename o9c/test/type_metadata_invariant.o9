@@ -1,0 +1,14 @@
+class Counter {
+    prop int64 value;
+
+    method Counter(int64 n) {
+        value = n;
+    }
+}
+
+main {
+    Counter c = new Counter(1);
+
+    Dict<int64,string> names;
+    names[1] = "one";
+}

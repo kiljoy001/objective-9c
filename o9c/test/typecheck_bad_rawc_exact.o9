@@ -1,0 +1,12 @@
+function bad() int64 {
+    int64 n;
+    c {
+        O9Msg *m;
+        m = nil;
+        n = 0;
+    }
+    return n;
+}
+
+main {
+}

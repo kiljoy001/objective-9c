@@ -1,0 +1,24 @@
+main {
+    Dict<int64,int64> squares;
+    squares[7] = 49;
+    squares[8] = 64;
+
+    print("has7 ", squares.Has(7), "\n");
+    print("has9 ", squares.Has(9), "\n");
+    print("s7 ", squares[7], "\n");
+    print("s8 ", squares[8], "\n");
+
+    Dict<int64,string> names;
+    names[1] = "one";
+    names[2] = "two";
+
+    print("n1 ", names[1], "\n");
+    print("n2 ", names[2], "\n");
+
+    Dict<string,int64> ages;
+    ages["scott"] = 42;
+    ages["front"] = 9;
+
+    print("scott ", ages["scott"], "\n");
+    print("front ", ages["front"], "\n");
+}

@@ -4398,110 +4398,329 @@ o9_chan_free(O9ChanMsg *m)
 	free(m);
 }
 
-/*
- * o9_dict_init — initialize dict to empty.
- */
+static int
+o9_dict_cell_size(int n)
+{
+	return n > 0 ? n : sizeof(void*);
+}
+
+void
+o9_dict_init_typed(O9Dict *d, int keysz, int valsz, int keykind, int valkind)
+{
+	if(d == nil)
+		return;
+	memset(d, 0, sizeof(O9Dict));
+	d->keysz = o9_dict_cell_size(keysz);
+	d->valsz = o9_dict_cell_size(valsz);
+	d->keykind = keykind;
+	d->valkind = valkind;
+}
+
 void
 o9_dict_init(O9Dict *d)
 {
-	memset(d, 0, sizeof(O9Dict));
+	o9_dict_init_typed(d, sizeof(O9String*), sizeof(char*),
+		O9DICT_STRING, O9DICT_CSTR);
 }
 
-/*
- * o9_dict_free — free all entries.
- */
-void
-o9_dict_free(O9Dict *d)
+static void
+o9_dict_defaults(O9Dict *d)
 {
-	int i;
-	O9DictEntry *e, *next;
-	for(i = 0; i < 64; i++){
-		for(e = d->buckets[i]; e; e = next){
-			next = e->next;
-			o9_string_release(e->key);
-			/* Note: generic val is NOT freed, caller must manage if it's a pointer */
-			free(e);
-		}
+	if(d != nil && d->keysz <= 0)
+		o9_dict_init(d);
+}
+
+static void
+o9_dict_cell_drop(int kind, void *cell)
+{
+	if(cell == nil)
+		return;
+	switch(kind){
+	case O9DICT_STRING:
+		o9_string_release(*(O9String**)cell);
+		break;
+	case O9DICT_CSTR:
+		free(*(char**)cell);
+		break;
+	}
+}
+
+static void
+o9_dict_cell_copy(int kind, void *dst, void *src, int n)
+{
+	O9String *os;
+	char *cs;
+
+	memset(dst, 0, n);
+	if(src == nil)
+		return;
+	switch(kind){
+	case O9DICT_STRING:
+		os = *(O9String**)src;
+		os = o9_string_retain(os);
+		memmove(dst, &os, sizeof os);
+		break;
+	case O9DICT_CSTR:
+		cs = *(char**)src;
+		cs = cs != nil ? strdup(cs) : nil;
+		memmove(dst, &cs, sizeof cs);
+		break;
+	default:
+		memmove(dst, src, n);
+		break;
 	}
 }
 
 static ulong
-o9_dict_hash_bytes(char *s, vlong n)
+o9_dict_hash_bytes(void *s, vlong n)
 {
-	ulong h = 5381;
+	uchar *p;
+	ulong h;
 	vlong i;
 
 	if(s == nil)
 		return 0;
+	p = s;
+	h = 5381;
 	for(i = 0; i < n; i++)
-		h = ((h << 5) + h) + (uchar)s[i];
+		h = ((h << 5) + h) + p[i];
 	return h & 63;
 }
 
 static ulong
-o9_dict_hashs(O9String *s)
+o9_dict_hash_cell(O9Dict *d, void *key)
 {
-	return o9_dict_hash_bytes(o9_string_data(s), o9_string_len(s));
+	O9String *os;
+	char *cs;
+
+	if(d == nil || key == nil)
+		return 0;
+	switch(d->keykind){
+	case O9DICT_STRING:
+		os = *(O9String**)key;
+		return o9_dict_hash_bytes(o9_string_data(os), o9_string_len(os));
+	case O9DICT_CSTR:
+		cs = *(char**)key;
+		return o9_dict_hash_bytes(cs, cs != nil ? strlen(cs) : 0);
+	default:
+		return o9_dict_hash_bytes(key, d->keysz);
+	}
 }
 
 static int
-o9_dict_keyeq(O9String *a, O9String *b)
+o9_dict_keyeq(O9Dict *d, void *a, void *b)
 {
+	O9String *as, *bs;
+	char *ac, *bc;
 	vlong n;
 
-	n = o9_string_len(a);
-	return n == o9_string_len(b) &&
-		memcmp(o9_string_data(a), o9_string_data(b), n) == 0;
+	if(d == nil || a == nil || b == nil)
+		return 0;
+	switch(d->keykind){
+	case O9DICT_STRING:
+		as = *(O9String**)a;
+		bs = *(O9String**)b;
+		n = o9_string_len(as);
+		return n == o9_string_len(bs) &&
+			memcmp(o9_string_data(as), o9_string_data(bs), n) == 0;
+	case O9DICT_CSTR:
+		ac = *(char**)a;
+		bc = *(char**)b;
+		if(ac == nil || bc == nil)
+			return ac == bc;
+		return strcmp(ac, bc) == 0;
+	default:
+		return memcmp(a, b, d->keysz) == 0;
+	}
 }
 
-/*
- * o9_dict_get — get value for key. Returns nil if not found.
- */
 void*
-o9_dict_gets(O9Dict *d, O9String *key)
+o9_dict_getp(O9Dict *d, void *key)
 {
 	O9DictEntry *e;
-	if(d == nil || key == nil) return nil;
-	for(e = d->buckets[o9_dict_hashs(key)]; e; e = e->next)
-		if(o9_dict_keyeq(e->key, key))
+
+	if(d == nil || key == nil)
+		return nil;
+	o9_dict_defaults(d);
+	for(e = d->buckets[o9_dict_hash_cell(d, key)]; e; e = e->next)
+		if(o9_dict_keyeq(d, e->key, key))
 			return e->val;
 	return nil;
 }
 
-/*
- * o9_dict_set — set key=val, replacing existing if present.
- */
+int
+o9_dict_getv(O9Dict *d, void *key, void *out)
+{
+	void *p;
+
+	if(out == nil)
+		return 0;
+	o9_dict_defaults(d);
+	memset(out, 0, d != nil ? d->valsz : 0);
+	p = o9_dict_getp(d, key);
+	if(p == nil)
+		return 0;
+	memmove(out, p, d->valsz);
+	return 1;
+}
+
 void
-o9_dict_sets(O9Dict *d, O9String *key, void *val)
+o9_dict_setv(O9Dict *d, void *key, void *val)
 {
 	ulong h;
 	O9DictEntry *e;
-	if(d == nil || key == nil) return;
-	h = o9_dict_hashs(key);
+
+	if(d == nil || key == nil)
+		return;
+	o9_dict_defaults(d);
+	h = o9_dict_hash_cell(d, key);
 	for(e = d->buckets[h]; e; e = e->next){
-		if(o9_dict_keyeq(e->key, key)){
-			e->val = val;
+		if(o9_dict_keyeq(d, e->key, key)){
+			o9_dict_cell_drop(d->valkind, e->val);
+			o9_dict_cell_copy(d->valkind, e->val, val, d->valsz);
 			return;
 		}
 	}
 	e = mallocz(sizeof(O9DictEntry), 1);
-	e->key = o9_string_retain(key);
-	e->val = val;
+	if(e == nil)
+		return;
+	e->key = mallocz(d->keysz, 1);
+	e->val = mallocz(d->valsz, 1);
+	if(e->key == nil || e->val == nil){
+		free(e->key);
+		free(e->val);
+		free(e);
+		return;
+	}
+	o9_dict_cell_copy(d->keykind, e->key, key, d->keysz);
+	o9_dict_cell_copy(d->valkind, e->val, val, d->valsz);
 	e->next = d->buckets[h];
 	d->buckets[h] = e;
 }
 
-/*
- * o9_dict_has — check if key exists.
- */
+int
+o9_dict_hask(O9Dict *d, void *key)
+{
+	return o9_dict_getp(d, key) != nil;
+}
+
+void*
+o9_dict_getsk(O9Dict *d, O9String *key)
+{
+	O9String *k;
+
+	k = key;
+	return o9_dict_getp(d, &k);
+}
+
+static void
+o9_dict_int_key(O9Dict *d, vlong key, void *out, int nout)
+{
+	int n;
+
+	memset(out, 0, nout);
+	if(d == nil)
+		return;
+	n = d->keysz;
+	if(n > (int)sizeof key)
+		n = sizeof key;
+	if(n > nout)
+		n = nout;
+	memmove(out, &key, n);
+}
+
+void*
+o9_dict_geti(O9Dict *d, vlong key)
+{
+	uchar buf[16];
+
+	o9_dict_defaults(d);
+	o9_dict_int_key(d, key, buf, sizeof buf);
+	return o9_dict_getp(d, buf);
+}
+
+int
+o9_dict_hasi(O9Dict *d, vlong key)
+{
+	return o9_dict_geti(d, key) != nil;
+}
+
+void*
+o9_dict_getd(O9Dict *d, double key)
+{
+	uchar buf[16];
+	int n;
+
+	o9_dict_defaults(d);
+	memset(buf, 0, sizeof buf);
+	if(d == nil)
+		return nil;
+	n = d->keysz;
+	if(n > (int)sizeof key)
+		n = sizeof key;
+	if(n > (int)sizeof buf)
+		n = sizeof buf;
+	memmove(buf, &key, n);
+	return o9_dict_getp(d, buf);
+}
+
+int
+o9_dict_hasd(O9Dict *d, double key)
+{
+	return o9_dict_getd(d, key) != nil;
+}
+
+void*
+o9_dict_gets(O9Dict *d, O9String *key)
+{
+	O9String *k;
+	void *p;
+
+	k = key;
+	p = o9_dict_getp(d, &k);
+	if(p == nil)
+		return nil;
+	if(d->valkind == O9DICT_STRING || d->valkind == O9DICT_CSTR ||
+	   d->valsz == sizeof(void*))
+		return *(void**)p;
+	return p;
+}
+
+void
+o9_dict_sets(O9Dict *d, O9String *key, void *val)
+{
+	O9String *k, *sv;
+	char *cv;
+	void *pv;
+
+	k = key;
+	o9_dict_defaults(d);
+	switch(d->valkind){
+	case O9DICT_STRING:
+		sv = val;
+		o9_dict_setv(d, &k, &sv);
+		break;
+	case O9DICT_CSTR:
+		cv = val;
+		o9_dict_setv(d, &k, &cv);
+		break;
+	default:
+		if(d->valsz == sizeof(void*)){
+			pv = val;
+			o9_dict_setv(d, &k, &pv);
+		}else
+			o9_dict_setv(d, &k, val);
+		break;
+	}
+}
+
 int
 o9_dict_hass(O9Dict *d, O9String *key)
 {
-	O9DictEntry *e;
-	if(d == nil || key == nil) return 0;
-	for(e = d->buckets[o9_dict_hashs(key)]; e; e = e->next)
-		if(o9_dict_keyeq(e->key, key)) return 1;
-	return 0;
+	O9String *k;
+
+	k = key;
+	return o9_dict_hask(d, &k);
 }
 
 void*
@@ -4546,53 +4765,219 @@ o9_dict_has(O9Dict *d, char *key)
 	return o9_dict_hass(d, &tmp);
 }
 
-/*
- * o9_dict_deserialize — parse "key:val\nkey:val\n" into dict.
- * Merges with existing dict (replaces keys, keeps non-conflicting).
- */
-void
-o9_dict_deserialize(O9Dict *d, char *buf)
+static char*
+o9_dict_hex_cell(void *cell, int n)
 {
-	char *l, *next, *p;
-	if(d == nil || buf == nil) return;
-	for(l = buf; *l; l = next){
-		next = strchr(l, '\n');
-		if(next) *next++ = '\0';
-		else next = l + strlen(l);
-		p = strchr(l, ':');
-		if(p == nil) continue;
-		*p++ = '\0';
-		o9_dict_set(d, l, p);
+	static char x[] = "0123456789abcdef";
+	uchar *p;
+	char *s;
+	int i;
+
+	s = mallocz(2 + n*2 + 1, 1);
+	if(s == nil)
+		return strdup("");
+	p = cell;
+	s[0] = '0';
+	s[1] = 'x';
+	for(i = 0; i < n; i++){
+		s[2+i*2] = x[p[i]>>4];
+		s[3+i*2] = x[p[i]&15];
+	}
+	return s;
+}
+
+static char*
+o9_dict_cell_text(int kind, void *cell, int n)
+{
+	O9String *os;
+	char *cs;
+	vlong iv;
+	double dv;
+
+	if(cell == nil)
+		return strdup("");
+	switch(kind){
+	case O9DICT_STRING:
+		os = *(O9String**)cell;
+		return strdup(o9_string_data(os));
+	case O9DICT_CSTR:
+		cs = *(char**)cell;
+		return strdup(cs != nil ? cs : "");
+	case O9DICT_INT:
+		iv = 0;
+		memmove(&iv, cell, n < (int)sizeof iv ? n : (int)sizeof iv);
+		return smprint("%lld", iv);
+	case O9DICT_DOUBLE:
+		dv = 0;
+		memmove(&dv, cell, n < (int)sizeof dv ? n : (int)sizeof dv);
+		return smprint("%g", dv);
+	default:
+		return o9_dict_hex_cell(cell, n);
 	}
 }
 
-/*
- * o9_dict_serialize — produce "key:val\nkey:val\n" string.
- * Caller must free the result.
- */
+static void
+o9_dict_append(char **buf, int *len, int *cap, char *s)
+{
+	int n, need;
+	char *nbuf;
+
+	if(s == nil)
+		s = "";
+	n = strlen(s);
+	need = *len + n + 1;
+	if(need > *cap){
+		while(*cap < need)
+			*cap *= 2;
+		nbuf = realloc(*buf, *cap);
+		if(nbuf == nil)
+			return;
+		*buf = nbuf;
+	}
+	memmove(*buf + *len, s, n);
+	*len += n;
+	(*buf)[*len] = '\0';
+}
+
 char*
 o9_dict_serialize(O9Dict *d)
 {
-	char *buf, *p;
-	int i, len;
+	char *buf, *ks, *vs;
+	int i, len, cap;
 	O9DictEntry *e;
-	if(d == nil) return strdup("");
-	len = 1;
-	for(i = 0; i < 64; i++)
-		for(e = d->buckets[i]; e; e = e->next)
-			len += o9_string_len(e->key) + 1 + strlen(e->val) + 1;
-	buf = mallocz(len, 1);
-	p = buf;
+
+	if(d == nil)
+		return strdup("");
+	o9_dict_defaults(d);
+	cap = 128;
+	len = 0;
+	buf = mallocz(cap, 1);
+	if(buf == nil)
+		return strdup("");
 	for(i = 0; i < 64; i++){
 		for(e = d->buckets[i]; e; e = e->next){
-			memmove(p, o9_string_data(e->key), o9_string_len(e->key));
-			p += o9_string_len(e->key);
-			*p++ = ':';
-			memmove(p, e->val, strlen(e->val));
-			p += strlen(e->val);
-			*p++ = '\n';
+			ks = o9_dict_cell_text(d->keykind, e->key, d->keysz);
+			vs = o9_dict_cell_text(d->valkind, e->val, d->valsz);
+			o9_dict_append(&buf, &len, &cap, ks);
+			o9_dict_append(&buf, &len, &cap, ":");
+			o9_dict_append(&buf, &len, &cap, vs);
+			o9_dict_append(&buf, &len, &cap, "\n");
+			free(ks);
+			free(vs);
 		}
 	}
-	*p = '\0';
 	return buf;
+}
+
+static int
+o9_dict_hexval(int c)
+{
+	if(c >= '0' && c <= '9')
+		return c - '0';
+	if(c >= 'a' && c <= 'f')
+		return c - 'a' + 10;
+	if(c >= 'A' && c <= 'F')
+		return c - 'A' + 10;
+	return -1;
+}
+
+static void
+o9_dict_parse_cell(int kind, int n, char *text, void *out)
+{
+	O9String *os;
+	char *cs;
+	vlong iv;
+	double dv;
+	int i, hi, lo, off;
+	uchar *p;
+
+	memset(out, 0, n);
+	if(text == nil)
+		text = "";
+	switch(kind){
+	case O9DICT_STRING:
+		os = o9_string_from_c(text);
+		memmove(out, &os, sizeof os);
+		break;
+	case O9DICT_CSTR:
+		cs = strdup(text);
+		memmove(out, &cs, sizeof cs);
+		break;
+	case O9DICT_INT:
+		iv = strtoll(text, nil, 0);
+		memmove(out, &iv, n < (int)sizeof iv ? n : (int)sizeof iv);
+		break;
+	case O9DICT_DOUBLE:
+		dv = strtod(text, nil);
+		memmove(out, &dv, n < (int)sizeof dv ? n : (int)sizeof dv);
+		break;
+	default:
+		p = out;
+		off = strncmp(text, "0x", 2) == 0 ? 2 : 0;
+		for(i = 0; i < n && text[off+i*2] && text[off+i*2+1]; i++){
+			hi = o9_dict_hexval(text[off+i*2]);
+			lo = o9_dict_hexval(text[off+i*2+1]);
+			if(hi < 0 || lo < 0)
+				break;
+			p[i] = (hi << 4) | lo;
+		}
+		break;
+	}
+}
+
+void
+o9_dict_deserialize(O9Dict *d, char *buf)
+{
+	char *l, *next, *p, *key, *val;
+
+	if(d == nil || buf == nil)
+		return;
+	o9_dict_defaults(d);
+	key = mallocz(d->keysz, 1);
+	val = mallocz(d->valsz, 1);
+	if(key == nil || val == nil){
+		free(key);
+		free(val);
+		return;
+	}
+	for(l = buf; *l; l = next){
+		next = strchr(l, '\n');
+		if(next)
+			*next++ = '\0';
+		else
+			next = l + strlen(l);
+		p = strchr(l, ':');
+		if(p == nil)
+			continue;
+		*p++ = '\0';
+		o9_dict_parse_cell(d->keykind, d->keysz, l, key);
+		o9_dict_parse_cell(d->valkind, d->valsz, p, val);
+		o9_dict_setv(d, key, val);
+		o9_dict_cell_drop(d->keykind, key);
+		o9_dict_cell_drop(d->valkind, val);
+	}
+	free(key);
+	free(val);
+}
+
+void
+o9_dict_free(O9Dict *d)
+{
+	int i;
+	O9DictEntry *e, *next;
+
+	if(d == nil)
+		return;
+	o9_dict_defaults(d);
+	for(i = 0; i < 64; i++){
+		for(e = d->buckets[i]; e; e = next){
+			next = e->next;
+			o9_dict_cell_drop(d->keykind, e->key);
+			o9_dict_cell_drop(d->valkind, e->val);
+			free(e->key);
+			free(e->val);
+			free(e);
+		}
+		d->buckets[i] = nil;
+	}
 }

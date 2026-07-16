@@ -1,0 +1,12 @@
+function bad() int64 {
+    int64 n;
+    c {
+        char *p;
+        p = o9app_root;
+        n = 0;
+    }
+    return n;
+}
+
+main {
+}
