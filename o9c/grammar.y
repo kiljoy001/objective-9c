@@ -6108,15 +6108,38 @@ metadata_type_render(Node *n)
     return "";
 }
 
-void
-gen_type_metadata_entries_buf(Node *c, char *bufname)
-{
-    Node *m, *p, *a;
-    char *typetext, *storage;
-    int argc;
+void gen_type_metadata_entries_buf(Node *c, char *bufname);
 
-    if(c == nil)
-        return;
+static int
+metadata_is_field_member(Node *m)
+{
+    return m != nil && (m->type == NProp || m->type == NState ||
+        m->type == NSecret || m->type == NCap);
+}
+
+static int
+metadata_field_visible(Node *m)
+{
+    return metadata_is_field_member(m) && (m->flags & NFPrivate) == 0;
+}
+
+static int
+metadata_method_visible(Node *c, Node *m)
+{
+    if(m == nil || m->type != NMethod)
+        return 0;
+    /* Facade-reachable status is external API, so private methods and
+     * constructors must not appear. */
+    if(m->flags & NFPrivate)
+        return 0;
+    if(m->name != nil && c != nil && c->name != nil && strcmp(m->name, c->name) == 0)
+        return 0;
+    return 1;
+}
+
+static void
+gen_type_metadata_class_entry(Node *c, char *bufname)
+{
     print("\t\tp += snprint(p, sizeof %s - (p-%s), \"class name=%s qname=%s cname=%s typename=%s\\n\");\n",
         bufname,
         bufname,
@@ -6124,63 +6147,93 @@ gen_type_metadata_entries_buf(Node *c, char *bufname)
         c->qname != nil ? c->qname : "",
         c->cname != nil ? c->cname : "",
         metadata_typename(c));
-    for(m = c->left; m; m = m->next){
-        if(m->type == NInherit){
-            p = find_class(m->name);
-            if(p != nil)
-                gen_type_metadata_entries_buf(p, bufname);
-            continue;
-        }
-        if(m->type == NProp || m->type == NState ||
-           m->type == NSecret || m->type == NCap){
-            /* private field: not part of the facade-reachable status
-             * surface (#7). */
-            if(m->flags & NFPrivate)
-                continue;
-            typetext = metadata_type_render(m);
-            storage = type_storage_for_codegen(m->typeinfo);
-            print("\t\tp += snprint(p, sizeof %s - (p-%s), \"%s name=%s typename=%s type=%s storage=%s\\n\");\n",
-                bufname,
-                bufname,
-                metadata_member_kind(m),
-                m->name != nil ? m->name : "",
-                metadata_typename(m),
-                typetext,
-                storage);
-        }
-        if(m->type == NMethod){
-            /* This metadata feeds the facade-reachable `status` surface,
-             * so private methods and constructors must not appear (they
-             * are not external API). */
-            if(m->flags & NFPrivate)
-                continue;
-            if(m->name != nil && c->name != nil && strcmp(m->name, c->name) == 0)
-                continue;	/* constructor */
-            typetext = metadata_type_render(m);
-            storage = type_storage_for_codegen(m->typeinfo);
-            argc = node_list_len(m->right);
-            print("\t\tp += snprint(p, sizeof %s - (p-%s), \"method name=%s typename=%s type=%s storage=%s argc=%d\\n\");\n",
-                bufname,
-                bufname,
-                m->name != nil ? m->name : "",
-                metadata_typename(m),
-                typetext,
-                storage,
-                argc);
-            for(a = m->right; a; a = a->next){
-                typetext = metadata_type_render(a);
-                storage = type_storage_for_codegen(a->typeinfo);
-                print("\t\tp += snprint(p, sizeof %s - (p-%s), \"param method=%s name=%s typename=%s type=%s storage=%s\\n\");\n",
-                    bufname,
-                    bufname,
-                    m->name != nil ? m->name : "",
-                    a->name != nil ? a->name : "",
-                    metadata_typename(a),
-                    typetext,
-                    storage);
-            }
-        }
+}
+
+static void
+gen_type_metadata_field_entry(Node *m, char *bufname)
+{
+    char *typetext, *storage;
+
+    typetext = metadata_type_render(m);
+    storage = type_storage_for_codegen(m->typeinfo);
+    print("\t\tp += snprint(p, sizeof %s - (p-%s), \"%s name=%s typename=%s type=%s storage=%s\\n\");\n",
+        bufname,
+        bufname,
+        metadata_member_kind(m),
+        m->name != nil ? m->name : "",
+        metadata_typename(m),
+        typetext,
+        storage);
+}
+
+static void
+gen_type_metadata_param_entry(Node *m, Node *a, char *bufname)
+{
+    char *typetext, *storage;
+
+    typetext = metadata_type_render(a);
+    storage = type_storage_for_codegen(a->typeinfo);
+    print("\t\tp += snprint(p, sizeof %s - (p-%s), \"param method=%s name=%s typename=%s type=%s storage=%s\\n\");\n",
+        bufname,
+        bufname,
+        m->name != nil ? m->name : "",
+        a->name != nil ? a->name : "",
+        metadata_typename(a),
+        typetext,
+        storage);
+}
+
+static void
+gen_type_metadata_method_entry(Node *m, char *bufname)
+{
+    Node *a;
+    char *typetext, *storage;
+    int argc;
+
+    typetext = metadata_type_render(m);
+    storage = type_storage_for_codegen(m->typeinfo);
+    argc = node_list_len(m->right);
+    print("\t\tp += snprint(p, sizeof %s - (p-%s), \"method name=%s typename=%s type=%s storage=%s argc=%d\\n\");\n",
+        bufname,
+        bufname,
+        m->name != nil ? m->name : "",
+        metadata_typename(m),
+        typetext,
+        storage,
+        argc);
+    for(a = m->right; a; a = a->next)
+        gen_type_metadata_param_entry(m, a, bufname);
+}
+
+static void
+gen_type_metadata_member(Node *c, Node *m, char *bufname)
+{
+    Node *p;
+
+    if(m->type == NInherit){
+        p = find_class(m->name);
+        if(p != nil)
+            gen_type_metadata_entries_buf(p, bufname);
+        return;
     }
+    if(metadata_field_visible(m)){
+        gen_type_metadata_field_entry(m, bufname);
+        return;
+    }
+    if(metadata_method_visible(c, m))
+        gen_type_metadata_method_entry(m, bufname);
+}
+
+void
+gen_type_metadata_entries_buf(Node *c, char *bufname)
+{
+    Node *m;
+
+    if(c == nil)
+        return;
+    gen_type_metadata_class_entry(c, bufname);
+    for(m = c->left; m; m = m->next)
+        gen_type_metadata_member(c, m, bufname);
 }
 
 void
