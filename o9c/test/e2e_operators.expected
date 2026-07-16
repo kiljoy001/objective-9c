@@ -1,0 +1,5 @@
+arith 17 9 52 3 1
+compare 0 1 1 1 0 0
+bits 14 16 -1 -2
+logic 1 1
+neg -13

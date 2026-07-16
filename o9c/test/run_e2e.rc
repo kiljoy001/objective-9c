@@ -192,6 +192,8 @@ runcase e2e_tuple
 runcase e2e_typed_chan
 runcase e2e_object_chan
 runcase e2e_csp_values
+runcase e2e_print_format
+runcase e2e_operators
 runcase e2e_module
 runcase e2e_widths
 runcase e2e_bool

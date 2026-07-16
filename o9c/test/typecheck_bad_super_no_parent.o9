@@ -1,0 +1,9 @@
+class Alone {
+    method Alone() {
+        super();
+    }
+}
+
+main {
+    Alone a = new Alone();
+}

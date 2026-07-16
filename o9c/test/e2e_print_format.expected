@@ -1,0 +1,3 @@
+literal percent % and newline
+fmt o9 42 3.5
+auto o9 7 2.25

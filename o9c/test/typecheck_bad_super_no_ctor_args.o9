@@ -1,0 +1,17 @@
+class Base {
+    method int64 id() {
+        return 1;
+    }
+}
+
+class Child {
+    Base;
+
+    method Child() {
+        super(1);
+    }
+}
+
+main {
+    Child c = new Child();
+}

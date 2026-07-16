@@ -1,0 +1,4 @@
+main {
+    int64 x = ~"bad";
+    print(x, "\n");
+}

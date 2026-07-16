@@ -2229,6 +2229,40 @@ static int for_paren_depth = -1;	/* >=0 when inside for(...) — ';' returns TFO
 static int pushback[8];		/* multi-char pushback buffer */
 static int npush = 0;
 
+enum {
+    RawNormal,
+    RawString,
+    RawChar,
+    RawLineComment,
+    RawBlockComment,
+};
+
+typedef struct LexMark LexMark;
+struct LexMark {
+    int pos;
+    int npush;
+    int push[8];
+    int line;
+};
+
+static void
+lex_save(LexMark *m)
+{
+    m->pos = input_pos;
+    m->npush = npush;
+    memmove(m->push, pushback, sizeof pushback);
+    m->line = cur_line;
+}
+
+static void
+lex_restore(LexMark *m)
+{
+    input_pos = m->pos;
+    npush = m->npush;
+    memmove(pushback, m->push, sizeof pushback);
+    cur_line = m->line;
+}
+
 static int
 lex_getc(void)
 {
@@ -2270,117 +2304,153 @@ raw_append(char **buf, int *len, int *cap, int c)
     (*buf)[*len] = '\0';
 }
 
-static int
-try_raw_c_block(char **out)
+static void
+raw_init(char **buf, int *len, int *cap)
 {
-    int save_pos, save_npush, save_push[8], save_line;
-    int c, depth, mode, esc, len, cap;
-    char *buf;
+    *cap = 256;
+    *len = 0;
+    *buf = malloc(*cap);
+    if(*buf == nil)
+        sysfatal("malloc: raw c block");
+    (*buf)[0] = '\0';
+}
 
-    save_pos = input_pos;
-    save_npush = npush;
-    memmove(save_push, pushback, sizeof pushback);
-    save_line = cur_line;
+static int
+raw_start_block(void)
+{
+    int c;
 
     do
         c = lex_getc();
     while(c != Beof && isspace(c));
-    if(c != '{'){
-        input_pos = save_pos;
-        npush = save_npush;
-        memmove(pushback, save_push, sizeof pushback);
-        cur_line = save_line;
+    return c == '{';
+}
+
+static void
+raw_scan_quote(int c, char **buf, int *len, int *cap, int *mode, int *esc)
+{
+    raw_append(buf, len, cap, c);
+    if(*esc){
+        *esc = 0;
+        return;
+    }
+    if(c == '\\'){
+        *esc = 1;
+        return;
+    }
+    if((*mode == RawString && c == '"') || (*mode == RawChar && c == '\''))
+        *mode = RawNormal;
+}
+
+static void
+raw_scan_line_comment(int c, char **buf, int *len, int *cap, int *mode)
+{
+    raw_append(buf, len, cap, c);
+    if(c == '\n')
+        *mode = RawNormal;
+}
+
+static void
+raw_scan_block_comment(int c, char **buf, int *len, int *cap, int *mode)
+{
+    int nc;
+
+    raw_append(buf, len, cap, c);
+    if(c != '*')
+        return;
+    nc = lex_getc();
+    if(nc == '/'){
+        raw_append(buf, len, cap, nc);
+        *mode = RawNormal;
+    } else if(nc != Beof)
+        lex_ungetc(nc);
+}
+
+static void
+raw_scan_slash(int c, char **buf, int *len, int *cap, int *mode)
+{
+    int nc;
+
+    nc = lex_getc();
+    if(nc == '/' || nc == '*'){
+        *mode = nc == '/' ? RawLineComment : RawBlockComment;
+        raw_append(buf, len, cap, c);
+        raw_append(buf, len, cap, nc);
+        return;
+    }
+    if(nc != Beof)
+        lex_ungetc(nc);
+    raw_append(buf, len, cap, c);
+}
+
+static int
+raw_scan_normal(int c, char **buf, int *len, int *cap, int *mode, int *depth)
+{
+    if(c == '"'){
+        *mode = RawString;
+        raw_append(buf, len, cap, c);
+        return 0;
+    }
+    if(c == '\''){
+        *mode = RawChar;
+        raw_append(buf, len, cap, c);
+        return 0;
+    }
+    if(c == '/'){
+        raw_scan_slash(c, buf, len, cap, mode);
+        return 0;
+    }
+    if(c == '{'){
+        (*depth)++;
+        raw_append(buf, len, cap, c);
+        return 0;
+    }
+    if(c == '}'){
+        (*depth)--;
+        if(*depth == 0)
+            return 1;
+        raw_append(buf, len, cap, c);
+        return 0;
+    }
+    raw_append(buf, len, cap, c);
+    return 0;
+}
+
+static int
+try_raw_c_block(char **out)
+{
+    int c, depth, mode, esc, len, cap;
+    char *buf;
+    LexMark mark;
+
+    lex_save(&mark);
+    if(!raw_start_block()){
+        lex_restore(&mark);
         return 0;
     }
 
-    cap = 256;
-    len = 0;
-    buf = malloc(cap);
-    if(buf == nil)
-        sysfatal("malloc: raw c block");
-    buf[0] = '\0';
-
+    raw_init(&buf, &len, &cap);
     depth = 1;
-    mode = 0;	/* 0 normal, 1 string, 2 char, 3 line comment, 4 block comment */
+    mode = RawNormal;
     esc = 0;
     while((c = lex_getc()) != Beof){
-        if(mode == 0){
-            if(c == '"'){
-                mode = 1;
-                raw_append(&buf, &len, &cap, c);
-                continue;
+        switch(mode){
+        case RawString:
+        case RawChar:
+            raw_scan_quote(c, &buf, &len, &cap, &mode, &esc);
+            break;
+        case RawLineComment:
+            raw_scan_line_comment(c, &buf, &len, &cap, &mode);
+            break;
+        case RawBlockComment:
+            raw_scan_block_comment(c, &buf, &len, &cap, &mode);
+            break;
+        default:
+            if(raw_scan_normal(c, &buf, &len, &cap, &mode, &depth)){
+                *out = buf;
+                return 1;
             }
-            if(c == '\''){
-                mode = 2;
-                raw_append(&buf, &len, &cap, c);
-                continue;
-            }
-            if(c == '/'){
-                int nc = lex_getc();
-                if(nc == '/'){
-                    mode = 3;
-                    raw_append(&buf, &len, &cap, c);
-                    raw_append(&buf, &len, &cap, nc);
-                    continue;
-                }
-                if(nc == '*'){
-                    mode = 4;
-                    raw_append(&buf, &len, &cap, c);
-                    raw_append(&buf, &len, &cap, nc);
-                    continue;
-                }
-                if(nc != Beof)
-                    lex_ungetc(nc);
-                raw_append(&buf, &len, &cap, c);
-                continue;
-            }
-            if(c == '{'){
-                depth++;
-                raw_append(&buf, &len, &cap, c);
-                continue;
-            }
-            if(c == '}'){
-                depth--;
-                if(depth == 0){
-                    *out = buf;
-                    return 1;
-                }
-                raw_append(&buf, &len, &cap, c);
-                continue;
-            }
-            raw_append(&buf, &len, &cap, c);
-            continue;
-        }
-        if(mode == 1 || mode == 2){
-            raw_append(&buf, &len, &cap, c);
-            if(esc){
-                esc = 0;
-                continue;
-            }
-            if(c == '\\'){
-                esc = 1;
-                continue;
-            }
-            if((mode == 1 && c == '"') || (mode == 2 && c == '\''))
-                mode = 0;
-            continue;
-        }
-        if(mode == 3){
-            raw_append(&buf, &len, &cap, c);
-            if(c == '\n')
-                mode = 0;
-            continue;
-        }
-        if(mode == 4){
-            raw_append(&buf, &len, &cap, c);
-            if(c == '*'){
-                int nc = lex_getc();
-                if(nc == '/'){
-                    raw_append(&buf, &len, &cap, nc);
-                    mode = 0;
-                } else if(nc != Beof)
-                    lex_ungetc(nc);
-            }
+            break;
         }
     }
     *out = buf;
@@ -3653,7 +3723,7 @@ expr_binary_op(int type)
         ops[NSub] = " - ";
         ops[NMul] = " * ";
         ops[NDiv] = " / ";
-        ops[NMod] = " %% ";
+        ops[NMod] = " % ";
         ops[NEq] = " == ";
         ops[NNe] = " != ";
         ops[NLt] = " < ";
@@ -3836,30 +3906,9 @@ gen_print_expr(Node *e)
 }
 
 static void
-gen_raw_func_call_expr(Node *e)
-{
-    Node *a;
-    int first;
-
-    first = 1;
-    print("%s(", e->name);
-    for(a = e->left; a; a = a->next){
-        if(!first)
-            print(", ");
-        gen_expr(a);
-        first = 0;
-    }
-    print(")");
-}
-
-static void
 gen_func_call_expr(Node *e)
 {
-    if(expr_name_is(e, "print")){
-        gen_print_expr(e);
-        return;
-    }
-    gen_raw_func_call_expr(e);
+    gen_print_expr(e);
 }
 
 static int
@@ -8689,81 +8738,145 @@ rawc_forbidden_ident(char *id, char **why)
     return 0;
 }
 
+static int
+rawc_ident_start(int c)
+{
+    return isalpha((uchar)c) || c == '_';
+}
+
+static int
+rawc_ident_char(int c)
+{
+    return isalnum((uchar)c) || c == '_';
+}
+
+static int
+rawc_scan_boundary_normal(char *src, int *i, int *mode, int *esc)
+{
+    int c;
+
+    c = src[*i];
+    if(c == '"'){
+        *mode = RawString;
+        *esc = 0;
+        return 1;
+    }
+    if(c == '\''){
+        *mode = RawChar;
+        *esc = 0;
+        return 1;
+    }
+    if(c == '/' && src[*i+1] == '/'){
+        *mode = RawLineComment;
+        (*i)++;
+        return 1;
+    }
+    if(c == '/' && src[*i+1] == '*'){
+        *mode = RawBlockComment;
+        (*i)++;
+        return 1;
+    }
+    return 0;
+}
+
+static int
+rawc_scan_boundary_quote(char *src, int *i, int *mode, int *esc)
+{
+    int c;
+
+    c = src[*i];
+    if(*esc){
+        *esc = 0;
+        return 1;
+    }
+    if(c == '\\'){
+        *esc = 1;
+        return 1;
+    }
+    if((*mode == RawString && c == '"') || (*mode == RawChar && c == '\''))
+        *mode = RawNormal;
+    return 1;
+}
+
+static int
+rawc_scan_boundary_comment(char *src, int *i, int *mode)
+{
+    int c;
+
+    c = src[*i];
+    if(*mode == RawLineComment){
+        if(c == '\n')
+            *mode = RawNormal;
+        return 1;
+    }
+    if(c == '*' && src[*i+1] == '/'){
+        *mode = RawNormal;
+        (*i)++;
+    }
+    return 1;
+}
+
+static int
+rawc_scan_boundary_mode(char *src, int *i, int *mode, int *esc)
+{
+    switch(*mode){
+    case RawNormal:
+        return rawc_scan_boundary_normal(src, i, mode, esc);
+    case RawString:
+    case RawChar:
+        return rawc_scan_boundary_quote(src, i, mode, esc);
+    case RawLineComment:
+    case RawBlockComment:
+        return rawc_scan_boundary_comment(src, i, mode);
+    }
+    return 0;
+}
+
+static void
+rawc_copy_ident(char *src, int *i, char *id, int nid)
+{
+    int j;
+
+    j = 0;
+    do {
+        if(j < nid - 1)
+            id[j++] = src[*i];
+        (*i)++;
+    } while(rawc_ident_char((uchar)src[*i]));
+    id[j] = '\0';
+    (*i)--;
+}
+
+static void
+rawc_check_ident(char *id, int *errs)
+{
+    char *why;
+
+    why = nil;
+    if(rawc_forbidden_ident(id, &why)){
+        fprint(2, "o9c: error: line %d: raw C block uses forbidden o9 internal symbol '%s' "
+            "(raw C may use Plan 9 C and local values, not generated object internals)\n",
+            sem_line, why);
+        (*errs)++;
+    }
+}
+
 static void
 validate_rawc_boundary(char *src, int *errs)
 {
-    int i, mode, esc, j;
-    char id[256], *why;
+    int i, mode, esc;
+    char id[256];
 
     if(src == nil)
         return;
-    mode = 0;	/* 0 normal, 1 string, 2 char, 3 line comment, 4 block comment */
+    mode = RawNormal;
     esc = 0;
     for(i = 0; src[i] != '\0'; i++){
-        if(mode == 0){
-            if(src[i] == '"'){
-                mode = 1;
-                esc = 0;
-                continue;
-            }
-            if(src[i] == '\''){
-                mode = 2;
-                esc = 0;
-                continue;
-            }
-            if(src[i] == '/' && src[i+1] == '/'){
-                mode = 3;
-                i++;
-                continue;
-            }
-            if(src[i] == '/' && src[i+1] == '*'){
-                mode = 4;
-                i++;
-                continue;
-            }
-            if(isalpha((uchar)src[i]) || src[i] == '_'){
-                j = 0;
-                do {
-                    if(j < sizeof id - 1)
-                        id[j++] = src[i];
-                    i++;
-                } while(isalnum((uchar)src[i]) || src[i] == '_');
-                id[j] = '\0';
-                i--;
-                why = nil;
-                if(rawc_forbidden_ident(id, &why)){
-                    fprint(2, "o9c: error: line %d: raw C block uses forbidden o9 internal symbol '%s' "
-                        "(raw C may use Plan 9 C and local values, not generated object internals)\n",
-                        sem_line, why);
-                    (*errs)++;
-                }
-                continue;
-            }
+        if(rawc_scan_boundary_mode(src, &i, &mode, &esc))
             continue;
-        }
-        if(mode == 1 || mode == 2){
-            if(esc){
-                esc = 0;
-                continue;
-            }
-            if(src[i] == '\\'){
-                esc = 1;
-                continue;
-            }
-            if((mode == 1 && src[i] == '"') || (mode == 2 && src[i] == '\''))
-                mode = 0;
-            continue;
-        }
-        if(mode == 3){
-            if(src[i] == '\n')
-                mode = 0;
-            continue;
-        }
-        if(mode == 4){
-            if(src[i] == '*' && src[i+1] == '/'){
-                mode = 0;
-                i++;
-            }
+        if(rawc_ident_start((uchar)src[i])){
+            rawc_copy_ident(src, &i, id, sizeof id);
+            rawc_check_ident(id, errs);
             continue;
         }
     }
@@ -9454,9 +9567,7 @@ static Type*
 annotate_func_call_expr(Node *e, Node *scope_class)
 {
     annotate_expr_list(e->left, scope_class);
-    if(expr_name_is(e, "print"))
-        return set_expr_type(e, type_name("void"));
-    return nil;
+    return set_expr_type(e, type_name("void"));
 }
 
 static Type*
@@ -9843,11 +9954,92 @@ check_override_compat(Node *cnode, int *errs)
 }
 
 static void
-check_inheritance_contract(Node *cnode, int *errs)
+check_interface_member_contract(Node *cnode, Node *m, int *errs)
+{
+    if(cnode == nil || m == nil || cnode->type != NInterface)
+        return;
+    if(m->type != NMethod && m->type != NInherit){
+        fprint(2, "o9c: error: line %d: interface '%s' may only declare methods or inherit interfaces\n", sem_line,
+            cnode->name);
+        (*errs)++;
+        return;
+    }
+    if(m->type == NMethod && (m->flags & NFMethodDecl) == 0){
+        fprint(2, "o9c: error: line %d: interface method '%s' cannot have a body\n", sem_line, m->name);
+        (*errs)++;
+    }
+}
+
+static void
+check_inherit_member_contract(Node *cnode, Node *m, int *classparents, int *errs)
+{
+    Node *parent;
+    Type *pt;
+
+    if(cnode == nil || m == nil || m->type != NInherit)
+        return;
+    pt = inherit_type_with_bindings(m, nil);
+    parent = type_decl_node(pt);
+    if(parent == nil)
+        return;
+    if(parent == cnode || is_subclass(parent->name, cnode->name)){
+        fprint(2, "o9c: error: line %d: inheritance cycle involving '%s'\n", sem_line, cnode->name);
+        (*errs)++;
+    }
+    if(cnode->type == NStruct){
+        fprint(2, "o9c: error: line %d: struct '%s' cannot inherit '%s'\n", sem_line, cnode->name, m->name);
+        (*errs)++;
+        return;
+    }
+    if(cnode->type == NInterface){
+        if(parent->type != NInterface){
+            fprint(2, "o9c: error: line %d: interface '%s' can only inherit interfaces\n", sem_line, cnode->name);
+            (*errs)++;
+        }
+        return;
+    }
+    if(parent->type == NStruct || parent->type == NEnum){
+        fprint(2, "o9c: error: line %d: class '%s' cannot inherit non-class/interface '%s'\n", sem_line,
+            cnode->name, m->name);
+        (*errs)++;
+        return;
+    }
+    if(parent->type == NClass){
+        (*classparents)++;
+        if(*classparents > 1){
+            fprint(2, "o9c: error: line %d: class '%s' cannot inherit more than one class\n", sem_line, cnode->name);
+            (*errs)++;
+        }
+    }
+}
+
+static void
+check_concrete_contract_impls(Node *cnode, int *errs)
 {
     Node *m, *parent;
     Type *pt;
     TypeBind *pb;
+
+    if(cnode == nil || cnode->type != NClass || (cnode->flags & NFAbstract) != 0)
+        return;
+    for(m = cnode->left; m; m = m->next){
+        if(m->line > 0)
+            sem_line = m->line;
+        if(m->type == NMethod && ((m->flags & NFAbstract) || (m->flags & NFMethodDecl)))
+            require_method_impl(cnode, m, errs);
+        if(m->type == NInherit){
+            pt = inherit_type_with_bindings(m, nil);
+            parent = type_decl_node(pt);
+            pb = type_bindings_for(parent, pt);
+            require_contract_methods_bound(cnode, parent, pb, errs);
+        }
+    }
+}
+
+static void
+check_inheritance_contract(Node *cnode, int *errs)
+{
+    Node *m;
     int classparents;
 
     if(cnode == nil || (cnode->type != NClass && cnode->type != NStruct && cnode->type != NInterface))
@@ -9858,62 +10050,11 @@ check_inheritance_contract(Node *cnode, int *errs)
     for(m = cnode->left; m; m = m->next){
         if(m->line > 0)
             sem_line = m->line;
-        if(cnode->type == NInterface && m->type != NMethod && m->type != NInherit){
-            fprint(2, "o9c: error: line %d: interface '%s' may only declare methods or inherit interfaces\n", sem_line,
-                cnode->name);
-            (*errs)++;
-        }
-        if(cnode->type == NInterface && m->type == NMethod && (m->flags & NFMethodDecl) == 0){
-            fprint(2, "o9c: error: line %d: interface method '%s' cannot have a body\n", sem_line, m->name);
-            (*errs)++;
-        }
-        if(m->type == NMethod && (m->flags & NFAbstract) && (m->flags & NFMethodDecl) == 0){
-            fprint(2, "o9c: error: line %d: abstract method '%s' cannot have a body\n", sem_line, m->name);
-            (*errs)++;
-        }
-        if(m->type != NInherit)
-            continue;
-        pt = inherit_type_with_bindings(m, nil);
-        parent = type_decl_node(pt);
-        if(parent == nil)
-            continue;
-        if(parent == cnode || is_subclass(parent->name, cnode->name)){
-            fprint(2, "o9c: error: line %d: inheritance cycle involving '%s'\n", sem_line, cnode->name);
-            (*errs)++;
-        }
-        if(cnode->type == NStruct){
-            fprint(2, "o9c: error: line %d: struct '%s' cannot inherit '%s'\n", sem_line, cnode->name, m->name);
-            (*errs)++;
-        } else if(cnode->type == NInterface){
-            if(parent->type != NInterface){
-                fprint(2, "o9c: error: line %d: interface '%s' can only inherit interfaces\n", sem_line, cnode->name);
-                (*errs)++;
-            }
-        } else if(parent->type == NStruct || parent->type == NEnum){
-            fprint(2, "o9c: error: line %d: class '%s' cannot inherit non-class/interface '%s'\n", sem_line,
-                cnode->name, m->name);
-            (*errs)++;
-        } else if(parent->type == NClass){
-            classparents++;
-            if(classparents > 1){
-                fprint(2, "o9c: error: line %d: class '%s' cannot inherit more than one class\n", sem_line, cnode->name);
-                (*errs)++;
-            }
-        }
+        check_interface_member_contract(cnode, m, errs);
+        check_inherit_member_contract(cnode, m, &classparents, errs);
     }
     check_override_compat(cnode, errs);
-    if(cnode->type == NClass && (cnode->flags & NFAbstract) == 0){
-        for(m = cnode->left; m; m = m->next){
-            if(m->type == NMethod && ((m->flags & NFAbstract) || (m->flags & NFMethodDecl)))
-                require_method_impl(cnode, m, errs);
-            if(m->type == NInherit){
-                pt = inherit_type_with_bindings(m, nil);
-                parent = type_decl_node(pt);
-                pb = type_bindings_for(parent, pt);
-                require_contract_methods_bound(cnode, parent, pb, errs);
-            }
-        }
-    }
+    check_concrete_contract_impls(cnode, errs);
 }
 
 static void typecheck_expr(Node *e, Node *scope_class, int *errs);

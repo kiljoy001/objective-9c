@@ -1,0 +1,9 @@
+main {
+    string who = "o9";
+    int64 count = 42;
+    double score = 3.5;
+    print();
+    print("literal percent % and newline\n");
+    print("fmt %s %lld %g\n", who, count, score);
+    print("auto ", who, " ", 7, " ", 2.25, "\n");
+}

@@ -1,0 +1,25 @@
+class Ops {
+    method int64 bits(int64 v) {
+        return ((v & 7) | 8) ^ 3;
+    }
+
+    method int64 shifts(int64 v) {
+        return (v << 3) >> 1;
+    }
+
+    method int64 invert(int64 v) {
+        return ~v;
+    }
+}
+
+main {
+    Ops o = new Ops();
+    int64 a = 13;
+    int64 b = 4;
+
+    print("arith ", a + b, " ", a - b, " ", a * b, " ", a / b, " ", a % b, "\n");
+    print("compare ", a == b, " ", a != b, " ", a > b, " ", a >= b, " ", a < b, " ", a <= b, "\n");
+    print("bits ", o.bits(5), " ", o.shifts(4), " ", o.invert(0), " ", o.invert(1), "\n");
+    print("logic ", true && !false, " ", false || true, "\n");
+    print("neg ", -a, "\n");
+}
