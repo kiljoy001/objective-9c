@@ -3,17 +3,9 @@
 
 tool=./o9c/o9c
 fail=0
-app=o9remote
-srv=/srv/o9.^$app^.^$app^.app
-server=/tmp/o9remote_srv.$pid
-client=/tmp/o9remote_client.$pid
 
 fn cleanup {
-	if(! ~ $spid '')
-		@{echo kill > /proc/$spid/note} >[2]/dev/null
-	kill o9remote_srv.$pid | rc >[2]/dev/null
-	kill o9remote_client.$pid | rc >[2]/dev/null
-	rm -f $srv $server $client /tmp/o9issue_*.$pid.^*
+	rm -f /tmp/o9issue_*.$pid.^*
 	broke | rc
 }
 
@@ -82,42 +74,6 @@ if(~ $status '')
 grep -s 'segattach' o9_runtime.c
 if(! ~ $status '')
 	failmsg 'shm contract: missing segattach path'
-
-# Raw runtime 9P client: start a generated server, then share one connected
-# remote handle across two procs. This exercises dynamic fids + fd locking.
-if(! $tool o9c/test/remote9p_app.o9 > /tmp/o9issue_remote.$pid.c){
-	failmsg 'remote9p app: transpile failed'
-}
-if not if(! 6c -FVw -I. -o /tmp/o9issue_remote.$pid.6 /tmp/o9issue_remote.$pid.c){
-	failmsg 'remote9p app: 6c failed'
-}
-if not if(! 6l -o $server /tmp/o9issue_remote.$pid.6 libo9.a /$objtype/lib/libndb.a){
-	failmsg 'remote9p app: 6l failed'
-}
-
-if(~ $fail 0){
-	rm -f $srv
-	$server $app &
-	spid=$apid
-	i=0
-	while(! test -e $srv && test $i -lt 12){
-		sleep 1
-		i=`{hoc -e $i+1}
-	}
-	if(! test -e $srv)
-		failmsg 'remote9p app: no /srv post'
-	if not{
-		if(! 6c -FVw -I. -o $client^.6 o9c/test/runtime_remote9p_test.c)
-			failmsg 'remote9p client: 6c failed'
-		if not if(! 6l -o $client $client^.6 libo9.a /$objtype/lib/libndb.a)
-			failmsg 'remote9p client: 6l failed'
-		if not{
-			$client $srv
-			if(! ~ $status '')
-				failmsg 'remote9p client: run failed'
-		}
-	}
-}
 
 cleanup
 

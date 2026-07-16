@@ -30,7 +30,8 @@ Each ring uses the cheapest mechanism for what is allowed to cross it.
 ```
 
 The source-level distance forms select transport for Tabula data only.
-Remote class/object construction is intentionally rejected.
+Remote class/object construction is intentionally rejected, and the old
+runtime method-dispatch fallback over `ctl/data` is gone.
 Application composition is the app facade's job; the Plan 9 namespace
 composes mounted apps, sessions, exports/imports, and lower-level namespace setup
 tables.
@@ -61,7 +62,7 @@ each concrete instantiation (`Box<int64>` → `Box__int64`) is a real class.
                       a same-process pointer                   fill L1, retry
  3. CSP channel       O9Msg over dispatch_chan to the actor    in-process
  4. app facade        explicit ctl write + data read over 9P;
-                      not generated source-level remote object dispatch
+                      never generated source-level remote object dispatch
 ```
 
 Return values ride in per-call stack frames (`__o9fr[depth]`), so nested

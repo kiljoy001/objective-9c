@@ -2928,7 +2928,7 @@ o9_cache_fill(void *client, ulong hash, int is_ctrl)
 
 	/* Method store first: exact (class, selector) lookup, and the pid-gen
 	 * guard means a hit is always a thunk registered by this process.
-	 * Misses (remote objects, older servers) fall back to status text. */
+	 * Misses for older servers fall back to status text. */
 	if(is_ctrl && obj->table != nil){
 		thunk = o9_method_thunk(obj->srvname, hash);
 		if(thunk != nil){
@@ -3181,29 +3181,6 @@ o9_9p_clunk(int fd, u32int fid)
 	PUT4(tx+7, fid);
 	n = o9_9p_rpc(fd, tx, 11, rx, sizeof rx, 121);
 	return n < 0 ? -1 : 0;
-}
-
-static int
-o9_9p_write_all(int fd, u32int fid, char *s)
-{
-	uchar tx[8192], rx[256];
-	int n, m;
-
-	if(s == nil)
-		s = "";
-	n = strlen(s);
-	if(n > (int)sizeof tx - 23)
-		n = sizeof tx - 23;
-	PUT4(tx, 23+n);
-	tx[4] = 118;	/* Twrite */
-	tx[5] = 0; tx[6] = 0;
-	PUT4(tx+7, fid);
-	PUT4(tx+11, 0);
-	PUT4(tx+15, 0);
-	PUT4(tx+19, n);
-	memmove(tx+23, s, n);
-	m = o9_9p_rpc(fd, tx, 23+n, rx, sizeof rx, 119);
-	return m < 0 ? -1 : 0;
 }
 
 static int
@@ -3604,94 +3581,6 @@ o9_tab_sync(O9Tabula *t)
 	return 0;
 }
 
-static int
-o9_remote_ctl_data(o9_Object *obj, char *cmd, char *data, int ndata)
-{
-	static QLock lock;
-	static u32int nextfid = 10;
-	enum { Rootfid = 1 };
-	u32int ctlfid, datafid;
-	int rv, havectl, havedata;
-
-	if(obj == nil || obj->fd < 0 || cmd == nil)
-		return -1;
-	if(data != nil && ndata > 0)
-		data[0] = '\0';
-	qlock(&lock);
-	if(nextfid > 0xfffffff0U)
-		nextfid = 10;
-	ctlfid = nextfid++;
-	datafid = nextfid++;
-	rv = -1;
-	havectl = 0;
-	havedata = 0;
-	if(o9_9p_walk1(obj->fd, Rootfid, ctlfid, "ctl") < 0)
-		goto out;
-	havectl = 1;
-	if(o9_9p_open(obj->fd, ctlfid, OWRITE) < 0)
-		goto out;
-	if(o9_9p_write_all(obj->fd, ctlfid, cmd) < 0)
-		goto out;
-	if(o9_9p_walk1(obj->fd, Rootfid, datafid, "data") < 0)
-		goto out;
-	havedata = 1;
-	if(o9_9p_open(obj->fd, datafid, OREAD) < 0)
-		goto out;
-	if(o9_9p_read_all(obj->fd, datafid, data, ndata) < 0)
-		goto out;
-	rv = 0;
-out:
-	if(havectl)
-		o9_9p_clunk(obj->fd, ctlfid);
-	if(havedata)
-		o9_9p_clunk(obj->fd, datafid);
-	qunlock(&lock);
-	return rv;
-}
-
-static void
-o9_remote_method_cmd(o9_Object *obj, char *method, void *args, int nargs, char *cmd, int ncmd)
-{
-	char path[128], inst[64], mname[64], *slash;
-	char *p;
-	vlong *argv;
-	int i;
-
-	if(cmd == nil || ncmd <= 0)
-		return;
-	if(method == nil)
-		method = "";
-	strncpy(path, method, sizeof path-1);
-	path[sizeof path-1] = '\0';
-	slash = strchr(path, '/');
-	if(slash != nil){
-		*slash++ = '\0';
-		strncpy(inst, path, sizeof inst-1);
-		inst[sizeof inst-1] = '\0';
-		strncpy(mname, slash, sizeof mname-1);
-		mname[sizeof mname-1] = '\0';
-	}else{
-		if(obj != nil && obj->srvname[0] != '\0')
-			strncpy(inst, obj->srvname, sizeof inst-1);
-		else
-			strncpy(inst, "main", sizeof inst-1);
-		inst[sizeof inst-1] = '\0';
-		strncpy(mname, path, sizeof mname-1);
-		mname[sizeof mname-1] = '\0';
-	}
-	if(obj != nil && obj->srvname[0] != '\0' && strcmp(mname, obj->srvname) == 0){
-		snprint(cmd, ncmd, "new %s", inst);
-		return;
-	}
-	p = cmd;
-	p += snprint(p, ncmd - (p-cmd), "method %s %s", inst, mname);
-	if(args != nil && nargs > 0){
-		argv = args;
-		for(i = 0; i < nargs && p < cmd+ncmd-1; i++)
-			p += snprint(p, cmd+ncmd-p, " arg%d=%lld", i, argv[i]);
-	}
-}
-
 void*
 obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int nargs)
 {
@@ -3700,7 +3589,6 @@ obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int narg
     O9Msg *m;
     O9Reply *r;
     void *ret;
-    char cmd[1024], data[8192];
 
     if(obj->dispatch_chan != nil){
         if(o9_actor_self_send(obj->dispatch_chan, method))
@@ -3734,25 +3622,8 @@ obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int narg
         return ret;
     }
 
-    /* Fall through to remote 9P dispatch if connected.
-     * Like the channel path above, the return value itself travels in the
-     * pointer (callers cast it back to vlong); no static buffer to clobber. */
-    if(obj->fd >= 0 && method != nil && obj->distance >= 0){
-        o9_remote_method_cmd(obj, method, args, nargs, cmd, sizeof cmd);
-        if(o9_remote_ctl_data(obj, cmd, data, sizeof data) == 0){
-            if(strncmp(data, "error: ", 7) == 0){
-                char *nl = strchr(data, '\n');
-                if(nl != nil)
-                    *nl = '\0';
-                werrstr("%s", data + 7);
-                o9_set_call_err("remote call failed");
-                return nil;
-            }
-            o9_set_call_err(nil);
-            return (void*)(uintptr)strtoll(data, nil, 0);
-        }
-    }
-
+    werrstr("object method dispatch is local-only");
+    o9_set_call_err("object method dispatch is local-only");
     return nil;
 }
 
@@ -3764,7 +3635,6 @@ obj9_msgSendDoubleN(void *receiver, char *method, ulong selector, void *args, in
     O9Msg *m;
     O9Reply *r;
     double ret;
-    char cmd[1024], data[8192];
 
     ret = 0.0;
     if(obj->dispatch_chan != nil){
@@ -3798,22 +3668,8 @@ obj9_msgSendDoubleN(void *receiver, char *method, ulong selector, void *args, in
         return ret;
     }
 
-    if(obj->fd >= 0 && method != nil && obj->distance >= 0){
-        o9_remote_method_cmd(obj, method, args, nargs, cmd, sizeof cmd);
-        if(o9_remote_ctl_data(obj, cmd, data, sizeof data) == 0){
-            if(strncmp(data, "error: ", 7) == 0){
-                char *nl = strchr(data, '\n');
-                if(nl != nil)
-                    *nl = '\0';
-                werrstr("%s", data + 7);
-                o9_set_call_err("remote call failed");
-                return 0.0;
-            }
-            o9_set_call_err(nil);
-            return strtod(data, nil);
-        }
-    }
-
+    werrstr("object method dispatch is local-only");
+    o9_set_call_err("object method dispatch is local-only");
     return 0.0;
 }
 
@@ -3913,17 +3769,14 @@ o9_method_ret_type(char *method)
 	return (char*)v;
 }
 
-/* send(handle, line) builtin: code as text.  The line is the same one
- * the shell writes — "method <inst> <name> arg0=5 ..." — fired at a
- * handle from inside the language, reply back as a string.  Far
- * handles get the raw line written to ctl and the data file read back
- * verbatim; in-process handles parse it into the same selector+frame
- * the compiled call sites use. */
+/* send(handle, line) builtin: code as text for local object handles.
+ * Network APIs exchange Tabula data through exports/imports; object
+ * method dispatch is intentionally local-only. */
 O9String*
 o9_send(void *client, O9String *line)
 {
 	o9_Object *obj = client;
-	char buf[1024], data[8192];
+	char buf[1024];
 	char *f[16], *v, *ret, *cline;
 	vlong args[8], rv;
 	int nf, i, nargs;
@@ -3934,13 +3787,8 @@ o9_send(void *client, O9String *line)
 	if(cline == nil)
 		return nil;
 	if(obj->dispatch_chan == nil && obj->fd >= 0){
-		/* far: text in, text out, exactly the shell's path */
-		strncpy(buf, cline, sizeof buf - 1);
-		buf[sizeof buf - 1] = '\0';
 		free(cline);
-		if(o9_remote_ctl_data(obj, buf, data, sizeof data) < 0)
-			return nil;
-		return o9_string_from_c(data);
+		return o9_string_take(smprint("error: object method dispatch is local-only; exchange Tabula data over 9P"));
 	}
 	strncpy(buf, cline, sizeof buf - 1);
 	buf[sizeof buf - 1] = '\0';
@@ -3966,9 +3814,7 @@ o9_send(void *client, O9String *line)
 }
 
 /*
- * obj9_msgSend_name — remote 9P dispatch over fd.
- * Compatibility wrapper around the counted ctl/data dispatch path.
- * Used when distance >= 0 (no dispatch_chan).
+ * obj9_msgSend_name — compatibility wrapper around counted local dispatch.
  */
 void*
 obj9_msgSend_name(void *receiver, char *method, ulong selector, void *args)
@@ -4006,9 +3852,9 @@ o9_clunk(int fd)
 }
 
 /*
- * o9_connect — dial and 9P handshake.
+ * o9_connect — dial and 9P handshake for Tabula transport.
  *
- * Distance selects the transport (o9 is a Plan 9 / 9front language):
+ * Distance selects the transport:
  *   near (0) -> IL   (reliable sequenced datagrams, built for 9P; the
  *                     low-latency LAN-realm transport)
  *   far  (1) -> TCP  (wide area)

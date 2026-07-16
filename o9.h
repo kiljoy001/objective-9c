@@ -64,8 +64,8 @@ typedef struct o9_Object {
     o9_AsmTable *table;
     long ref;           /* ARC — shared reference count */
     void *dispatch_chan;	/* Channel* */
-    int  distance;		/* -1=same, 0=near/IL, 1=far/TCP */
-    char srvname[64];		/* server name for /srv/ cache walk */
+    int  distance;		/* Tabula transport: -1=same, 0=near/IL, 1=far/TCP */
+    char srvname[64];		/* local class name or Tabula transport label */
     char cachepath[128];	/* mounted object cache path */
     char oid[64];		/* registry object id for lookup handles */
     vlong gen;			/* registry generation for lookup handles */
@@ -80,7 +80,7 @@ extern int   o9_ns_ensure_dir(char *path);
 extern int   o9_ns_ensure_app(char *root);
 extern int   o9_init_client(void *client, char *srvname, int size);
 extern int   o9_init_client_path(void *client, char *path, char *srvname, int size);
-extern int   o9_connect(void *client, char *addr, char *srvname, int distance);	/* near=0 IL, far=1 TCP */
+extern int   o9_connect(void *client, char *addr, char *srvname, int distance);	/* Tabula transport: near=0 IL, far=1 TCP */
 extern void* o9_dispatch_data(void *client, ulong hash);
 extern void* o9_dispatch_call(void *client, ulong hash, void *args);
 extern void  o9_cache_fill(void *client, ulong hash, int is_ctrl);
@@ -256,7 +256,7 @@ extern int  o9_registry_register(char *oid, char *class, void *chan, void *addr)
 extern int  o9_registry_lookup(char *oid, O9Handle *out);
 extern int  o9_registry_unregister(char *oid);
 extern int  o9_lookup_client(void *client, O9String *oid, int size);
-extern O9String* o9_send(void *client, O9String *line);
+extern O9String* o9_send(void *client, O9String *line);	/* local object handles only */
 extern int  o9_selftest_9p_rpc_split(void);
 
 /* Namespace assembly: recipe mirroring + object binds */

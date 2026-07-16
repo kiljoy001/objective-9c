@@ -130,9 +130,9 @@ space, same generated binary.
 
 It is not used to move objects across the network. `near`, `far`, and
 `listener` are Tabula transport features; remote object construction is
-rejected by the language. When a call leaves the process boundary, the
-public surface is the app facade and Tabula files, not cached function
-pointers.
+rejected by the language, and the runtime no longer has a remote-object
+method fallback. When a call leaves the process boundary, the public surface
+is the app facade and Tabula files, not cached function pointers.
 
 On Linux/9lx targets, the shared-memory tier may be absent. The design still
 works because asm miss/failure falls back to CSP or facade behavior.

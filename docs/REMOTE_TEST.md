@@ -1,8 +1,8 @@
 # Tabula network facade test
 
-o9 no longer supports source-level remote object construction. Objects stay
-local; mounted applications exchange `.tab` data through the generated app
-facade:
+o9 no longer supports remote object construction or remote object method
+dispatch. Objects stay local; mounted applications exchange `.tab` data
+through the generated app facade:
 
 ```text
 /mnt/app/

@@ -4016,7 +4016,12 @@ gen_discard_expr_stmt(Node *e)
 {
     Node *ve;
     Type *lt;
-    int cvoid;
+    int cvoid, id;
+
+    if(e == nil){
+        print("\t;\n");
+        return;
+    }
 
     ve = e;
     if(ve != nil && ve->type == NTry)
@@ -4026,10 +4031,9 @@ gen_discard_expr_stmt(Node *e)
     if(ve == nil)
         cvoid = 1;
     else if(ve->type == NMsgSend){
-        /* Normal object sends always lower to a vlong dispatch expression,
-         * even when the o9 method type is void. Builtin handle methods
-         * (Tabula/MountTable) lower directly to C helpers, and their void
-         * methods are actual C void expressions. */
+        /* Normal object sends lower to a vlong dispatch expression even
+         * for o9 void methods. Builtin handle methods can lower directly
+         * to C void helpers. */
         if(lt != nil && lt->kind == TyName && lt->name != nil &&
            (strcmp(lt->name, "Tabula") == 0 || strcmp(lt->name, "MountTable") == 0) &&
            type_is_void(ve->typeinfo))
@@ -4037,19 +4041,17 @@ gen_discard_expr_stmt(Node *e)
     } else
         cvoid = type_is_void(ve->typeinfo);
 
-    if(e != nil && ve != nil && !cvoid &&
-       (e->type == NMsgSend || e->type == NTry ||
-       e->type == NSpawn ||
-       (e->type == NFuncCall && e->name != nil && strcmp(e->name, "print") == 0))){
-        int id = new_tmp_id++;
-        print("\t{ vlong __o9discard%d = (vlong)(", id);
-        gen_expr(e);
-        print("); if(__o9discard%d){} }\n", id);
-    } else {
+    if(cvoid){
         print("\t");
         gen_expr(e);
         print(";\n");
+        return;
     }
+
+    id = new_tmp_id++;
+    print("\t{ vlong __o9discard%d;\n\t__o9discard%d = (vlong)(", id, id);
+    gen_expr(e);
+    print(");\n\tUSED(__o9discard%d);\n\t}\n", id);
 }
 
 void gen_stmt(Node *c, Node *s);
@@ -4095,28 +4097,6 @@ gen_vlong_arg_array(char *tabs, char *array, Node *args, int nargs)
 }
 
 static void
-gen_assign_connect_remote(char *varname, char *target, char *lhs_type,
-    char *cn, char *tbl, int dval, Node *first_arg, int rest)
-{
-    char args[96];
-
-    print("\tmemset(&%s, 0, sizeof(%s_Client));\n", target, lhs_type);
-    print("\tmemset(&%s, 0, sizeof(o9_AsmTable));\n", tbl);
-    print("\t%s.table = &%s;\n", target, tbl);
-    print("\t{\n\t\tchar __addr[128]; char *__addrp;\n\t\t__addrp = o9_string_cstr(");
-    gen_expr(first_arg);
-    print(");\n\t\tif(__addrp != nil){ snprint(__addr, sizeof __addr, \"%%s\", __addrp); free(__addrp); o9_connect(&%s, __addr, \"%s\", %d); }\n", target, cn, dval);
-    print("\t\t%s.distance = %d;\n", target, dval);
-    if(rest > 0){
-        snprint(args, sizeof args, "__args_%s", varname);
-        gen_vlong_arg_array("\t\t", args, first_arg->next, rest);
-        print("\t\t(void)obj9_msgSendN(&%s, \"%s\", 0x%lux, %s, %d);\n",
-            target, cn, o9_hash(cn), args, rest);
-    }
-    print("\t}\n");
-}
-
-static void
 gen_assign_alloc_local(char *varname, char *target, char *lhs_type,
     char *cn, char *tbl, int dval, Node *args, int nctor)
 {
@@ -4151,18 +4131,6 @@ gen_assign_alloc_local(char *varname, char *target, char *lhs_type,
     print("\t(void)obj9_msgSendN(&%s, \"%s\", 0x%lux, nil, 0);\n", target, cn, o9_hash(cn));
 }
 
-static int
-new_distance_value(char *dist)
-{
-    if(dist == nil)
-        return -1;
-    if(strcmp(dist, "near") == 0)
-        return 0;
-    if(strcmp(dist, "far") == 0)
-        return 1;
-    return -1;
-}
-
 static void
 gen_assign_table_name(char *tbl, int ntbl, char *varname, int is_field)
 {
@@ -4170,17 +4138,6 @@ gen_assign_table_name(char *tbl, int ntbl, char *varname, int is_field)
         snprint(tbl, ntbl, "__o9tbl%d", new_tmp_id);
     else
         snprint(tbl, ntbl, "%s_tbl", varname);
-}
-
-static int
-gen_assign_remote_new(char *varname, char *target, char *lhs_type,
-    char *cn, char *tbl, int dval, Node *args, int nctor)
-{
-    if(dval < 0 || args == nil || args->type != NStringLit)
-        return 0;
-    gen_assign_connect_remote(varname, target, lhs_type, cn, tbl, dval,
-        args, nctor - 1);
-    return 1;
 }
 
 /* target is the C lvalue to store the client into (e.g. "motor" for a
@@ -4200,13 +4157,11 @@ gen_assign_new_to(char *varname, char *target, int is_field, char *lhs_type, Nod
      * temp AsmTable rather than a `<var>_tbl` local. */
     gen_assign_table_name(tbl, sizeof tbl, varname, is_field);
     cn = n->name;
-    dval = new_distance_value(n->typename);
+    dval = -1;
     nctor = node_arg_count(n->right);
 
     if(is_field)
         print("\to9_AsmTable %s;\n", tbl);
-    if(gen_assign_remote_new(varname, target, lhs_type, cn, tbl, dval, n->right, nctor))
-        return;
     gen_assign_alloc_local(varname, target, lhs_type, cn, tbl, dval, n->right, nctor);
 }
 
@@ -4981,46 +4936,12 @@ gen_local_plain_decl_stmt(Node *s, int is_new)
     print(";\n");
 }
 
-static void
-gen_local_remote_new_stmt(Node *s, char *cname, int dval, int nctor)
-{
-    Node *first_arg;
-    int rest;
-    char args[96];
-
-    first_arg = s->left->right;
-    rest = nctor - 1;
-    print("\t%s_Client %s;\n", cname, s->name);
-    print("\tmemset(&%s, 0, sizeof(%s_Client));\n", s->name, cname);
-    print("\t{\n\t\tchar __addr[128]; char *__addrp;\n\t\t__addrp = o9_string_cstr(");
-    gen_expr(first_arg);
-    print(");\n");
-    print("\t\tif(__addrp != nil){ snprint(__addr, sizeof __addr, \"%%s\", __addrp); free(__addrp); o9_connect(&%s, __addr, \"%s\", %d); }\n", s->name, cname, dval);
-    print("\t\t%s.distance = %d;\n", s->name, dval);
-    if(rest > 0){
-        snprint(args, sizeof args, "__args_%s", s->name);
-        gen_vlong_arg_array("\t\t", args, first_arg->next, rest);
-        print("\t\t(void)obj9_msgSendN(&%s, \"%s\", 0x%lux, %s, %d);\n",
-            s->name, cname, o9_hash(cname), args, rest);
-    }
-    print("\t}\n");
-}
-
 static int
 gen_local_new_class_stmt(Node *s, char *cname, int is_new)
 {
-    char *dist;
-    int dval, nctor;
-
     if(!is_new || cname == nil)
         return 0;
-    dist = s->left->typename;
-    dval = (dist && strcmp(dist, "near") == 0) ? 0 : (dist && strcmp(dist, "far") == 0) ? 1 : -1;
-    nctor = node_arg_count(s->left->right);
-    if(dval >= 0 && s->left->right && s->left->right->type == NStringLit)
-        gen_local_remote_new_stmt(s, cname, dval, nctor);
-    else
-        gen_local_new(s, cname, dval >= 0 ? dval : -1);
+    gen_local_new(s, cname, -1);
     return 1;
 }
 
@@ -7385,24 +7306,6 @@ count_root_main_blocks(Node *root)
     return nmain;
 }
 
-static int
-main_has_remote_new(Node *main_func)
-{
-    Node *st;
-
-    if(main_func == nil)
-        return 0;
-    for(st = main_func->left; st; st = st->next){
-        if(st->type == NLocalVar && st->left && st->left->type == NClass
-           && st->left->typename
-           && (strcmp(st->left->typename, "near") == 0
-               || strcmp(st->left->typename, "far") == 0)
-           && st->left->right && st->left->right->type == NStringLit)
-            return 1;
-    }
-    return 0;
-}
-
 /* Monomorphization: every concrete instantiation of a user generic
  * (Box<int64>) becomes a real class/struct — a substituted deep copy of
  * the template, registered and generated like hand-written code.  The
@@ -8022,7 +7925,6 @@ codegen(Node *root)
     }
     Node *main_func = find_main_func(root);
     Node *last = nil;
-    int has_remote_new = main_has_remote_new(main_func);
 
     gen_enums(root);
     gen_structs(root);
@@ -8099,9 +8001,9 @@ codegen(Node *root)
     print("\tbind(\"#s\", \"/srv\", MREPL|MCREATE);\n");
     print("\to9_registry_start();\n");
     gen_object_metadata(root);
-    if(!has_remote_new){
-        /* One app server; every class that got a class-server (generic
-         * and non-generic alike) registers into it, then post once. */
+    /* One app server; every class that got a class-server (generic
+     * and non-generic alike) registers into it, then post once. */
+    {
         int __ri;
         print("\to9_app_start(argc, argv);\n");
         for(__ri = 0; __ri < o9_nregistered; __ri++)

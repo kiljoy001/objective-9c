@@ -97,8 +97,9 @@ the test that the architecture is coherent:
 - **distance tiers** = how far Tabula data travels.  `same` is an in-process
   Tabula.  `near` reads a Tabula over **9P/IL**.  `far` reads a Tabula over
   **9P/TCP**.  `listener` serves local Tabula exports/imports through the
-  app's 9P tree.  Remote objects are rejected; data crosses as `.tab` text and the
-  receiver's local code decides what to do.
+  app's 9P tree.  Remote objects are rejected, and the old runtime object-RPC
+  fallback is removed; data crosses as `.tab` text and the receiver's local
+  code decides what to do.
 - **object relationships** = names, registry lookup, namespace reachability,
   and explicit handles passed through local CSP. A stored reference graph
   was cut; relationships are enacted at call time.

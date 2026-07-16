@@ -349,9 +349,9 @@ data without making mounted data executable.
   `uintptr` are reserved for raw-C function interop and are rejected on
   normal object APIs.
 - a *variable* named identically to a declared class parses as the type
-- `while`, `if/else if`, and `for` exist, but there is no `switch`;
-  strings returned by methods may still print with a 6c format warning
-  in some generated code paths (harmless)
+- `while`, `if/else if`, and `for` exist, but there is no `switch`
+- generated C warnings are treated as test failures; warning noise is a
+  compiler bug, not acceptable output
 
 ## Exercises
 

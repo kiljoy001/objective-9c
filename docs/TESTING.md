@@ -13,6 +13,10 @@ authoritative behavior checks should compile and run through `mk`.
   `mk ctlquote-test`: 9P facade behavior.
 - `mk crap-test`: instrumented transpiler coverage plus complexity scoring.
 
+Generated C warnings are failures. The main e2e harness captures `6c` output
+and treats any `warning:` line as a regression. Do not hide warning noise in
+tests; fix the generated C or the runtime declaration that caused it.
+
 ## Property Testing
 
 Property tests should generate many small o9 programs that include their own
@@ -99,4 +103,3 @@ test, then the mutant should be killed on the next run.
 3. Add property tests for stable stdlib behavior.
 4. Add fuzzing for parser/type/codegen edges.
 5. Add mutation testing for language invariants.
-

@@ -13,6 +13,31 @@ fn deparchs {
 	awk '/^\/\* o9: archive / { print $4 }' $1
 }
 
+fn buildprog {
+	name=$1
+	cfile=$2
+	ofile=$3
+	bin=$4
+	incs=`{depincs $cfile}
+	archs=`{deparchs $cfile}
+	cerr=$ofile^.err
+
+	6c -FVw -I. $incs -o $ofile $cfile > $cerr >[2=1]
+	if(! ~ $status ''){
+		cat $cerr >[1=2]
+		rm -f $cerr
+		return fail
+	}
+	if(grep -s 'warning:' $cerr){
+		echo $name': 6c warning treated as error' >[1=2]
+		cat $cerr >[1=2]
+		rm -f $cerr
+		return fail
+	}
+	rm -f $cerr
+	6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a $archs
+}
+
 fn runcase {
 	name=$1
 	src=o9c/test/$name.o9
@@ -32,10 +57,7 @@ fn runcase {
 		broke | rc
 		return
 	}
-	incs=`{depincs $cfile}
-	archs=`{deparchs $cfile}
-	if(6c -FVw -I. $incs -o $ofile $cfile &&
-	   6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a $archs){
+	if(buildprog $name $cfile $ofile $bin){
 		$bin > $out >[2=1]
 		if(! ~ $status ''){
 			echo $name': run failed:' $status >[1=2]
@@ -78,10 +100,7 @@ fn importcase {
 		broke | rc
 		return
 	}
-	incs=`{depincs $cfile}
-	archs=`{deparchs $cfile}
-	if(6c -FVw -I. $incs -o $ofile $cfile &&
-	   6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a $archs){
+	if(buildprog $name $cfile $ofile $bin){
 		$bin > $out >[2=1]
 		if(! cmp -s $out $expected){
 			echo $name': output mismatch' >[1=2]
@@ -115,10 +134,7 @@ fn stdlibcase {
 		broke | rc
 		return
 	}
-	incs=`{depincs $cfile}
-	archs=`{deparchs $cfile}
-	if(6c -FVw -I. $incs -o $ofile $cfile &&
-	   6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a $archs){
+	if(buildprog $name $cfile $ofile $bin){
 		$bin > $out >[2=1]
 		if(! cmp -s $out $expected){
 			echo $name': output mismatch' >[1=2]

@@ -479,6 +479,13 @@ Rules:
 - Use properties and methods as the mutable interface between C helpers and
   o9 objects.
 
+Raw C is intentionally not a safe subset. It is the escape hatch for Plan 9 C,
+so ordinary C memory bugs remain possible inside the block. The compiler's job
+here is containment: raw C cannot be placed in app methods, cannot receive o9
+object handles, and cannot name generated o9 internals such as instance lookup
+helpers. Move values across the boundary, then mutate objects through their
+normal properties and methods.
+
 `use` names resolve through the built-in Plan 9 dependency registry and then
 optional project-root `deps.tab`. Project dependencies must stay under the
 project folder.
@@ -543,6 +550,8 @@ main {
 Ordinary classes cannot be declared `near`, `far`, or `listener`. If data
 crosses a machine boundary, it crosses as `.tab` text with semantics embedded;
 the receiver decides what to do with it using its own local code.
+The legacy runtime fallback for remote object method dispatch has been removed;
+generated user code cannot create or call remote object handles.
 
 Generated app facades expose both directions:
 

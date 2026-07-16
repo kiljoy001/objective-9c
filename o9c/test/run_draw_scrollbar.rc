@@ -32,11 +32,21 @@ if(! $tool < $src > $cfile){
 }
 incs=`{depincs $cfile}
 archs=`{deparchs $cfile}
-if(! 6c -FVw -I. $incs -o $ofile $cfile){
+cerr=$ofile^.err
+6c -FVw -I. $incs -o $ofile $cfile > $cerr >[2=1]
+if(! ~ $status ''){
+	cat $cerr >[1=2]
 	echo draw-scrollbar-demo: compile failed >[1=2]
-	rm -f $cfile $ofile $bin
+	rm -f $cfile $ofile $bin $cerr
 	exit compile
 }
+if(grep -s 'warning:' $cerr){
+	echo draw-scrollbar-demo: 6c warning treated as error >[1=2]
+	cat $cerr >[1=2]
+	rm -f $cfile $ofile $bin $cerr
+	exit warning
+}
+rm -f $cerr
 if(! 6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a $archs){
 	echo draw-scrollbar-demo: link failed >[1=2]
 	rm -f $cfile $ofile $bin

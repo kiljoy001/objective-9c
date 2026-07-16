@@ -148,6 +148,16 @@ reject_source 'type_assignable\(' o9c/grammar.y
 reject_source 'strcmp.*type_storage_for_codegen' o9c/grammar.y
 reject_source 'strcmp.*type_fmt_for_codegen' o9c/grammar.y
 
+# Network invariant: object dispatch is local-only. The old remote-object
+# ctl/data lowering and runtime fallback must not reappear.
+reject_source 'gen_assign_connect_remote' o9c/grammar.y
+reject_source 'gen_assign_remote_new' o9c/grammar.y
+reject_source 'gen_local_remote_new_stmt' o9c/grammar.y
+reject_source 'main_has_remote_new' o9c/grammar.y
+reject_source 'new_distance_value' o9c/grammar.y
+reject_source 'o9_remote_ctl_data' o9_runtime.c
+reject_source 'o9_remote_method_cmd' o9_runtime.c
+
 $tool -ast < o9c/test/type_metadata_invariant.o9 > $ast || exit type-metadata-ast
 require 'NClass name=Counter typename=same.*type=Counter'
 require 'NLocalVar name=names typename=Dict__int64__string.*type=Dict<int64,string>'
