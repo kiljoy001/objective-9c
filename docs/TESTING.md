@@ -19,11 +19,30 @@ tests; fix the generated C or the runtime declaration that caused it.
 
 ## Property Testing
 
-Property tests should generate many small o9 programs that include their own
-oracle and print `OK` on success. This keeps the check native and readable.
+Property tests generate many small programs, lower each generated case to o9
+and to reference Plan 9 C, then compare stdout on 9front. Python is only the
+case generator; Plan 9 C is the oracle.
+
+The first property lane is scalar expressions:
+
+```sh
+python3 tools/o9prop.py generate --cases 32 --seed 9009
+```
+
+Then run the checked-in corpus on 9front:
+
+```rc
+mk prop-test
+```
+
+When Hypothesis is installed, `tools/o9prop.py` uses Hypothesis to generate
+case seeds. Without Hypothesis, it uses a deterministic fallback stream so the
+repo still has a runnable property corpus. Failed cases should be saved as
+ordinary focused `.o9` regressions after shrinking or simplifying.
 
 Good first properties:
 
+- Scalar expressions: arithmetic, comparisons, bitwise ops, shifts, unary ops.
 - String round trips: concat, slice, length, compare.
 - Bytes round trips: hex text to bytes to hex.
 - Tabula round trips: write, read, query, serialize, reopen.
@@ -31,14 +50,8 @@ Good first properties:
 - Casts: valid numeric casts match Plan 9 C behavior.
 - Namespaces: MountTable serialization recreates the same bind/mount rows.
 
-The useful shape is:
-
-```rc
-mk prop-test
-```
-
-with a deterministic seed list checked into the repo. Failed seeds should be
-saved as ordinary `.o9` regression files.
+The default corpus should stay deterministic and quick. Longer local corpora
+can use a higher `--cases` count and a different seed.
 
 ## Fuzzing
 
@@ -100,6 +113,6 @@ test, then the mutant should be killed on the next run.
 
 1. Keep the normal e2e suite green.
 2. Use CRAP to shrink large compiler functions.
-3. Add property tests for stable stdlib behavior.
+3. Add property tests for scalar language behavior and stable stdlib behavior.
 4. Add fuzzing for parser/type/codegen edges.
 5. Add mutation testing for language invariants.

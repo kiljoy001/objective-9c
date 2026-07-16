@@ -62,6 +62,8 @@ if(! mk ast-test)
 	fail=1
 if(~ $fail 0 && ! mk run-test)
 	fail=1
+if(~ $fail 0 && ! mk prop-test)
+	fail=1
 if(~ $fail 0 && ! mk export-test)
 	fail=1
 if(~ $fail 0 && ! mk tabula-transport-test)

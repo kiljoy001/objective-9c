@@ -83,6 +83,9 @@ issue-test:V:	o9c libo9.a
 crap-test:V:	libo9.a
 	rc ./o9c/test/run_crap.rc
 
+prop-test:V:	o9c libo9.a
+	rc ./o9c/test/run_prop_scalar.rc
+
 crypto-test:V:	libo9.a
 	$CC -I. o9c/test/crypto_test.c
 	$LD -o o9c/test/crypto_test crypto_test.$O libo9.a

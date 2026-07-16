@@ -1,0 +1,148 @@
+#!/bin/rc
+# Property corpus: compare o9-generated C against independently generated
+# Plan 9 C reference programs.
+
+tool=./o9c/o9c
+dir=o9c/test/prop/scalar
+manifest=$dir/manifest
+fail=0
+
+fn depincs {
+	awk '/^\/\* o9: include / { print "-I" $4 }' $1
+}
+
+fn deparchs {
+	awk '/^\/\* o9: archive / { print $4 }' $1
+}
+
+fn build_o9 {
+	name=$1
+	bin=$2
+	src=$dir/$name^.o9
+	cfile=/tmp/o9_prop_$name.$pid.c
+	ofile=/tmp/o9_prop_$name.$pid.6
+	cerr=$ofile^.err
+	incs=()
+	archs=()
+	ok=1
+
+	if(! $tool < $src > $cfile){
+		echo $name': o9 transpile failed' >[1=2]
+		ok=0
+	}
+	if(~ $ok 1){
+		incs=`{depincs $cfile}
+		archs=`{deparchs $cfile}
+		if(! 6c -FVw -I. $incs -o $ofile $cfile > $cerr >[2=1]){
+			cat $cerr >[1=2]
+			ok=0
+		}
+	}
+	if(~ $ok 1 && grep -s 'warning:' $cerr){
+		echo $name': generated C warning treated as error' >[1=2]
+		cat $cerr >[1=2]
+		ok=0
+	}
+	if(~ $ok 1){
+		if(! 6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a $archs)
+			ok=0
+	}
+	if(! ~ $ok 1)
+		rm -f $bin
+	rm -f $cfile $ofile $cerr
+	~ $ok 1
+}
+
+fn build_ref {
+	name=$1
+	bin=$2
+	src=$dir/$name^.ref.c
+	ofile=/tmp/o9_prop_ref_$name.$pid.6
+	cerr=$ofile^.err
+	ok=1
+
+	if(! 6c -FVw -o $ofile $src > $cerr >[2=1]){
+		cat $cerr >[1=2]
+		ok=0
+	}
+	if(~ $ok 1 && grep -s 'warning:' $cerr){
+		echo $name': reference C warning treated as error' >[1=2]
+		cat $cerr >[1=2]
+		ok=0
+	}
+	if(~ $ok 1){
+		if(! 6l -o $bin $ofile)
+			ok=0
+	}
+	if(! ~ $ok 1)
+		rm -f $bin
+	rm -f $ofile $cerr
+	~ $ok 1
+}
+
+fn runcase {
+	name=$1
+	refout=/tmp/o9_prop_ref_$name.$pid.out
+	o9out=/tmp/o9_prop_o9_$name.$pid.out
+	refbin=/tmp/o9_prop_ref_$name.$pid
+	o9bin=/tmp/o9_prop_$name.$pid
+	ok=1
+
+	if(! build_ref $name $refbin){
+		fail=1
+		ok=0
+	}
+	if(~ $ok 1){
+		if(! build_o9 $name $o9bin){
+			fail=1
+			ok=0
+		}
+	}
+	if(~ $ok 1){
+		if(! $refbin > $refout >[2=1]){
+			echo $name': reference run failed' >[1=2]
+			fail=1
+			ok=0
+		}
+	}
+	if(~ $ok 1){
+		if(! $o9bin > $o9out >[2=1]){
+			echo $name': o9 run failed' >[1=2]
+			fail=1
+			ok=0
+		}
+	}
+	if(~ $ok 1 && ! cmp -s $refout $o9out){
+		echo $name': property output mismatch' >[1=2]
+		echo '--- reference C ---' >[1=2]
+		cat $refout >[1=2]
+		echo '--- o9 ---' >[1=2]
+		cat $o9out >[1=2]
+		fail=1
+		ok=0
+	}
+	if(~ $ok 1)
+		echo $name: OK
+	rm -f $refbin $o9bin $refout $o9out
+}
+
+if(! test -e $tool){
+	echo missing $tool >[1=2]
+	exit missing
+}
+if(! test -e libo9.a){
+	echo missing libo9.a >[1=2]
+	exit missing
+}
+if(! test -e $manifest){
+	echo missing $manifest >[1=2]
+	echo 'run: python3 tools/o9prop.py generate' >[1=2]
+	exit missing
+}
+
+for(name in `{cat $manifest})
+	runcase $name
+
+if(! ~ $fail 0)
+	exit fail
+echo prop-scalar: OK
