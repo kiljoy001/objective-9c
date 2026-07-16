@@ -12,6 +12,8 @@ authoritative behavior checks should compile and run through `mk`.
 - `mk export-test`, `mk session-test`, `mk ctlargs-test`,
   `mk ctlquote-test`: 9P facade behavior.
 - `mk crap-test`: instrumented transpiler coverage plus complexity scoring.
+- `python3 tools/o9pmd.py`: host-side PMD/CPD duplicate-code gate for
+  o9-owned C-ish sources and Python tools.
 - `mk verify`: full normal gate. It runs AST, e2e, property, facade,
   session, issue, runtime C, and CRAP checks. After changing
   `o9c/grammar.y`, regenerate CRAP instrumentation on the host before
@@ -126,10 +128,46 @@ still succeeds means the mutant survived. Surviving mutants are more useful
 than the mutation score itself: each survivor should become a new regression
 test, then the mutant should be killed on the next run.
 
+## Duplicate Detection
+
+PMD/CPD is a host-side static gate. It is not part of `mk verify` because PMD
+runs on Linux, while `mk verify` runs the authoritative compiler/runtime checks
+on 9front.
+
+Run:
+
+```sh
+python3 tools/o9pmd.py
+```
+
+The wrapper scans:
+
+- `o9c/grammar.y` as a temporary `.c` file, using PMD's C++ tokenizer;
+- o9-owned runtime/header C sources;
+- Python host tools.
+
+The initial thresholds are intentionally conservative:
+
+```sh
+python3 tools/o9pmd.py --cpp-min-tokens 220 --python-min-tokens 80
+```
+
+Use report mode when investigating known duplication without failing the
+command:
+
+```sh
+python3 tools/o9pmd.py --report-only --cpp-min-tokens 100
+```
+
+Reports are written under `o9c/test/artifacts/`, which is ignored. Lower the
+token thresholds as duplicated compiler/runtime code is extracted into named
+helpers.
+
 ## Order
 
 1. Keep the normal e2e suite green.
 2. Use CRAP to shrink large compiler functions.
-3. Add property tests for scalar language behavior and stable stdlib behavior.
-4. Add fuzzing for parser/type/codegen edges.
-5. Add mutation testing for language invariants.
+3. Use PMD/CPD to find repeated compiler/runtime shapes.
+4. Add property tests for scalar language behavior and stable stdlib behavior.
+5. Add fuzzing for parser/type/codegen edges.
+6. Add mutation testing for language invariants.
