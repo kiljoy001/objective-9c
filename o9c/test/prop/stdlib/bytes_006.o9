@@ -1,0 +1,19 @@
+import "stdlib/bytes.o9";
+
+main {
+    Bytes b = new Bytes("edz");
+    Bytes decoded = new Bytes("");
+    print("len0 ", b.length(), " empty ", b.empty(), "\n");
+    b.append(79);
+    b.appendString("Q");
+    print("text ", b.text(), "\n");
+    b.set(0, 50);
+    print("set ", b.text(), "\n");
+    print("get ", b.get(0), " ", b.get(b.length() - 1), " ", b.get(99), "\n");
+    print("slice ", b.slice(1, 3), " ", b.slice(99, 4), "\n");
+    print("hex ", b.hex(), "\n");
+    print("fromhex ", decoded.fromHex("32647a4f51"), " ", decoded.text(), " ", decoded.hex(), "\n");
+    print("badhex ", decoded.fromHex("zz"), " ", decoded.length(), "\n");
+    b.clear();
+    print("clear ", b.length(), " ", b.empty(), "\n");
+}

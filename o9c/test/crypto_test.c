@@ -1,11 +1,12 @@
 #include <u.h>
 #include <libc.h>
+#include <thread.h>
 #include "o9.h"
 
 /* Round-trips o9's crypto verbs against real monocypher under 6c:
  * keypair -> sign -> verify(ok) -> verify(tampered)=fail -> hash-stable. */
 void
-main(void)
+threadmain(int, char**)
 {
 	char pub[65], sec[129], sig[129], h1[65], h2[65];
 	uchar msg[] = "the network is the computer";
@@ -35,5 +36,5 @@ main(void)
 		sysfatal("hash not stable");
 
 	print("crypto_test: OK\n");
-	exits(nil);
+	threadexitsall(nil);
 }

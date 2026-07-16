@@ -1,0 +1,21 @@
+import "stdlib/string.o9";
+
+main {
+    String s = new String("  alpha orders beta  ");
+    String csv = new String("alpha,orders,beta");
+    String lines = new String("alpha\norders\nbeta");
+    String rep = new String("al");
+    print("len ", s.length(), "\n");
+    print("trim ", s.trim(), "\n");
+    print("slice ", s.slice(2, 6), "\n");
+    print("contains ", s.contains("ord"), " ", s.contains("missing"), "\n");
+    print("last ", s.lastIndexOf("ord"), " count ", s.count("ord"), "\n");
+    print("prefix ", s.startsWith("  al"), " suffix ", s.endsWith("beta  "), "\n");
+    print("case ", s.lower(), " | ", s.upper(), "\n");
+    print("cat ", s.concat("!"), "\n");
+    print("replace ", s.replace("orders", "grid"), "\n");
+    print("repeat ", rep.repeat(2), "\n");
+    print("field ", csv.field(",", 1), " missing ", csv.field(",", 9), "\n");
+    print("before ", csv.before(","), " after ", csv.after(","), "\n");
+    print("line ", lines.line(1), "\n");
+}

@@ -4060,47 +4060,70 @@ gen_expr(Node *e)
     fn(e);
 }
 
-static void
-gen_discard_expr_stmt(Node *e)
+static Node*
+discard_value_expr(Node *e)
 {
     Node *ve;
-    Type *lt;
-    int cvoid, id;
 
-    if(e == nil){
-        print("\t;\n");
-        return;
-    }
-
-    ve = e;
+    ve = e != nil ? e : nil;
     if(ve != nil && ve->type == NTry)
         ve = ve->left;
-    lt = (ve != nil && ve->type == NMsgSend && ve->left != nil) ? ve->left->typeinfo : nil;
-    cvoid = 0;
-    if(ve == nil)
-        cvoid = 1;
-    else if(ve->type == NMsgSend){
-        /* Normal object sends lower to a vlong dispatch expression even
-         * for o9 void methods. Builtin handle methods can lower directly
-         * to C void helpers. */
-        if(lt != nil && lt->kind == TyName && lt->name != nil &&
-           (strcmp(lt->name, "Tabula") == 0 || strcmp(lt->name, "MountTable") == 0) &&
-           type_is_void(ve->typeinfo))
-            cvoid = 1;
-    } else
-        cvoid = type_is_void(ve->typeinfo);
+    return ve;
+}
 
-    if(cvoid){
-        print("\t");
-        gen_expr(e);
-        print(";\n");
-        return;
-    }
+static int
+discard_msgsend_is_cvoid(Node *ve)
+{
+    Type *lt;
+
+    if(ve == nil || ve->type != NMsgSend || !type_is_void(ve->typeinfo))
+        return 0;
+    lt = ve->left != nil ? ve->left->typeinfo : nil;
+    /* Normal object sends lower to a vlong dispatch expression even for
+     * o9 void methods. Builtin handle methods can lower directly to C
+     * void helpers. */
+    return lt != nil && lt->kind == TyName && lt->name != nil &&
+        (strcmp(lt->name, "Tabula") == 0 || strcmp(lt->name, "MountTable") == 0);
+}
+
+static int
+discard_expr_is_cvoid(Node *e)
+{
+    Node *ve;
+
+    ve = discard_value_expr(e);
+    if(ve == nil)
+        return 1;
+    if(ve->type == NMsgSend)
+        return discard_msgsend_is_cvoid(ve);
+    return type_is_void(ve->typeinfo);
+}
+
+static void
+gen_discard_value(Node *e)
+{
+    int id;
 
     id = new_tmp_id++;
     print("\t{ vlong __o9discard%d;\n\t__o9discard%d = (vlong)(", id, id);
     gen_expr(e);
     print(");\n\tUSED(__o9discard%d);\n\t}\n", id);
+}
+
+static void
+gen_discard_expr_stmt(Node *e)
+{
+    if(e == nil){
+        print("\t;\n");
+        return;
+    }
+    if(discard_expr_is_cvoid(e)){
+        print("\t");
+        gen_expr(e);
+        print(";\n");
+        return;
+    }
+    gen_discard_value(e);
 }
 
 void gen_stmt(Node *c, Node *s);
@@ -12409,6 +12432,102 @@ resolve_import_path(char *rel, int line)
     return strdup(full);
 }
 
+static char*
+import_line_start(char *linebuf)
+{
+    char *ls;
+
+    ls = linebuf;
+    while(*ls == ' ' || *ls == '\t')
+        ls++;
+    return ls;
+}
+
+static int
+handle_from_import_line(char *ls, int line)
+{
+    if(strncmp(ls, "from ", 5) != 0)
+        return 0;
+    fprint(2, "o9c: error: line %d: 'from ... import' is not "
+        "supported; use `import \"path\";` (it pulls the file's "
+        "declarations). Selective import is not yet implemented.\n", line);
+    semantic_errors++;
+    return 1;
+}
+
+static int
+import_already_loaded(char *full)
+{
+    int k;
+
+    for(k = 0; k < imp_nloaded; k++)
+        if(strcmp(imp_loaded[k], full) == 0)
+            return 1;
+    return 0;
+}
+
+static void
+append_import_file(char **combined, long *clen, long *ccap,
+    char *path, char *full, int line)
+{
+    char *fsrc;
+    long flen;
+
+    if(import_already_loaded(full))
+        return;
+    if(imp_nloaded >= nelem(imp_loaded))
+        return;
+    imp_loaded[imp_nloaded++] = full;
+    fsrc = read_whole_file(full, &flen);
+    if(fsrc == nil){
+        fprint(2, "o9c: error: line %d: cannot open import '%s'\n", line, path);
+        semantic_errors++;
+        return;
+    }
+    strip_imported_main(fsrc);
+    *combined = splice_append(*combined, clen, ccap, fsrc, strlen(fsrc));
+    free(fsrc);
+}
+
+static int
+parse_import_path(char *ls, char *path, int npath)
+{
+    char *q1, *q2;
+
+    q1 = strchr(ls, '"');
+    if(q1 == nil)
+        return 0;
+    q2 = strchr(q1 + 1, '"');
+    if(q2 == nil)
+        return 0;
+    *q2 = '\0';
+    strncpy(path, q1 + 1, npath - 1);
+    path[npath - 1] = '\0';
+    return 1;
+}
+
+static int
+handle_import_line(char *ls, int line, char **combined, long *clen, long *ccap, int *any)
+{
+    char path[1024], *full;
+
+    if(strncmp(ls, "import ", 7) != 0)
+        return 0;
+    if(parse_import_path(ls, path, sizeof path)){
+        full = resolve_import_path(path, line);
+        if(full != nil)
+            append_import_file(combined, clen, ccap, path, full, line);
+        *any = 1;
+    }
+    return 1;
+}
+
+static void
+copy_source_line(char **combined, long *clen, long *ccap, char *linebuf, int llen)
+{
+    *combined = splice_append(*combined, clen, ccap, linebuf, llen);
+}
+
 /* Pull imported files' declarations into input_buf. Returns non-zero when
  * at least one import line was consumed; callers rescan until the combined
  * source is import-free so stdlib modules can depend on each other. */
@@ -12437,54 +12556,15 @@ resolve_imports(void)
         memmove(linebuf, p, llen);
         linebuf[llen] = '\0';
 
-        /* detect leading `import "..."`.  `from "..." import ...` is
-         * rejected: it would splice the whole file identically to
-         * `import`, so the name list would be a lie.  One honest verb.
-         * (A real filtering `from` can return when it actually filters.) */
-        ls = linebuf;
-        while(*ls == ' ' || *ls == '\t') ls++;
-        if(strncmp(ls, "from ", 5) == 0){
-            fprint(2, "o9c: error: line %d: 'from ... import' is not "
-                "supported; use `import \"path\";` (it pulls the file's "
-                "declarations). Selective import is not yet implemented.\n", line);
-            semantic_errors++;
-            continue;	/* drop the line */
-        }
-        if(strncmp(ls, "import ", 7) == 0){
-            char *q1 = strchr(ls, '"'), *q2;
-            if(q1 != nil && (q2 = strchr(q1 + 1, '"')) != nil){
-                char path[1024], *full, *fsrc;
-                long flen;
-                int k, seen;
-                *q2 = '\0';
-                strncpy(path, q1 + 1, sizeof path - 1);
-                path[sizeof path - 1] = '\0';
-                full = resolve_import_path(path, line);
-                if(full != nil){
-                    /* dedup: each file spliced once */
-                    seen = 0;
-                    for(k = 0; k < imp_nloaded; k++)
-                        if(strcmp(imp_loaded[k], full) == 0){ seen = 1; break; }
-                    if(!seen && imp_nloaded < nelem(imp_loaded)){
-                        imp_loaded[imp_nloaded++] = full;
-                        fsrc = read_whole_file(full, &flen);
-                        if(fsrc == nil){
-                            fprint(2, "o9c: error: line %d: cannot open import '%s'\n", line, path);
-                            semantic_errors++;
-                        } else {
-                            strip_imported_main(fsrc);
-                            combined = splice_append(combined, &clen, &ccap, fsrc, strlen(fsrc));
-                            free(fsrc);
-                        }
-                    }
-                }
-                any = 1;
-            }
-            /* drop the import line itself (do not copy it through) */
+        ls = import_line_start(linebuf);
+        /* `from "..." import ...` would splice the whole file identically
+         * to `import`, so the name list would be a lie. One honest verb. */
+        if(handle_from_import_line(ls, line))
             continue;
-        }
+        if(handle_import_line(ls, line, &combined, &clen, &ccap, &any))
+            continue;	/* drop the import line itself */
         /* ordinary line: copy through */
-        combined = splice_append(combined, &clen, &ccap, linebuf, llen);
+        copy_source_line(&combined, &clen, &ccap, linebuf, llen);
     }
 
     if(any){

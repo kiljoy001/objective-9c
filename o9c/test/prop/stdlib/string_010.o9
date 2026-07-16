@@ -1,0 +1,21 @@
+import "stdlib/string.o9";
+
+main {
+    String s = new String("  tabula orders front  ");
+    String csv = new String("tabula,orders,front");
+    String lines = new String("tabula\norders\nfront");
+    String rep = new String("ta");
+    print("len ", s.length(), "\n");
+    print("trim ", s.trim(), "\n");
+    print("slice ", s.slice(0, 2), "\n");
+    print("contains ", s.contains("ord"), " ", s.contains("missing"), "\n");
+    print("last ", s.lastIndexOf("ord"), " count ", s.count("ord"), "\n");
+    print("prefix ", s.startsWith("  ta"), " suffix ", s.endsWith("front  "), "\n");
+    print("case ", s.lower(), " | ", s.upper(), "\n");
+    print("cat ", s.concat("!"), "\n");
+    print("replace ", s.replace("orders", "alpha"), "\n");
+    print("repeat ", rep.repeat(4), "\n");
+    print("field ", csv.field(",", 1), " missing ", csv.field(",", 9), "\n");
+    print("before ", csv.before(","), " after ", csv.after(","), "\n");
+    print("line ", lines.line(1), "\n");
+}

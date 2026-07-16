@@ -14,6 +14,7 @@ Regenerate the checked-in corpora from the host:
 ```sh
 python3 tools/o9prop.py generate --cases 32 --seed 9009
 python3 tools/o9prop.py generate --kind width --out o9c/test/prop/width --cases 32 --seed 9010
+python3 tools/o9prop.py generate --kind stdlib --out o9c/test/prop/stdlib --cases 25 --seed 9020
 ```
 
 Then test on 9front:

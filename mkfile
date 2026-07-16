@@ -86,6 +86,21 @@ crap-test:V:	libo9.a
 prop-test:V:	o9c libo9.a
 	rc ./o9c/test/run_prop_scalar.rc o9c/test/prop/scalar prop-scalar
 	rc ./o9c/test/run_prop_scalar.rc o9c/test/prop/width prop-width
+	rc ./o9c/test/run_prop_scalar.rc o9c/test/prop/stdlib prop-stdlib
+
+verify:V:	o9c libo9.a
+	mk ast-test
+	mk run-test
+	mk prop-test
+	mk export-test
+	mk tabula-transport-test
+	mk session-test
+	mk ctlargs-test
+	mk ctlquote-test
+	mk issue-test
+	mk crypto-test
+	mk tab-test
+	mk crap-test
 
 crypto-test:V:	libo9.a
 	$CC -I. o9c/test/crypto_test.c

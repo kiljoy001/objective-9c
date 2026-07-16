@@ -1,0 +1,16 @@
+main {
+    Tabula t = new Tabula("orders", "item,qty,status");
+    t.write("a", "item", "tabula");
+    t.write("a", "qty", "16");
+    t.write("a", "status", "paid");
+    t.write("b", "item", "draw");
+    t.write("b", "qty", "17");
+    t.write("b", "status", "open");
+    print("schema ", t.schema(), " has ", t.has("status"), " missing ", t.has("missing"), "\n");
+    Tabula paid = t.query("status", "paid");
+    print("paid ", paid.first(), " ", paid.get("item"), " ", paid.get("qty"), "\n");
+    print("readcmp ", cmp(t.read(), t.serialize()), "\n");
+    print("bad ", t.write("c", "missing", "x"), "\n");
+    Tabula open = t.query("status", "open");
+    print("open ", open.first(), " ", open.get("item"), "\n");
+}

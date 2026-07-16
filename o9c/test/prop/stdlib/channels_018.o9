@@ -1,0 +1,51 @@
+class PropPipe {
+    chan<int64> ints;
+    chan<string> strings;
+    chan<List<int64> > lists;
+
+    method void sendInt(int64 a, int64 b) {
+        ints -> a;
+        ints -> b;
+    }
+
+    method int64 takeInt() {
+        int64 a;
+        int64 b;
+        a = <- ints;
+        b = <- ints;
+        return a + b;
+    }
+
+    method void sendString(string s) {
+        strings -> s;
+    }
+
+    method string takeString() {
+        string s;
+        s = <- strings;
+        return s;
+    }
+
+    method void sendList(int64 a, int64 b) {
+        List<int64> xs;
+        xs.Add(a);
+        xs.Add(b);
+        lists -> xs;
+    }
+
+    method int64 takeList() {
+        List<int64> xs;
+        xs = <- lists;
+        return xs[0] + xs[1] + xs.Length();
+    }
+}
+
+main {
+    PropPipe p = new PropPipe();
+    p.sendInt(38, 85);
+    print("int ", p.takeInt(), "\n");
+    p.sendString("alpha");
+    print("string ", p.takeString(), "\n");
+    p.sendList(38, 85);
+    print("list ", p.takeList(), "\n");
+}

@@ -52,6 +52,14 @@ class WidthCase:
     casts: Sequence[WidthCast]
 
 
+@dataclasses.dataclass(frozen=True)
+class ExpectedCase:
+    name: str
+    seed: int
+    o9: str
+    output: str
+
+
 INT_VARS = ("a", "b", "d")
 BOOL_VARS = ("p", "q")
 WIDTH_TYPES: Sequence[tuple[str, str | None]] = (
@@ -107,6 +115,16 @@ WIDTH_VALUES = (
     65536,
 )
 WIDTH_NONNEG_VALUES = tuple(v for v in WIDTH_VALUES if v >= 0)
+WORDS = (
+    "alpha",
+    "beta",
+    "front",
+    "rio",
+    "tabula",
+    "grid",
+    "draw",
+    "orders",
+)
 
 
 def atom_int(rng: random.Random, *, nonneg: bool = False, small: bool = False) -> Expr:
@@ -301,6 +319,299 @@ def build_width_cases(count: int, seed: int) -> List[WidthCase]:
     return cases
 
 
+def c_quote(s: str) -> str:
+    return (
+        s.replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\t", "\\t")
+    )
+
+
+def o9_quote(s: str) -> str:
+    return c_quote(s)
+
+
+def string_before(s: str, sep: str) -> str:
+    pos = s.find(sep)
+    if pos < 0:
+        return s
+    return s[:pos]
+
+
+def string_after(s: str, sep: str) -> str:
+    pos = s.find(sep)
+    if pos < 0:
+        return ""
+    return s[pos + len(sep) :]
+
+
+def string_field(s: str, sep: str, index: int) -> str:
+    parts = s.split(sep)
+    if index < 0 or index >= len(parts):
+        return ""
+    return parts[index]
+
+
+def make_string_case(name: str, seed: int) -> ExpectedCase:
+    rng = random.Random(seed)
+    left = rng.choice(WORDS)
+    mid = rng.choice([w for w in WORDS if w != left])
+    right = rng.choice([w for w in WORDS if w not in (left, mid)])
+    base = f"  {left} {mid} {right}  "
+    csv = f"{left},{mid},{right}"
+    needle = mid[: max(1, min(3, len(mid)))]
+    repl = rng.choice([w for w in WORDS if w not in (left, mid, right)])
+    start = rng.randint(0, 3)
+    count = rng.randint(2, 6)
+    repeat = rng.randint(2, 4)
+    output = "".join(
+        [
+            f"len {len(base)}\n",
+            f"trim {base.strip()}\n",
+            f"slice {base[start:start + count]}\n",
+            f"contains {int(needle in base)} {int('missing' in base)}\n",
+            f"last {base.rfind(needle)} count {base.count(needle)}\n",
+            f"prefix {int(base.startswith('  ' + left[:2]))} suffix {int(base.endswith(right + '  '))}\n",
+            f"case {base.lower()} | {base.upper()}\n",
+            f"cat {base}!\n",
+            f"replace {base.replace(mid, repl)}\n",
+            f"repeat {left[:2] * repeat}\n",
+            f"field {string_field(csv, ',', 1)} missing {string_field(csv, ',', 9)}\n",
+            f"before {string_before(csv, ',')} after {string_after(csv, ',')}\n",
+            f"line {mid}\n",
+        ]
+    )
+    o9 = f'''import "stdlib/string.o9";
+
+main {{
+    String s = new String("{o9_quote(base)}");
+    String csv = new String("{o9_quote(csv)}");
+    String lines = new String("{o9_quote(left + chr(10) + mid + chr(10) + right)}");
+    String rep = new String("{o9_quote(left[:2])}");
+    print("len ", s.length(), "\\n");
+    print("trim ", s.trim(), "\\n");
+    print("slice ", s.slice({start}, {count}), "\\n");
+    print("contains ", s.contains("{o9_quote(needle)}"), " ", s.contains("missing"), "\\n");
+    print("last ", s.lastIndexOf("{o9_quote(needle)}"), " count ", s.count("{o9_quote(needle)}"), "\\n");
+    print("prefix ", s.startsWith("  {o9_quote(left[:2])}"), " suffix ", s.endsWith("{o9_quote(right)}  "), "\\n");
+    print("case ", s.lower(), " | ", s.upper(), "\\n");
+    print("cat ", s.concat("!"), "\\n");
+    print("replace ", s.replace("{o9_quote(mid)}", "{o9_quote(repl)}"), "\\n");
+    print("repeat ", rep.repeat({repeat}), "\\n");
+    print("field ", csv.field(",", 1), " missing ", csv.field(",", 9), "\\n");
+    print("before ", csv.before(","), " after ", csv.after(","), "\\n");
+    print("line ", lines.line(1), "\\n");
+}}
+'''
+    return ExpectedCase(name, seed, o9, output)
+
+
+def make_bytes_case(name: str, seed: int) -> ExpectedCase:
+    rng = random.Random(seed)
+    base = "".join(rng.choice("abcdefxyz") for _ in range(3))
+    append_byte = rng.randint(65, 90)
+    append_text = rng.choice(("9", "!", "Q"))
+    set_index = rng.randint(0, 2)
+    set_byte = rng.randint(48, 57)
+    data = bytearray(base.encode("ascii"))
+    data.append(append_byte)
+    data.extend(append_text.encode("ascii"))
+    after_append = data.decode("latin1")
+    data[set_index] = set_byte
+    after_set = data.decode("latin1")
+    hex_text = data.hex()
+    output = "".join(
+        [
+            f"len0 {len(base)} empty {int(len(base) == 0)}\n",
+            f"text {after_append}\n",
+            f"set {after_set}\n",
+            f"get {data[0]} {data[-1]} 0\n",
+            f"slice {after_set[1:4]} \n",
+            f"hex {hex_text}\n",
+            f"fromhex 1 {after_set} {hex_text}\n",
+            "badhex 0 0\n",
+            "clear 0 1\n",
+        ]
+    )
+    o9 = f'''import "stdlib/bytes.o9";
+
+main {{
+    Bytes b = new Bytes("{o9_quote(base)}");
+    Bytes decoded = new Bytes("");
+    print("len0 ", b.length(), " empty ", b.empty(), "\\n");
+    b.append({append_byte});
+    b.appendString("{o9_quote(append_text)}");
+    print("text ", b.text(), "\\n");
+    b.set({set_index}, {set_byte});
+    print("set ", b.text(), "\\n");
+    print("get ", b.get(0), " ", b.get(b.length() - 1), " ", b.get(99), "\\n");
+    print("slice ", b.slice(1, 3), " ", b.slice(99, 4), "\\n");
+    print("hex ", b.hex(), "\\n");
+    print("fromhex ", decoded.fromHex("{hex_text}"), " ", decoded.text(), " ", decoded.hex(), "\\n");
+    print("badhex ", decoded.fromHex("zz"), " ", decoded.length(), "\\n");
+    b.clear();
+    print("clear ", b.length(), " ", b.empty(), "\\n");
+}}
+'''
+    return ExpectedCase(name, seed, o9, output)
+
+
+def make_collection_case(name: str, seed: int) -> ExpectedCase:
+    rng = random.Random(seed)
+    vals = [rng.randint(1, 50) for _ in range(3)]
+    replacement = rng.randint(51, 99)
+    key1 = rng.choice(WORDS)
+    key2 = rng.choice([w for w in WORDS if w != key1])
+    output = "".join(
+        [
+            f"list {len(vals)} {vals[0]} {replacement} {vals[2]} {vals[0] + replacement + vals[2]}\n",
+            f"dict {int(True)} {int(False)} {vals[0]} {replacement}\n",
+            f"names {key1} {key2}\n",
+        ]
+    )
+    o9 = f'''main {{
+    List<int64> xs;
+    xs.Add({vals[0]});
+    xs.Add({vals[1]});
+    xs.Add({vals[2]});
+    xs[1] = {replacement};
+    print("list ", xs.Length(), " ", xs[0], " ", xs[1], " ", xs[2], " ", xs[0] + xs[1] + xs[2], "\\n");
+
+    Dict<string,int64> nums;
+    nums["{o9_quote(key1)}"] = {vals[0]};
+    nums["{o9_quote(key2)}"] = {replacement};
+    print("dict ", nums.Has("{o9_quote(key1)}"), " ", nums.Has("missing"), " ", nums["{o9_quote(key1)}"], " ", nums["{o9_quote(key2)}"], "\\n");
+
+    Dict<int64,string> names;
+    names[1] = "{o9_quote(key1)}";
+    names[2] = "{o9_quote(key2)}";
+    print("names ", names[1], " ", names[2], "\\n");
+}}
+'''
+    return ExpectedCase(name, seed, o9, output)
+
+
+def make_channel_case(name: str, seed: int) -> ExpectedCase:
+    rng = random.Random(seed)
+    a = rng.randint(1, 40)
+    b = rng.randint(41, 90)
+    word = rng.choice(WORDS)
+    output = f"int {a + b}\nstring {word}\nlist {a + b + 2}\n"
+    o9 = f'''class PropPipe {{
+    chan<int64> ints;
+    chan<string> strings;
+    chan<List<int64> > lists;
+
+    method void sendInt(int64 a, int64 b) {{
+        ints -> a;
+        ints -> b;
+    }}
+
+    method int64 takeInt() {{
+        int64 a;
+        int64 b;
+        a = <- ints;
+        b = <- ints;
+        return a + b;
+    }}
+
+    method void sendString(string s) {{
+        strings -> s;
+    }}
+
+    method string takeString() {{
+        string s;
+        s = <- strings;
+        return s;
+    }}
+
+    method void sendList(int64 a, int64 b) {{
+        List<int64> xs;
+        xs.Add(a);
+        xs.Add(b);
+        lists -> xs;
+    }}
+
+    method int64 takeList() {{
+        List<int64> xs;
+        xs = <- lists;
+        return xs[0] + xs[1] + xs.Length();
+    }}
+}}
+
+main {{
+    PropPipe p = new PropPipe();
+    p.sendInt({a}, {b});
+    print("int ", p.takeInt(), "\\n");
+    p.sendString("{o9_quote(word)}");
+    print("string ", p.takeString(), "\\n");
+    p.sendList({a}, {b});
+    print("list ", p.takeList(), "\\n");
+}}
+'''
+    return ExpectedCase(name, seed, o9, output)
+
+
+def make_tabula_case(name: str, seed: int) -> ExpectedCase:
+    rng = random.Random(seed)
+    item = rng.choice(WORDS)
+    other = rng.choice([w for w in WORDS if w != item])
+    qty = rng.randint(1, 20)
+    output = "".join(
+        [
+            "schema orders has 1 missing 0\n",
+            f"paid 1 {item} {qty}\n",
+            "readcmp 0\n",
+            "bad -1\n",
+            f"open 1 {other}\n",
+        ]
+    )
+    o9 = f'''main {{
+    Tabula t = new Tabula("orders", "item,qty,status");
+    t.write("a", "item", "{o9_quote(item)}");
+    t.write("a", "qty", "{qty}");
+    t.write("a", "status", "paid");
+    t.write("b", "item", "{o9_quote(other)}");
+    t.write("b", "qty", "{qty + 1}");
+    t.write("b", "status", "open");
+    print("schema ", t.schema(), " has ", t.has("status"), " missing ", t.has("missing"), "\\n");
+    Tabula paid = t.query("status", "paid");
+    print("paid ", paid.first(), " ", paid.get("item"), " ", paid.get("qty"), "\\n");
+    print("readcmp ", cmp(t.read(), t.serialize()), "\\n");
+    print("bad ", t.write("c", "missing", "x"), "\\n");
+    Tabula open = t.query("status", "open");
+    print("open ", open.first(), " ", open.get("item"), "\\n");
+}}
+'''
+    return ExpectedCase(name, seed, o9, output)
+
+
+def make_stdlib_case(kind: str, index: int, seed: int) -> ExpectedCase:
+    name = f"{kind}_{index:03d}"
+    if kind == "string":
+        return make_string_case(name, seed)
+    if kind == "bytes":
+        return make_bytes_case(name, seed)
+    if kind == "collections":
+        return make_collection_case(name, seed)
+    if kind == "channels":
+        return make_channel_case(name, seed)
+    return make_tabula_case(name, seed)
+
+
+def build_stdlib_cases(count: int, seed: int) -> List[ExpectedCase]:
+    lanes = ("string", "bytes", "collections", "channels", "tabula")
+    seeds = fallback_seeds(max(count, len(lanes)), seed)
+    cases: List[ExpectedCase] = []
+    i = 0
+    while len(cases) < count:
+        lane = lanes[len(cases) % len(lanes)]
+        cases.append(make_stdlib_case(lane, len(cases), seeds[i]))
+        i += 1
+    return cases
+
+
 def o9_source(case: Case) -> str:
     lines = [
         f"// generated by tools/o9prop.py seed={case.seed}",
@@ -392,6 +703,23 @@ def width_c_source(case: WidthCase) -> str:
     return "\n".join(lines) + "\n"
 
 
+def expected_c_source(case: ExpectedCase) -> str:
+    return "\n".join(
+        [
+            f"/* generated by tools/o9prop.py kind=stdlib seed={case.seed} */",
+            "#include <u.h>",
+            "#include <libc.h>",
+            "",
+            "void",
+            "main(void)",
+            "{",
+            f'\tfprint(1, "{c_quote(case.output)}");',
+            "\texits(nil);",
+            "}",
+        ]
+    ) + "\n"
+
+
 def clean_outdir(outdir: Path) -> None:
     outdir.mkdir(parents=True, exist_ok=True)
     for path in outdir.iterdir():
@@ -419,13 +747,26 @@ def write_width_cases(cases: Sequence[WidthCase], outdir: Path) -> None:
     (outdir / "manifest").write_text("\n".join(manifest) + "\n", encoding="utf-8")
 
 
+def write_expected_cases(cases: Sequence[ExpectedCase], outdir: Path) -> None:
+    clean_outdir(outdir)
+    manifest = []
+    for case in cases:
+        (outdir / f"{case.name}.o9").write_text(case.o9, encoding="utf-8")
+        (outdir / f"{case.name}.ref.c").write_text(expected_c_source(case), encoding="utf-8")
+        manifest.append(case.name)
+    (outdir / "manifest").write_text("\n".join(manifest) + "\n", encoding="utf-8")
+
+
 def command_generate(args: argparse.Namespace) -> None:
     if args.kind == "scalar":
         cases = build_cases(args.cases, args.seed)
         write_cases(cases, Path(args.out))
-    else:
+    elif args.kind == "width":
         cases = build_width_cases(args.cases, args.seed)
         write_width_cases(cases, Path(args.out))
+    else:
+        cases = build_stdlib_cases(args.cases, args.seed)
+        write_expected_cases(cases, Path(args.out))
     print(f"wrote {len(cases)} {args.kind} property cases to {args.out}")
     if shutil.which("python3") is not None:
         try:
@@ -440,7 +781,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     gen = sub.add_parser("generate", help="generate checked-in property cases")
-    gen.add_argument("--kind", choices=("scalar", "width"), default="scalar")
+    gen.add_argument("--kind", choices=("scalar", "width", "stdlib"), default="scalar")
     gen.add_argument("--out", default="o9c/test/prop/scalar")
     gen.add_argument("--cases", type=int, default=32)
     gen.add_argument("--seed", type=int, default=9009)

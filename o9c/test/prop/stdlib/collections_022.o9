@@ -1,0 +1,18 @@
+main {
+    List<int64> xs;
+    xs.Add(40);
+    xs.Add(20);
+    xs.Add(28);
+    xs[1] = 60;
+    print("list ", xs.Length(), " ", xs[0], " ", xs[1], " ", xs[2], " ", xs[0] + xs[1] + xs[2], "\n");
+
+    Dict<string,int64> nums;
+    nums["tabula"] = 40;
+    nums["draw"] = 60;
+    print("dict ", nums.Has("tabula"), " ", nums.Has("missing"), " ", nums["tabula"], " ", nums["draw"], "\n");
+
+    Dict<int64,string> names;
+    names[1] = "tabula";
+    names[2] = "draw";
+    print("names ", names[1], " ", names[2], "\n");
+}

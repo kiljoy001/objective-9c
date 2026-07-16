@@ -1,0 +1,21 @@
+import "stdlib/string.o9";
+
+main {
+    String s = new String("  tabula grid draw  ");
+    String csv = new String("tabula,grid,draw");
+    String lines = new String("tabula\ngrid\ndraw");
+    String rep = new String("ta");
+    print("len ", s.length(), "\n");
+    print("trim ", s.trim(), "\n");
+    print("slice ", s.slice(2, 6), "\n");
+    print("contains ", s.contains("gri"), " ", s.contains("missing"), "\n");
+    print("last ", s.lastIndexOf("gri"), " count ", s.count("gri"), "\n");
+    print("prefix ", s.startsWith("  ta"), " suffix ", s.endsWith("draw  "), "\n");
+    print("case ", s.lower(), " | ", s.upper(), "\n");
+    print("cat ", s.concat("!"), "\n");
+    print("replace ", s.replace("grid", "front"), "\n");
+    print("repeat ", rep.repeat(2), "\n");
+    print("field ", csv.field(",", 1), " missing ", csv.field(",", 9), "\n");
+    print("before ", csv.before(","), " after ", csv.after(","), "\n");
+    print("line ", lines.line(1), "\n");
+}

@@ -1,0 +1,21 @@
+import "stdlib/string.o9";
+
+main {
+    String s = new String("  rio tabula alpha  ");
+    String csv = new String("rio,tabula,alpha");
+    String lines = new String("rio\ntabula\nalpha");
+    String rep = new String("ri");
+    print("len ", s.length(), "\n");
+    print("trim ", s.trim(), "\n");
+    print("slice ", s.slice(2, 4), "\n");
+    print("contains ", s.contains("tab"), " ", s.contains("missing"), "\n");
+    print("last ", s.lastIndexOf("tab"), " count ", s.count("tab"), "\n");
+    print("prefix ", s.startsWith("  ri"), " suffix ", s.endsWith("alpha  "), "\n");
+    print("case ", s.lower(), " | ", s.upper(), "\n");
+    print("cat ", s.concat("!"), "\n");
+    print("replace ", s.replace("tabula", "orders"), "\n");
+    print("repeat ", rep.repeat(2), "\n");
+    print("field ", csv.field(",", 1), " missing ", csv.field(",", 9), "\n");
+    print("before ", csv.before(","), " after ", csv.after(","), "\n");
+    print("line ", lines.line(1), "\n");
+}

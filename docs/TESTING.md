@@ -12,6 +12,14 @@ authoritative behavior checks should compile and run through `mk`.
 - `mk export-test`, `mk session-test`, `mk ctlargs-test`,
   `mk ctlquote-test`: 9P facade behavior.
 - `mk crap-test`: instrumented transpiler coverage plus complexity scoring.
+- `mk verify`: full normal gate. It runs AST, e2e, property, facade,
+  session, issue, runtime C, and CRAP checks. After changing
+  `o9c/grammar.y`, regenerate CRAP instrumentation on the host before
+  running it:
+
+```sh
+python3 tools/o9crap.py instrument
+```
 
 Generated C warnings are failures. The main e2e harness captures `6c` output
 and treats any `warning:` line as a regression. Do not hide warning noise in
@@ -28,6 +36,7 @@ The checked-in property lanes are:
 ```sh
 python3 tools/o9prop.py generate --cases 32 --seed 9009
 python3 tools/o9prop.py generate --kind width --out o9c/test/prop/width --cases 32 --seed 9010
+python3 tools/o9prop.py generate --kind stdlib --out o9c/test/prop/stdlib --cases 25 --seed 9020
 ```
 
 Then run the checked-in corpus on 9front:
@@ -45,10 +54,8 @@ Good first properties:
 
 - Scalar expressions: arithmetic, comparisons, bitwise ops, shifts, unary ops.
 - Width/cast expressions: scalar casts match Plan 9 C storage behavior.
-- String round trips: concat, slice, length, compare.
-- Bytes round trips: hex text to bytes to hex.
-- Tabula round trips: write, read, query, serialize, reopen.
-- Channel values: send/receive preserves type and value.
+- Stdlib surface: String, Bytes, built-in List/Dict, channel values, and
+  Tabula read/query/write behavior.
 - Namespaces: MountTable serialization recreates the same bind/mount rows.
 
 The default corpus should stay deterministic and quick. Longer local corpora
@@ -99,15 +106,24 @@ Start with deliberate semantic mutants, not arbitrary token edits:
 - change generated arithmetic or comparison operators;
 - remove per-session result isolation.
 
-The expected command shape is:
+The mutation harness is host-side because it rewrites `o9c/grammar.y`, runs a
+caller-supplied command, then restores the file. List mutants:
 
-```rc
-mk mutate-test
+```sh
+python3 tools/o9mutate.py list
 ```
 
-Each mutant should be applied one at a time, then run a focused test subset.
-The pass condition is that the subset fails. Surviving mutants are more useful
-than the mutation score itself: each survivor should turn into a new regression
+Run one mutant against a focused 9front command:
+
+```sh
+python3 tools/o9mutate.py run --only ctl_arity \
+  --timeout 75 --status-marker O9MUTATE \
+  --cmd "PASS='\$Master001' timeout 60s drawterm -G -h dev9p.rentonsoftworks.coin -a Authomatic.rentonsoftworks.coin -u scott -c 'cd /mnt/term/home/scott/Repo/objective-9c; fail=0; if(! mk ast-test) fail=1; if(! mk ctlargs-test) fail=1; if(~ \$fail 0) echo O9MUTATE pass; if not echo O9MUTATE fail'"
+```
+
+The pass condition is that the command fails for every mutant. A command that
+still succeeds means the mutant survived. Surviving mutants are more useful
+than the mutation score itself: each survivor should become a new regression
 test, then the mutant should be killed on the next run.
 
 ## Order
