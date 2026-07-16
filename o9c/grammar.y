@@ -6987,103 +6987,181 @@ gen_class_ctl_new(Node *c)
 }
 
 static void
+gen_class_ctl_arity_check(Node *m, int np)
+{
+    /* ARITY (finding #5): a network boundary must not silently default
+     * missing args to 0 or ignore extras. Require exactly np args after
+     * `method Class.inst name` (tokens f[3..]). */
+    print("\t\t\t\tif(nf - 3 != %d){ char __ab[96]; snprint(__ab, sizeof __ab, \"error: %s takes %d arg(s), got %%d\\n\", nf-3); o9app_put_status(r, __ab); o9app_put_result(r, \"\"); respond(r, nil); return; }\n",
+        np, m->name, np);
+}
+
+static int
+ctl_method_exported(Node *c, Node *m)
+{
+    if(m == nil || m->type != NMethod)
+        return 0;
+    if(m->name == nil || strcmp(m->name, "main") == 0)
+        return 0;
+    /* SECURITY: do not emit a ctl-dispatch case for private methods or
+     * the constructor. They still have INTERNAL dispatch cases for
+     * o9-to-o9 calls, super, and new. */
+    if(m->flags & NFPrivate)
+        return 0;
+    if(c != nil && c->name != nil && strcmp(m->name, c->name) == 0)
+        return 0;
+    return 1;
+}
+
+static int
+ctl_param_supported(Node *p)
+{
+    Type *t;
+
+    t = p != nil ? p->typeinfo : nil;
+    return !type_is_class_ref(t) && !o9_type_is_tabula(t);
+}
+
+static int
+ctl_method_supported(Node *m)
+{
+    Node *p;
+
+    for(p = m->right; p; p = p->next)
+        if(!ctl_param_supported(p))
+            return 0;
+    return 1;
+}
+
+static int
+ctl_method_arg_count(Node *m)
+{
+    Node *p;
+    int np;
+
+    np = 0;
+    for(p = m->right; p; p = p->next)
+        np++;
+    return np;
+}
+
+static void
+gen_class_ctl_arg_parse(Node *p, int idx)
+{
+    print("\t\t\t\tv = strchr(f[%d], '='); v = v ? v+1 : f[%d];\n", idx + 3, idx + 3);
+    if(type_is_string(p->typeinfo)){
+        print("\t\t\t\t__wargs[%d] = (vlong)(uintptr)o9_string_from_c(v);\n", idx);
+    } else if(type_is_double(p->typeinfo)){
+        print("\t\t\t\t__wargs[%d] = o9_double_pack(strtod(v, nil));\n", idx);
+    } else {
+        print("\t\t\t\t__wargs[%d] = strtoll(v, nil, 0);\n", idx);
+    }
+}
+
+static void
+gen_class_ctl_arg_parsing(Node *m, int np)
+{
+    Node *p;
+    int pi;
+
+    if(np <= 0)
+        return;
+    print("\t\t\t\tvlong __wargs[%d] = {0};\n", np);
+    /* TYPED PARSING (finding #4): parse each arg per its declared AST
+     * type, not blindly as strtoll. int-like -> strtoll; string -> an
+     * O9String pointer; double -> packed double; object handles cannot
+     * be marshaled over a text ctl line. */
+    for(p = m->right, pi = 0; p; p = p->next, pi++)
+        gen_class_ctl_arg_parse(p, pi);
+}
+
+static void
+gen_class_ctl_send_and_recv(Node *m, int np)
+{
+    print("\t\t\t\t{ O9Msg __wm = {0x%lux, %s, %d, chancreate(sizeof(void*), 0)};\n",
+        o9_hash(m->name), np > 0 ? "__wargs" : "nil", np);
+    print("\t\t\t\tsendp(target->dispatch_chan, &__wm);\n");
+    /* REQUEST CONCURRENCY: drop srv->slock while blocked on the actor's
+     * reply so other client requests can run meanwhile. Safe now that
+     * the session follows r instead of a global current session. */
+    print("\t\t\t\tsrvrelease(r->srv);\n");
+    print("\t\t\t\tO9Reply *__o9rep = recvp(__wm.replyc);\n");
+    print("\t\t\t\tsrvacquire(r->srv);\n");
+}
+
+static void
+gen_class_ctl_result_value(Node *m)
+{
+    char *fmt, *cast;
+
+    if(type_is_void(m->typeinfo)){
+        print("\t\t\t\t\to9app_put_result(r, \"\");\n");
+        return;
+    }
+    fmt = type_fmt_for_codegen(m->typeinfo);
+    cast = type_cast_for_codegen(m->typeinfo);
+    print("\t\t\t\t\t{ char __rb[4096];\n");
+    if(type_is_string(m->typeinfo))
+        print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%s\\n\", o9_string_data((O9String*)__o9rep->ret));\n");
+    else if(type_is_double(m->typeinfo))
+        print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%g\\n\", __o9rep->dret);\n");
+    else if(strcmp(fmt, "%s") == 0)
+        print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%s\\n\", (char*)__o9rep->ret);\n");
+    else if(strcmp(fmt, "%p") == 0)
+        print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%p\\n\", (void*)__o9rep->ret);\n");
+    else
+        print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%s\\n\", (%s)__o9rep->ret);\n", fmt, cast);
+    print("\t\t\t\t\to9app_put_result(r, __rb); }\n");
+}
+
+static void
+gen_class_ctl_reply_handling(Node *m)
+{
+    /* Roles (docs/SESSIONS.md): success/error -> STATUS, return value ->
+     * DATA. o9app_put_* route to the current session or root fallback. */
+    print("\t\t\t\tif(__o9rep->err != nil){\n");
+    print("\t\t\t\t\tchar __eb[256]; snprint(__eb, sizeof __eb, \"error: %%s\\n\", __o9rep->err);\n");
+    print("\t\t\t\t\to9app_put_status(r, __eb); o9app_put_result(r, \"\");\n");
+    print("\t\t\t\t} else {\n");
+    print("\t\t\t\t\to9app_put_status(r, \"ok\\n\");\n");
+    gen_class_ctl_result_value(m);
+    print("\t\t\t\t}\n");
+}
+
+static void
+gen_class_ctl_unsupported_method(Node *m)
+{
+    print("\t\t\t\to9app_put_status(r, \"error: %s: object arguments are not callable over ctl\\n\"); o9app_put_result(r, \"\"); respond(r, nil); return;\n", m->name);
+    print("\t\t\t}\n");
+}
+
+static void
+gen_class_ctl_method_case(Node *m)
+{
+    int np;
+
+    np = ctl_method_arg_count(m);
+    print("\t\t\tif(strcmp(f[2], \"%s\") == 0){\n", m->name);
+    gen_class_ctl_arity_check(m, np);
+    if(!ctl_method_supported(m)){
+        gen_class_ctl_unsupported_method(m);
+        return;
+    }
+    gen_class_ctl_arg_parsing(m, np);
+    gen_class_ctl_send_and_recv(m, np);
+    gen_class_ctl_reply_handling(m);
+    print("\t\t\t\to9_reply_free(__o9rep); chanfree(__wm.replyc); }\n");
+    print("\t\t\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t\t\t}\n");
+}
+
+static void
 gen_class_ctl_method_cases(Node *c)
 {
     Node *m;
 
-    for(m = c->left; m; m = m->next){
-        if(m->type == NMethod && strcmp(m->name, "main") != 0){
-            int np = 0;
-            int ctl_supported = 1;
-            Node *p;
-            /* SECURITY: do not emit a ctl-dispatch case for private
-             * methods or the constructor — this is the seam that made
-             * `method Class.inst <private>` callable over the mount. The
-             * method still has an INTERNAL dispatch case (o9-to-o9 calls,
-             * super, new go through the actor loop, not this ctl path). */
-            if(m->flags & NFPrivate)
-                continue;
-            if(m->name != nil && c->name != nil && strcmp(m->name, c->name) == 0)
-                continue;	/* constructor: not re-invokable over 9P */
-            for(p = m->right; p; p = p->next){
-                char *pt = p->typename != nil ? p->typename : "vlong";
-                np++;
-                if(type_is_class_ref(p->typeinfo) || strcmp(pt, "Tabula") == 0)
-                    ctl_supported = 0;
-            }
-            print("\t\t\tif(strcmp(f[2], \"%s\") == 0){\n", m->name);
-            /* ARITY (finding #5): a network boundary must not silently
-             * default missing args to 0 or ignore extras. Require exactly
-             * np args after `method Class.inst name` (tokens f[3..]). */
-            print("\t\t\t\tif(nf - 3 != %d){ char __ab[96]; snprint(__ab, sizeof __ab, \"error: %s takes %d arg(s), got %%d\\n\", nf-3); o9app_put_status(r, __ab); o9app_put_result(r, \"\"); respond(r, nil); return; }\n",
-                np, m->name, np);
-            if(!ctl_supported){
-                print("\t\t\t\to9app_put_status(r, \"error: %s: object arguments are not callable over ctl\\n\"); o9app_put_result(r, \"\"); respond(r, nil); return;\n", m->name);
-                print("\t\t\t}\n");
-                continue;
-            }
-            if(np > 0){
-                int pi;
-                print("\t\t\t\tvlong __wargs[%d] = {0};\n", np);
-                /* TYPED PARSING (finding #4): parse each arg per its
-                 * DECLARED type, not blindly as strtoll. int-like ->
-                 * strtoll; string -> the string pointer (as vlong);
-                 * class/Tabula handles cannot be marshaled over a text
-                 * ctl line -> reject. */
-                for(p = m->right, pi = 0; p; p = p->next, pi++){
-                    char *pt = p->typename != nil ? p->typename : "vlong";
-                    print("\t\t\t\tv = strchr(f[%d], '='); v = v ? v+1 : f[%d];\n", pi+3, pi+3);
-                    if(strcmp(pt, "string") == 0){
-                        print("\t\t\t\t__wargs[%d] = (vlong)(uintptr)o9_string_from_c(v);\n", pi);
-                    } else if(strcmp(pt, "double") == 0){
-                        print("\t\t\t\t__wargs[%d] = o9_double_pack(strtod(v, nil));\n", pi);
-                    } else {
-                        print("\t\t\t\t__wargs[%d] = strtoll(v, nil, 0);\n", pi);
-                    }
-                }
-            }
-            print("\t\t\t\t{ O9Msg __wm = {0x%lux, %s, %d, chancreate(sizeof(void*), 0)};\n",
-                o9_hash(m->name), np > 0 ? "__wargs" : "nil", np);
-            print("\t\t\t\tsendp(target->dispatch_chan, &__wm);\n");
-            /* REQUEST CONCURRENCY: drop srv->slock while blocked on the
-             * actor's reply so OTHER client requests can run meanwhile
-             * (the lib9p srvrelease/srvacquire idiom). Without this the
-             * whole app serializes on one slow call. Safe now that the
-             * session follows r (no global cur_session to clobber). */
-            print("\t\t\t\tsrvrelease(r->srv);\n");
-            print("\t\t\t\tO9Reply *__o9rep = recvp(__wm.replyc);\n");
-            print("\t\t\t\tsrvacquire(r->srv);\n");
-            /* Roles (docs/SESSIONS.md): success/error -> STATUS, the return
-             * value -> DATA. o9app_put_* route to the current session
-             * (or o9app_lastdata for the root-ctl path). */
-            print("\t\t\t\tif(__o9rep->err != nil){\n");
-            print("\t\t\t\t\tchar __eb[256]; snprint(__eb, sizeof __eb, \"error: %%s\\n\", __o9rep->err);\n");
-            print("\t\t\t\t\to9app_put_status(r, __eb); o9app_put_result(r, \"\");\n");
-            print("\t\t\t\t} else {\n");
-            print("\t\t\t\t\to9app_put_status(r, \"ok\\n\");\n");
-            if(type_is_void(m->typeinfo)){
-                print("\t\t\t\t\to9app_put_result(r, \"\");\n");
-            } else {
-                char *fmt = type_fmt_for_codegen(m->typeinfo);
-                char *cast = type_cast_for_codegen(m->typeinfo);
-                print("\t\t\t\t\t{ char __rb[4096];\n");
-                if(type_is_string(m->typeinfo))
-                    print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%s\\n\", o9_string_data((O9String*)__o9rep->ret));\n");
-                else if(type_is_double(m->typeinfo))
-                    print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%g\\n\", __o9rep->dret);\n");
-                else if(strcmp(fmt, "%s") == 0)
-                    print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%s\\n\", (char*)__o9rep->ret);\n");
-                else if(strcmp(fmt, "%p") == 0)
-                    print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%p\\n\", (void*)__o9rep->ret);\n");
-                else
-                    print("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%s\\n\", (%s)__o9rep->ret);\n", fmt, cast);
-                print("\t\t\t\t\to9app_put_result(r, __rb); }\n");
-            }
-            print("\t\t\t\t}\n");
-            print("\t\t\t\to9_reply_free(__o9rep); chanfree(__wm.replyc); }\n");
-            print("\t\t\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t\t\t}\n");
-        }
-    }
+    for(m = c->left; m; m = m->next)
+        if(ctl_method_exported(c, m))
+            gen_class_ctl_method_case(m);
 }
 
 static void
