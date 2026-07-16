@@ -84,7 +84,8 @@ crap-test:V:	libo9.a
 	rc ./o9c/test/run_crap.rc
 
 prop-test:V:	o9c libo9.a
-	rc ./o9c/test/run_prop_scalar.rc
+	rc ./o9c/test/run_prop_scalar.rc o9c/test/prop/scalar prop-scalar
+	rc ./o9c/test/run_prop_scalar.rc o9c/test/prop/width prop-width
 
 crypto-test:V:	libo9.a
 	$CC -I. o9c/test/crypto_test.c

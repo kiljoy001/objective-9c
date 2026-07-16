@@ -23,10 +23,11 @@ Property tests generate many small programs, lower each generated case to o9
 and to reference Plan 9 C, then compare stdout on 9front. Python is only the
 case generator; Plan 9 C is the oracle.
 
-The first property lane is scalar expressions:
+The checked-in property lanes are:
 
 ```sh
 python3 tools/o9prop.py generate --cases 32 --seed 9009
+python3 tools/o9prop.py generate --kind width --out o9c/test/prop/width --cases 32 --seed 9010
 ```
 
 Then run the checked-in corpus on 9front:
@@ -43,11 +44,11 @@ ordinary focused `.o9` regressions after shrinking or simplifying.
 Good first properties:
 
 - Scalar expressions: arithmetic, comparisons, bitwise ops, shifts, unary ops.
+- Width/cast expressions: scalar casts match Plan 9 C storage behavior.
 - String round trips: concat, slice, length, compare.
 - Bytes round trips: hex text to bytes to hex.
 - Tabula round trips: write, read, query, serialize, reopen.
 - Channel values: send/receive preserves type and value.
-- Casts: valid numeric casts match Plan 9 C behavior.
 - Namespaces: MountTable serialization recreates the same bind/mount rows.
 
 The default corpus should stay deterministic and quick. Longer local corpora
