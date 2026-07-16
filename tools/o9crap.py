@@ -77,6 +77,32 @@ def previous_nonspace(src: str, off: int) -> str:
     return src[i] if i >= 0 else ""
 
 
+def matching_open_paren_before(src: str, off: int) -> int | None:
+    i = off - 1
+    while i >= 0 and src[i].isspace():
+        i -= 1
+    if i < 0 or src[i] != ")":
+        return None
+    depth = 1
+    i -= 1
+    while i >= 0:
+        if src[i] == ")":
+            depth += 1
+        elif src[i] == "(":
+            depth -= 1
+            if depth == 0:
+                return i
+        i -= 1
+    return None
+
+
+def control_keyword_before_brace(src: str, off: int) -> str:
+    paren = matching_open_paren_before(src, off)
+    if paren is not None:
+        return previous_token(src, paren)
+    return previous_token(src, off)
+
+
 def sanitize_c(src: str) -> str:
     """Replace strings/comments/chars with spaces while preserving length."""
     out = list(src)
@@ -239,8 +265,13 @@ def block_points(src: str, fn: Function, next_pid: int) -> Tuple[List[Point], in
         if c == "{":
             prev = previous_nonspace(clean, i)
             tok = previous_token(clean, i)
+            ctl = control_keyword_before_brace(clean, i)
             # Instrument statement/control blocks, not initializers.
-            if prev == ")" or tok in {"else", "do"}:
+            # A counter placed directly inside `switch (...) {` before the
+            # first `case` is unreachable C, because switch jumps to a case
+            # label. Case bodies are represented by cyclomatic complexity,
+            # but not block coverage points.
+            if ctl != "switch" and (prev == ")" or tok in {"else", "do"}):
                 points.append(Point(next_pid, fn.name, line_at(src, i), "block", i + 1))
                 next_pid += 1
             depth += 1

@@ -1,0 +1,3 @@
+main {
+    Tabula t = new near Tabula("orders", "item,qty");
+}

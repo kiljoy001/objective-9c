@@ -1,0 +1,9 @@
+class ImportMainLib {
+    method int64 value() {
+        return 9;
+    }
+}
+
+main {
+    print("imported main should not run\n");
+}

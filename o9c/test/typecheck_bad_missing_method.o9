@@ -1,0 +1,8 @@
+class Counter {
+    prop int64 value;
+}
+
+main {
+    Counter c = new Counter();
+    c.missing();
+}

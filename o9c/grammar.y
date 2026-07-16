@@ -10745,6 +10745,13 @@ typecheck_msg_send(Node *e, Node *scope_class, int *errs)
     annotate_expr_type(e, scope_class);
     if(e->left == nil)
         return;
+    if(e->left->type == NMsgSend && type_is_class_ref(e->left->typeinfo)){
+        typecheck_expr(e->left, scope_class, errs);
+        fprint(2, "o9c: error: line %d: object-return method result cannot be used as a receiver "
+            "(bind it to a named value first)\n", sem_line);
+        (*errs)++;
+        return;
+    }
     lt = e->left->typeinfo;
     for(i = 0; typecheck_msg_handlers[i] != nil; i++)
         if(typecheck_msg_handlers[i](e, scope_class, lt, errs))

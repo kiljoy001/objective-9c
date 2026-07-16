@@ -1,0 +1,22 @@
+class Child {
+    method int64 get() {
+        return 1;
+    }
+}
+
+class Box {
+    prop Child child;
+
+    method Box() {
+        child = new Child();
+    }
+
+    method Child item() {
+        return child;
+    }
+}
+
+main {
+    Box b = new Box();
+    b.item().get();
+}

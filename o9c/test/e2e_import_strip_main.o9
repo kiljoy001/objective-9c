@@ -1,0 +1,6 @@
+import "impdir/lib_with_main.o9";
+
+main {
+    ImportMainLib lib = new ImportMainLib();
+    print("import-strip ", lib.value(), "\n");
+}

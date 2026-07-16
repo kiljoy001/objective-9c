@@ -193,6 +193,7 @@ runcase e2e_rawc_bio
 runcase e2e_rawc_draw
 runcase e2e_rawc_ctypes
 importcase e2e_import
+importcase e2e_import_strip_main
 stdlibcase e2e_string
 stdlibcase e2e_bytes
 stdlibcase e2e_buffer

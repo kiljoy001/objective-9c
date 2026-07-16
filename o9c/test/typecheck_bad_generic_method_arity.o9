@@ -1,0 +1,9 @@
+class Box<T> {
+    method void set(T value) {
+    }
+}
+
+main {
+    Box<int64> b;
+    b.set();
+}

@@ -1,0 +1,6 @@
+class Bad {
+    prop List<uintptr> addrs;
+}
+
+main {
+}
