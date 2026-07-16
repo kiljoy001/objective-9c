@@ -145,41 +145,42 @@ The current worst owned functions after regenerating instrumentation and
 running `mk crap-test` are:
 
 ```text
-CRAP   CC  COV%  FUNCTION
-34.34  34  93.3  check_inheritance_contract
-31.05  30  89.5  try_raw_c_block
-30.64  29  87.5  validate_rawc_boundary
-30.00  12  50.0  gen_class_prop_write
-26.96  8   33.3  strip_imported_main
-26.50  9   40.0  typecheck_generic_msg
-26.12  11  50.0  find_main_block_start
-26.12  11  50.0  type_contains_address_scalar
-24.00  24  100.0 gen_class_ctl_method_cases
-23.20  20  80.0  main
+CRAP   CC   COV%   FUNCTION
+23.20  20   80.0   main
+20.00  4    0.0    gen_msg_typed_receiver
+19.00  19   100.0  gen_dispatch_cases
+19.00  19   100.0  gen_class_spawn_helper
+19.00  19   100.0  type_cast_for_codegen
+18.52  15   75.0   gen_state_store_typed
+18.05  16   80.0   typecheck_local_var_expr
+18.00  18   100.0  typed_member_lookup_in
+18.00  18   100.0  gen_method_registrations
+17.56  13   70.0   gen_class_fsread_props
 ```
 
 `gen_class_server` is no longer the top offender; the facade split moved its
 branches into named read/write helpers. The strict target is still far away:
-the current report has 216 owned functions above CRAP 5. That count can rise
+the current report has 223 owned functions above CRAP 5. That count can rise
 temporarily when large functions are split, because newly visible helper
 branches get scored independently. The useful short-term signal is that the
-worst owned score has dropped from thousands to `34.34`. The strict target
+worst owned score has dropped from thousands to `23.20`. The strict target
 still implies either very small functions or direct coverage of every branch.
 
 ## Next Refactors
 
 The next useful reductions are:
 
-- split `check_inheritance_contract` into local conflict, inheritance rule,
-  override, and abstract-method enforcement helpers;
-- split raw-C parsing/validation further: `try_raw_c_block` and
-  `validate_rawc_boundary`;
-- split generated facade property writes in `gen_class_prop_write`;
-- split import-main stripping helpers: `strip_imported_main` and
-  `find_main_block_start`;
-- decide whether low-coverage helpers such as `gen_msg_typed_receiver`,
-  `gen_print_explicit_args`, and `gen_raw_func_call_expr` need direct tests
-  or are now stale paths.
+- split `main` into source loading, import resolution, scan/typecheck,
+  generation, and cleanup phases;
+- decide whether `gen_msg_typed_receiver` is a live missing test path or dead
+  code, since it has low complexity but zero measured coverage;
+- split dispatch/spawn codegen helpers such as `gen_dispatch_cases` and
+  `gen_class_spawn_helper` without changing their emitted C shape;
+- add direct tests for partly covered state/typecheck paths such as
+  `gen_state_store_typed`, `typecheck_local_var_expr`, and
+  `gen_class_fsread_props`;
+- use PMD/CPD reports to remove duplicated semantic checks before adding new
+  compiler features.
 
 Prefer reducing high-complexity functions before adding broad mutation tests.
 Mutation testing is most useful once mutants point to real missing behavior

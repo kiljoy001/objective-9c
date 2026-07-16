@@ -79,6 +79,7 @@ echo close > /mnt/o9/$sid/ctl
 - [MountTable](docs/MOUNTTABLE.md) - namespace recipes as Tabula data.
 - [Assembly Dispatch](docs/ASM_DISPATCH.md) - same-process asm cache design.
 - [Transpiler CRAP Score](docs/CRAP.md) - complexity plus real test coverage.
-- [Testing Strategy](docs/TESTING.md) - regression, property, fuzz, and mutation testing.
+- [Testing Strategy](docs/TESTING.md) - regression, property, CRAP, PMD, fuzz,
+  and mutation testing.
 - [Architecture](docs/ARCHITECTURE.md) and
   [Touchstone](docs/TOUCHSTONE.md) - design record and current direction.
