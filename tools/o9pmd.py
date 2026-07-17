@@ -2,8 +2,9 @@
 """Run PMD CPD duplicate-code checks for o9-owned sources.
 
 PMD does not have a yacc grammar frontend, and it ignores `.y` files by
-extension.  The transpiler's grammar file is mostly C action code, so this
-wrapper copies it to a temporary `.c` path and scans it with CPD's C++ lexer.
+extension.  The transpiler grammar chunks are mostly C action code, so this
+wrapper assembles them into a temporary `.c` path and scans that with CPD's
+C++ lexer.
 """
 
 from __future__ import annotations
@@ -23,6 +24,25 @@ CPP_SOURCES = (
     "o9_tab_discard.c",
     "o9_crypto.c",
     "o9.h",
+)
+
+GRAMMAR_PARTS = (
+    "o9c/grammar.d/00-ast-globals.y",
+    "o9c/grammar.d/01-symbols.y",
+    "o9c/grammar.d/02-type-helpers.y",
+    "o9c/grammar.d/03-yacc-decls.y",
+    "o9c/grammar.d/10-grammar-rules.y",
+    "o9c/grammar.d/20-ast-construction.y",
+    "o9c/grammar.d/30-lexer.y",
+    "o9c/grammar.d/40-codegen.y",
+    "o9c/grammar.d/50-app-facade.y",
+    "o9c/grammar.d/60-prescan.y",
+    "o9c/grammar.d/70-typecheck.y",
+    "o9c/grammar.d/80-ast-dump.y",
+    "o9c/grammar.d/90-import-resolution.y",
+    "o9c/grammar.d/91-cdeps.y",
+    "o9c/grammar.d/92-import-resolution-continued.y",
+    "o9c/grammar.d/99-main.y",
 )
 
 PYTHON_SOURCES = ("tools",)
@@ -47,6 +67,12 @@ def read_report(path: Path) -> str:
 def normalize_report(text: str) -> str:
     text = text.replace("grammar.c", "o9c/grammar.y")
     return re.sub(r"/tmp/o9pmd\.[^/\s]+/o9c/grammar\.y", "o9c/grammar.y", text)
+
+
+def assemble_grammar(root: Path, out: Path) -> None:
+    with out.open("w", encoding="utf-8") as dst:
+        for rel in GRAMMAR_PARTS:
+            dst.write((root / rel).read_text(encoding="utf-8"))
 
 
 def run_cpd(
@@ -122,7 +148,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     with tempfile.TemporaryDirectory(prefix="o9pmd.") as tmpname:
         tmp = Path(tmpname)
         grammar_copy = tmp / "grammar.c"
-        shutil.copyfile(root / "o9c" / "grammar.y", grammar_copy)
+        assemble_grammar(root, grammar_copy)
 
         failures = 0
         failures += run_cpd(

@@ -13,6 +13,27 @@ CFILES=\
 	o9c/y.tab.$O\
 	o9c/o9_type.$O\
 
+GRAMMAR_PARTS=\
+	o9c/grammar.d/00-ast-globals.y\
+	o9c/grammar.d/01-symbols.y\
+	o9c/grammar.d/02-type-helpers.y\
+	o9c/grammar.d/03-yacc-decls.y\
+	o9c/grammar.d/10-grammar-rules.y\
+	o9c/grammar.d/20-ast-construction.y\
+	o9c/grammar.d/30-lexer.y\
+	o9c/grammar.d/40-codegen.y\
+	o9c/grammar.d/50-app-facade.y\
+	o9c/grammar.d/60-prescan.y\
+	o9c/grammar.d/70-typecheck.y\
+	o9c/grammar.d/80-ast-dump.y\
+	o9c/grammar.d/90-import-resolution.y\
+	o9c/grammar.d/91-cdeps.y\
+	o9c/grammar.d/92-import-resolution-continued.y\
+	o9c/grammar.d/99-main.y\
+
+o9c/grammar.y:	$GRAMMAR_PARTS
+	cat $GRAMMAR_PARTS > o9c/grammar.y
+
 o9c/y.tab.h o9c/y.tab.c: o9c/grammar.y o9c/o9_type.h
 	cd o9c; yacc -d grammar.y
 
@@ -198,7 +219,7 @@ install:V: o9c libo9.a
 	@ echo '  6l out.6 -lo9'
 
 clean:V:
-	rm -f o9c/y.tab.* o9c/type.tab.* o9c/o9c o9c/o9type o9c/*.[$O]
+	rm -f o9c/grammar.y o9c/y.tab.* o9c/type.tab.* o9c/o9c o9c/o9type o9c/*.[$O]
 	rm -f *.[$O] *.9 libo9.a
 	rm -f o9c/test/*.[$O] o9c/test/crypto_test o9c/test/tab_test
 	rm -f o9c/test/artifacts/o9_draw_*.img o9c/test/artifacts/o9_draw_*.png

@@ -16,8 +16,8 @@ authoritative behavior checks should compile and run through `mk`.
   o9-owned C-ish sources and Python tools.
 - `mk verify`: full normal gate. It runs AST, e2e, property, facade,
   session, issue, runtime C, and CRAP checks. After changing
-  `o9c/grammar.y`, regenerate CRAP instrumentation on the host before
-  running it:
+  files under `o9c/grammar.d/`, rebuild `o9c` on 9front and regenerate CRAP
+  instrumentation on the host before running it:
 
 ```sh
 python3 tools/o9crap.py instrument
@@ -108,8 +108,9 @@ Start with deliberate semantic mutants, not arbitrary token edits:
 - change generated arithmetic or comparison operators;
 - remove per-session result isolation.
 
-The mutation harness is host-side because it rewrites `o9c/grammar.y`, runs a
-caller-supplied command, then restores the file. List mutants:
+The mutation harness is host-side because it rewrites the editable grammar
+chunks under `o9c/grammar.d/`, runs a caller-supplied command, then restores
+the files. List mutants:
 
 ```sh
 python3 tools/o9mutate.py list
@@ -142,7 +143,8 @@ python3 tools/o9pmd.py
 
 The wrapper scans:
 
-- `o9c/grammar.y` as a temporary `.c` file, using PMD's C++ tokenizer;
+- the assembled `o9c/grammar.d/*.y` grammar as a temporary `.c` file, using
+  PMD's C++ tokenizer;
 - o9-owned runtime/header C sources;
 - Python host tools.
 

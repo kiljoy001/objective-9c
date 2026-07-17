@@ -20,8 +20,8 @@ instrumented `o9c` against the existing tests.
 
 ## Run
 
-After changing `o9c/grammar.y`, run a normal 9front build first so
-`o9c/y.tab.c` is current:
+After changing files under `o9c/grammar.d/`, run a normal 9front build first
+so `o9c/grammar.y` is assembled and `o9c/y.tab.c` is current:
 
 ```rc
 mk o9c
@@ -84,7 +84,7 @@ Use the ranking as a triage list, not as a moral score.
 
 For yacc-generated code, ignore parser skeleton helpers unless they dominate
 the list. The targets that matter most are the o9 semantic/typecheck/codegen
-functions from `grammar.y`.
+functions from the assembled grammar chunks.
 
 ## First Baseline
 

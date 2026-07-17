@@ -13,6 +13,7 @@ out.c
 t.c
 */out.c
 o9c.bak
+o9c/grammar.y
 o9c/y.tab.*
 o9c/type.tab.*
 libo9.a

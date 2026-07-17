@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Apply deliberate o9 compiler mutants and require tests to kill them.
 
-This is a host-side harness.  It mutates `o9c/grammar.y`, runs a caller
-supplied command, then restores the original file.  A mutant is "killed" when
-the command fails.  A command that still succeeds means the mutant survived
-and the tests are missing an invariant.
+This is a host-side harness.  It mutates the editable grammar chunks under
+`o9c/grammar.d`, runs a caller supplied command, then restores the original
+files.  A mutant is "killed" when the command fails.  A command that still
+succeeds means the mutant survived and the tests are missing an invariant.
 """
 
 from __future__ import annotations
@@ -24,6 +24,12 @@ class Mutant:
     old: str
     new: str
     count: int = 1
+
+
+@dataclasses.dataclass(frozen=True)
+class SourceFile:
+    path: Path
+    original: str
 
 
 MUTANTS = (
@@ -86,14 +92,49 @@ def selected_mutants(names: Sequence[str]) -> list[Mutant]:
     return [by_name[name] for name in names]
 
 
-def apply_mutant(src: str, mutant: Mutant) -> str:
-    got = src.count(mutant.old)
+def load_sources(target: str) -> list[SourceFile]:
+    path = Path(target)
+    if path.is_dir():
+        paths = sorted(path.glob("*.y"))
+    else:
+        paths = [path]
+    if not paths:
+        raise RuntimeError(f"no source files found under {target}")
+    return [SourceFile(p, p.read_text(encoding="utf-8")) for p in paths]
+
+
+def restore_sources(sources: Sequence[SourceFile]) -> None:
+    for src in sources:
+        src.path.write_text(src.original, encoding="utf-8")
+
+
+def remove_generated_grammar(target: str) -> None:
+    path = Path(target)
+    if not path.is_dir():
+        return
+    try:
+        (path.parent / "grammar.y").unlink()
+    except FileNotFoundError:
+        pass
+
+
+def apply_mutant(sources: Sequence[SourceFile], mutant: Mutant) -> None:
+    got = sum(src.original.count(mutant.old) for src in sources)
     if got < mutant.count:
         raise RuntimeError(
             f"{mutant.name}: pattern not found enough times "
             f"(wanted {mutant.count}, found {got})"
         )
-    return src.replace(mutant.old, mutant.new, mutant.count)
+    remaining = mutant.count
+    for src in sources:
+        text = src.original
+        if remaining > 0:
+            hits = text.count(mutant.old)
+            if hits > 0:
+                use = min(hits, remaining)
+                text = text.replace(mutant.old, mutant.new, use)
+                remaining -= use
+        src.path.write_text(text, encoding="utf-8")
 
 
 def run_command(args: argparse.Namespace) -> tuple[int | None, str]:
@@ -132,17 +173,17 @@ def command_survived(args: argparse.Namespace, code: int | None, output: str) ->
 
 
 def run_mutants(args: argparse.Namespace) -> int:
-    path = Path(args.file)
-    original = path.read_text(encoding="utf-8")
+    sources = load_sources(args.file)
     failed = False
 
     for mutant in selected_mutants(args.only):
         print(f"mutant {mutant.name}: {mutant.description}", flush=True)
         try:
-            path.write_text(apply_mutant(original, mutant), encoding="utf-8")
+            apply_mutant(sources, mutant)
             code, output = run_command(args)
         finally:
-            path.write_text(original, encoding="utf-8")
+            restore_sources(sources)
+            remove_generated_grammar(args.file)
 
         if output:
             print(output, end="" if output.endswith("\n") else "\n")
@@ -171,7 +212,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.set_defaults(func=list_mutants)
 
     p = sub.add_parser("run", help="run mutants against a test command")
-    p.add_argument("--file", default="o9c/grammar.y")
+    p.add_argument("--file", default="o9c/grammar.d", help="grammar file or chunk directory to mutate")
     p.add_argument("--only", action="append", default=[])
     p.add_argument("--keep-going", action="store_true")
     p.add_argument("--timeout", type=float, default=None)
