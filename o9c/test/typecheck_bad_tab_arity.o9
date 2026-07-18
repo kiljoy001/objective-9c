@@ -1,1 +1,1 @@
-main { Tabula t = new Tabula("x", "a,b"); t.set("only-one"); }
+main { tabula t = new tabula("x", "a,b"); t.set("only-one"); }

@@ -1,16 +1,16 @@
 main {
-    Tabula file = new Tabula("file", "name,kind,0x");
+    tabula file = new tabula("file", "name,kind,0x");
 
     print("has ", file.has("0x"), "\n");
     file.write("logo", "name", "logo.png");
     file.write("logo", "kind", "image/png");
     file.write("logo", "0x", "615a43");
 
-    Tabula q = file.query("name", "logo.png");
+    tabula q = file.query("name", "logo.png");
     print("query ", q.first(), " ", q.get("kind"), " ", q.get("0x"), "\n");
 
     writefile("/tmp/o9_tabula_hex.tab", file.read());
-    Tabula disk = new Tabula("/tmp/o9_tabula_hex.tab");
-    Tabula back = disk.query("id", "logo");
+    tabula disk = new tabula("/tmp/o9_tabula_hex.tab");
+    tabula back = disk.query("id", "logo");
     print("disk ", back.first(), " ", back.get("0x"), "\n");
 }

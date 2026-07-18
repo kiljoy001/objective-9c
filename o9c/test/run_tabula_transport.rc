@@ -1,8 +1,8 @@
 #!/bin/rc
-# Tabula transport regression — 9front.
+# tabula transport regression — 9front.
 # Proves the source-level network path over local /srv 9P:
-# provider listener Tabula -> exports/orders.tab,
-# consumer near Tabula -> read/query -> push(),
+# provider listener tabula -> exports/orders.tab,
+# consumer near tabula -> read/query -> push(),
 # provider imports/orders.tab receives inert committed data.
 
 tool=./o9c/o9c
@@ -86,11 +86,11 @@ if(! test -e $srv){
 
 {
 	echo 'main {'
-	echo '    near Tabula orders = new Tabula("orders", "item,qty,status") @ "'$srv'";'
+	echo '    near tabula orders = new tabula("orders", "item,qty,status") @ "'$srv'";'
 	echo '    int64 pushed;'
 	echo '    print("first ", orders.first(), "\n");'
 	echo '    print("row ", orders.get("item"), " ", orders.get("qty"), " ", orders.get("status"), "\n");'
-	echo '    Tabula paid = orders.query("status", "paid");'
+	echo '    tabula paid = orders.query("status", "paid");'
 	echo '    print("paid ", paid.first(), " ", paid.get("item"), " ", paid.get("qty"), "\n");'
 	echo '    orders.write("pushed", "item", "remote");'
 	echo '    orders.write("pushed", "qty", "9");'

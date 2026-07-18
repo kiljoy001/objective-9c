@@ -227,17 +227,17 @@ main {
 }
 ```
 
-`Bytes`, `Buffer`, `File`, and `Path` live in `stdlib/`. `Tabula` is built into
+`Bytes`, `Buffer`, `File`, and `Path` live in `stdlib/`. `tabula` is built into
 the runtime because it wraps libtab:
 
 ```
 main {
-    Tabula t = new Tabula("orders", "item,qty,status");
+    tabula t = new tabula("orders", "item,qty,status");
     t.write("a", "item", "widget");
     t.write("a", "qty", "5");
     t.write("a", "status", "paid");
 
-    Tabula paid = t.query("status", "paid");
+    tabula paid = t.query("status", "paid");
     print(paid.first(), " ", paid.get("item"), "\n");
 }
 ```
@@ -267,7 +267,7 @@ print(send(c, "method c get"), "\n"); // reply as text → 42
 the same selector+frame a compiled call site uses, with the reply formatted
 by the method table's ret column. Across a mounted app facade, use clone
 sessions from the shell or another client. Source-level network data uses
-Tabula `near`/`far`/`listener`, not remote object handles.
+tabula `near`/`far`/`listener`, not remote object handles.
 
 ## 8. Your app from the shell — one fileserver, no client code
 
@@ -292,7 +292,7 @@ echo close > /mnt/o9/$sid/ctl
 A string arg with spaces must be **single-quoted** (the ctl line is
 tokenized rc-style): `arg0='hello world'` is one value; unquoted
 `hello world` is two tokens and fails the arity check — as it should.
-Object-handle and Tabula args can't be marshaled over a text ctl line
+Object-handle and tabula args can't be marshaled over a text ctl line
 and are rejected (pass objects in-process instead).
 
 The root files: `clone` (allocate a conversation), `status` (service
@@ -305,13 +305,13 @@ A public method is an explicit app-facade command — no REST/gRPC/schema
 layer to author. The shell, a script, another o9 program, and a remote
 machine all call it the same way: allocate a session, write text to its
 `ctl`, then read that session's `status`/`data`. Source-level `near` and
-`far` still move Tabula data only; they do not create remote object
+`far` still move tabula data only; they do not create remote object
 handles. (e2e_twoclass.o9 serves two classes as peers from one post;
 session tests prove outside processes drive it over real 9P without
 sharing result buffers.)
 
 Across machines it's the same, plus one import
-(demo/TWO_MACHINE_DEMO.md): `rimport host /srv /n/x`, then use `near Tabula`
+(demo/TWO_MACHINE_DEMO.md): `rimport host /srv /n/x`, then use `near tabula`
 to read `exports/` and `push()` to deposit data into `imports/`.
 
 ### Inspecting live state — debug only
@@ -336,7 +336,7 @@ live behind the app facade and are addressed by handles or ctl method
 commands.
 
 Use `Namespace` for normal programmatic namespace setup. It wraps
-`MountTable`, which is the lower-level Tabula-backed data format for
+`MountTable`, which is the lower-level tabula-backed data format for
 mount/bind syscall parameters. That keeps mount recipes transportable as
 data without making mounted data executable.
 

@@ -115,9 +115,9 @@ echo close > /mnt/o9/$sid/ctl
 - [Language Guide](docs/LANGUAGE.md) - the canonical guide for writing o9.
 - [Examples](docs/EXAMPLES.md) - small complete programs.
 - [Standard Library](stdlib/README.md) - stdlib object reference.
-- [Tabula](docs/TABULA.md) - `.tab` files as structured, inert data.
-- [Two-Machine Demo](demo/TWO_MACHINE_DEMO.md) - Tabula over a 9P grid.
-- [MountTable](docs/MOUNTTABLE.md) - namespace recipes as Tabula data.
+- [tabula](docs/TABULA.md) - `.tab` files as structured, inert data.
+- [Two-Machine Demo](demo/TWO_MACHINE_DEMO.md) - tabula over a 9P grid.
+- [MountTable](docs/MOUNTTABLE.md) - namespace recipes as tabula data.
 - [Assembly Dispatch](docs/ASM_DISPATCH.md) - same-process asm cache design.
 - [Transpiler CRAP Score](docs/CRAP.md) - complexity plus real test coverage.
 - [Testing Strategy](docs/TESTING.md) - regression, property, CRAP, PMD, fuzz,

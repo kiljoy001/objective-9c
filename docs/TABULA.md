@@ -1,19 +1,19 @@
-# Tabula — the data envelope
+# tabula — the data envelope
 
 ## What it is, in one sentence
 
-A Tabula is a **data envelope**: an ordered, schema-carrying, on-disk
+A tabula is a **data envelope**: an ordered, schema-carrying, on-disk
 table of cells — any cell individually sealable — that moves across the
 grid as a 9P file.  It is data.  It is never an object, never code,
 never actionable on arrival.
 
 ## The four properties
 
-- **Ordered** — records carry sequence, so a Tabula can hold structure
+- **Ordered** — records carry sequence, so a tabula can hold structure
   (sequences, trees via parent/seq), not just an unordered bag of
   key-values.
 - **Schematic** — columns are declared and travel *with* the data. A
-  Tabula is self-describing: a receiver knows what it got without an
+  tabula is self-describing: a receiver knows what it got without an
   out-of-band contract. (JSON has no schema; protobuf keeps the schema
   in a separate file you must already hold. Here the schema is in the
   bytes.)
@@ -55,17 +55,18 @@ id=b
 	status=open
 ```
 
-The language-level object is `Tabula`.  Its document API is deliberately
-small:
+The language-level object is `tabula`.  Its document API is deliberately
+small. `Tabula` is still accepted as a compatibility alias, but new code
+should use lowercase `tabula` to match the rest of the builtin type names:
 
 ```o9
-Tabula t = new Tabula("orders", "item,qty,status")
+tabula t = new tabula("orders", "item,qty,status")
 string schema = t.schema()
 int64 has_status = t.has("status")
 t.write("a", "item", "widget")
 t.write("a", "qty", "5")
 
-Tabula paid = t.query("status", "paid")
+tabula paid = t.query("status", "paid")
 string text = t.read()
 t.flush()
 ```
@@ -73,33 +74,33 @@ t.flush()
 - `write(id, col, value)` mutates the in-memory document, creating the
   `id` record when needed.
 - `query(col, value)` searches for records whose column matches the value and
-  returns another `Tabula` with the same schema.
+  returns another `tabula` with the same schema.
 - `schema()` returns the semantic collection name from the file's
   `schema=` entry.
 - `has(col)` reports whether a column is declared in the schema.
 - `read()` returns the complete serialized text form.
 - `flush()` persists the current in-memory document to its backing path.
 
-Persistence is explicit at the o9 level.  Closing a `Tabula` discards
+Persistence is explicit at the o9 level.  Closing a `tabula` discards
 unflushed changes; `flush()` is the disk boundary.
 
 ## The one law: inert on arrival
 
-A Tabula that crosses the network is **read like any file**.  It is not
+A tabula that crosses the network is **read like any file**.  It is not
 a process, not a spawn, not a hydration.  Nothing the sender wrote into
 it can cause anything to happen on the receiver.  A receiver's own
-local, already-installed code may read cell values out of a Tabula —
+local, already-installed code may read cell values out of a tabula —
 exactly as it reads values out of a config file or user input, with the
-receiver's logic in full control of every branch.  The Tabula proposes
+receiver's logic in full control of every branch.  The tabula proposes
 nothing; it just *is*.
 
-- Not **executable**: no path compiles or interprets a Tabula into
+- Not **executable**: no path compiles or interprets a tabula into
   behavior.
 - Not **actionable**: even without code, arrival triggers no side
   effect. Reading cells is a choice the receiver's code makes; sealed
   cells stay sealed until the receiver presents a key.
 
-The threat model for receiving a Tabula is the threat model for
+The threat model for receiving a tabula is the threat model for
 receiving a file: parse it carefully, do not trust its *values*
 blindly.  That is the whole security story, and it is bounded and
 well understood.
@@ -119,7 +120,7 @@ insecurity *is* the feature.
 
 o9 therefore does not ship objects and does not rehydrate.  If a program
 wants to build an object from received data, it reads the values out of
-a Tabula and constructs the object itself, under its own control, the
+a tabula and constructs the object itself, under its own control, the
 same way it would from any file or input.  "The object arrived" is
 never true; what is true is "data arrived, and my trusted local code
 chose to build something from it."  Same practical outcome for the real
@@ -142,7 +143,7 @@ What survives is exactly the value we wanted, minus the danger:
 - **Secrets cross sealed** — any cell may be sealed (AEAD blob, the same
   `encrypt`/`decrypt` format as `secret` fields). Confidentiality that
   survives the table travelling, being cached, or being backed up.
-- **Provenance crosses** — a Tabula is one text value, so `sign`/
+- **Provenance crosses** — a tabula is one text value, so `sign`/
   `verify` apply: a receiver can check who vouched for the data before
   trusting its values.
 
@@ -153,13 +154,13 @@ AST as a table that trusted build-time filters transform between parse
 and typecheck, on the machine that owns the source. What is retired is
 any notion of transmitting that code table to another node to be
 compiled or run. Code tables are local build artifacts; they are not a
-wire format. Only Tabulae of **data** travel, and they travel inert.
+wire format. Only tabulae of **data** travel, and they travel inert.
 
 ## Scope discipline
 
-Standing by "Tabula is a data envelope" is a deliberate anti-bloat
+Standing by "tabula is a data envelope" is a deliberate anti-bloat
 decision.  Every temptation to make it heavier — carry an object, carry
 code, run on arrival, self-instantiate — reintroduces the RCE it exists
 to avoid.  The rule that keeps the design small is also the rule that
 keeps it secure: **it sends a file; the file is data; the data is
-inert.**  That is all a Tabula is, and all it should ever become.
+inert.**  That is all a tabula is, and all it should ever become.

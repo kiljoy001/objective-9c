@@ -104,7 +104,7 @@ class Namespace {
         return table.read();
     }
 
-    method Tabula query(string column, string value) {
+    method tabula query(string column, string value) {
         return table.query(column, value);
     }
 }

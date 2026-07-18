@@ -1,1 +1,1 @@
-main { Tabula t = new_tab("x", "a,b"); }
+main { tabula t = new_tab("x", "a,b"); }

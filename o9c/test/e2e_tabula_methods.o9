@@ -1,6 +1,6 @@
-// Tabula document API: write/query/read/flush.
+// tabula document API: write/query/read/flush.
 main {
-    Tabula t = new Tabula("orders", "item,qty,status");
+    tabula t = new tabula("orders", "item,qty,status");
     t.write("a", "item", "widget");
     t.write("a", "qty", "5");
     t.write("a", "status", "paid");
@@ -9,18 +9,18 @@ main {
     t.write("b", "status", "open");
 
     print("schema ", t.schema(), " has ", t.has("status"), " missing ", t.has("missing"), "\n");
-    Tabula paid = t.query("status", "paid");
+    tabula paid = t.query("status", "paid");
     print("paid ", paid.first(), " ", paid.get("item"), " ", paid.get("qty"), "\n");
     print("readcmp ", cmp(t.read(), t.serialize()), "\n");
     print("bad ", t.write("c", "missing", "x"), "\n");
     print("remote ", t.sync(), " ", t.push(), "\n");
 
     writefile("/tmp/o9_tabula_methods.tab", t.read());
-    Tabula disk = new Tabula("/tmp/o9_tabula_methods.tab");
+    tabula disk = new tabula("/tmp/o9_tabula_methods.tab");
     disk.write("b", "qty", "4");
     disk.flush();
 
-    Tabula back = new Tabula("/tmp/o9_tabula_methods.tab");
-    Tabula one = back.query("id", "b");
+    tabula back = new tabula("/tmp/o9_tabula_methods.tab");
+    tabula one = back.query("id", "b");
     print("disk ", one.first(), " ", one.get("item"), " ", one.get("qty"), "\n");
 }

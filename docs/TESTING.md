@@ -57,7 +57,7 @@ Good first properties:
 - Scalar expressions: arithmetic, comparisons, bitwise ops, shifts, unary ops.
 - Width/cast expressions: scalar casts match Plan 9 C storage behavior.
 - Stdlib surface: String, Bytes, built-in List/Dict, channel values, and
-  Tabula read/query/write behavior.
+  tabula read/query/write behavior.
 - Namespaces: MountTable serialization recreates the same bind/mount rows.
 
 The default corpus should stay deterministic and quick. Longer local corpora
@@ -99,12 +99,12 @@ to fail. A mutant that still passes is a missing test or a dead rule.
 Start with deliberate semantic mutants, not arbitrary token edits:
 
 - remove private field/method checks;
-- allow `near`, `far`, or `listener` on non-Tabula objects;
+- allow `near`, `far`, or `listener` on non-tabula objects;
 - weaken ctl arity checks;
 - reverse channel direction checks;
 - allow object values inside tuple returns;
 - weaken raw C boundary validation;
-- change Tabula import commit semantics;
+- change tabula import commit semantics;
 - change generated arithmetic or comparison operators;
 - remove per-session result isolation.
 

@@ -226,7 +226,7 @@ Task<T>
 chan<T> stream<T>
 List<T> Dict<string,T>
 list<T> array<T> dictionary<T>
-Tabula Namespace MountTable
+tabula Namespace MountTable
 ```
 
 `List<T>` and `Dict<string,T>` are compiler/runtime carriers. The stdlib
@@ -490,19 +490,21 @@ normal properties and methods.
 optional project-root `deps.tab`. Project dependencies must stay under the
 project folder.
 
-## Tabula
+## tabula
 
-`Tabula` is the standard structured data object for `.tab` files. A `.tab`
+`tabula` is the standard structured data object for `.tab` files. A `.tab`
 file is text data with embedded semantics, not an executable object export.
+The lowercase spelling is canonical; `Tabula` remains accepted as a
+compatibility alias for older source.
 
 ```o9
 main {
-    Tabula t = new Tabula("orders", "item,qty,status");
+    tabula t = new tabula("orders", "item,qty,status");
     t.write("a", "item", "widget");
     t.write("a", "qty", "5");
     t.write("a", "status", "paid");
 
-    Tabula paid = t.query("status", "paid");
+    tabula paid = t.query("status", "paid");
     print(paid.first(), " ", paid.get("item"), "\n");
 }
 ```
@@ -527,25 +529,25 @@ close()
 `write` mutates a particular record by id. `set` mutates the current record
 after `add`, `first`, or `next`.
 
-### Tabula Locality
+### tabula Locality
 
-`near`, `far`, and `listener` are data-locality forms for `Tabula` only.
+`near`, `far`, and `listener` are data-locality forms for `tabula` only.
 They do not construct remote objects.
 
 ```o9
 main {
-    near Tabula lan = new Tabula("orders", "item,qty,status") @ "il!fileserver!9999";
-    far Tabula wan = new Tabula("orders", "item,qty,status") @ "tcp!remote.host!9999";
-    listener Tabula server = new Tabula("orders", "item,qty,status") @ "il!*!9999";
+    near tabula lan = new tabula("orders", "item,qty,status") @ "il!fileserver!9999";
+    far tabula wan = new tabula("orders", "item,qty,status") @ "tcp!remote.host!9999";
+    listener tabula server = new tabula("orders", "item,qty,status") @ "il!*!9999";
 }
 ```
 
 - `near` reads `exports/orders.tab` from a 9P service over IL.
 - `far` reads `exports/orders.tab` from a 9P service over TCP.
-- `listener` exports the local Tabula under `exports/orders.tab` and serves
+- `listener` exports the local tabula under `exports/orders.tab` and serves
   the app tree at the supplied address.
-- `push()` writes a remote Tabula copy back to `imports/orders.tab`.
-- `sync()` refreshes a remote Tabula copy from `exports/orders.tab`.
+- `push()` writes a remote tabula copy back to `imports/orders.tab`.
+- `sync()` refreshes a remote tabula copy from `exports/orders.tab`.
 
 Ordinary classes cannot be declared `near`, `far`, or `listener`. If data
 crosses a machine boundary, it crosses as `.tab` text with semantics embedded;
@@ -564,7 +566,7 @@ imports/    # inert inbound .tab deposits
 become visible when that fid is closed; imported data never invokes methods by
 itself.
 
-Binary data stays text in Tabula. The standard binary payload column is `0x`,
+Binary data stays text in tabula. The standard binary payload column is `0x`,
 with bytes encoded as lowercase hex from `Bytes.hex()` and decoded with
 `Bytes.fromHex()`.
 
@@ -585,8 +587,8 @@ main {
 }
 ```
 
-`MountTable` is the lower-level Tabula-backed mount/bind data object. It stores
-the parameters needed by Plan 9 `bind` and `mount` in a `schema=mounts` Tabula.
+`MountTable` is the lower-level tabula-backed mount/bind data object. It stores
+the parameters needed by Plan 9 `bind` and `mount` in a `schema=mounts` tabula.
 Use `Namespace` in normal code; use `MountTable` when the app needs to persist,
 inspect, query, export, or exchange syscall-shaped mount data directly.
 
@@ -636,7 +638,7 @@ Apps can publish `.tab` data under `exports/`:
 
 ```o9
 main {
-    Tabula t = new Tabula("orders", "item,qty,status");
+    tabula t = new tabula("orders", "item,qty,status");
     t.write("a", "item", "widget");
     export("orders.tab", t);
     serve();
@@ -644,6 +646,6 @@ main {
 ```
 
 Another program can mount the app, read `exports/orders.tab`, import it as a
-`Tabula`, and act according to its own local logic.
+`tabula`, and act according to its own local logic.
 
 For the data format and design rules, read [TABULA.md](TABULA.md).

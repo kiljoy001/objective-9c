@@ -120,6 +120,8 @@ type_named(Type *t, char *name)
         return 0;
     if(t->name == nil)
         return 0;
+    if(o9_type_name_is_tabula(name))
+        return o9_type_name_is_tabula(t->name);
     return strcmp(t->name, name) == 0;
 }
 
@@ -280,7 +282,7 @@ gen_tabula_new_expr(Node *e)
 {
     int argc;
 
-    if(!type_named(e->typeinfo, "Tabula"))
+    if(!o9_type_is_tabula(e->typeinfo))
         return 0;
     argc = node_list_len(e->right);
     if(argc == 1){
@@ -297,7 +299,7 @@ gen_tabula_new_expr(Node *e)
         print(")");
         return 1;
     }
-    print("nil /* invalid Tabula constructor */");
+    print("nil /* invalid tabula constructor */");
     return 1;
 }
 
@@ -452,7 +454,7 @@ gen_tabula_msg(Node *e, Type *lt)
         {"close", "o9_tab_close"},
     };
 
-    return gen_mapped_handle_msg(e, lt, "Tabula", map, nelem(map));
+    return gen_mapped_handle_msg(e, lt, "tabula", map, nelem(map));
 }
 
 static int
@@ -1320,7 +1322,7 @@ discard_msgsend_is_cvoid(Node *ve)
      * o9 void methods. Builtin handle methods can lower directly to C
      * void helpers. */
     return lt != nil && lt->kind == TyName && lt->name != nil &&
-        (strcmp(lt->name, "Tabula") == 0 || strcmp(lt->name, "MountTable") == 0);
+        (o9_type_name_is_tabula(lt->name) || strcmp(lt->name, "MountTable") == 0);
 }
 
 static int

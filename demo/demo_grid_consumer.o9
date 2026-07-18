@@ -7,8 +7,8 @@ main {
         print("usage: demo_grid_consumer appname /n/hostsrv/o9.app.app.app\n");
     } else {
         string srv = p.arg(2);
-        near Tabula orders = new Tabula("orders", "item,qty,status") @ srv;
-        Tabula paid;
+        near tabula orders = new tabula("orders", "item,qty,status") @ srv;
+        tabula paid;
         int64 pushed;
 
         print("first ", orders.first(), "\n");

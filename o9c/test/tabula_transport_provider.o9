@@ -1,5 +1,5 @@
 main {
-    listener Tabula orders = new Tabula("orders", "item,qty,status") @ "";
+    listener tabula orders = new tabula("orders", "item,qty,status") @ "";
 
     orders.write("a", "item", "widget");
     orders.write("a", "qty", "8");

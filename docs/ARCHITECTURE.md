@@ -4,13 +4,13 @@
 > is detail under those decisions.  Current architecture: an app is one
 > 9P server with a fixed facade (`clone`, session `ctl`/`data`/`status`,
 > `methods`, `exports/`, `imports/`). Objects are local CSP actors inside
-> that process. `near`, `far`, and `listener` move Tabula data only;
+> that process. `near`, `far`, and `listener` move tabula data only;
 > source-level remote objects are rejected.
 
 o9 is built on one premise: **the network is not a library, it is the
 application's namespace.** Objects are local CSP actors. The network-facing
-surface is the app facade: `exports/` publishes Tabula data, `imports/`
-accepts inert Tabula deposits, and `ctl` is an explicit command interface.
+surface is the app facade: `exports/` publishes tabula data, `imports/`
+accepts inert tabula deposits, and `ctl` is an explicit command interface.
 Source-level object handles do not cross machines.
 
 ## The Four Rings
@@ -24,12 +24,12 @@ Each ring uses the cheapest mechanism for what is allowed to cross it.
  ring 1  MACHINE  other processes on this machine
                   /srv posts + namespace binds; explicit app facade commands
  ring 2  NEAR     other machines, local network
-                  Tabula data over 9P/IL
+                  tabula data over 9P/IL
  ring 3  FAR      wide area
-                  Tabula data over 9P/TCP
+                  tabula data over 9P/TCP
 ```
 
-The source-level distance forms select transport for Tabula data only.
+The source-level distance forms select transport for tabula data only.
 Remote class/object construction is intentionally rejected, and the old
 runtime method-dispatch fallback over `ctl/data` is gone.
 Application composition is the app facade's job; the Plan 9 namespace
@@ -83,7 +83,7 @@ One identity, two forms:
 Channels carry typed o9 values through a generic byte envelope. Handles are
 CSP values too: sending one down a channel transfers the capability
 (channel mobility), not the actor memory. Crossing a process boundary uses
-Tabula data or explicit app facade commands, not object-handle rehydration.
+tabula data or explicit app facade commands, not object-handle rehydration.
 
 ## The Data Plane (libtab)
 
@@ -168,7 +168,7 @@ type* — PascalCase members, locals, and bare self-access all work.
 Compile-and-grep suites (`production_ast.rc`: AST dumps, generated-C
 requires, rejection fixtures) plus **execute-and-assert** (`mk run-test`):
 real binaries run on 9front, stdout compared — dispatch/frames/self-calls,
-builtins, destructors, generics, channels, Tabula transport, stdlib, and
+builtins, destructors, generics, channels, tabula transport, stdlib, and
 libdraw headless checks.
 
 ## Roadmap

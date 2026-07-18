@@ -1,4 +1,4 @@
-// MountTable - typed namespace syscall parameters stored as Tabula data.
+// MountTable - typed namespace syscall parameters stored as tabula data.
 main {
     MountTable mt = new MountTable();
     print("schema ", mt.schema(), "\n");
@@ -10,7 +10,7 @@ main {
     print("apply ", mt.apply(), "\n");
     print(readfile("/tmp/o9_mounttable_root/tmp/o9_mounttable_probe"), "\n");
 
-    Tabula binds = mt.query("call", "bind");
+    tabula binds = mt.query("call", "bind");
     print("q ", binds.first(), " ", binds.get("old"), " ", binds.get("new"), "\n");
 
     writefile("/tmp/o9_mounttable_spec.tab", mt.read());

@@ -494,8 +494,8 @@ class RemoteIdentity {
     }
 
     method bool load(string path) {
-        Tabula t = new Tabula(path);
-        Tabula q = t.query("id", "server");
+        tabula t = new tabula(path);
+        tabula q = t.query("id", "server");
         if(q.first() == 0) {
             return false;
         }
@@ -514,7 +514,7 @@ class RemoteIdentity {
         if(!valid()) {
             return false;
         }
-        Tabula t = new Tabula("remote_identity", "host,algo,pub,fingerprint");
+        tabula t = new tabula("remote_identity", "host,algo,pub,fingerprint");
         t.write(ident, "host", hostValue);
         t.write(ident, "algo", algoValue);
         t.write(ident, "pub", pubValue);
@@ -555,21 +555,21 @@ class KnownRemotes {
         if(len(readfile(path)) > 0) {
             return true;
         }
-        Tabula t = new Tabula("known_remote", "algo,pub,fingerprint");
+        tabula t = new tabula("known_remote", "algo,pub,fingerprint");
         return writefile(path, t.read()) == 0;
     }
 
     method bool known(string host) {
         ensure();
-        Tabula t = new Tabula(path);
-        Tabula q = t.query("id", host);
+        tabula t = new tabula(path);
+        tabula q = t.query("id", host);
         return q.first() == 1;
     }
 
     method string fingerprint(string host) {
         ensure();
-        Tabula t = new Tabula(path);
-        Tabula q = t.query("id", host);
+        tabula t = new tabula(path);
+        tabula q = t.query("id", host);
         if(q.first() == 0) {
             return "";
         }
@@ -588,7 +588,7 @@ class KnownRemotes {
             return false;
         }
         ensure();
-        Tabula t = new Tabula(path);
+        tabula t = new tabula(path);
         t.write(host, "algo", algo);
         t.write(host, "pub", pub);
         t.write(host, "fingerprint", fp);

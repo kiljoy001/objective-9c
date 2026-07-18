@@ -1,7 +1,7 @@
 # o9 namespaces — produce-into-namespace design (July 2026)
 
 Status: PARTLY BUILT. `link`-style object composition is removed.
-`MountTable` exists as the lower-level Tabula-backed mount/bind data
+`MountTable` exists as the lower-level tabula-backed mount/bind data
 object, and `Namespace` is the user-facing object for programmatic
 namespace setup. The broader produce-into-namespace facade is still
 design work.
@@ -44,7 +44,7 @@ OUTPUTS into a namespace clients mount and read." Namespace = the SHAPE
 OF THE APP'S OUTPUT, programmatically constructed.
 
 This is consistent with — and generalizes — what the facade ALREADY does:
-- `exports/` — the app produces Tabulae as virtual files in a served
+- `exports/` — the app produces tabulae as virtual files in a served
   namespace. THIS IS ALREADY namespace-control-as-output.
 - `clone`/sessions — each conversation gets its OWN namespace of files
   (17/ctl, 17/data, 17/status).
@@ -53,7 +53,7 @@ This is consistent with — and generalizes — what the facade ALREADY does:
 So: an app is a fileserver that PRODUCES a namespace of virtual files,
 and the namespace surface should serve THAT — a program builds a tree of
 produced files, organized how it wants, that clients mount and read.
-Generalize `exports/` from "publish one Tabula" to "the app builds a
+Generalize `exports/` from "publish one tabula" to "the app builds a
 tree of produced files in a namespace region."
 
 ## What to retire / what to reuse
@@ -73,7 +73,7 @@ helpers (`bindBefore`, `bindAfter`, `mountsrvReplace`, etc.), and applies
 the table to the current process namespace.
 
 LOWER-LEVEL DATA SURFACE: `MountTable` is the authority-bearing,
-Tabula-backed object for `schema=mounts` data. Users do not hand-write
+tabula-backed object for `schema=mounts` data. Users do not hand-write
 mount cells; typed methods (`dir`, `bind`, `mountsrv`) store
 syscall-shaped parameters, and `MountTable` validates policy
 (`allowRoot`) before applying them. Use it directly when the `.tab`
@@ -86,7 +86,7 @@ composition returns later, it should be an explicit `Namespace` or
 ## Open design questions (resolve before build)
 
 - Surface: how does a program declare "produce this tree of files here"?
-  A generalized export (export a Tabula -> export a named tree)? A
+  A generalized export (export a tabula -> export a named tree)? A
   namespace-builder object? Declarative vs imperative?
 - Does a produced namespace stay per-app (in the facade) or can it be a
   standalone served region a client mounts directly?
@@ -137,7 +137,7 @@ mounted as parts.
    creates. Retired like cap.
 3. DONE: first `MountTable` surface for local namespace setup
    (`dir`/`bind`/`mountsrv`, root-confined targets, syscall-shaped
-   Tabula storage).
+   tabula storage).
 4. DONE: `Namespace` object over `MountTable` for normal application
    code; `MountTable` remains the data layer for transport/inspection.
 5. Design the produce-into-namespace surface (generalize exports/) from
@@ -149,7 +149,7 @@ mounted as parts.
 
 Current implemented pieces: link is removed; `MountTable` can build,
 transport, validate, and apply root-confined local namespace setup from
-`schema=mounts` Tabulae; `Namespace` is the preferred object API over
+`schema=mounts` tabulae; `Namespace` is the preferred object API over
 that data. The remaining work relates to the app-facade produced-file
 surface: exports are the first instance, and sessions are per-caller
 produced file sets.

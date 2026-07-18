@@ -19,7 +19,7 @@ codegen(Node *root)
     print("typedef struct ArcLedger {\n\tArcEntry entries[64];\n} ArcLedger;\n");
     /* Per-app facade: ONE Srv with a fixed root shape, built once at
      * startup.  Root control files are stable; clone creates session dirs
-     * and exports/ accepts published Tabulae. The served facade does not
+     * and exports/ accepts published tabulae. The served facade does not
      * compose the app from per-object fileservers. ctl names its target
      * instance in the line (method Class.inst method arg...);
      * status/methods list the object graph and public surface by reading.
@@ -90,7 +90,7 @@ codegen(Node *root)
     print("File *o9app_exports_dir;\t/* served-tree exports/ dir (mutable) */\n");
     print("File *o9app_imports_dir;\t/* served-tree imports/ dir (mutable) */\n");
     print("int o9app_debug;\t/* set from O9DEBUG at startup */\n\n");
-    /* One published Tabula: its serialized bytes live in the File's aux,
+    /* One published tabula: its serialized bytes live in the File's aux,
      * served ramfs-style on read.  This is the mutable part of the fs. */
     print("typedef struct O9Export O9Export;\n");
     print("typedef struct O9ImportStage O9ImportStage;\n");
@@ -115,7 +115,7 @@ codegen(Node *root)
 
     /* exports/ is a served-tree DIRECTORY (part of the application file
      * tree, reachable through the mount) — NOT an on-disk directory.
-     * Objects publish Tabulae into it at runtime via createfile; the
+     * Objects publish tabulae into it at runtime via createfile; the
      * serialized bytes live in the child File's aux. */
     /* Flat root handlers.  The four files share these; ctl routes by the
      * line's Class.inst to a class handler, the rest aggregate. */
@@ -429,7 +429,7 @@ codegen(Node *root)
     print("\tch->write(r, nil);\t/* class fswrite re-parses r->ifcall.data */\n");
     print("}\n\n");
 
-    /* o9_export_tab: publish a Tabula into the served-tree exports/ dir at
+    /* o9_export_tab: publish a tabula into the served-tree exports/ dir at
      * runtime.  A single createfile into the stable exports parent (the
      * safe pattern); the serialized bytes go in the child File's aux.  If
      * a file of that name exists, its bytes are replaced (re-export). */
@@ -515,7 +515,7 @@ codegen(Node *root)
      * gives concurrent callers a private, path-addressable conversation. */
     print("\tcreatefile(o9app_tree->root, \"clone\", \"o9\", 0444, nil);\n");
     /* exports/ is a served-tree DIRECTORY inside the application file tree
-     * (NOT on disk).  It is the one MUTABLE part: objects publish Tabulae
+     * (NOT on disk).  It is the one MUTABLE part: objects publish tabulae
      * into it at runtime via a single createfile into this stable parent
      * dir (the authsrv/ramfs-proven safe pattern — no nested subtree, no
      * walkfile).  Reachable through the mount; ls reflects live objects. */

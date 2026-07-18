@@ -13,7 +13,7 @@ main {
     print("apply ", ns.apply(), "\n");
     print(readfile("/tmp/o9_namespace_root/tmp/o9_namespace_probe"), "\n");
 
-    Tabula binds = ns.query("call", "bind");
+    tabula binds = ns.query("call", "bind");
     print("q ", binds.first(), " ", binds.get("old"), " ", binds.get("new"), "\n");
     print("read ", len(ns.read()) > 0, "\n");
     print("save ", ns.save("/tmp/o9_namespace_spec.tab"), "\n");

@@ -4424,14 +4424,14 @@ class DrawScrollText {
 class DrawPanel {
     DrawWidget;
     prop List<DrawWidget> children;
-    prop Tabula routes;
+    prop tabula routes;
     prop int64 focusSlot;
     prop bool paintBackground;
     prop bool routesDirty;
 
     method DrawPanel(int64 x, int64 y, int64 width, int64 height) {
         super(x, y, width, height);
-        routes = new Tabula("draw_routes", "slot,type,x,y,w,h,z,visible,enabled,focusable,focused,dirty,action");
+        routes = new tabula("draw_routes", "slot,type,x,y,w,h,z,visible,enabled,focusable,focused,dirty,action");
         focusSlot = -1;
         paintBackground = false;
         routesDirty = true;

@@ -37,7 +37,7 @@ static Builtin builtins[] = {
 	{ "ulong", "ulong", "scalar", "%lud", "0" },
 	{ "ushort", "ushort", "scalar", "%ud", "0" },
 	{ "uchar", "uchar", "scalar", "%ud", "0" },
-	{ "Tabula", "O9Tabula*", "pointer", "%p", "nil" },	/* table handle */
+	{ "tabula", "O9Tabula*", "pointer", "%p", "nil" },	/* table handle */
 	{ "MountTable", "O9MountTable*", "pointer", "%p", "nil" },
 	{ nil, nil, nil, nil, nil }
 };
@@ -65,6 +65,16 @@ estrdup(char *s)
 	if(r == nil)
 		sysfatal("strdup");
 	return r;
+}
+
+static char*
+canonical_type_name(char *name)
+{
+	if(name == nil)
+		return nil;
+	if(strcmp(name, "Tabula") == 0)
+		return "tabula";
+	return name;
 }
 
 static char*
@@ -115,7 +125,7 @@ type_name(char *name)
 
 	t = emalloc(sizeof(Type));
 	t->kind = TyName;
-	t->name = estrdup(name);
+	t->name = estrdup(canonical_type_name(name));
 	return t;
 }
 
@@ -137,7 +147,7 @@ type_apply(char *name, TypeList *args)
 
 	t = emalloc(sizeof(Type));
 	t->kind = TyApply;
-	t->name = estrdup(name);
+	t->name = estrdup(canonical_type_name(name));
 	t->args = args;
 	return t;
 }
@@ -205,6 +215,7 @@ find_builtin(char *name)
 
 	if(name == nil)
 		return nil;
+	name = canonical_type_name(name);
 	for(b = builtins; b->name; b++)
 		if(strcmp(b->name, name) == 0)
 			return b;
@@ -546,9 +557,9 @@ type_equal(Type *a, Type *b)
 	switch(a->kind){
 	case TyName:
 	case TyParam:
-		return strcmp(a->name, b->name) == 0;
+		return strcmp(canonical_type_name(a->name), canonical_type_name(b->name)) == 0;
 	case TyApply:
-		if(strcmp(a->name, b->name) != 0)
+		if(strcmp(canonical_type_name(a->name), canonical_type_name(b->name)) != 0)
 			return 0;
 		for(la = a->args, lb = b->args; la && lb; la = la->next, lb = lb->next)
 			if(!type_equal(la->type, lb->type))

@@ -66,7 +66,7 @@ build on both — proof the dual-target approach holds.
    dispatch, not a separate semantic path.
 
 3. **The network carries data only; it is inert on arrival.**  A
-   Tabula that crosses the wire is read like any file.  It is never an
+   tabula that crosses the wire is read like any file.  It is never an
    object, never code, never actionable — nothing the sender wrote can
    cause anything to happen on the receiver.  **o9 does not move objects
    and does not rehydrate them**: reconstructing a live thing from
@@ -77,12 +77,12 @@ build on both — proof the dual-target approach holds.
    Full statement: TABULA.md.
 
 4. **Code tables are local build artifacts.**  `CODE_AS_TABLE.md`
-   describes a future macro design where the AST is a Tabula that
+   describes a future macro design where the AST is a tabula that
    trusted build-time filters transform between parse and typecheck, on
    the machine that owns the source. It is never runtime eval, method-set
    mutation, or a wire format.
 
-5. **Naming.**  The language-level table type is **Tabula** (not
+5. **Naming.**  The language-level table type is **tabula** (not
    Table/Tab).  libtab / `.tab` stay at the C and file layer.
 
 ## Everything is a consequence
@@ -94,9 +94,9 @@ the test that the architecture is coherent:
 - **the object** = struct + the code that operates on it.
 - **the application** = many such structs served from one process under
   one `/srv/o9.<app>` (per-app fileserver; see roadmap A).
-- **distance tiers** = how far Tabula data travels.  `same` is an in-process
-  Tabula.  `near` reads a Tabula over **9P/IL**.  `far` reads a Tabula over
-  **9P/TCP**.  `listener` serves local Tabula exports/imports through the
+- **distance tiers** = how far tabula data travels.  `same` is an in-process
+  tabula.  `near` reads a tabula over **9P/IL**.  `far` reads a tabula over
+  **9P/TCP**.  `listener` serves local tabula exports/imports through the
   app's 9P tree.  Remote objects are rejected, and the old runtime object-RPC
   fallback is removed; data crosses as `.tab` text and the receiver's local
   code decides what to do.
@@ -125,7 +125,7 @@ needs to exist first.
   facade or by in-process handles, not mounted as separate public object
   trees. Foundation for B/C/D — they all need "a program" to be one
   addressable thing. Escape hatch: behavior that needs a real trust boundary
-  runs as a separate app and exchanges Tabula data through `exports/` and
+  runs as a separate app and exchanges tabula data through `exports/` and
   `imports/`, paying 9P cost exactly where isolation is wanted.
 
 - **B. ~~One `kind`-keyed ledger per app.~~  Abandoned (July 2026).**
@@ -137,8 +137,8 @@ needs to exist first.
     - object table — private in-memory object inventory / node table
     - `<class>.<inst>.tab` — per-instance field state when debug state
       snapshots are explicitly enabled
-    - `exports/<name>.tab` — published Tabulae (written by `export()`)
-    - `imports/<name>.tab` — inert inbound Tabula deposits
+    - `exports/<name>.tab` — published tabulae (written by `export()`)
+    - `imports/<name>.tab` — inert inbound tabula deposits
   Persisted method/object copies are debug snapshots only.  Roadmap order
   collapses to **A (done) → C → D**.
 
@@ -170,7 +170,7 @@ transmitted code / rehydration path that was cut.
 ## Public Data Without Dispatch
 
 The public data interface is `exports/` plus `imports/`: an app publishes
-Tabulae as readable files under `exports/`, and receives inert inbound Tabula
+tabulae as readable files under `exports/`, and receives inert inbound tabula
 deposits under `imports/`. That keeps transport inert while letting
 applications share useful state.
 
@@ -182,7 +182,7 @@ by editing metadata files.
 
 So the split is:
 
-- **Read/write data** — mount `exports/` to read published Tabulae, or write
+- **Read/write data** — mount `exports/` to read published tabulae, or write
   `.tab` files into `imports/`. Data is inert, signable, and cat-able.
 - **Invoke behavior** — write a method command to a session `ctl`, or use
   direct in-process dispatch. Required for side effects, arguments, and

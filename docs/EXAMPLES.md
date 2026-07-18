@@ -62,14 +62,14 @@ main {
 }
 ```
 
-## Tabula Data Publisher
+## tabula Data Publisher
 
 This app publishes a read-only `.tab` file under its mounted `exports/`
 directory.
 
 ```o9
 main {
-    Tabula t = new Tabula("orders", "item,qty,status");
+    tabula t = new tabula("orders", "item,qty,status");
     t.write("a", "item", "widget");
     t.write("a", "qty", "5");
     t.write("a", "status", "paid");
@@ -95,8 +95,8 @@ Another o9 program can import the mounted file:
 
 ```o9
 main {
-    Tabula t = new Tabula("/mnt/o9/exports/orders.tab");
-    Tabula paid = t.query("status", "paid");
+    tabula t = new tabula("/mnt/o9/exports/orders.tab");
+    tabula paid = t.query("status", "paid");
     print(paid.first(), " ", paid.get("item"), "\n");
 }
 ```
@@ -115,7 +115,7 @@ import "bytes.o9";
 
 main {
     Bytes b = new Bytes("payload");
-    Tabula file = new Tabula("file", "name,kind,0x");
+    tabula file = new tabula("file", "name,kind,0x");
     file.write("p", "name", "payload.bin");
     file.write("p", "kind", "application/octet-stream");
     file.write("p", "0x", b.hex());
@@ -124,7 +124,7 @@ main {
 
 For the grid version of this flow, see
 [../demo/TWO_MACHINE_DEMO.md](../demo/TWO_MACHINE_DEMO.md): one machine
-publishes `exports/orders.tab`, another reads it with `near Tabula`, then
+publishes `exports/orders.tab`, another reads it with `near tabula`, then
 pushes an inert response into `imports/orders.tab`.
 
 ## Namespace Setup
@@ -153,7 +153,7 @@ main {
 }
 ```
 
-`Namespace` is the normal API. `MountTable` is the lower-level Tabula-backed
+`Namespace` is the normal API. `MountTable` is the lower-level tabula-backed
 representation for storing, querying, exporting, or sending mount/bind
 parameters. The data stays inert until the receiving program deliberately
 loads, validates, and applies it.

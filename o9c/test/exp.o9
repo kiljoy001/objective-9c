@@ -1,5 +1,5 @@
 main {
-    Tabula t = new Tabula("orders", "item,qty");
+    tabula t = new tabula("orders", "item,qty");
     t.add("a");
     t.set("item", "widget");
     t.set("qty", "5");

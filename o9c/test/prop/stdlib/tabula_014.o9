@@ -1,5 +1,5 @@
 main {
-    Tabula t = new Tabula("orders", "item,qty,status");
+    tabula t = new tabula("orders", "item,qty,status");
     t.write("a", "item", "rio");
     t.write("a", "qty", "19");
     t.write("a", "status", "paid");
@@ -7,10 +7,10 @@ main {
     t.write("b", "qty", "20");
     t.write("b", "status", "open");
     print("schema ", t.schema(), " has ", t.has("status"), " missing ", t.has("missing"), "\n");
-    Tabula paid = t.query("status", "paid");
+    tabula paid = t.query("status", "paid");
     print("paid ", paid.first(), " ", paid.get("item"), " ", paid.get("qty"), "\n");
     print("readcmp ", cmp(t.read(), t.serialize()), "\n");
     print("bad ", t.write("c", "missing", "x"), "\n");
-    Tabula open = t.query("status", "open");
+    tabula open = t.query("status", "open");
     print("open ", open.first(), " ", open.get("item"), "\n");
 }

@@ -5,7 +5,7 @@
 > method-set editing, or a wire format. Any earlier notion here of
 > transmitting code tables to another node to be compiled or run is
 > **retired**: rehydrating sender-supplied structure into behavior is
-> RCE in disguise (see `TABULA.md`). Only Tabulae of *data* travel the
+> RCE in disguise (see `TABULA.md`). Only tabulae of *data* travel the
 > network, and they travel inert.
 
 ## Thesis
@@ -37,7 +37,7 @@ pipeline, which is what this OS already knows how to compose.
   metadata works well in o9. It is runtime dispatch metadata, not a
   public writable code representation and not a mechanism for editing
   method sets at runtime.
-- `Tabula` is now a first-class runtime-backed o9 type for `.tab` data
+- `tabula` is now a first-class runtime-backed o9 type for `.tab` data
   (`write`, `query`, `read`, `flush`, iteration, and network
   sync/push). Code-as-table has not been built on top of it yet.
 - libtab files are text: a code table is cat-able, grep-able,
@@ -156,17 +156,17 @@ expansion — and removable by deleting one pipeline stage.
 2. **-t**: rows → Node graph (two passes: allocate by id, then link).
    Gate: roundtrip identity over the whole e2e corpus, `mk table-test`.
 3. **expand_secret** as the first macro + e2e case; TUTORIAL section.
-4. Later, if wanted: use the existing `Tabula` object for code-table
+4. Later, if wanted: use the existing `tabula` object for code-table
    editing, add signed-expansion verification in mk rules, and build a
    pretty-printer (table → .o9 source) for debugging macros.
 
-## Naming: Tabula
+## Naming: tabula
 
-The language-level type is **Tabula**, not Table or Tab.  "Tab" reads
+The language-level type is **tabula**, not Table or Tab.  "Tab" reads
 as the whitespace character; "Table" quietly promises relational
 algebra (joins, SQL semantics) that libtab deliberately does not
 have.  A tabula is the writing surface itself — rows written to a
 slate, searched and iterated, nothing heaped on top — which is what
 this storage actually is.  The lineage decays naturally through the
-layers: Tabula (language) → .tab (files) → libtab (C library), the
+layers: tabula (language) → .tab (files) → libtab (C library), the
 same relationship string has to char*.

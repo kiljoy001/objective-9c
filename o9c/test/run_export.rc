@@ -1,6 +1,6 @@
 #!/bin/rc
 # Export regression test — 9front. Builds an o9 program that publishes a
-# Tabula into the served-tree exports/ dir, mounts the app's /srv post
+# tabula into the served-tree exports/ dir, mounts the app's /srv post
 # from a SEPARATE namespace, and ASSERTS the exported file appears with
 # the expected name and contents. Exits non-zero on any failure (a real
 # pass/fail test, not a diagnostic).
@@ -225,10 +225,10 @@ if(test -e $mtpt/exports/bad){
 	fail=1
 }
 
-# assertion 12: a consumer can import the mounted .tab through new Tabula(path)
+# assertion 12: a consumer can import the mounted .tab through new tabula(path)
 {
 	echo 'main {'
-	echo '    Tabula t = new Tabula("'$mtpt'/exports/orders.tab");'
+	echo '    tabula t = new tabula("'$mtpt'/exports/orders.tab");'
 	echo '    print("first ", t.first(), "\n");'
 	echo '    print(t.get("item"), " ", t.get("qty"), "\n");'
 	echo '}'

@@ -110,7 +110,7 @@ Methods:
 - `equals(string other) bool`
 
 Out-of-range byte reads return `0`; out-of-range writes leave the value
-unchanged. `hex()` is the standard way to carry binary data through Tabula
+unchanged. `hex()` is the standard way to carry binary data through tabula
 text. `fromHex()` accepts uppercase or lowercase hex, stores the decoded bytes
 in the receiver, and returns false for invalid or odd-length input.
 
@@ -483,7 +483,7 @@ in the local timezone.
 ## Namespace
 
 `namespace.o9` wraps `MountTable` in an object API. `MountTable` remains the
-Tabula-backed transport data; `Namespace` is the object that builds and applies
+tabula-backed transport data; `Namespace` is the object that builds and applies
 that table.
 
 Use `Namespace` for normal application code. Drop to `MountTable` only when
@@ -530,7 +530,7 @@ main {
 - `validate() bool`
 - `apply() bool`
 - `read() string`
-- `query(string column, string value) Tabula`
+- `query(string column, string value) tabula`
 
 ## Draw
 
@@ -1190,19 +1190,19 @@ if(known.verifyOrPin("tcp!host!svc", id)) {
 - `replace(string host, RemoteIdentity id) bool`
 - `read() string`
 
-## Tabula
+## tabula
 
-`Tabula` is the standard structured data object. It is built into the runtime
+`tabula` is the standard structured data object. It is built into the runtime
 as the first-class `.tab` data type.
 
 ```o9
 main {
-    Tabula t = new Tabula("orders", "item,qty,status");
+    tabula t = new tabula("orders", "item,qty,status");
     t.write("a", "item", "widget");
     t.write("a", "qty", "5");
     t.write("a", "status", "paid");
 
-    Tabula paid = t.query("status", "paid");
+    tabula paid = t.query("status", "paid");
     print(paid.first(), " ", paid.get("item"), "\n");
     t.flush();
 }
@@ -1210,8 +1210,8 @@ main {
 
 Constructors:
 
-- `new Tabula(path)` opens an existing `.tab` file.
-- `new Tabula(schema, "col1,col2")` creates an in-memory document whose
+- `new tabula(path)` opens an existing `.tab` file.
+- `new tabula(schema, "col1,col2")` creates an in-memory document whose
   first column is the record identity column `id`.
 
 Methods:
@@ -1226,7 +1226,7 @@ Methods:
 - `next() int64`
 - `read() string`
 - `serialize() string`
-- `query(string col, string val) Tabula`
+- `query(string col, string val) tabula`
 - `flush() int64`
 - `sync() int64`
 - `push() int64`
@@ -1242,7 +1242,7 @@ import "bytes.o9";
 
 main {
     Bytes b = new Bytes("payload");
-    Tabula file = new Tabula("file", "name,kind,0x");
+    tabula file = new tabula("file", "name,kind,0x");
 
     file.write("p", "name", "payload.bin");
     file.write("p", "kind", "application/octet-stream");

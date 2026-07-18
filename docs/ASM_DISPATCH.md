@@ -129,10 +129,10 @@ Assembly dispatch is only valid for ring 0: same app process, same address
 space, same generated binary.
 
 It is not used to move objects across the network. `near`, `far`, and
-`listener` are Tabula transport features; remote object construction is
+`listener` are tabula transport features; remote object construction is
 rejected by the language, and the runtime no longer has a remote-object
 method fallback. When a call leaves the process boundary, the public surface
-is the app facade and Tabula files, not cached function pointers.
+is the app facade and tabula files, not cached function pointers.
 
 On Linux/9lx targets, the shared-memory tier may be absent. The design still
 works because asm miss/failure falls back to CSP or facade behavior.
@@ -156,7 +156,7 @@ up the Plan 9 shape:
 
 - local objects are CSP actors with explicit message dispatch;
 - app boundaries are 9P facades;
-- network data is inert Tabula text.
+- network data is inert tabula text.
 
 The asm layer gives same-process calls a fast path while preserving that
 model. It is deliberately small: two entry points, one fixed table layout,

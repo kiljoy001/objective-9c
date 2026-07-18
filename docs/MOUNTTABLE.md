@@ -1,7 +1,7 @@
-# MountTable - namespace control from syscall-shaped Tabula data
+# MountTable - namespace control from syscall-shaped tabula data
 
-`MountTable` is a Tabula-backed namespace object. It owns a
-`schema=mounts` Tabula, but users do not build that table by hand.
+`MountTable` is a tabula-backed namespace object. It owns a
+`schema=mounts` tabula, but users do not build that table by hand.
 They call typed methods that write the exact parameter cells needed to
 replay the namespace operation later.
 
@@ -67,4 +67,4 @@ This complements the existing app facade:
 
 - `exports/` publishes data outward as virtual files.
 - `MountTable` arranges the current process namespace inward.
-- Both use `Tabula` as the data format.
+- Both use `tabula` as the data format.

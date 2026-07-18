@@ -3,7 +3,7 @@
 #include <thread.h>
 #include "o9.h"
 
-/* Exercises the Tabula runtime over libtab: create -> add rows -> set
+/* Exercises the tabula runtime over libtab: create -> add rows -> set
  * cells -> iterate/get -> serialize -> reopen the serialized bytes and
  * verify the rows survive the round-trip.  Uses threadmain because
  * libo9 pulls in the thread library (the facade server). */

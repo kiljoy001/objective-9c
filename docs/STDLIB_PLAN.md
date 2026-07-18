@@ -8,10 +8,10 @@ Status: current snapshot plus near roadmap.
 - Raw Plan 9 C stays inside `function` helpers and is exposed through
   object methods.
 - Compiler/runtime builtins should stay small: core carriers such as
-  `string`, `byte`, `double`, `Task<T>`, `Tabula`, and collection storage
+  `string`, `byte`, `double`, `Task<T>`, `tabula`, and collection storage
   are compiler/runtime concerns; richer behavior belongs in stdlib
   objects.
-- `MountTable` is the lower-level Tabula/syscall-parameter data object.
+- `MountTable` is the lower-level tabula/syscall-parameter data object.
   `Namespace` is the normal user-facing object for namespace setup.
 - App composition is through the shared app facade and Plan 9 namespace
   mounts. The retired `link`/`replace`/`union` object-composition model
@@ -47,10 +47,10 @@ Status: current snapshot plus near roadmap.
   defaults to factotum; portable token files stay data.
 - `stdlib/namespace.o9`: `Namespace`, the object wrapper over
   `MountTable` for programmatic namespace setup.
-- `Tabula`: runtime-backed structured data object over libtab with
+- `tabula`: runtime-backed structured data object over libtab with
   `write`, `query`, `read`, `flush`, iteration, and cell access.
 - `MountTable`: runtime-backed namespace syscall-parameter data object
-  over `schema=mounts` Tabulae.
+  over `schema=mounts` tabulae.
 
 These are validated by native e2e tests in `stdlib/e2e_*.o9` plus
 runtime/e2e tests under `o9c/test/`.

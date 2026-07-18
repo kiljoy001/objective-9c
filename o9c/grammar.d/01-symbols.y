@@ -80,9 +80,9 @@ static Builtin builtins[] = {
     {"writefile", "o9_writefile", 2, "int64",  {"string", "string"}},
     {"readline",  "o9_readline",  0, "string", {nil, nil}},
     {"serve",     "o9_serve",     0, "void",   {nil, nil}},
-    /* export(name, tab): publish a Tabula into the served-tree exports/
+    /* export(name, tab): publish a tabula into the served-tree exports/
      * dir (mutable app file tree) — reachable through the mount. */
-    {"export",    "o9_export_tab",2, "void",   {"string", "Tabula"}},
+    {"export",    "o9_export_tab",2, "void",   {"string", "tabula"}},
     /* fail(msg): error-as-value — sets the method error and returns.
      * Special-cased in gen_stmt (goto done); table entry is for typecheck. */
     {"fail",      "o9_fail",      1, "void",   {"string", nil}},
@@ -387,10 +387,17 @@ o9_locality_distance(char *s)
 }
 
 static int
+o9_type_name_is_tabula(char *name)
+{
+    return name != nil &&
+        (strcmp(name, "tabula") == 0 || strcmp(name, "Tabula") == 0);
+}
+
+static int
 o9_type_is_tabula(Type *t)
 {
     return t != nil && t->kind == TyName && t->name != nil &&
-        strcmp(t->name, "Tabula") == 0;
+        o9_type_name_is_tabula(t->name);
 }
 
 static void

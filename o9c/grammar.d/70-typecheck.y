@@ -1123,12 +1123,12 @@ annotate_self_call_expr(Node *e, Node *scope_class)
 static Type*
 annotate_handle_msg_type(Node *e, Type *lt)
 {
-    if(type_named(lt, "Tabula") || type_named(lt, "MountTable")){
+    if(o9_type_is_tabula(lt) || type_named(lt, "MountTable")){
         if(expr_name_is(e, "schema") || expr_name_is(e, "get") ||
            expr_name_is(e, "read") || expr_name_is(e, "serialize"))
             return type_name("string");
         if(expr_name_is(e, "query"))
-            return type_name("Tabula");
+            return type_name("tabula");
         if(expr_name_is(e, "close"))
             return type_name("void");
         return type_name("int64");
@@ -1697,8 +1697,7 @@ static int
 is_tabula_new(Node *e)
 {
     return e != nil && e->type == NClass &&
-        e->typeinfo != nil && e->typeinfo->kind == TyName &&
-        e->typeinfo->name != nil && strcmp(e->typeinfo->name, "Tabula") == 0;
+        o9_type_is_tabula(e->typeinfo);
 }
 
 static int
@@ -1719,19 +1718,19 @@ typecheck_tabula_new(Node *e, Node *scope_class, int *errs)
         return;
     got = node_list_len(e->right);
     if(e->typename != nil && strcmp(e->typename, "same") != 0){
-        fprint(2, "o9c: error: line %d: remote Tabula uses declaration syntax: near/far/listener Tabula name = new Tabula(...) @ address\n",
+        fprint(2, "o9c: error: line %d: remote tabula uses declaration syntax: near/far/listener tabula name = new tabula(...) @ address\n",
             sem_line);
         (*errs)++;
     }
     if(got != 1 && got != 2){
-        fprint(2, "o9c: error: line %d: Tabula constructor takes 1 path argument or 2 schema arguments, got %d\n",
+        fprint(2, "o9c: error: line %d: tabula constructor takes 1 path argument or 2 schema arguments, got %d\n",
             sem_line, got);
         (*errs)++;
     }
     for(a = e->right; a != nil; a = a->next){
         typecheck_expr(a, scope_class, errs);
         if(!type_assignable_semantic(type_name("string"), a->typeinfo)){
-            fprint(2, "o9c: error: line %d: Tabula constructor arguments must be string\n",
+            fprint(2, "o9c: error: line %d: tabula constructor arguments must be string\n",
                 sem_line);
             (*errs)++;
         }
@@ -1839,7 +1838,7 @@ typecheck_class_new(Node *e, Node *scope_class, int *errs)
         return;
     }
     if(o9_locality_kind(e->typename) >= 0){
-        fprint(2, "o9c: error: line %d: remote objects are not supported; only Tabula data may be declared near/far/listener with @\n",
+        fprint(2, "o9c: error: line %d: remote objects are not supported; only tabula data may be declared near/far/listener with @\n",
             sem_line);
         (*errs)++;
     }
@@ -2228,18 +2227,18 @@ typecheck_tabula_msg(Node *e, Node *scope_class, Type *lt, int *errs)
     };
     MsgRule *r;
 
-    if(!type_named(lt, "Tabula"))
+    if(!o9_type_is_tabula(lt))
         return 0;
     r = lookup_msg_rule(rules, nelem(rules), e->name);
     if(r == nil){
-        fprint(2, "o9c: error: line %d: Tabula has no method '%s' "
+        fprint(2, "o9c: error: line %d: tabula has no method '%s' "
             "(schema/has/add/write/set/get/first/next/read/serialize/query/flush/sync/push/close)\n",
             sem_line, e->name);
         (*errs)++;
         typecheck_arg_values(e->right, scope_class, errs);
         return 1;
     }
-    typecheck_rule_args("Tabula", e, scope_class, r, errs);
+    typecheck_rule_args("tabula", e, scope_class, r, errs);
     return 1;
 }
 
@@ -2736,7 +2735,7 @@ static void
 typecheck_locality_tabula_type(Node *e, int *errs)
 {
     if(!o9_type_is_tabula(e->typeinfo)){
-        fprint(2, "o9c: error: line %d: remote objects are not supported; only Tabula data may be declared near/far/listener with @\n",
+        fprint(2, "o9c: error: line %d: remote objects are not supported; only tabula data may be declared near/far/listener with @\n",
             sem_line);
         (*errs)++;
     }
@@ -2748,14 +2747,14 @@ typecheck_locality_tabula_ctor(Node *e, int *errs)
     int got;
 
     if(!is_tabula_new(e->left)){
-        fprint(2, "o9c: error: line %d: %s Tabula declaration requires new Tabula(name, columns) @ address\n",
+        fprint(2, "o9c: error: line %d: %s tabula declaration requires new tabula(name, columns) @ address\n",
             sem_line, e->cname);
         (*errs)++;
         return;
     }
     got = node_list_len(e->left->right);
     if(got != 2){
-        fprint(2, "o9c: error: line %d: %s Tabula declaration requires new Tabula(name, columns) @ address\n",
+        fprint(2, "o9c: error: line %d: %s tabula declaration requires new tabula(name, columns) @ address\n",
             sem_line, e->cname);
         (*errs)++;
     }

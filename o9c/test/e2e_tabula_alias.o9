@@ -1,0 +1,9 @@
+main {
+    Tabula old = new Tabula("orders", "item,qty");
+    tabula next;
+
+    old.write("a", "item", "widget");
+    old.write("a", "qty", "2");
+    next = old.query("item", "widget");
+    print("alias ", next.first(), " ", next.get("qty"), "\n");
+}

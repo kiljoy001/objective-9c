@@ -21,7 +21,7 @@ echo 'key proto=dp9ik dom=rentonsoftworks.coin user=scott !password=$Master001' 
 6c -FVw -I. -o /tmp/o9tabcons.6 /tmp/o9tabcons.c || exit consumer-6c
 6l -o /tmp/o9tabcons /tmp/o9tabcons.6 libo9.a /$objtype/lib/libndb.a || exit consumer-6l
 
-echo '=== starting Tabula provider on babyFileserver:'
+echo '=== starting tabula provider on babyFileserver:'
 cd /
 rm -f /tmp/o9tabdemo_provider.log
 rcpu -h $host -c 'sleep 20 | /mnt/term/usr/scott/tmp/o9tabdemo o9tabdemo' >/tmp/o9tabdemo_provider.log >[2=1] &
