@@ -1,0 +1,7 @@
+# objective-9c 0.1.0
+
+- Initial pac9-compatible 9front package.
+- Ships the `o9c` transpiler, `o9proj` scaffold script, `o9.h`, `libo9.a`,
+  vendored libtab support, and the o9 standard library.
+- Supports both source install through `pac9 install <git-url>` and prebuilt
+  tarball install through a pac9 registry `tarball <url>` recipe.

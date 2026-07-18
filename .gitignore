@@ -34,6 +34,8 @@ o9c/test/pipeline_generated.c
 o9c/test/out.c
 o9c/test/crypto_test
 o9c/test/tab_test
+release/*.tar
+release/*.tar.gz
 
 # Accidental rc/shell redirection artifacts.
 [[]*

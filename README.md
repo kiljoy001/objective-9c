@@ -29,6 +29,47 @@ o9c/o9c < source.o9 > output.c
 
 `libo9.a` is the runtime library linked with generated o9 programs.
 
+## Install With Pac9
+
+On a 9front system with pac9 installed:
+
+```rc
+pac9 install https://github.com/kiljoy001/objective-9c
+```
+
+Pac9 clones the repo, runs `mk install`, and records the package as
+`objective-9c`. Remove it with:
+
+```rc
+pac9 uninstall objective-9c
+```
+
+After installation, `o9c` and `o9proj` should be on the command path. Start a
+small project with:
+
+```rc
+o9proj myapp
+cd myapp
+mk run
+```
+
+For a pac9 registry tarball package, build the amd64 release archive on 9front:
+
+```rc
+mk
+mk release-tarball
+```
+
+Upload `release/objective-9c-amd64.tar.gz` to a GitHub release tag such as
+`objective-9c-v0.1.0`, then use this registry row:
+
+```text
+objective-9c	-	.	tarball https://github.com/kiljoy001/objective-9c/releases/download/objective-9c-v0.1.0/objective-9c-amd64.tar.gz	-	0.1.0
+```
+
+Pac9 currently uses tarball downloads through registry recipes; direct unknown
+URLs are treated as git repositories.
+
 ## A Small Program
 
 ```o9

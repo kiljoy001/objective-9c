@@ -1,0 +1,57 @@
+#!/bin/rc
+
+pkg=objective-9c
+ver=0.1.0
+
+if(~ $#* 1)
+	ver=$1
+if not if(! ~ $#* 0){
+	echo 'usage: release/make-tarball.rc [version]' >[1=2]
+	exit usage
+}
+
+if(! test -f mkfile || ! test -f o9proj || ! test -d stdlib){
+	echo 'make-tarball: run from the objective-9c repository root' >[1=2]
+	exit root
+}
+
+if(! test -x o9c/o9c || ! test -f libo9.a){
+	echo 'make-tarball: run mk first' >[1=2]
+	exit build
+}
+
+stage=/tmp/objective-9c-release.$pid
+tar=/tmp/objective-9c-amd64.$pid.tar
+out=release/objective-9c-amd64.tar.gz
+
+rm -rf $stage $tar $out
+mkdir -p $stage/amd64/bin
+mkdir -p $stage/amd64/lib
+mkdir -p $stage/rc/bin
+mkdir -p $stage/sys/include
+mkdir -p $stage/sys/lib/o9/stdlib
+mkdir -p $stage/sys/lib/pac9/changelog
+mkdir -p $stage/sys/src/cmd
+
+cp o9c/o9c $stage/amd64/bin/o9c
+cp o9proj $stage/rc/bin/o9proj
+cp libo9.a $stage/amd64/lib/libo9.a
+cp o9.h $stage/sys/include/o9.h
+cp stdlib/*.o9 $stage/sys/lib/o9/stdlib
+cp o9_dispatch.s $stage/sys/src/cmd/o9_dispatch.s
+cp o9_runtime.c $stage/sys/src/cmd/o9_runtime.c
+cp o9_tab_discard.c $stage/sys/src/cmd/o9_tab_discard.c
+cp release/CHANGELOG $stage/sys/lib/pac9/changelog/$pkg
+
+chmod +x $stage/amd64/bin/o9c
+chmod +x $stage/rc/bin/o9proj
+
+@{ cd $stage && tar cf $tar amd64 rc sys }
+gzip <$tar >$out
+
+rm -rf $stage $tar
+
+echo 'wrote '^$out
+echo 'release tag: '^$pkg^-v^$ver
+echo 'pac9 registry row:'
+echo $pkg'	-	.	tarball https://github.com/kiljoy001/objective-9c/releases/download/'^$pkg^-v^$ver^'/'^$pkg^-amd64.tar.gz'	-	'^$ver

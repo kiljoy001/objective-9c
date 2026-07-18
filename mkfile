@@ -2,11 +2,15 @@
 # Targets:
 #   mk            — build o9c compiler + libo9.a
 #   mk install    — install o9c, o9.h, libo9.a, stdlib, and o9proj
+#   mk uninstall  — remove files installed by mk install
+#   mk release-tarball — build a pac9-compatible amd64 tarball
 #   mk clean      — clean build artifacts
 
 </$objtype/mkfile
 
 default:V: o9c libo9.a
+
+VERSION=0.1.0
 
 # === o9c compiler ===
 CFILES=\
@@ -141,7 +145,7 @@ RUNTIME_OBJ=\
 	o9_crypto.$O\
 	monocypher.$O\
 
-LIBTABDIR=../9lx/libtab
+LIBTABDIR=libtab
 LIBTAB_OBJ=\
 	libtab_tab_error.$O\
 	libtab_tab_create.$O\
@@ -209,14 +213,14 @@ install:V: o9c libo9.a
 		chmod +x $home/bin/$objtype/o9c
 	}
 	if(test -e /bin/o9c) chmod +x /bin/o9c
-	if(! cp o9proj /bin/o9proj){
-		echo 'warning: could not install /bin/o9proj; using '$home'/bin/rc/o9proj' >[1=2]
+	if(! cp o9proj /rc/bin/o9proj){
+		echo 'warning: could not install /rc/bin/o9proj; using '$home'/bin/rc/o9proj' >[1=2]
 		if(! test -d $home/bin) mkdir $home/bin
 		if(! test -d $home/bin/rc) mkdir $home/bin/rc
 		cp o9proj $home/bin/rc/o9proj
 		chmod +x $home/bin/rc/o9proj
 	}
-	if(test -e /bin/o9proj) chmod +x /bin/o9proj
+	if(test -e /rc/bin/o9proj) chmod +x /rc/bin/o9proj
 	if(! cp o9_dispatch.s /sys/src/cmd/o9_dispatch.s) echo 'warning: could not install /sys/src/cmd/o9_dispatch.s' >[1=2]
 	if(! cp o9_runtime.c /sys/src/cmd/o9_runtime.c) echo 'warning: could not install /sys/src/cmd/o9_runtime.c' >[1=2]
 	if(! cp o9_tab_discard.c /sys/src/cmd/o9_tab_discard.c) echo 'warning: could not install /sys/src/cmd/o9_tab_discard.c' >[1=2]
@@ -244,8 +248,8 @@ install:V: o9c libo9.a
 	}
 	@ echo ''
 	@ echo '=== o9 toolchain installed ==='
-	@ echo '  o9c      -> /bin/o9c'
-	@ echo '  o9proj   -> /bin/o9proj or '$home'/bin/rc/o9proj'
+	@ echo '  o9c      -> /bin/o9c or '$home'/bin/'$objtype'/o9c'
+	@ echo '  o9proj   -> /rc/bin/o9proj or '$home'/bin/rc/o9proj'
 	@ echo '  o9.h     -> /sys/include/o9.h or '$home'/include/o9.h'
 	@ echo '  libo9.a  -> /'$objtype'/lib/libo9.a or '$home'/lib/o9/libo9.a'
 	@ echo '  stdlib   -> /sys/lib/o9/stdlib or '$home'/lib/o9/stdlib'
@@ -255,6 +259,31 @@ install:V: o9c libo9.a
 	@ echo '  6c out.c'
 	@ echo '  6l out.6 -lo9'
 	@ echo '  o9proj myapp'
+
+uninstall:V:
+	if(! rm -f /$objtype/bin/o9c) echo 'warning: could not remove /'$objtype'/bin/o9c' >[1=2]
+	if(! rm -f /bin/o9c) echo 'warning: could not remove /bin/o9c' >[1=2]
+	if(! rm -f $home/bin/$objtype/o9c) echo 'warning: could not remove '$home'/bin/'$objtype'/o9c' >[1=2]
+	if(! rm -f /rc/bin/o9proj) echo 'warning: could not remove /rc/bin/o9proj' >[1=2]
+	if(! rm -f /bin/o9proj) echo 'warning: could not remove /bin/o9proj' >[1=2]
+	if(! rm -f $home/bin/rc/o9proj) echo 'warning: could not remove '$home'/bin/rc/o9proj' >[1=2]
+	if(! rm -f /sys/include/o9.h) echo 'warning: could not remove /sys/include/o9.h' >[1=2]
+	if(! rm -f $home/include/o9.h) echo 'warning: could not remove '$home'/include/o9.h' >[1=2]
+	if(! rm -f /$objtype/lib/libo9.a) echo 'warning: could not remove /'$objtype'/lib/libo9.a' >[1=2]
+	if(! rm -f $home/lib/o9/libo9.a) echo 'warning: could not remove '$home'/lib/o9/libo9.a' >[1=2]
+	if(! rm -f /sys/src/cmd/o9_dispatch.s) echo 'warning: could not remove /sys/src/cmd/o9_dispatch.s' >[1=2]
+	if(! rm -f /sys/src/cmd/o9_runtime.c) echo 'warning: could not remove /sys/src/cmd/o9_runtime.c' >[1=2]
+	if(! rm -f /sys/src/cmd/o9_tab_discard.c) echo 'warning: could not remove /sys/src/cmd/o9_tab_discard.c' >[1=2]
+	if(! rm -f /sys/lib/o9/stdlib/*.o9) echo 'warning: could not remove /sys/lib/o9/stdlib/*.o9' >[1=2]
+	if(! rm -f $home/lib/o9/stdlib/*.o9) echo 'warning: could not remove '$home'/lib/o9/stdlib/*.o9' >[1=2]
+	if(test -d /sys/lib/o9/stdlib) if(! rm /sys/lib/o9/stdlib >[2]/dev/null) echo 'warning: leaving /sys/lib/o9/stdlib' >[1=2]
+	if(test -d $home/lib/o9/stdlib) if(! rm $home/lib/o9/stdlib >[2]/dev/null) echo 'warning: leaving '$home'/lib/o9/stdlib' >[1=2]
+	if(test -d /sys/lib/o9) if(! rm /sys/lib/o9 >[2]/dev/null) echo 'warning: leaving /sys/lib/o9' >[1=2]
+	if(test -d $home/lib/o9) if(! rm $home/lib/o9 >[2]/dev/null) echo 'warning: leaving '$home'/lib/o9' >[1=2]
+	@ echo '=== o9 toolchain uninstalled ==='
+
+release-tarball:V: o9c libo9.a
+	rc release/make-tarball.rc $VERSION
 
 clean:V:
 	rm -f o9c/grammar.y o9c/y.tab.* o9c/type.tab.* o9c/o9c o9c/o9type o9c/*.[$O]
