@@ -1,0 +1,91 @@
+#!/bin/rc
+
+if(! ~ $#* 1){
+	echo 'usage: o9proj project-dir' >[1=2]
+	exit usage
+}
+
+dir=$1
+
+if(test -e $dir){
+	echo 'o9proj: '^$dir^' already exists' >[1=2]
+	exit exists
+}
+
+mkdir $dir || exit mkdir
+
+{
+	echo '#!/bin/rc'
+	echo 'o9stdlib=/sys/lib/o9/stdlib'
+	echo 'if(! test -d $o9stdlib)'
+	echo '	o9stdlib=$home/lib/o9/stdlib'
+	echo 'if(! test -d $o9stdlib){'
+	echo '	echo ''missing o9 stdlib; run mk install from objective-9c first'' >[1=2]'
+	echo '	exit missing'
+	echo '}'
+	echo 'bind -ac $o9stdlib .'
+	echo 'echo ''union-bound ''$o9stdlib'' after project root'''
+} >$dir/env.rc
+
+{
+	echo '</$objtype/mkfile'
+	echo ''
+	echo 'TARG=app'
+	echo ''
+	echo 'all:V:	$TARG'
+	echo ''
+	echo '$TARG:V:	app.o9'
+	echo '	o9stdlib=/sys/lib/o9/stdlib'
+	echo '	if(! test -d $o9stdlib)'
+	echo '		o9stdlib=$home/lib/o9/stdlib'
+	echo '	o9include=/sys/include'
+	echo '	if(! test -e $o9include/o9.h)'
+	echo '		o9include=$home/include'
+	echo '	o9lib=/$objtype/lib/libo9.a'
+	echo '	if(! test -e $o9lib)'
+	echo '		o9lib=$home/lib/o9/libo9.a'
+	echo '	if(! test -d $o9stdlib){'
+	echo '		echo ''missing o9 stdlib; run mk install from objective-9c first'' >[1=2]'
+	echo '		exit missing'
+	echo '	}'
+	echo '	if(! test -e $o9include/o9.h){'
+	echo '		echo ''missing o9.h; run mk install from objective-9c first'' >[1=2]'
+	echo '		exit missing'
+	echo '	}'
+	echo '	if(! test -e $o9lib){'
+	echo '		echo ''missing libo9.a; run mk install from objective-9c first'' >[1=2]'
+	echo '		exit missing'
+	echo '	}'
+	echo '	bind -ac $o9stdlib .'
+	echo '	o9c app.o9 > app.c'
+	echo '	depincs=`{awk ''/^\/\* o9: include / { print "-I" $4 }'' app.c}'
+	echo '	deparchs=`{awk ''/^\/\* o9: archive / { print $4 }'' app.c}'
+	echo '	$CC -FVw -I$o9include $depincs -o app.$O app.c'
+	echo '	$LD -o $TARG app.$O $o9lib /$objtype/lib/libndb.a $deparchs'
+	echo ''
+	echo 'run:V:	$TARG'
+	echo '	./$TARG'
+	echo ''
+	echo 'clean:V:'
+	echo '	rm -f app.c app.$O $TARG'
+} >$dir/mkfile
+
+{
+	echo 'import "file.o9";'
+	echo ''
+	echo 'main {'
+	echo '    File f = new File("/tmp/o9proj.txt");'
+	echo '    f.append("hello from o9\n");'
+	echo '    print("created /tmp/o9proj.txt\n");'
+	echo '}'
+} >$dir/app.o9
+
+chmod +x $dir/env.rc
+
+echo 'created '^$dir
+echo 'next:'
+echo '	cd '^$dir
+echo '	mk run'
+echo ''
+echo 'for an interactive namespace with stdlib union-bound:'
+echo '	. ./env.rc'

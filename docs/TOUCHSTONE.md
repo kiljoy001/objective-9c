@@ -76,11 +76,11 @@ build on both — proof the dual-target approach holds.
    reading values and building its own object under its own control.
    Full statement: TABULA.md.
 
-4. **Homoiconicity is local and compile-time only.**  The AST is a
-   Tabula that build-time filters (macros) transform between parse and
-   typecheck, on the machine that owns the source.  It is a
-   metaprogramming tool, never a wire format.  Full statement:
-   CODE_AS_TABLE.md.
+4. **Code tables are local build artifacts.**  `CODE_AS_TABLE.md`
+   describes a future macro design where the AST is a Tabula that
+   trusted build-time filters transform between parse and typecheck, on
+   the machine that owns the source. It is never runtime eval, method-set
+   mutation, or a wire format.
 
 5. **Naming.**  The language-level table type is **Tabula** (not
    Table/Tab).  libtab / `.tab` stay at the C and file layer.

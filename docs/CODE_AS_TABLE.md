@@ -1,20 +1,22 @@
-# Code as a Table — o9's homoiconicity
+# Compile-Time Code Tables
 
-> **Scope note (July 2026):** this is a *compile-time, local* design.
-> The code table is a metaprogramming form on the machine that owns the
-> source — macros as pipeline filters between parse and typecheck.  Any
-> earlier notion here of transmitting a code table to another node to be
-> compiled or run is **retired**: rehydrating sender-supplied structure
-> into behavior is RCE in disguise (see `TABULA.md`).  Only Tabulae of
-> *data* travel the network, and they travel inert.  Code-as-a-table is
-> a tool, not a wire format.
+> **Scope note (July 2026):** this is a future *compile-time, local*
+> macro design. It is not runtime self-modification, runtime eval, live
+> method-set editing, or a wire format. Any earlier notion here of
+> transmitting code tables to another node to be compiled or run is
+> **retired**: rehydrating sender-supplied structure into behavior is
+> RCE in disguise (see `TABULA.md`). Only Tabulae of *data* travel the
+> network, and they travel inert.
 
 ## Thesis
 
-Lisp is homoiconic because programs are written in the language's own
-native data structure (lists), so programs can read, transform, and
-generate programs.  o9's native data structure is not the list — it is
-the **line** and the **table**.  The translation is therefore:
+o9 can eventually expose the compiler's surface syntax as a table so
+trusted build-time filters can transform a program before typecheck.
+This borrows the useful part of Lisp-style macros — code transformation
+as data transformation — without making runtime objects rewrite their
+own behavior.
+
+The Plan 9-shaped translation is:
 
 - runtime invocation as *lines* — done: the `send` builtin fires the
   same ctl line the shell writes (e2e_send.o9);
@@ -31,16 +33,17 @@ pipeline, which is what this OS already knows how to compose.
 - `o9c -ast` dumps the parse tree as indented text after typecheck
   (production_ast.rc asserts against it).  The tree is already
   serializable; it just isn't canonical, keyed, or re-readable.
-- The method table (`o9_runtime.c`) proves the pattern: dispatch
-  already runs off libtab rows — "the dispatch source of truth".
-  This design does for *compile time* what that did for *run time*.
+- The private method table (`o9_runtime.c`) proves that table-shaped
+  metadata works well in o9. It is runtime dispatch metadata, not a
+  public writable code representation and not a mechanism for editing
+  method sets at runtime.
 - `Tabula` is now a first-class runtime-backed o9 type for `.tab` data
   (`write`, `query`, `read`, `flush`, iteration, and network
   sync/push). Code-as-table has not been built on top of it yet.
 - libtab files are text: a code table is cat-able, grep-able,
   diff-able, and signable like every other value in the stack.
 
-## The code table
+## The Code Table
 
 One row per AST node.  `Node` is {type, flags, line, name, typename,
 qname, left, right, params, next} — everything else (`typeinfo`,
@@ -89,14 +92,15 @@ for every program in the e2e corpus.  That roundtrip identity is the
 Phase-2 gate (`mk table-test`), and it is what licenses trusting the
 table as *the* program rather than a lossy view of it.
 
-## The macro pipeline
+## The Macro Pipeline
 
     o9c -T < prog.o9 | expand_secret | derive_accessors | o9c -t > prog.c
 
 Each stage is an ordinary program reading a table and writing a
-table — rc, awk, or o9 itself (tables are text; `readfile`/`writefile`
-already suffice, first-class tab builtins can come later).  Macros can
-run anywhere a filter runs, including the far side of the grid.
+table — rc, awk, or o9 itself. These stages run in a trusted build
+namespace chosen by the developer. They do not run because an app
+received a file under `imports/`, and they are not part of the
+generated runtime.
 
 Two properties Lisp macros don't have:
 
@@ -116,10 +120,9 @@ Two properties Lisp macros don't have:
 - Unhygienic, like early Lisp: macro-introduced names can capture.
   Convention: macros prefix generated identifiers (`__m_...`) and
   allocate node ids above 1<<20 so origin stays visible in the table.
-- No runtime eval and no in-process macro interpreter — staging is
+- No runtime eval and no in-process macro interpreter. Staging is
   strictly compile-time, and the typechecker stays the sole authority
-  on what compiles.  (Runtime dynamism is `send`/`lookup`'s job, and
-  path 3 — eval-as-spawn — remains open and orthogonal.)
+  on what compiles.
 
 ## First macro: secret fields
 

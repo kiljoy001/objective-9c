@@ -1,7 +1,7 @@
 # root mkfile — build and install o9 toolchain
 # Targets:
 #   mk            — build o9c compiler + libo9.a
-#   mk install    — install o9c, o9.h, libo9.a system-wide
+#   mk install    — install o9c, o9.h, libo9.a, stdlib, and o9proj
 #   mk clean      — clean build artifacts
 
 </$objtype/mkfile
@@ -200,23 +200,61 @@ libo9.a:	$RUNTIME_OBJ $LIBTAB_OBJ
 
 # === install ===
 install:V: o9c libo9.a
-	cp o9c/o9c /$objtype/bin/o9c
-	cp o9c/o9c /bin/o9c
-	cp o9_dispatch.s /sys/src/cmd/o9_dispatch.s
-	cp o9_runtime.c /sys/src/cmd/o9_runtime.c
-	cp o9_tab_discard.c /sys/src/cmd/o9_tab_discard.c
-	cp o9.h /sys/include/o9.h
-	cp libo9.a /$objtype/lib/libo9.a
+	if(! cp o9c/o9c /$objtype/bin/o9c) echo 'warning: could not install /'$objtype'/bin/o9c; using /bin/o9c' >[1=2]
+	if(! cp o9c/o9c /bin/o9c){
+		echo 'warning: could not install /bin/o9c; using '$home'/bin/'$objtype'/o9c' >[1=2]
+		if(! test -d $home/bin) mkdir $home/bin
+		if(! test -d $home/bin/$objtype) mkdir $home/bin/$objtype
+		cp o9c/o9c $home/bin/$objtype/o9c
+		chmod +x $home/bin/$objtype/o9c
+	}
+	if(test -e /bin/o9c) chmod +x /bin/o9c
+	if(! cp o9proj /bin/o9proj){
+		echo 'warning: could not install /bin/o9proj; using '$home'/bin/rc/o9proj' >[1=2]
+		if(! test -d $home/bin) mkdir $home/bin
+		if(! test -d $home/bin/rc) mkdir $home/bin/rc
+		cp o9proj $home/bin/rc/o9proj
+		chmod +x $home/bin/rc/o9proj
+	}
+	if(test -e /bin/o9proj) chmod +x /bin/o9proj
+	if(! cp o9_dispatch.s /sys/src/cmd/o9_dispatch.s) echo 'warning: could not install /sys/src/cmd/o9_dispatch.s' >[1=2]
+	if(! cp o9_runtime.c /sys/src/cmd/o9_runtime.c) echo 'warning: could not install /sys/src/cmd/o9_runtime.c' >[1=2]
+	if(! cp o9_tab_discard.c /sys/src/cmd/o9_tab_discard.c) echo 'warning: could not install /sys/src/cmd/o9_tab_discard.c' >[1=2]
+	if(! cp o9.h /sys/include/o9.h){
+		echo 'warning: could not install /sys/include/o9.h; using '$home'/include/o9.h' >[1=2]
+		if(! test -d $home/include) mkdir $home/include
+		cp o9.h $home/include/o9.h
+	}
+	if(! cp libo9.a /$objtype/lib/libo9.a){
+		echo 'warning: could not install /'$objtype'/lib/libo9.a; using '$home'/lib/o9/libo9.a' >[1=2]
+		if(! test -d $home/lib) mkdir $home/lib
+		if(! test -d $home/lib/o9) mkdir $home/lib/o9
+		cp libo9.a $home/lib/o9/libo9.a
+	}
+	if(! @{
+		if(! test -d /sys/lib/o9) mkdir /sys/lib/o9
+		if(! test -d /sys/lib/o9/stdlib) mkdir /sys/lib/o9/stdlib
+		cp stdlib/*.o9 /sys/lib/o9/stdlib
+	}){
+		echo 'warning: could not install /sys/lib/o9/stdlib; using '$home'/lib/o9/stdlib' >[1=2]
+		if(! test -d $home/lib) mkdir $home/lib
+		if(! test -d $home/lib/o9) mkdir $home/lib/o9
+		if(! test -d $home/lib/o9/stdlib) mkdir $home/lib/o9/stdlib
+		cp stdlib/*.o9 $home/lib/o9/stdlib
+	}
 	@ echo ''
 	@ echo '=== o9 toolchain installed ==='
-	@ echo '  o9c      -> /'$objtype'/bin/o9c'
-	@ echo '  o9.h     -> /sys/include/o9.h'
-	@ echo '  libo9.a  -> /'$objtype'/lib/libo9.a'
+	@ echo '  o9c      -> /bin/o9c'
+	@ echo '  o9proj   -> /bin/o9proj or '$home'/bin/rc/o9proj'
+	@ echo '  o9.h     -> /sys/include/o9.h or '$home'/include/o9.h'
+	@ echo '  libo9.a  -> /'$objtype'/lib/libo9.a or '$home'/lib/o9/libo9.a'
+	@ echo '  stdlib   -> /sys/lib/o9/stdlib or '$home'/lib/o9/stdlib'
 	@ echo ''
 	@ echo 'Usage:'
 	@ echo '  o9c < source.o9 > out.c'
 	@ echo '  6c out.c'
 	@ echo '  6l out.6 -lo9'
+	@ echo '  o9proj myapp'
 
 clean:V:
 	rm -f o9c/grammar.y o9c/y.tab.* o9c/type.tab.* o9c/o9c o9c/o9type o9c/*.[$O]

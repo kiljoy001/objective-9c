@@ -146,15 +146,14 @@ What survives is exactly the value we wanted, minus the danger:
   `verify` apply: a receiver can check who vouched for the data before
   trusting its values.
 
-## Relationship to code-as-a-table
+## Relationship to compile-time code tables
 
-Homoiconicity (`CODE_AS_TABLE.md`) remains valid as a *compile-time*
-idea: the AST as a table that build-time filters (macros) transform
-between parse and typecheck, on the machine that owns the source.  What
-is retired is any notion of transmitting that code table to another node
-to be compiled or run.  Code-as-a-table is a local metaprogramming tool;
-it is not a wire format.  Only Tabulae of **data** travel, and they
-travel inert.
+`CODE_AS_TABLE.md` describes a future *compile-time* macro design: the
+AST as a table that trusted build-time filters transform between parse
+and typecheck, on the machine that owns the source. What is retired is
+any notion of transmitting that code table to another node to be
+compiled or run. Code tables are local build artifacts; they are not a
+wire format. Only Tabulae of **data** travel, and they travel inert.
 
 ## Scope discipline
 
