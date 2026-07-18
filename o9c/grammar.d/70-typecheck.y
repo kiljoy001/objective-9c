@@ -1125,6 +1125,7 @@ annotate_handle_msg_type(Node *e, Type *lt)
 {
     if(o9_type_is_tabula(lt) || type_named(lt, "MountTable")){
         if(expr_name_is(e, "schema") || expr_name_is(e, "get") ||
+           expr_name_is(e, "value") ||
            expr_name_is(e, "read") || expr_name_is(e, "serialize"))
             return type_name("string");
         if(expr_name_is(e, "query"))
@@ -2215,6 +2216,7 @@ typecheck_tabula_msg(Node *e, Node *scope_class, Type *lt, int *errs)
         {"write", 3, 1, 0, -1, 0},
         {"set", 2, 1, 0, -1, 0},
         {"get", 1, 1, 0, -1, 0},
+        {"value", 2, 1, 0, -1, 0},
         {"first", 0, 0, 0, -1, 0},
         {"next", 0, 0, 0, -1, 0},
         {"read", 0, 0, 0, -1, 0},
@@ -2232,7 +2234,7 @@ typecheck_tabula_msg(Node *e, Node *scope_class, Type *lt, int *errs)
     r = lookup_msg_rule(rules, nelem(rules), e->name);
     if(r == nil){
         fprint(2, "o9c: error: line %d: tabula has no method '%s' "
-            "(schema/has/add/write/set/get/first/next/read/serialize/query/flush/sync/push/close)\n",
+            "(schema/has/add/write/set/get/value/first/next/read/serialize/query/flush/sync/push/close)\n",
             sem_line, e->name);
         (*errs)++;
         typecheck_arg_values(e->right, scope_class, errs);

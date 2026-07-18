@@ -1,4 +1,5 @@
 schema orders has 1 missing 0
+value widget||
 paid 1 widget 5
 readcmp 0
 bad -1

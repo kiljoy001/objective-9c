@@ -65,6 +65,7 @@ string schema = t.schema()
 int64 has_status = t.has("status")
 t.write("a", "item", "widget")
 t.write("a", "qty", "5")
+string item = t.value("a", "item")
 
 tabula paid = t.query("status", "paid")
 string text = t.read()
@@ -73,6 +74,8 @@ t.flush()
 
 - `write(id, col, value)` mutates the in-memory document, creating the
   `id` record when needed.
+- `value(id, col)` reads one cell directly by record id and column name without
+  changing the current iterator row.
 - `query(col, value)` searches for records whose column matches the value and
   returns another `tabula` with the same schema.
 - `schema()` returns the semantic collection name from the file's

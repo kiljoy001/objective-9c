@@ -1202,6 +1202,8 @@ main {
     t.write("a", "qty", "5");
     t.write("a", "status", "paid");
 
+    print(t.value("a", "item"), "\n");
+
     tabula paid = t.query("status", "paid");
     print(paid.first(), " ", paid.get("item"), "\n");
     t.flush();
@@ -1222,6 +1224,7 @@ Methods:
 - `write(string id, string col, string val) int64`
 - `set(string col, string val) int64`
 - `get(string col) string`
+- `value(string id, string col) string`
 - `first() int64`
 - `next() int64`
 - `read() string`
@@ -1232,8 +1235,9 @@ Methods:
 - `push() int64`
 - `close()`
 
-`write` mutates a specific record by id. `set` mutates the current record after
-`add`, `first`, or `next`.
+`write` mutates a specific record by id. `value` reads one cell by record id and
+column name without changing the current cursor. `set` and `get` operate on the
+current record after `add`, `first`, or `next`.
 
 Binary data should be stored as hex text in a column named `0x`:
 

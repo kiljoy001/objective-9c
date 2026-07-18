@@ -504,6 +504,8 @@ main {
     t.write("a", "qty", "5");
     t.write("a", "status", "paid");
 
+    print(t.value("a", "item"), "\n");
+
     tabula paid = t.query("status", "paid");
     print(paid.first(), " ", paid.get("item"), "\n");
 }
@@ -518,6 +520,7 @@ add(id)
 write(id, col, val)
 set(col, val)
 get(col)
+value(id, col)
 first()
 next()
 read()
@@ -526,8 +529,9 @@ flush()
 close()
 ```
 
-`write` mutates a particular record by id. `set` mutates the current record
-after `add`, `first`, or `next`.
+`write` mutates a particular record by id. `value` reads one cell by record id
+and column name without changing the current cursor. `set` and `get` operate on
+the current record after `add`, `first`, or `next`.
 
 ### tabula Locality
 

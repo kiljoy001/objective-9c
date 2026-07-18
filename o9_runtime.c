@@ -1873,6 +1873,45 @@ o9_tab_get(O9Tabula *t, O9String *col)
 	return o9_string_from_c(v != nil ? (char*)v : "");
 }
 
+/* t.value(id, col) - direct coordinate lookup by the row identity
+ * column (the first schema column) and a column name.  Does not change
+ * the current iterator row. */
+O9String*
+o9_tab_value(O9Tabula *t, O9String *id, O9String *col)
+{
+	TabRow *r;
+	char *cid, *ccol;
+	const char *head, *v;
+
+	if(t == nil || t->tab == nil || id == nil || col == nil)
+		return o9_string_from_c("");
+	cid = o9_string_cstr(id);
+	ccol = o9_string_cstr(col);
+	if(cid == nil || ccol == nil){
+		free(cid);
+		free(ccol);
+		return o9_string_from_c("");
+	}
+	if(cid[0] == '\0' || !o9_tab_has_col(t, ccol)){
+		free(cid);
+		free(ccol);
+		return o9_string_from_c("");
+	}
+	head = tab_colname(t->tab, 0);
+	if(head == nil)
+		head = "id";
+	r = o9_tab_find_row(t, (char*)head, cid);
+	if(r == nil){
+		free(cid);
+		free(ccol);
+		return o9_string_from_c("");
+	}
+	v = tab_get(r, ccol);
+	free(cid);
+	free(ccol);
+	return o9_string_from_c(v != nil ? (char*)v : "");
+}
+
 /* t.first() — start iteration; sets current row to the first, or nil.
  * Returns 1 if there is a row, 0 if empty. */
 int

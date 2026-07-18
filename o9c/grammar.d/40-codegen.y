@@ -443,6 +443,7 @@ gen_tabula_msg(Node *e, Type *lt)
         {"write", "o9_tab_write"},
         {"set", "o9_tab_set"},
         {"get", "o9_tab_get"},
+        {"value", "o9_tab_value"},
         {"first", "o9_tab_first"},
         {"next", "o9_tab_next"},
         {"read", "o9_tab_read"},

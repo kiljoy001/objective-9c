@@ -9,6 +9,7 @@ main {
     t.write("b", "status", "open");
 
     print("schema ", t.schema(), " has ", t.has("status"), " missing ", t.has("missing"), "\n");
+    print("value ", t.value("a", "item"), "|", t.value("missing", "item"), "|", t.value("a", "missing"), "\n");
     tabula paid = t.query("status", "paid");
     print("paid ", paid.first(), " ", paid.get("item"), " ", paid.get("qty"), "\n");
     print("readcmp ", cmp(t.read(), t.serialize()), "\n");
