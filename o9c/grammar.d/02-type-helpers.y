@@ -129,6 +129,26 @@ type_fmt_for_codegen(Type *t)
 
 static int storage_is_o9string(char *s);
 
+static int
+storage_is_scalar_cast(char *s)
+{
+    if(strcmp(s, "vlong") == 0 || strcmp(s, "uvlong") == 0)
+        return 1;
+    if(strcmp(s, "long") == 0 || strcmp(s, "ulong") == 0)
+        return 1;
+    if(strcmp(s, "int") == 0 || strcmp(s, "uint") == 0)
+        return 1;
+    if(strcmp(s, "short") == 0 || strcmp(s, "ushort") == 0)
+        return 1;
+    if(strcmp(s, "char") == 0 || strcmp(s, "uchar") == 0)
+        return 1;
+    if(strcmp(s, "double") == 0)
+        return 1;
+    if(strcmp(s, "intptr") == 0 || strcmp(s, "uintptr") == 0)
+        return 1;
+    return 0;
+}
+
 static char*
 type_cast_for_codegen(Type *t)
 {
@@ -140,13 +160,7 @@ type_cast_for_codegen(Type *t)
     s = type_storage_for_codegen(t);
     if(strcmp(s, "char*") == 0 || storage_is_o9string(s))
         return s;
-    if(strcmp(s, "vlong") == 0 || strcmp(s, "uvlong") == 0 ||
-       strcmp(s, "long") == 0 || strcmp(s, "ulong") == 0 ||
-       strcmp(s, "int") == 0 || strcmp(s, "uint") == 0 ||
-       strcmp(s, "double") == 0 ||
-       strcmp(s, "intptr") == 0 || strcmp(s, "uintptr") == 0 ||
-       strcmp(s, "short") == 0 || strcmp(s, "ushort") == 0 ||
-       strcmp(s, "char") == 0 || strcmp(s, "uchar") == 0)
+    if(storage_is_scalar_cast(s))
         return s;
     d = type_decl_node(t);
     if(d != nil && d->type == NStruct)

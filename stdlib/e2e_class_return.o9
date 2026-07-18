@@ -49,6 +49,7 @@ main {
     print("self-return ", d.get(), "\n");
     c.set(42);
     print("shared ", b.childValue(), "\n");
+    print("prop-receiver ", b.child.get(), "\n");
     b2.replaceFrom(b);
     print("assign-return ", b2.childValue(), "\n");
 }

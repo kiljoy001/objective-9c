@@ -2030,7 +2030,7 @@ typecheck_missing_self_call(Node *e, Node *scope_class, int *errs)
 }
 
 static void
-typecheck_self_method_args(Node *e, TypedMember *tm, int *errs)
+typecheck_typed_member_args(Node *e, TypedMember *tm, int *errs)
 {
     Node *p, *a;
     Type *expected;
@@ -2063,7 +2063,7 @@ typecheck_resolved_self_method(Node *e, Node *scope_class, TypedMember *tm, int 
             tm->owner != nil ? tm->owner->name : "?", e->name);
         (*errs)++;
     }
-    typecheck_self_method_args(e, tm, errs);
+    typecheck_typed_member_args(e, tm, errs);
 }
 
 static void
@@ -2348,31 +2348,6 @@ typecheck_receiver_class(Node *e, Type *lt)
 }
 
 static void
-typecheck_generic_msg_args(Node *e, TypedMember *tm, int *errs)
-{
-    Node *p, *a;
-    Type *expected;
-    int pi;
-
-    if(node_list_len(tm->node->right) != node_list_len(e->right)){
-        fprint(2, "o9c: error: line %d: method '%s' needs %d argument(s)\n", sem_line,
-            e->name, node_list_len(tm->node->right));
-        (*errs)++;
-        return;
-    }
-    for(p = tm->node->right, a = e->right, pi = 0; p && a; p = p->next, a = a->next, pi++){
-        expected = type_subst(p->typeinfo, tm->bindings);
-        if(!type_assignable_semantic(expected, a->typeinfo)){
-            fprint(2, "o9c: error: line %d: argument %d to '%s' has type %s, expected %s\n", sem_line,
-                pi + 1, e->name,
-                a->typeinfo != nil ? type_render(a->typeinfo) : "<unknown>",
-                expected != nil ? type_render(expected) : "<unknown>");
-            (*errs)++;
-        }
-    }
-}
-
-static void
 typecheck_generic_msg(Node *e, Node *scope_class, Type *lt, int *errs)
 {
     Node *cnode;
@@ -2401,7 +2376,7 @@ typecheck_generic_msg(Node *e, Node *scope_class, Type *lt, int *errs)
     if((tm.node->flags & NFPrivate) && tm.owner != scope_class)
         fprint(2, "o9c: error: line %d: '%s.%s' is private\n", sem_line,
             tm.owner != nil ? tm.owner->name : cnode->name, e->name), (*errs)++;
-    typecheck_generic_msg_args(e, &tm, errs);
+    typecheck_typed_member_args(e, &tm, errs);
 }
 
 static TypecheckMsgFn typecheck_msg_handlers[] = {
@@ -2747,49 +2722,91 @@ typecheck_not_expr(Node *e, Node *scope_class, int *errs)
 }
 
 static void
+typecheck_locality_addr(Node *e, Node *scope_class, int *errs)
+{
+    typecheck_expr(e->params, scope_class, errs);
+    if(e->params == nil || !type_assignable_semantic(type_name("string"), e->params->typeinfo)){
+        fprint(2, "o9c: error: line %d: %s declaration requires a string address after @\n",
+            sem_line, e->cname);
+        (*errs)++;
+    }
+}
+
+static void
+typecheck_locality_tabula_type(Node *e, int *errs)
+{
+    if(!o9_type_is_tabula(e->typeinfo)){
+        fprint(2, "o9c: error: line %d: remote objects are not supported; only Tabula data may be declared near/far/listener with @\n",
+            sem_line);
+        (*errs)++;
+    }
+}
+
+static void
+typecheck_locality_tabula_ctor(Node *e, int *errs)
+{
+    int got;
+
+    if(!is_tabula_new(e->left)){
+        fprint(2, "o9c: error: line %d: %s Tabula declaration requires new Tabula(name, columns) @ address\n",
+            sem_line, e->cname);
+        (*errs)++;
+        return;
+    }
+    got = node_list_len(e->left->right);
+    if(got != 2){
+        fprint(2, "o9c: error: line %d: %s Tabula declaration requires new Tabula(name, columns) @ address\n",
+            sem_line, e->cname);
+        (*errs)++;
+    }
+}
+
+static void
+typecheck_locality_decl(Node *e, Node *scope_class, int *errs)
+{
+    if(o9_locality_kind(e->cname) < 0)
+        return;
+    typecheck_locality_addr(e, scope_class, errs);
+    typecheck_locality_tabula_type(e, errs);
+    typecheck_locality_tabula_ctor(e, errs);
+}
+
+static void
+typecheck_lookup_target(Node *e, int *errs)
+{
+    if(e->left == nil || e->left->type != NSelfCall || e->left->name == nil)
+        return;
+    if(strcmp(e->left->name, "lookup") != 0)
+        return;
+    if(type_decl_node(e->typeinfo) == nil){
+        fprint(2, "o9c: error: line %d: lookup needs a class-typed target\n", sem_line);
+        (*errs)++;
+    }
+}
+
+static void
+typecheck_local_initializer(Node *e, int *errs)
+{
+    if(e->left == nil)
+        return;
+    if(e->left->type == NSelfCall && e->left->name != nil &&
+       strcmp(e->left->name, "lookup") == 0)
+        return;
+    if(!type_assignable_semantic(e->typeinfo, e->left->typeinfo))
+        type_mismatch_error("initialize", e->typeinfo, e->left->typeinfo, errs);
+}
+
+static void
 typecheck_local_var_expr(Node *e, Node *scope_class, int *errs)
 {
     validate_type(e->typeinfo, errs);
     add_decl_type_sym(e);
     annotate_expr_type(e->left, scope_class);
-    if(o9_locality_kind(e->cname) >= 0){
-        int got;
-
-        typecheck_expr(e->params, scope_class, errs);
-        if(e->params == nil || !type_assignable_semantic(type_name("string"), e->params->typeinfo)){
-            fprint(2, "o9c: error: line %d: %s declaration requires a string address after @\n",
-                sem_line, e->cname);
-            (*errs)++;
-        }
-        if(!o9_type_is_tabula(e->typeinfo)){
-            fprint(2, "o9c: error: line %d: remote objects are not supported; only Tabula data may be declared near/far/listener with @\n",
-                sem_line);
-            (*errs)++;
-        }
-        if(!is_tabula_new(e->left)){
-            fprint(2, "o9c: error: line %d: %s Tabula declaration requires new Tabula(name, columns) @ address\n",
-                sem_line, e->cname);
-            (*errs)++;
-        } else {
-            got = node_list_len(e->left->right);
-            if(got != 2){
-                fprint(2, "o9c: error: line %d: %s Tabula declaration requires new Tabula(name, columns) @ address\n",
-                    sem_line, e->cname);
-                (*errs)++;
-            }
-        }
-    }
-    if(e->left != nil && e->left->type == NClass){
+    typecheck_locality_decl(e, scope_class, errs);
+    if(e->left != nil && e->left->type == NClass)
         typecheck_class_new(e->left, scope_class, errs);
-    }
-    if(e->left != nil && e->left->type == NSelfCall && e->left->name != nil &&
-       strcmp(e->left->name, "lookup") == 0){
-        if(type_decl_node(e->typeinfo) == nil){
-            fprint(2, "o9c: error: line %d: lookup needs a class-typed target\n", sem_line);
-            (*errs)++;
-        }
-    } else if(e->left != nil && !type_assignable_semantic(e->typeinfo, e->left->typeinfo))
-        type_mismatch_error("initialize", e->typeinfo, e->left->typeinfo, errs);
+    typecheck_lookup_target(e, errs);
+    typecheck_local_initializer(e, errs);
 }
 
 static TypecheckExprFn typecheck_expr_handlers[NNodeKinds];

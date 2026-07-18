@@ -679,6 +679,8 @@ gen_msg_named_receiver(Node *recv)
     return 1;
 }
 
+static void gen_msg_receiver_ref(Node *recv);
+
 static int
 gen_msg_typed_receiver(Node *recv)
 {
@@ -690,9 +692,42 @@ gen_msg_typed_receiver(Node *recv)
     if(rcls == nil)
         return 0;
     print("(vlong)((%s_Client*)&", rcls);
-    gen_expr(recv);
+    gen_msg_receiver_ref(recv);
     print(")->shm_base");
     return 1;
+}
+
+static int
+gen_class_ref_lvalue(Node *e)
+{
+    Type *rt;
+    char *cn;
+    Node *cnode;
+
+    if(e == nil || e->type != NPropRead || e->name == nil)
+        return 0;
+    if(!type_is_class_ref(e->typeinfo))
+        return 0;
+    rt = e->left != nil ? e->left->typeinfo : nil;
+    cn = rt != nil ? type_cname(rt) : nil;
+    cnode = type_decl_node(rt);
+    if(cn == nil || cnode == nil)
+        return 0;
+    if(cnode->type != NClass && cnode->type != NInterface)
+        return 0;
+    print("((%s_Internal*)((%s_Client*)&", cn, cn);
+    if(!gen_class_ref_lvalue(e->left))
+        gen_expr(e->left);
+    print(")->shm_base)->%s", e->name);
+    return 1;
+}
+
+static void
+gen_msg_receiver_ref(Node *recv)
+{
+    if(type_is_class_ref(recv != nil ? recv->typeinfo : nil) && gen_class_ref_lvalue(recv))
+        return;
+    gen_expr(recv);
 }
 
 static void
@@ -770,7 +805,7 @@ static void
 gen_msg_fallback_call(Node *e, int d, int nargs, int retdouble)
 {
     print(retdouble ? "obj9_msgSendDoubleN(&" : "(vlong)obj9_msgSendN(&");
-    gen_expr(e->left);
+    gen_msg_receiver_ref(e->left);
     if(msg_receiver_candidate(e->left))
         print(", \"%s/%s\", 0x%lux, __o9fr[%d]+1, %d))",
             e->left->name, e->name, o9_hash(e->name), d, nargs);
@@ -783,7 +818,7 @@ static void
 gen_msg_dispatch_tail(Node *e, int d, int nargs, int retdouble)
 {
     print(", o9_dispatch_call(&");
-    gen_expr(e->left);
+    gen_msg_receiver_ref(e->left);
     if(retdouble)
         print(", 0x%lux, __o9fr[%d]) != nil ? o9_double_unpack(__o9fr[%d][0]) : ",
             o9_hash(e->name), d, d);
@@ -3039,33 +3074,96 @@ gen_state_col_names(Node *c)
     }
 }
 
-void
-gen_state_store_typed(char *stateexpr, char *fieldexpr, char *name, Type *type)
+typedef int (*StateStoreFn)(char*, char*, char*, Type*);
+
+static int
+state_store_dict(char *stateexpr, char *fieldexpr, char *name, Type *type)
+{
+    if(!type_is_dict(type))
+        return 0;
+    print("\t{ char *__o9s = o9_dict_serialize(&%s); o9_state_set(%s, \"%s\", __o9s); free(__o9s); }\n",
+        fieldexpr, stateexpr, name);
+    return 1;
+}
+
+static int
+state_store_collection(char *stateexpr, char *fieldexpr, char *name, Type *type)
+{
+    USED(stateexpr);
+    USED(fieldexpr);
+    USED(name);
+    return type_is_list(type) || type_is_array(type);
+}
+
+static int
+state_store_char_pointer(char *stateexpr, char *fieldexpr, char *name, Type *type)
+{
+    if(!type_is_char_pointer(type))
+        return 0;
+    print("\to9_state_set(%s, \"%s\", %s ? %s : \"\");\n",
+        stateexpr, name, fieldexpr, fieldexpr);
+    return 1;
+}
+
+static int
+state_store_string(char *stateexpr, char *fieldexpr, char *name, Type *type)
+{
+    if(!type_is_string(type))
+        return 0;
+    print("\to9_state_set(%s, \"%s\", o9_string_data(%s));\n",
+        stateexpr, name, fieldexpr);
+    return 1;
+}
+
+static int
+state_store_double(char *stateexpr, char *fieldexpr, char *name, Type *type)
+{
+    if(!type_is_double(type))
+        return 0;
+    print("\t{ char __o9dbuf[64]; snprint(__o9dbuf, sizeof __o9dbuf, \"%%g\", %s); o9_state_set(%s, \"%s\", __o9dbuf); }\n",
+        fieldexpr, stateexpr, name);
+    return 1;
+}
+
+static int
+state_store_complex_decl(char *stateexpr, char *fieldexpr, char *name, Type *type)
 {
     Node *d;
 
+    USED(stateexpr);
+    USED(fieldexpr);
+    USED(name);
+    d = type_decl_node(type);
+    return d != nil && (d->type == NStruct || d->type == NClass || d->type == NInterface);
+}
+
+static void
+state_store_int(char *stateexpr, char *fieldexpr, char *name)
+{
+    print("\to9_state_set_int(%s, \"%s\", (vlong)(%s));\n",
+        stateexpr, name, fieldexpr);
+}
+
+static StateStoreFn state_store_handlers[] = {
+    state_store_dict,
+    state_store_collection,
+    state_store_char_pointer,
+    state_store_string,
+    state_store_double,
+    state_store_complex_decl,
+};
+
+void
+gen_state_store_typed(char *stateexpr, char *fieldexpr, char *name, Type *type)
+{
+    int i;
+
     if(stateexpr == nil || fieldexpr == nil || name == nil || type == nil)
         return;
-    if(type_is_dict(type)){
-        print("\t{ char *__o9s = o9_dict_serialize(&%s); o9_state_set(%s, \"%s\", __o9s); free(__o9s); }\n",
-            fieldexpr, stateexpr, name);
-    } else if(type_is_list(type) || type_is_array(type)){
-        /* Complex in-memory values stay in the hot struct for now. */
-    } else if(type_is_char_pointer(type)){
-        print("\to9_state_set(%s, \"%s\", %s ? %s : \"\");\n",
-            stateexpr, name, fieldexpr, fieldexpr);
-    } else if(type_is_string(type)){
-        print("\to9_state_set(%s, \"%s\", o9_string_data(%s));\n",
-            stateexpr, name, fieldexpr);
-    } else if(type_is_double(type)){
-        print("\t{ char __o9dbuf[64]; snprint(__o9dbuf, sizeof __o9dbuf, \"%%g\", %s); o9_state_set(%s, \"%s\", __o9dbuf); }\n",
-            fieldexpr, stateexpr, name);
-    } else if((d = type_decl_node(type)) != nil && (d->type == NStruct || d->type == NClass || d->type == NInterface)){
-        /* Complex in-memory values stay in the hot struct for now. */
-    } else {
-        print("\to9_state_set_int(%s, \"%s\", (vlong)(%s));\n",
-            stateexpr, name, fieldexpr);
-    }
+    for(i = 0; i < nelem(state_store_handlers); i++)
+        if(state_store_handlers[i](stateexpr, fieldexpr, name, type))
+            return;
+    state_store_int(stateexpr, fieldexpr, name);
 }
 
 /* Like gen_state_store_typed, but private fields get a "debug:" column
@@ -3470,44 +3568,110 @@ gen_type_metadata_entries(Node *c)
 static ulong emitted_hashes[1024];
 static int num_emitted = 0;
 
-void gen_dispatch_cases(Node *c, char *childname) {
+void gen_dispatch_cases(Node *c, char *childname);
+
+static int
+dispatch_hash_seen(ulong h)
+{
+    int i;
+
+    for(i = 0; i < num_emitted; i++)
+        if(emitted_hashes[i] == h)
+            return 1;
+    return 0;
+}
+
+static void
+dispatch_note_hash(ulong h)
+{
+    emitted_hashes[num_emitted++] = h;
+}
+
+static void
+gen_dispatch_case(Node *c, Node *m, ulong h)
+{
+    print("\t\tcase 0x%lux: o9_impl_%s_%s((%s_Internal*)self, m); break;\n",
+        h, c->name, m->name, c->name);
+    dispatch_note_hash(h);
+}
+
+static int
+dispatch_needs_ctor_alias(Node *c, Node *m, char *childname)
+{
+    if(childname == nil)
+        return 0;
+    return strcmp(m->name, c->name) == 0 && strcmp(c->name, childname) != 0;
+}
+
+static void
+gen_dispatch_ctor_alias(Node *c, Node *m, char *childname)
+{
+    ulong h;
+
+    if(!dispatch_needs_ctor_alias(c, m, childname))
+        return;
+    h = o9_hash(childname);
+    if(dispatch_hash_seen(h))
+        return;
+    print("\t\tcase 0x%lux: o9_impl_%s_%s((%s_Internal*)self, m); break;\t/* inherited ctor as %s */\n",
+        h, c->name, m->name, c->name, childname);
+    dispatch_note_hash(h);
+}
+
+static void
+gen_dispatch_method_case(Node *c, Node *m, char *childname)
+{
+    ulong h;
+
+    if(m->type != NMethod || !method_has_body(m))
+        return;
+    gen_dispatch_ctor_alias(c, m, childname);
+    h = o9_hash(m->name);
+    if(!dispatch_hash_seen(h))
+        gen_dispatch_case(c, m, h);
+}
+
+static void
+gen_dispatch_member_cases(Node *c, char *childname)
+{
     Node *m;
-    if(c == nil) return;
+
+    for(m = c->left; m; m = m->next)
+        gen_dispatch_method_case(c, m, childname);
+}
+
+static Node*
+dispatch_parent_class(Node *m)
+{
+    Node *p;
+
+    if(m->type != NInherit)
+        return nil;
+    p = find_class(m->name);
+    if(p == nil || p->type != NClass || (p->flags & NFAbstract))
+        return nil;
+    return p;
+}
+
+static void
+gen_dispatch_inherited_cases(Node *c, char *childname)
+{
+    Node *m, *p;
+
     for(m = c->left; m; m = m->next){
-        if(m->type == NMethod && method_has_body(m)) {
-            ulong h = o9_hash(m->name);
-            int i, found = 0;
-            /* A constructor is a method whose name equals its defining
-             * class.  When that class is an ANCESTOR (not the class being
-             * constructed), `new <childname>(...)` dispatches under
-             * hash(childname), not hash(ancestor) — so the inherited
-             * constructor must ALSO be reachable under the child's hash,
-             * however deep the chain.  Alias it to hash(childname). */
-            if(childname != nil && strcmp(m->name, c->name) == 0 &&
-               strcmp(c->name, childname) != 0){
-                ulong ch = o9_hash(childname);
-                int j, cfound = 0;
-                for(j=0; j<num_emitted; j++) if(emitted_hashes[j] == ch){ cfound = 1; break; }
-                if(!cfound){
-                    print("\t\tcase 0x%lux: o9_impl_%s_%s((%s_Internal*)self, m); break;\t/* inherited ctor as %s */\n",
-                        ch, c->name, m->name, c->name, childname);
-                    emitted_hashes[num_emitted++] = ch;
-                }
-            }
-            for(i=0; i<num_emitted; i++) { if(emitted_hashes[i] == h) { found = 1; break; } }
-            if(!found) {
-                print("\t\tcase 0x%lux: o9_impl_%s_%s((%s_Internal*)self, m); break;\n", h, c->name, m->name, c->name);
-                emitted_hashes[num_emitted++] = h;
-            }
-        }
+        p = dispatch_parent_class(m);
+        if(p != nil)
+            gen_dispatch_cases(p, childname);
     }
-    for(m = c->left; m; m = m->next){
-        if(m->type == NInherit) {
-            Node *p = find_class(m->name);
-            if(p && p->type == NClass && (p->flags & NFAbstract) == 0)
-                gen_dispatch_cases(p, childname);
-        }
-    }
+}
+
+void
+gen_dispatch_cases(Node *c, char *childname)
+{
+    if(c == nil)
+        return;
+    gen_dispatch_member_cases(c, childname);
+    gen_dispatch_inherited_cases(c, childname);
 }
 
 void gen_cleanup_props(Node *c, char *childname) {
@@ -4027,23 +4191,39 @@ gen_class_method_artifacts(Node *c)
     return has_destruct;
 }
 
-static void
-gen_class_spawn_helper(Node *c)
+static Node*
+spawn_run_method(Node *c)
 {
-    Node *rm, *pn;
-    int np, pi;
+    Node *m;
 
-    if((c->flags & NFFunction) == 0)
-        return;
-    rm = nil;
-    np = 0;
-    for(rm = c->left; rm != nil; rm = rm->next)
-        if(rm->type == NMethod && rm->name != nil && strcmp(rm->name, "run") == 0)
-            break;
-    for(pn = (rm ? rm->right : nil); pn; pn = pn->next)
-        np++;
+    for(m = c->left; m != nil; m = m->next)
+        if(m->type == NMethod && m->name != nil && strcmp(m->name, "run") == 0)
+            return m;
+    return nil;
+}
+
+static int
+spawn_method_param_count(Node *m)
+{
+    Node *pn;
+    int n;
+
+    n = 0;
+    for(pn = (m ? m->right : nil); pn; pn = pn->next)
+        n++;
+    return n;
+}
+
+static void
+gen_spawn_context_type(Node *c)
+{
     print("typedef struct O9SpawnCtx_%s { Channel *replyc; O9Task *task; %s_Internal *inst; } O9SpawnCtx_%s;\n",
         c->name, c->name, c->name);
+}
+
+static void
+gen_spawn_forward_proc(Node *c)
+{
     print("static void o9_spawn_forward_%s(void *v){\n", c->name);
     print("\tO9SpawnCtx_%s *ctx = v;\n", c->name);
     print("\tO9Reply *__r = recvp(ctx->replyc);\n");
@@ -4054,6 +4234,14 @@ gen_class_spawn_helper(Node *c)
     print("\tchanfree(ctx->replyc); free(ctx);\n");
     print("}\n");
     print("static int o9_spawn_id_%s;\n", c->name);
+}
+
+static void
+gen_spawn_signature(Node *c, Node *rm, int np)
+{
+    Node *pn;
+    int pi;
+
     print("O9Task *o9_spawn_%s(", c->name);
     for(pn = (rm ? rm->right : nil), pi = 0; pn; pn = pn->next, pi++){
         if(pi) print(", ");
@@ -4061,6 +4249,13 @@ gen_class_spawn_helper(Node *c)
     }
     if(np == 0) print("void");
     print("){\n");
+}
+
+static void
+gen_spawn_instance_setup(Node *c)
+{
+    char ptr[64];
+
     print("\tint __id = o9_spawn_id_%s++;\n", c->name);
     print("\tchar __nm[64]; snprint(__nm, sizeof __nm, \"%s#%%d\", __id);\n", c->name);
     print("\tO9Task *__task = o9_task_new(__id);\n");
@@ -4070,12 +4265,21 @@ gen_class_spawn_helper(Node *c)
     print("\t__inst->distance = -1;\n");
     print("\t__inst->state = o9_state_create_path(o9app_root, \"%s\", __nm, o9_state_cols_%s, %d);\n",
         c->name, c->name, count_state_cols(c));
-    { char ptr[64]; snprint(ptr, sizeof ptr, "__inst"); gen_init_internal_state(c, ptr); }
+    snprint(ptr, sizeof ptr, "__inst");
+    gen_init_internal_state(c, ptr);
     print("\t__inst->__spawn_index = __id;\n");
     print("\t__inst->__spawn_state = 1;\t/* running */\n");
     print("\tproccreate(%s_loop, __inst, 65536);\n", c->name);
     print("\t%s_record_instance(__nm, __inst);\n", c->name);
     print("\tChannel *__replyc = chancreate(sizeof(void*), 1);\n");
+}
+
+static void
+gen_spawn_arg_pack(Node *rm, int np)
+{
+    Node *pn;
+    int pi;
+
     if(np > 0){
         print("\tvlong *__args = malloc(%d*sizeof(vlong));\n", np);
         for(pn = (rm ? rm->right : nil), pi = 0; pn; pn = pn->next, pi++){
@@ -4087,13 +4291,42 @@ gen_class_spawn_helper(Node *c)
                 print("\t__args[%d] = (vlong)__a%d;\n", pi, pi);
         }
     }
+}
+
+static void
+gen_spawn_run_send(int np)
+{
     print("\t{ O9Msg *__wm = mallocz(sizeof(O9Msg), 1);\n");
     print("\t  __wm->sel = 0x%lux; __wm->args = %s; __wm->nargs = %d; __wm->replyc = __replyc;\n",
         o9_hash("run"), np > 0 ? "__args" : "nil", np);
     print("\t  sendp(__inst->dispatch_chan, __wm); }\n");
+}
+
+static void
+gen_spawn_forward_start(Node *c)
+{
     print("\t{ O9SpawnCtx_%s *__ctx = mallocz(sizeof(O9SpawnCtx_%s), 1);\n", c->name, c->name);
     print("\t  __ctx->replyc = __replyc; __ctx->task = __task; __ctx->inst = __inst;\n");
     print("\t  proccreate(o9_spawn_forward_%s, __ctx, 32*1024); }\n", c->name);
+}
+
+static void
+gen_class_spawn_helper(Node *c)
+{
+    Node *rm;
+    int np;
+
+    if((c->flags & NFFunction) == 0)
+        return;
+    rm = spawn_run_method(c);
+    np = spawn_method_param_count(rm);
+    gen_spawn_context_type(c);
+    gen_spawn_forward_proc(c);
+    gen_spawn_signature(c, rm, np);
+    gen_spawn_instance_setup(c);
+    gen_spawn_arg_pack(rm, np);
+    gen_spawn_run_send(np);
+    gen_spawn_forward_start(c);
     print("\treturn __task;\n}\n");
 }
 
