@@ -342,6 +342,7 @@ extern O9String* o9_tab_schema(O9Tabula *t);
 extern int       o9_tab_has(O9Tabula *t, O9String *col);
 extern int       o9_tab_add(O9Tabula *t, O9String *key);	/* append row, becomes current */
 extern int       o9_tab_write(O9Tabula *t, O9String *id, O9String *col, O9String *val);
+extern int       o9_tab_remove(O9Tabula *t, O9String *id);
 extern int       o9_tab_set(O9Tabula *t, O9String *col, O9String *val);
 extern O9String* o9_tab_get(O9Tabula *t, O9String *col);
 extern O9String* o9_tab_value(O9Tabula *t, O9String *id, O9String *col);

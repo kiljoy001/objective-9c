@@ -317,6 +317,8 @@ tab_open_dial(const char *path, const char *dial, const char *remote_path)
 		tab_seterror("tab_open: missing schema tuple");
 		goto fail;
 	}
+	if(tab_ensure_nil_row(t) < 0)
+		goto fail;
 	return t;
 
 fail:

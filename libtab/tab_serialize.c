@@ -150,6 +150,8 @@ tab_serialize(Tab *t, int *outlen)
 		goto fail;
 
 	for(i = 0; i < t->nrows; i++){
+		if(tab_row_is_nil(t, t->rows[i]))
+			continue;
 		if(emit_row(t->rows[i]->chain, &buf, &len, &cap) < 0)
 			goto fail;
 		if(buf_append_c(&buf, &len, &cap, '\n') < 0)

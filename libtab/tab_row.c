@@ -26,7 +26,10 @@ tab_row_cell(Ndbtuple *head, const char *col)
 const char *
 tab_get(TabRow *r, const char *col)
 {
+	const char *v;
+
 	if(r == nil)
 		return nil;
-	return tab_row_cell(r->chain, col);
+	v = tab_row_cell(r->chain, col);
+	return tab_cell_is_nil(v) ? nil : v;
 }

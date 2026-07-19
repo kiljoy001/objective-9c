@@ -6,9 +6,9 @@
  *
  *	cell0 \t cell1 \t … \t celln
  *
- * An empty cell — whether the on-disk row omits the column or writes
- * it with no value — contributes a single null byte (\0) where its
- * value would go.  Two rows hash the same iff they have the same
+ * A semantic nil cell — whether the on-disk row omits the column or writes
+ * nil — contributes a single null byte (\0) where its value would go.
+ * Two rows hash the same iff they have the same
  * (schema-ordered) cells.
  *
  * The map is the only index libtab keeps.  Search is a scan over the
@@ -22,6 +22,31 @@ enum {
 	HashMinBuckets	= 16,
 	RowsInitCap	= 16,
 };
+
+int
+tab_cell_is_nil(const char *val)
+{
+	return val == nil || strcmp((char*)val, "nil") == 0;
+}
+
+static int
+chain_is_nil(Tab *t, Ndbtuple *chain)
+{
+	int i;
+
+	if(t == nil || chain == nil || t->schema.ncols <= 0)
+		return 0;
+	for(i = 0; i < t->schema.ncols; i++)
+		if(!tab_cell_is_nil(tab_row_cell(chain, t->schema.cols[i].name)))
+			return 0;
+	return 1;
+}
+
+int
+tab_row_is_nil(Tab *t, TabRow *r)
+{
+	return t != nil && r != nil && (r == t->nilrow || chain_is_nil(t, r->chain));
+}
 
 /* FNV-1a 32-bit over a byte range. */
 uint32_t
@@ -58,7 +83,7 @@ canonical_bytes(Tab *t, Ndbtuple *chain, int *lenout)
 	total = 0;
 	for(i = 0; i < t->schema.ncols; i++){
 		val = tab_row_cell(chain, t->schema.cols[i].name);
-		total += (val != nil && *val != '\0') ? (int)strlen(val) : 1;
+		total += tab_cell_is_nil(val) ? 1 : (int)strlen(val);
 		if(i + 1 < t->schema.ncols)
 			total++;	/* tab separator */
 	}
@@ -72,7 +97,7 @@ canonical_bytes(Tab *t, Ndbtuple *chain, int *lenout)
 	off = 0;
 	for(i = 0; i < t->schema.ncols; i++){
 		val = tab_row_cell(chain, t->schema.cols[i].name);
-		if(val != nil && *val != '\0'){
+		if(!tab_cell_is_nil(val)){
 			vlen = strlen(val);
 			memcpy(buf + off, val, vlen);
 			off += vlen;
@@ -183,8 +208,12 @@ tab_rowmap_insert(Tab *t, Ndbtuple *chain)
 	e->next = t->buckets[h & t->mask];
 	t->buckets[h & t->mask] = e;
 	t->nentries++;
+	if(tab_row_is_nil(t, e))
+		t->nilrow = e;
 
 	if(push_row(t, e) < 0){
+		if(t->nilrow == e)
+			t->nilrow = nil;
 		t->buckets[h & t->mask] = e->next;
 		free(e);
 		t->nentries--;
@@ -266,6 +295,45 @@ tab_rowmap_rehash(Tab *t, Ndbtuple *chain)
 	return 0;
 }
 
+int
+tab_rowmap_delete(Tab *t, TabRow *r)
+{
+	TabRow **prev;
+	int i, found;
+
+	if(t == nil || r == nil || r == t->nilrow){
+		tab_seterror("tab_rowmap_delete: invalid row");
+		return -1;
+	}
+	found = 0;
+	for(i = 0; i < t->nrows; i++){
+		if(t->rows[i] == r){
+			found = 1;
+			break;
+		}
+	}
+	if(!found){
+		tab_seterror("tab_rowmap_delete: row not in list");
+		return -1;
+	}
+	prev = &t->buckets[r->hash & t->mask];
+	while(*prev != nil && *prev != r)
+		prev = &(*prev)->next;
+	if(*prev != r){
+		tab_seterror("tab_rowmap_delete: row not in bucket");
+		return -1;
+	}
+	*prev = r->next;
+
+	for(; i + 1 < t->nrows; i++)
+		t->rows[i] = t->rows[i+1];
+	t->nrows--;
+	t->nentries--;
+	ndbfree(r->chain);
+	free(r);
+	return 0;
+}
+
 void
 tab_index_freeall(Tab *t)
 {
@@ -285,6 +353,7 @@ tab_index_freeall(Tab *t)
 	t->nrows_cap = 0;
 	t->nentries = 0;
 	t->mask = 0;
+	t->nilrow = nil;
 }
 
 /* Public: scan-with-filter. */
@@ -294,7 +363,7 @@ tab_search(Tab *t, const char *col, const char *value)
 	TabIter *it;
 
 	tab_clearerror();
-	if(t == nil || col == nil || value == nil){
+	if(t == nil || col == nil){
 		tab_seterror("tab_search: nil argument");
 		return nil;
 	}
@@ -306,7 +375,7 @@ tab_search(Tab *t, const char *col, const char *value)
 	it->t = t;
 	it->idx = 0;
 	it->col = strdup((char *)col);
-	it->value = strdup((char *)value);
+	it->value = strdup((char *)(value != nil ? value : "nil"));
 	if(it->col == nil || it->value == nil){
 		tab_seterror("tab_search: out of memory");
 		free(it->col);

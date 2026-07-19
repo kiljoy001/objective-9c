@@ -654,11 +654,12 @@ int64 b;
           </tr>
           <tr>
             <td class="kw">tabula</td>
-            <td class="kw-desc">First-class table type. libtab-backed. Text boundary. Binary payloads use a 0x column with hex text.</td>
+            <td class="kw-desc">First-class table type. libtab-backed. Text boundary. remove() collapses rows into the hidden nil row. Binary payloads use a 0x column with hex text.</td>
             <td class="kw-code">tabula t = new tabula("orders", "item,qty");
 t.add("a");
 t.set("item", "widget");
-print(t.value("a", "item"));  // widget</td>
+print(t.value("a", "item"));  // widget
+t.remove("a");</td>
           </tr>
           <tr>
             <td class="kw">MountTable</td>

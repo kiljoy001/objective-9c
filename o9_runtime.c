@@ -1638,6 +1638,20 @@ o9_tab_find_row(O9Tabula *t, char *col, char *val)
 	return r;
 }
 
+static int
+o9_tab_bad_row_id(char *id)
+{
+	return id == nil || id[0] == '\0' || strcmp(id, "nil") == 0;
+}
+
+static char*
+o9_tab_store_value(O9String *s)
+{
+	if(s == nil)
+		return strdup("nil");
+	return o9_string_cstr(s);
+}
+
 /* Runtime backing for `new Tabula(name, "col1,col2,...")`: create an
  * in-memory Tabula with the given comma-separated columns. nil on failure. */
 O9Tabula*
@@ -1774,6 +1788,10 @@ o9_tab_add(O9Tabula *t, O9String *key)
 	ckey = o9_string_cstr(key);
 	if(ckey == nil)
 		return -1;
+	if(o9_tab_bad_row_id(ckey)){
+		free(ckey);
+		return -1;
+	}
 	t->cur = tab_add_row(t->tab, "id", ckey);
 	ok = t->cur != nil ? 0 : -1;
 	free(ckey);
@@ -1791,18 +1809,18 @@ o9_tab_write(O9Tabula *t, O9String *id, O9String *col, O9String *val)
 	const char *head;
 	int rv;
 
-	if(t == nil || t->tab == nil || id == nil || col == nil || val == nil)
+	if(t == nil || t->tab == nil || id == nil || col == nil)
 		return -1;
 	cid = o9_string_cstr(id);
 	ccol = o9_string_cstr(col);
-	cval = o9_string_cstr(val);
+	cval = o9_tab_store_value(val);
 	if(cid == nil || ccol == nil || cval == nil){
 		free(cid);
 		free(ccol);
 		free(cval);
 		return -1;
 	}
-	if(cid[0] == '\0' || !o9_tab_has_col(t, ccol)){
+	if(o9_tab_bad_row_id(cid) || !o9_tab_has_col(t, ccol)){
 		free(cid);
 		free(ccol);
 		free(cval);
@@ -1834,6 +1852,35 @@ o9_tab_write(O9Tabula *t, O9String *id, O9String *col, O9String *val)
 	return rv;
 }
 
+/* t.remove(id) - collapse the row into the hidden canonical nil row. */
+int
+o9_tab_remove(O9Tabula *t, O9String *id)
+{
+	TabRow *r;
+	char *cid;
+	const char *head;
+	int rv;
+
+	if(t == nil || t->tab == nil || id == nil)
+		return -1;
+	cid = o9_string_cstr(id);
+	if(o9_tab_bad_row_id(cid)){
+		free(cid);
+		return -1;
+	}
+	head = tab_colname(t->tab, 0);
+	if(head == nil)
+		head = "id";
+	r = o9_tab_find_row(t, (char*)head, cid);
+	free(cid);
+	if(r == nil)
+		return -1;
+	if(t->cur == r)
+		t->cur = nil;
+	rv = tab_remove_row(t->tab, r);
+	return rv;
+}
+
 /* t.set(col, val) — set a cell on the current row. */
 int
 o9_tab_set(O9Tabula *t, O9String *col, O9String *val)
@@ -1844,7 +1891,7 @@ o9_tab_set(O9Tabula *t, O9String *col, O9String *val)
 	if(t == nil || t->tab == nil || t->cur == nil || col == nil)
 		return -1;
 	ccol = o9_string_cstr(col);
-	cval = o9_string_cstr(val);
+	cval = o9_tab_store_value(val);
 	if(ccol == nil || cval == nil){
 		free(ccol);
 		free(cval);
@@ -1870,7 +1917,7 @@ o9_tab_get(O9Tabula *t, O9String *col)
 		return o9_string_from_c("");
 	v = tab_get(t->cur, ccol);
 	free(ccol);
-	return o9_string_from_c(v != nil ? (char*)v : "");
+	return v != nil ? o9_string_from_c((char*)v) : nil;
 }
 
 /* t.value(id, col) - direct coordinate lookup by the row identity
@@ -1909,7 +1956,7 @@ o9_tab_value(O9Tabula *t, O9String *id, O9String *col)
 	v = tab_get(r, ccol);
 	free(cid);
 	free(ccol);
-	return o9_string_from_c(v != nil ? (char*)v : "");
+	return v != nil ? o9_string_from_c((char*)v) : nil;
 }
 
 /* t.first() — start iteration; sets current row to the first, or nil.
@@ -1980,10 +2027,10 @@ o9_tab_query(O9Tabula *t, O9String *col, O9String *val)
 	const char *schema, *head, *hv, *cv;
 	int i, n;
 
-	if(t == nil || t->tab == nil || col == nil || val == nil)
+	if(t == nil || t->tab == nil || col == nil)
 		return nil;
 	ccol = o9_string_cstr(col);
-	cval = o9_string_cstr(val);
+	cval = o9_tab_store_value(val);
 	if(ccol == nil || cval == nil){
 		free(ccol);
 		free(cval);

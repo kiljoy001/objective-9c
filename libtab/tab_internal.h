@@ -4,10 +4,10 @@
  *
  * Storage model: every loaded row is keyed in memory by a hash of its
  * canonical TSV form (cells in schema-column order, separated by '\t',
- * empty cells represented as a single null byte).  Two rows with the
- * same hash are the same row by definition — the second load is a
- * no-op.  There are no per-column secondary indexes; search is a scan
- * over the row-hash map filtered by (col, value).
+ * semantic nil cells represented as a single null byte).  Two rows
+ * with the same hash are the same row by definition — the second load
+ * is a no-op.  There are no per-column secondary indexes; search is a
+ * scan over the row-hash map filtered by (col, value).
  */
 
 #ifndef _LIBTAB_INTERNAL_H_
@@ -85,6 +85,10 @@ struct Tab {
 	int nrows;
 	int nrows_cap;
 	TabRow **rows;
+
+	/* Canonical hidden nil row.  Deleting a row canonicalises it to
+	 * this row's all-nil content and then collapses the duplicate. */
+	TabRow *nilrow;
 };
 
 struct TabIter {
@@ -99,6 +103,10 @@ struct TabIter {
 /* Internal helper: fetch a cell value from an Ndbtuple chain by column.
  * Used by tab_get (public) and the canonical-form builder. */
 const char *tab_row_cell(Ndbtuple *head, const char *col);
+int tab_cell_is_nil(const char *val);
+int tab_row_is_nil(Tab *t, TabRow *r);
+int tab_ensure_nil_row(Tab *t);
+int tab_rowmap_delete(Tab *t, TabRow *r);
 
 /* FNV-1a 32-bit hash over a byte range. */
 uint32_t tab_hash_bytes(const uint8_t *p, int n);

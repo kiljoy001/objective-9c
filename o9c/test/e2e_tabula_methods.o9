@@ -7,13 +7,18 @@ main {
     t.write("b", "item", "gadget");
     t.write("b", "qty", "3");
     t.write("b", "status", "open");
+    t.write("c", "item", "trash");
+    t.write("c", "qty", "1");
+    t.write("c", "status", nil);
 
     print("schema ", t.schema(), " has ", t.has("status"), " missing ", t.has("missing"), "\n");
     print("value ", t.value("a", "item"), "|", t.value("missing", "item"), "|", t.value("a", "missing"), "\n");
+    print("nilcell ", t.value("c", "status"), "|", t.query("status", nil).first(), "\n");
+    print("remove ", t.remove("c"), " ", t.value("c", "item"), "|", t.query("item", "trash").first(), " ", t.remove("missing"), " ", t.remove("nil"), "\n");
     tabula paid = t.query("status", "paid");
     print("paid ", paid.first(), " ", paid.get("item"), " ", paid.get("qty"), "\n");
     print("readcmp ", cmp(t.read(), t.serialize()), "\n");
-    print("bad ", t.write("c", "missing", "x"), "\n");
+    print("bad ", t.write("c", "missing", "x"), " ", t.add(""), " ", t.write("", "item", "x"), " ", t.add("nil"), " ", t.write("nil", "item", "x"), "\n");
     print("remote ", t.sync(), " ", t.push(), "\n");
 
     writefile("/tmp/o9_tabula_methods.tab", t.read());

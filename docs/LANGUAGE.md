@@ -518,6 +518,7 @@ schema()
 has(col)
 add(id)
 write(id, col, val)
+remove(id)
 set(col, val)
 get(col)
 value(id, col)
@@ -529,9 +530,13 @@ flush()
 close()
 ```
 
-`write` mutates a particular record by id. `value` reads one cell by record id
-and column name without changing the current cursor. `set` and `get` operate on
-the current record after `add`, `first`, or `next`.
+`add` and `write` require a non-empty record id; `nil` is reserved for the
+hidden canonical nil row. `nil` cell values are stored as semantic nil, not as
+empty strings. `write` mutates a particular record by id. `remove` collapses a
+record into the hidden nil row, so it disappears from iteration, query, and
+serialization. `value` reads one cell by record id and column name without
+changing the current cursor. `set` and `get` operate on the current record after
+`add`, `first`, or `next`.
 
 ### tabula Locality
 

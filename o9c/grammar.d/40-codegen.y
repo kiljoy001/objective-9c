@@ -441,6 +441,7 @@ gen_tabula_msg(Node *e, Type *lt)
         {"has", "o9_tab_has"},
         {"add", "o9_tab_add"},
         {"write", "o9_tab_write"},
+        {"remove", "o9_tab_remove"},
         {"set", "o9_tab_set"},
         {"get", "o9_tab_get"},
         {"value", "o9_tab_value"},

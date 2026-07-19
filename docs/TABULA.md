@@ -73,7 +73,12 @@ t.flush()
 ```
 
 - `write(id, col, value)` mutates the in-memory document, creating the
-  `id` record when needed.
+  `id` record when needed. Row ids must be non-empty; `nil` is reserved for
+  the hidden canonical nil row.
+- `remove(id)` collapses a record into the hidden canonical nil row. The row
+  then disappears from iteration, query, and serialization.
+- A nil cell value is semantic nil, not an empty string. Serialized user cells
+  with nil values appear as `col=nil`.
 - `value(id, col)` reads one cell directly by record id and column name without
   changing the current iterator row.
 - `query(col, value)` searches for records whose column matches the value and

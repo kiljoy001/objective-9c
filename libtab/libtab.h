@@ -55,9 +55,14 @@ Tab *tab_create(const char *path, const char *schema_name,
  * tab_set_signed.  Returns nil on failure (OOM, dedup-mismatch). */
 TabRow *tab_add_row(Tab *t, const char *head_attr, const char *head_val);
 
-/* Set or create an untyped (plain text) cell.  Mirrors the typed
- * setters.  Returns 0 on success, -1 on collision or error. */
+/* Set or create an untyped (plain text) cell.  A nil value pointer
+ * stores the semantic nil cell value.  Mirrors the typed setters.
+ * Returns 0 on success, -1 on collision or error. */
 int tab_set(Tab *t, TabRow *r, const char *col, const char *value);
+
+/* Remove a row by collapsing it into the table's canonical nil row.
+ * The row pointer is invalid after a successful call. */
+int tab_remove_row(Tab *t, TabRow *r);
 
 /* Open a libtab file.  Reads the file, parses the schema= tuple if
  * present, and prepares for iteration.  Returns nil on failure;

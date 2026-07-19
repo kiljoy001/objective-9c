@@ -43,6 +43,72 @@ schema_type_ok(const char *type)
 	return strcmp(type, "HASHED") == 0 || strcmp(type, "SIGNED") == 0;
 }
 
+static Ndbtuple*
+tab_nil_chain(Tab *t)
+{
+	Ndbtuple *head, *last, *nt;
+	int i;
+
+	if(t == nil || t->schema.ncols <= 0)
+		return nil;
+	head = ndbnew(t->schema.cols[0].name, "nil");
+	if(head == nil)
+		return nil;
+	last = head;
+	for(i = 1; i < t->schema.ncols; i++){
+		nt = ndbnew(t->schema.cols[i].name, "nil");
+		if(nt == nil){
+			ndbfree(head);
+			return nil;
+		}
+		last->entry = nt;
+		last = nt;
+	}
+	return head;
+}
+
+int
+tab_ensure_nil_row(Tab *t)
+{
+	Ndbtuple *chain;
+	int i, ins;
+
+	if(t == nil || t->schema.ncols <= 0){
+		tab_seterror("tab_ensure_nil_row: bad table");
+		return -1;
+	}
+	if(t->nilrow != nil)
+		return 0;
+	for(i = 0; i < t->nrows; i++){
+		if(tab_row_is_nil(t, t->rows[i])){
+			t->nilrow = t->rows[i];
+			return 0;
+		}
+	}
+	chain = tab_nil_chain(t);
+	if(chain == nil){
+		tab_seterror("tab_ensure_nil_row: ndbnew failed");
+		return -1;
+	}
+	ins = tab_rowmap_insert(t, chain);
+	if(ins < 0){
+		ndbfree(chain);
+		return -1;
+	}
+	if(ins == 0){
+		ndbfree(chain);
+		for(i = 0; i < t->nrows; i++){
+			if(tab_row_is_nil(t, t->rows[i])){
+				t->nilrow = t->rows[i];
+				return 0;
+			}
+		}
+		tab_seterror("tab_ensure_nil_row: duplicate nil row not found");
+		return -1;
+	}
+	return 0;
+}
+
 static TabCol *
 find_col(Tab *t, const char *name)
 {
@@ -173,6 +239,10 @@ tab_create(const char *path, const char *schema_name,
 		tab_close(t);
 		return nil;
 	}
+	if(tab_ensure_nil_row(t) < 0){
+		tab_close(t);
+		return nil;
+	}
 	/* Fresh table: nothing on disk yet.  No ndb handle.  tab_commit
 	 * will create the file via the existing serializer+persister. */
 	t->dirty = 1;	/* an empty schema-only file is itself a commit */
@@ -190,6 +260,11 @@ tab_add_row(Tab *t, const char *head_attr, const char *head_val)
 	tab_clearerror();
 	if(t == nil || head_attr == nil || head_val == nil){
 		tab_seterror("tab_add_row: nil argument");
+		return nil;
+	}
+	if(head_attr[0] == '\0' || head_val[0] == '\0' ||
+	   strcmp(head_val, "nil") == 0){
+		tab_seterror("tab_add_row: empty or reserved row name");
 		return nil;
 	}
 	schema_col = find_col(t, head_attr);
@@ -236,14 +311,16 @@ tab_set(Tab *t, TabRow *r, const char *col, const char *value)
 {
 	Ndbtuple *tup, *last, *newtup;
 	char *saved_inline, *saved_heap;
+	const char *store;
 	TabCol *schema_col;
 	int rh;
 
 	tab_clearerror();
-	if(t == nil || r == nil || col == nil || value == nil){
+	if(t == nil || r == nil || col == nil){
 		tab_seterror("tab_set: nil argument");
 		return -1;
 	}
+	store = value != nil ? value : "nil";
 	schema_col = find_col(t, col);
 	if(schema_col == nil){
 		tab_seterror("tab_set: column %q not in schema", col);
@@ -252,6 +329,11 @@ tab_set(Tab *t, TabRow *r, const char *col, const char *value)
 	if(schema_col->type != nil){
 		tab_seterror("tab_set: column %q is typed %q; use typed setter",
 			col, schema_col->type);
+		return -1;
+	}
+	if(t->schema.ncols > 0 && strcmp(col, t->schema.cols[0].name) == 0 &&
+	   (store[0] == '\0' || strcmp(store, "nil") == 0)){
+		tab_seterror("tab_set: empty or reserved row name");
 		return -1;
 	}
 
@@ -271,7 +353,7 @@ tab_set(Tab *t, TabRow *r, const char *col, const char *value)
 
 	if(tup == nil){
 		/* Append. */
-		newtup = ndbnew((char *)col, (char *)value);
+		newtup = ndbnew((char *)col, (char *)store);
 		if(newtup == nil){
 			tab_seterror("tab_set: ndbnew failed");
 			return -1;
@@ -308,7 +390,7 @@ tab_set(Tab *t, TabRow *r, const char *col, const char *value)
 		saved_heap = tup->val;
 		tup->val = tup->valbuf;
 	}
-	ndbsetval(tup, (char *)value, strlen(value));
+	ndbsetval(tup, (char *)store, strlen(store));
 	rh = tab_rowmap_rehash(t, r->chain);
 	if(rh == 0){
 		t->dirty = 1;
@@ -326,4 +408,28 @@ tab_set(Tab *t, TabRow *r, const char *col, const char *value)
 		free(saved_inline);
 	}
 	return -1;
+}
+
+int
+tab_remove_row(Tab *t, TabRow *r)
+{
+	Ndbtuple *p;
+
+	tab_clearerror();
+	if(t == nil || r == nil || r == t->nilrow){
+		tab_seterror("tab_remove_row: invalid row");
+		return -1;
+	}
+	if(tab_ensure_nil_row(t) < 0)
+		return -1;
+	for(p = r->chain; p != nil; p = p->entry)
+		ndbsetval(p, "nil", 3);
+	if(!tab_row_is_nil(t, r)){
+		tab_seterror("tab_remove_row: row did not collapse to nil");
+		return -1;
+	}
+	if(tab_rowmap_delete(t, r) < 0)
+		return -1;
+	t->dirty = 1;
+	return 0;
 }

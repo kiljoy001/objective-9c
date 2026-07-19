@@ -2214,6 +2214,7 @@ typecheck_tabula_msg(Node *e, Node *scope_class, Type *lt, int *errs)
         {"has", 1, 1, 0, -1, 0},
         {"add", 1, 1, 0, -1, 0},
         {"write", 3, 1, 0, -1, 0},
+        {"remove", 1, 1, 0, -1, 0},
         {"set", 2, 1, 0, -1, 0},
         {"get", 1, 1, 0, -1, 0},
         {"value", 2, 1, 0, -1, 0},
@@ -2234,7 +2235,7 @@ typecheck_tabula_msg(Node *e, Node *scope_class, Type *lt, int *errs)
     r = lookup_msg_rule(rules, nelem(rules), e->name);
     if(r == nil){
         fprint(2, "o9c: error: line %d: tabula has no method '%s' "
-            "(schema/has/add/write/set/get/value/first/next/read/serialize/query/flush/sync/push/close)\n",
+            "(schema/has/add/write/remove/set/get/value/first/next/read/serialize/query/flush/sync/push/close)\n",
             sem_line, e->name);
         (*errs)++;
         typecheck_arg_values(e->right, scope_class, errs);

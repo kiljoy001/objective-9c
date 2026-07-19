@@ -51,9 +51,14 @@ tab_iter_next(TabIter *it)
 		return nil;
 	for(; it->idx < it->t->nrows; it->idx++){
 		r = it->t->rows[it->idx];
+		if(tab_row_is_nil(it->t, r))
+			continue;
 		if(it->col != nil){
 			cell = tab_row_cell(r->chain, it->col);
-			if(cell == nil || strcmp(cell, it->value) != 0)
+			if(tab_cell_is_nil(cell)){
+				if(!tab_cell_is_nil(it->value))
+					continue;
+			}else if(strcmp(cell, it->value) != 0)
 				continue;
 		}
 		it->idx++;
