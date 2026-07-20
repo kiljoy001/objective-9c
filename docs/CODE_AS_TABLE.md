@@ -45,7 +45,7 @@ pipeline, which is what this OS already knows how to compose.
 
 ## The Code Table
 
-One row per AST node.  `Node` is {type, flags, line, name, typename,
+One entry per AST node.  `Node` is {type, flags, line, name, typename,
 qname, left, right, params, next} — everything else (`typeinfo`,
 `cname`) is derived by typecheck/codegen and deliberately NOT
 serialized: macros operate on surface structure, and the typechecker
@@ -55,7 +55,7 @@ Columns:
 
 | col      | meaning                                            |
 |----------|----------------------------------------------------|
-| id       | node id, the row key (dense ints, pre-order)       |
+| id       | node id, the entry key (dense ints, pre-order)     |
 | parent   | id of the owning node, empty for roots             |
 | edge     | which pointer owns this node: left, right, params  |
 | seq      | position along the sibling (`next`) chain          |
@@ -80,7 +80,7 @@ Two flags beside the existing `-ast`:
   program before semantic analysis, and expansion output gets checked
   afterward anyway.)
 - `o9c -t < prog.code.tab > prog.c` — skip lexer/parser, rebuild the
-  Node graph from rows, then run the normal typecheck + codegen.
+  Node graph from entries, then run the normal typecheck + codegen.
 
 These flags are design targets, not current command-line options.
 
@@ -150,10 +150,10 @@ expansion — and removable by deleting one pipeline stage.
 
 ## Staging
 
-1. **-T**: emit rows (rework `dump_ast` into `dump_table`; move the
+1. **-T**: emit entries (rework `dump_ast` into `dump_table`; move the
    call site before typecheck).  Assert well-formedness: every parent
    exists, (parent, edge, seq) unique.
-2. **-t**: rows → Node graph (two passes: allocate by id, then link).
+2. **-t**: entries → Node graph (two passes: allocate by id, then link).
    Gate: roundtrip identity over the whole e2e corpus, `mk table-test`.
 3. **expand_secret** as the first macro + e2e case; TUTORIAL section.
 4. Later, if wanted: use the existing `tabula` object for code-table
@@ -165,8 +165,8 @@ expansion — and removable by deleting one pipeline stage.
 The language-level type is **tabula**, not Table or Tab.  "Tab" reads
 as the whitespace character; "Table" quietly promises relational
 algebra (joins, SQL semantics) that libtab deliberately does not
-have.  A tabula is the writing surface itself — rows written to a
-slate, searched and iterated, nothing heaped on top — which is what
-this storage actually is.  The lineage decays naturally through the
+have.  A tabula is the writing surface itself — entries written to a
+slate, searched and iterated, nothing heaped on top — which is what this
+storage actually is.  The lineage decays naturally through the
 layers: tabula (language) → .tab (files) → libtab (C library), the
 same relationship string has to char*.

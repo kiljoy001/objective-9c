@@ -16,6 +16,8 @@ main {
 
     Factotum ft = new Factotum();
     print("factotum ", ft.available(), "\n");
+    string ftuser = ft.user();
+    print("user ", len(ftuser) > 0, " ", ft.isUser(ftuser), " ", ft.isCaller(ft.caller()), "\n");
 
     string unlock = passkey("unlock", "net.token.unlock.v1");
     string wrong = passkey("wrong", "net.token.unlock.v1");

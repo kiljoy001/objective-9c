@@ -25,6 +25,9 @@
  *      Existing cell → replace; missing cell → append.  Rehashes
  *      the row in the rowmap.
  *
+ *   tab_clear(t, r, col)
+ *      Remove a non-identity cell from a row. Missing cell → no-op.
+ *
  * Persistence is identical to mutation-of-existing-file: every
  * tab_set_* marks the Tab dirty; tab_commit writes; tab_close
  * auto-commits if dirty.
@@ -407,6 +410,50 @@ tab_set(Tab *t, TabRow *r, const char *col, const char *value)
 		ndbsetval(tup, saved_inline, strlen(saved_inline));
 		free(saved_inline);
 	}
+	return -1;
+}
+
+int
+tab_clear(Tab *t, TabRow *r, const char *col)
+{
+	Ndbtuple *victim, **link;
+	TabCol *schema_col;
+	int rh;
+
+	tab_clearerror();
+	if(t == nil || r == nil || col == nil){
+		tab_seterror("tab_clear: nil argument");
+		return -1;
+	}
+	schema_col = find_col(t, col);
+	if(schema_col == nil){
+		tab_seterror("tab_clear: column %q not in schema", col);
+		return -1;
+	}
+	if(t->schema.ncols > 0 && strcmp(col, t->schema.cols[0].name) == 0){
+		tab_seterror("tab_clear: cannot clear row identity column %q", col);
+		return -1;
+	}
+
+	link = &r->chain;
+	while(*link != nil && strcmp((*link)->attr, col) != 0)
+		link = &(*link)->entry;
+	if(*link == nil)
+		return 0;
+
+	victim = *link;
+	*link = victim->entry;
+	victim->entry = nil;
+
+	rh = tab_rowmap_rehash(t, r->chain);
+	if(rh == 0){
+		t->dirty = 1;
+		ndbfree(victim);
+		return 0;
+	}
+
+	victim->entry = *link;
+	*link = victim;
 	return -1;
 }
 

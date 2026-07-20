@@ -99,6 +99,9 @@ ctlargs-test:V:	o9c libo9.a
 ctlquote-test:V:	o9c libo9.a
 	rc ./o9c/test/run_ctlquote.rc
 
+auth-test:V:	o9c libo9.a
+	rc ./o9c/test/run_auth.rc
+
 debug-test:V:	o9c libo9.a
 	rc ./o9c/test/run_debug.rc
 
@@ -122,6 +125,7 @@ verify:V:	o9c libo9.a
 	mk session-test
 	mk ctlargs-test
 	mk ctlquote-test
+	mk auth-test
 	mk issue-test
 	mk crypto-test
 	mk tab-test

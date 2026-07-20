@@ -1090,6 +1090,10 @@ Methods:
 - `Factotum()`
 - `useMount(string path)`
 - `path() string`
+- `user() string`
+- `caller() string`
+- `isUser(string name) bool`
+- `isCaller(string name) bool`
 - `available() bool`
 - `keys() string`
 - `has(string query) bool`
@@ -1097,9 +1101,15 @@ Methods:
 - `addKey(string spec) bool`
 - `delKey(string query) bool`
 
+`user` returns the local Plan 9 user. `caller` returns the current 9P request
+user when a method is invoked through the generated app facade, falling back
+to the local user outside a facade call. `isUser` and `isCaller` are exact
+string checks intended for simple controller policy.
+
 `addKey` writes `key <spec>` to factotum's `ctl` file; `delKey` writes
-`delkey <query>`. The object does not expose private key bytes. It only checks
-and controls the native auth agent.
+`delkey <query>`. The object does not expose private key bytes. It checks
+caller identity and controls the native auth agent without handing raw secrets
+to o9 code.
 
 `NetToken` is the portable fallback for capability-style authorization strings,
 mainly for Unix interop or exported `.tab` workflows where factotum is not
@@ -1193,7 +1203,8 @@ if(known.verifyOrPin("tcp!host!svc", id)) {
 ## tabula
 
 `tabula` is the standard structured data object. It is built into the runtime
-as the first-class `.tab` data type.
+as the first-class `.tab` data type. A tabula is one collection of entries; an
+entry is an id value plus attached named values.
 
 ```o9
 main {
@@ -1214,7 +1225,7 @@ Constructors:
 
 - `new tabula(path)` opens an existing `.tab` file.
 - `new tabula(schema, "col1,col2")` creates an in-memory document whose
-  first column is the record identity column `id`.
+  first column is the entry identity column `id`.
 
 Methods:
 
@@ -1236,13 +1247,14 @@ Methods:
 - `push() int64`
 - `close()`
 
-`add` and `write` require a non-empty record id; `nil` is reserved for the
-hidden canonical nil row. `nil` cell values are stored as semantic nil, not as
-empty strings. `write` mutates a specific record by id. `remove` collapses a
-record into the hidden nil row, so it disappears from iteration, query, and
-serialization. `value` reads one cell by record id and column name without
-changing the current cursor. `set` and `get` operate on the current record after
-`add`, `first`, or `next`.
+`add` and `write` require a non-empty entry id; `nil` is reserved for the
+hidden canonical nil entry. `nil` values are semantic nil, not empty strings:
+writing nil clears the attached value, so the serialized entry omits that
+`col=` line. `write` mutates a specific entry by id. `remove` collapses an
+entry into the hidden nil entry, so it disappears from iteration, query, and
+serialization. `value` reads one attached value by entry id and value name
+without changing the current cursor. `set` and `get` operate on the current
+entry after `add`, `first`, or `next`.
 
 Binary data should be stored as hex text in a column named `0x`:
 

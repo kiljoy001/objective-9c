@@ -1,5 +1,5 @@
-// tabula — the first-class table type. Create, fill with rows, iterate,
-// read cells, serialize. Backed by libtab; every value is text.
+// tabula — the first-class data-envelope type. Create, fill with entries,
+// read values, serialize. Backed by libtab; every value is text.
 main {
     tabula t = new tabula("orders", "item,qty");
     t.add("a");
@@ -9,7 +9,7 @@ main {
     t.set("item", "gadget");
     t.set("qty", "3");
 
-    // iterate and read cells back
+    // iterate and read values back
     int64 n = t.first();
     while(n == 1) {
         print(t.get("item"), " ", t.get("qty"), "\n");

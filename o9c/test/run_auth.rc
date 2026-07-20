@@ -1,0 +1,109 @@
+#!/bin/rc
+# Factotum caller/user facade test.  The stdlib object should expose the
+# request user that arrived through the generated 9P ctl path, and that
+# identity should propagate through an object-to-object call.
+
+tool=./o9c/o9c
+app=o9auth
+src=stdlib/auth_facade_app.o9
+bin=/tmp/o9auth.$pid
+mtpt=/n/o9auth.$pid
+srv=/srv/o9.$app.$app.app
+fail=0
+p=''
+watch=''
+
+fn depincs {
+	awk '/^\/\* o9: include / { print "-I" $4 }' $1
+}
+
+fn deparchs {
+	awk '/^\/\* o9: archive / { print $4 }' $1
+}
+
+fn cleanup {
+	unmount $mtpt >[2]/dev/null
+	if(! ~ $"watch '')
+		kill $watch | rc >[2]/dev/null
+	if(! ~ $"p '')
+		kill $p | rc >[2]/dev/null
+	kill o9auth.$pid | rc >[2]/dev/null
+	rm -f $srv $bin /tmp/o9auth.$pid.^*
+}
+
+if(! test -e $tool){ echo missing $tool >[1=2]; exit missing }
+if(! test -e libo9.a){ echo missing libo9.a >[1=2]; exit missing }
+
+me=`{cat /dev/user >[2]/dev/null}
+if(~ $"me '')
+	me=$user
+if(~ $"me ''){
+	echo 'auth: FAIL: no local user' >[1=2]
+	exit fail
+}
+
+rm -f $srv
+if(! $tool $src > /tmp/o9auth.$pid.c){ echo 'auth: FAIL: transpile' >[1=2]; exit fail }
+incs=`{depincs /tmp/o9auth.$pid.c}
+archs=`{deparchs /tmp/o9auth.$pid.c}
+cerr=/tmp/o9auth.$pid.err
+if(! 6c -FVw -I. $incs -o /tmp/o9auth.$pid.6 /tmp/o9auth.$pid.c > $cerr >[2=1]){
+	cat $cerr >[1=2]
+	cleanup
+	exit fail
+}
+if(grep -s 'warning:' $cerr){
+	echo 'auth: FAIL: 6c warning treated as error' >[1=2]
+	cat $cerr >[1=2]
+	cleanup
+	exit fail
+}
+rm -f $cerr
+if(! 6l -o $bin /tmp/o9auth.$pid.6 libo9.a /$objtype/lib/libndb.a $archs){
+	echo 'auth: FAIL: 6l' >[1=2]
+	cleanup
+	exit fail
+}
+
+$bin $app &
+p=$apid
+@{ sleep 15; if(! ~ $"p '') kill $p | rc >[2]/dev/null } &
+watch=$apid
+
+i=0
+while(! test -e $srv && test $i -lt 12){ sleep 1; i=`{hoc -e $i+1} }
+if(! test -e $srv){ echo 'auth: FAIL: no /srv post' >[1=2]; cleanup; exit fail }
+
+if(! mount -c $srv $mtpt){ echo 'auth: FAIL: mount' >[1=2]; cleanup; exit fail }
+
+sid=`{cat $mtpt/clone}
+if(~ $"sid ''){ echo 'auth: FAIL: clone gave no id' >[1=2]; cleanup; exit fail }
+
+echo 'method Gate.g caller' > $mtpt/$sid/ctl
+caller=`{cat $mtpt/$sid/data}
+if(! ~ $"caller $"me){
+	echo 'auth: FAIL: caller='^$"caller^' want='^$"me >[1=2]
+	fail=1
+}
+
+echo 'method Gate.g callerIs arg0='$me > $mtpt/$sid/ctl
+ok=`{cat $mtpt/$sid/data}
+if(! ~ $"ok 1){
+	echo 'auth: FAIL: callerIs returned '^$"ok >[1=2]
+	fail=1
+}
+
+echo 'method Gate.g user' > $mtpt/$sid/ctl
+procuser=`{cat $mtpt/$sid/data}
+if(~ $"procuser ''){
+	echo 'auth: FAIL: empty process user' >[1=2]
+	fail=1
+}
+
+echo close > $mtpt/$sid/ctl
+cleanup
+
+if(~ $fail 0)
+	echo auth: OK
+if not
+	exit fail

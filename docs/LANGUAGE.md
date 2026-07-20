@@ -495,7 +495,8 @@ project folder.
 `tabula` is the standard structured data object for `.tab` files. A `.tab`
 file is text data with embedded semantics, not an executable object export.
 The lowercase spelling is canonical; `Tabula` remains accepted as a
-compatibility alias for older source.
+compatibility alias for older source. A tabula is one collection of entries;
+an entry is an id value plus attached named values.
 
 ```o9
 main {
@@ -530,13 +531,14 @@ flush()
 close()
 ```
 
-`add` and `write` require a non-empty record id; `nil` is reserved for the
-hidden canonical nil row. `nil` cell values are stored as semantic nil, not as
-empty strings. `write` mutates a particular record by id. `remove` collapses a
-record into the hidden nil row, so it disappears from iteration, query, and
-serialization. `value` reads one cell by record id and column name without
-changing the current cursor. `set` and `get` operate on the current record after
-`add`, `first`, or `next`.
+`add` and `write` require a non-empty entry id; `nil` is reserved for the
+hidden canonical nil entry. `nil` values are semantic nil, not empty strings:
+writing nil clears the attached value, so the serialized entry omits that
+`col=` line. `write` mutates a particular entry by id. `remove` collapses an
+entry into the hidden nil entry, so it disappears from iteration, query, and
+serialization. `value` reads one attached value by entry id and value name
+without changing the current cursor. `set` and `get` operate on the current
+entry after `add`, `first`, or `next`.
 
 ### tabula Locality
 
@@ -642,6 +644,8 @@ echo close > /mnt/o9/$sid/ctl
 The session id carries the conversation across separate shell commands.
 Root-level `ctl` is for compatibility/debug and app-wide commands; normal
 method calls that return data should use session-local `ctl` and `data`.
+Controller methods can use `Factotum.caller()` from `stdlib/net.o9` to inspect
+the current 9P request user and decide whether a mutation is allowed.
 
 Apps can publish `.tab` data under `exports/`:
 

@@ -185,6 +185,25 @@ function NetCloseRaw(string token) int64 {
     return out;
 }
 
+function FactotumUserRaw() string {
+    string out;
+    c {
+        char *u;
+
+        u = getuser();
+        out = o9_string_from_c(u != nil ? u : "");
+    }
+    return out;
+}
+
+function FactotumCallerRaw() string {
+    string out;
+    c {
+        out = o9_current_user();
+    }
+    return out;
+}
+
 function FactotumAvailableRaw(string mount) int64 {
     int64 out;
     c {
@@ -408,6 +427,28 @@ class Factotum {
 
     method string path() {
         return mount;
+    }
+
+    method string user() {
+        Task<string> t = spawn FactotumUserRaw();
+        return t.await();
+    }
+
+    method string caller() {
+        Task<string> t = spawn FactotumCallerRaw();
+        return t.await();
+    }
+
+    method bool isUser(string name) {
+        string current;
+        current = user();
+        return cmp(current, name) == 0;
+    }
+
+    method bool isCaller(string name) {
+        string current;
+        current = caller();
+        return cmp(current, name) == 0;
     }
 
     method bool available() {

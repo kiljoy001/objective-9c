@@ -100,11 +100,14 @@ o9_crypto_keypair(char *pub, char *sec)
 	if(pub == nil || sec == nil)
 		return -1;
 	/* seed from the system RNG; on 9front this is /dev/random-backed */
-	if(o9_randbytes(seed, sizeof seed) < 0)
+	if(o9_randbytes(seed, sizeof seed) < 0){
+		crypto_wipe(seed, sizeof seed);
 		return -1;
+	}
 	tohex(seed, 32, sec);	/* the persistent secret is the 32-byte seed */
-	/* key_pair expands seed->sk(64) and derives pk; it wipes seed after */
+	/* Monocypher wipes seed too; keep the boundary wipe explicit here. */
 	crypto_eddsa_key_pair(sk, pk, seed);
+	crypto_wipe(seed, sizeof seed);
 	tohex(pk, 32, pub);
 	crypto_wipe(sk, sizeof sk);
 	return 0;
@@ -121,9 +124,12 @@ o9_crypto_sign(char *sechex, uchar *msg, long nmsg, char *sig)
 
 	if(sechex == nil || sig == nil)
 		return -1;
-	if(fromhex(sechex, seed, 32) != 32)	/* stored secret is the seed */
+	if(fromhex(sechex, seed, 32) != 32){	/* stored secret is the seed */
+		crypto_wipe(seed, sizeof seed);
 		return -1;
+	}
 	crypto_eddsa_key_pair(sk, pk, seed);	/* expand seed -> 64-byte sk */
+	crypto_wipe(seed, sizeof seed);
 	crypto_eddsa_sign(sg, sk, msg, (size_t)nmsg);
 	tohex(sg, 64, sig);
 	crypto_wipe(sk, sizeof sk);
@@ -200,13 +206,20 @@ o9_pubkey(O9String *sec)
 	char *pub;
 	char *csec;
 
+	if(sec == nil)
+		return nil;
 	csec = o9_string_data(sec);
-	if(sec == nil || fromhex(csec, seed, 32) != 32)
+	if(fromhex(csec, seed, 32) != 32){
+		crypto_wipe(seed, sizeof seed);
 		return nil;
+	}
 	pub = malloc(65);
-	if(pub == nil)
+	if(pub == nil){
+		crypto_wipe(seed, sizeof seed);
 		return nil;
-	crypto_eddsa_key_pair(sk, pk, seed);	/* wipes seed itself */
+	}
+	crypto_eddsa_key_pair(sk, pk, seed);
+	crypto_wipe(seed, sizeof seed);
 	tohex(pk, 32, pub);
 	crypto_wipe(sk, sizeof sk);
 	return o9_string_take(pub);

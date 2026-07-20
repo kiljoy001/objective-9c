@@ -49,7 +49,7 @@ build on both — proof the dual-target approach holds.
 1. **Core primitive.**  Object = compiled code + a `.tab`.  The `.tab`
    is the struct's uniform representation; the code operates on it.
    Data and behavior are cleanly split: code is rigid (compiled,
-   installed), state is fluid (rows in a table).  That split is what
+   installed), state is fluid (entries in a tabula).  That split is what
    makes checkpoint, live redefinition, and safe transmission possible.
 
 2. **9P-on-tables is the semantics; the machinery is the transport.**
@@ -82,7 +82,7 @@ build on both — proof the dual-target approach holds.
    the machine that owns the source. It is never runtime eval, method-set
    mutation, or a wire format.
 
-5. **Naming.**  The language-level table type is **tabula** (not
+5. **Naming.**  The language-level data-envelope type is **tabula** (not
    Table/Tab).  libtab / `.tab` stay at the C and file layer.
 
 ## Everything is a consequence

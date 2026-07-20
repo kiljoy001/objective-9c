@@ -53,8 +53,9 @@ This is consistent with — and generalizes — what the facade ALREADY does:
 So: an app is a fileserver that PRODUCES a namespace of virtual files,
 and the namespace surface should serve THAT — a program builds a tree of
 produced files, organized how it wants, that clients mount and read.
-Generalize `exports/` from "publish one tabula" to "the app builds a
-tree of produced files in a namespace region."
+Generalize `exports/` from "publish one named tabula file" to "the app
+builds a namespace region containing produced files." The namespace may
+be a file tree; the tabula inside it is still just data entries.
 
 ## What to retire / what to reuse
 
@@ -85,9 +86,9 @@ composition returns later, it should be an explicit `Namespace` or
 
 ## Open design questions (resolve before build)
 
-- Surface: how does a program declare "produce this tree of files here"?
-  A generalized export (export a tabula -> export a named tree)? A
-  namespace-builder object? Declarative vs imperative?
+- Surface: how does a program declare "produce these files here"?
+  Generalized named exports? A namespace-builder object? Declarative vs
+  imperative?
 - Does a produced namespace stay per-app (in the facade) or can it be a
   standalone served region a client mounts directly?
 - Where do produced files live — the app's served tree (like exports/,

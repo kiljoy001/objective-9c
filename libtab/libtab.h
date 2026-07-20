@@ -55,10 +55,13 @@ Tab *tab_create(const char *path, const char *schema_name,
  * tab_set_signed.  Returns nil on failure (OOM, dedup-mismatch). */
 TabRow *tab_add_row(Tab *t, const char *head_attr, const char *head_val);
 
-/* Set or create an untyped (plain text) cell.  A nil value pointer
- * stores the semantic nil cell value.  Mirrors the typed setters.
- * Returns 0 on success, -1 on collision or error. */
+/* Set or create an untyped (plain text) cell.  Returns 0 on success,
+ * -1 on collision or error. */
 int tab_set(Tab *t, TabRow *r, const char *col, const char *value);
+
+/* Remove a non-identity cell from a row.  Missing cells are already
+ * semantic nil and are treated as success. */
+int tab_clear(Tab *t, TabRow *r, const char *col);
 
 /* Remove a row by collapsing it into the table's canonical nil row.
  * The row pointer is invalid after a successful call. */

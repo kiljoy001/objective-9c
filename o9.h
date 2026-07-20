@@ -4,12 +4,14 @@
 /* Universal Message Model */
 typedef struct O9Msg O9Msg;
 typedef struct O9Reply O9Reply;
+typedef struct O9String O9String;
 
 struct O9Msg {
     ulong sel;
     void *args;
     int nargs;
     void *replyc;		/* Channel* */
+    char *caller;		/* authenticated/request user, copied by actor */
 };
 
 struct O9Reply {
@@ -100,13 +102,16 @@ extern ulong o9_hash(char *s);
 extern void  o9_set_call_err(char *e);
 extern char* o9_get_call_err(void);
 extern void  o9_actor_enter(void *dispatch_chan, char *oid);
+extern void  o9_set_current_user(char *user);
+extern char* o9_current_user_c(void);
+extern O9String* o9_current_user(void);
+extern int   o9_current_user_is(O9String *user);
 
 /* O9String — immutable language-level string.
  *
  * Source-level `string` lowers to O9String*.  The backing data is kept
  * NUL-terminated for Plan 9 C interop, but len is authoritative.
  */
-typedef struct O9String O9String;
 struct O9String {
     char *data;
     vlong len;
@@ -332,7 +337,7 @@ extern vlong    o9_state_get_int(O9State *s, char *col);
 extern int      o9_state_flush(O9State *s, char *path);	/* explicit persist to disk */
 extern int      o9_state_serialize(O9State *s, char *out, int nout);	/* debug: dump live tab */
 
-/* Tabula — the language-level table type, over libtab. Text in/out. */
+/* Tabula — the language-level data-envelope type, over libtab. Text in/out. */
 typedef struct O9Tabula O9Tabula;
 extern O9Tabula* o9_tab_new(O9String *name, O9String *cols);	/* cols = "a,b,c" */
 extern O9Tabula* o9_tab_open(O9String *path);
@@ -340,14 +345,14 @@ extern O9Tabula* o9_tab_open_remote(O9String *addr, O9String *name, int distance
 extern int       o9_tab_push_remote(O9String *addr, O9String *name, O9Tabula *t, int distance);
 extern O9String* o9_tab_schema(O9Tabula *t);
 extern int       o9_tab_has(O9Tabula *t, O9String *col);
-extern int       o9_tab_add(O9Tabula *t, O9String *key);	/* append row, becomes current */
+extern int       o9_tab_add(O9Tabula *t, O9String *key);	/* append entry, becomes current */
 extern int       o9_tab_write(O9Tabula *t, O9String *id, O9String *col, O9String *val);
 extern int       o9_tab_remove(O9Tabula *t, O9String *id);
 extern int       o9_tab_set(O9Tabula *t, O9String *col, O9String *val);
 extern O9String* o9_tab_get(O9Tabula *t, O9String *col);
 extern O9String* o9_tab_value(O9Tabula *t, O9String *id, O9String *col);
-extern int       o9_tab_first(O9Tabula *t);	/* start iteration; 1 if a row */
-extern int       o9_tab_next(O9Tabula *t);	/* advance; 1 if a row, 0 at end */
+extern int       o9_tab_first(O9Tabula *t);	/* start iteration; 1 if an entry */
+extern int       o9_tab_next(O9Tabula *t);	/* advance; 1 if an entry, 0 at end */
 extern O9String* o9_tab_read(O9Tabula *t);	/* whole tab as text */
 extern O9String* o9_tab_serialize(O9Tabula *t);	/* whole tab as text */
 extern O9Tabula* o9_tab_query(O9Tabula *t, O9String *col, O9String *val);

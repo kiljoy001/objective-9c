@@ -2,40 +2,54 @@
 
 ## What it is, in one sentence
 
-A tabula is a **data envelope**: an ordered, schema-carrying, on-disk
-table of cells — any cell individually sealable — that moves across the
+A tabula is a **data envelope**: an ordered, schema-carrying collection
+of entries — any value individually sealable — that moves across the
 grid as a 9P file.  It is data.  It is never an object, never code,
 never actionable on arrival.
 
 ## The four properties
 
-- **Ordered** — records carry sequence, so a tabula can hold structure
-  (sequences, trees via parent/seq), not just an unordered bag of
-  key-values.
+- **Ordered** — entries keep their file order. Applications may use
+  values to encode sequence or relationships, but tabula itself is not
+  a tree, graph, or query model.
 - **Schematic** — columns are declared and travel *with* the data. A
   tabula is self-describing: a receiver knows what it got without an
   out-of-band contract. (JSON has no schema; protobuf keeps the schema
   in a separate file you must already hold. Here the schema is in the
   bytes.)
-- **Loose / user-defined** — you declare the columns. The format
-  imposes no data model: relational when you want records, tree-shaped
-  when you want parent/edge/seq, a single sealed cell when you want a
-  secret.
+- **Loose / user-defined** — you declare the value names. The format
+  imposes no higher data model. A program can encode a Merkle tree with
+  `hash`, `parent`, and `seq` values if it wants, but those are still
+  just values attached to entries; the receiver's own code gives them
+  meaning.
 - **Persistent** — the wire form, the at-rest form, and the serialized
   form are the *same bytes*. `writefile` it, `tab_open` it, mount it,
   mail it — one representation everywhere, no serialize/deserialize/
   re-serialize cycle at any boundary.
 
-One line: a self-describing, ordered, user-schema'd record format whose
+One line: a self-describing, ordered, user-schema'd entry format whose
 serialized, wire, and on-disk forms are identical text.  This is the
 Plan 9 "everything is a cat-able file" thesis finally reaching
 *structured* data, on the same terms as unstructured IO.
 
 ## Shape and API
 
-A `.tab` file is one semantic collection.  The first entry is the schema
-for the whole file; every following entry is one record in that schema.
-The record type is not repeated per entry.
+A `.tab` file is one semantic collection of entries. The first entry is
+the schema for the whole file; every following entry has one identity
+value plus attached named values. The entry kind is not repeated per
+entry.
+
+Terms used in these docs:
+
+- **entry** — one item in a tabula: an id value plus attached named
+  values.
+- **id** — the entry identity value. It lives in the first schema column
+  and cannot be nil, empty, or the literal string `nil`.
+- **value** — a named value attached to an entry. A semantic nil value
+  means the entry does not use that value name.
+- **nil entry** — the hidden canonical entry whose id and values are
+  nil. It exists to make removal and deduplication simple; it is skipped
+  by iteration, query, and serialization.
 
 ```text
 schema=orders
@@ -73,15 +87,15 @@ t.flush()
 ```
 
 - `write(id, col, value)` mutates the in-memory document, creating the
-  `id` record when needed. Row ids must be non-empty; `nil` is reserved for
-  the hidden canonical nil row.
-- `remove(id)` collapses a record into the hidden canonical nil row. The row
-  then disappears from iteration, query, and serialization.
-- A nil cell value is semantic nil, not an empty string. Serialized user cells
-  with nil values appear as `col=nil`.
-- `value(id, col)` reads one cell directly by record id and column name without
-  changing the current iterator row.
-- `query(col, value)` searches for records whose column matches the value and
+  entry when needed. Entry ids must be non-empty; `nil` is reserved for
+  the hidden canonical nil entry.
+- `remove(id)` collapses an entry into the hidden canonical nil entry. The
+  entry then disappears from iteration, query, and serialization.
+- A nil value is semantic nil, not an empty string. Writing nil clears the
+  attached value, so the serialized entry omits that `col=` line.
+- `value(id, col)` reads one attached value directly by entry id and value
+  name without changing the current iterator entry.
+- `query(col, value)` searches for entries whose value name matches and
   returns another `tabula` with the same schema.
 - `schema()` returns the semantic collection name from the file's
   `schema=` entry.
@@ -97,7 +111,7 @@ unflushed changes; `flush()` is the disk boundary.
 A tabula that crosses the network is **read like any file**.  It is not
 a process, not a spawn, not a hydration.  Nothing the sender wrote into
 it can cause anything to happen on the receiver.  A receiver's own
-local, already-installed code may read cell values out of a tabula —
+local, already-installed code may read values out of a tabula —
 exactly as it reads values out of a config file or user input, with the
 receiver's logic in full control of every branch.  The tabula proposes
 nothing; it just *is*.

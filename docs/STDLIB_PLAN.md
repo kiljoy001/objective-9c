@@ -44,7 +44,8 @@ Status: current snapshot plus near roadmap.
   `abs`.
 - `stdlib/net.o9`: `NetConn`, `NetListener`, `Factotum`, `NetToken`,
   `RemoteIdentity`, and `KnownRemotes`. Plan 9-to-Plan 9 secret handling
-  defaults to factotum; portable token files stay data.
+  defaults to factotum; `Factotum` also exposes local/caller identity
+  helpers for facade controller policy. Portable token files stay data.
 - `stdlib/namespace.o9`: `Namespace`, the object wrapper over
   `MountTable` for programmatic namespace setup.
 - `tabula`: runtime-backed structured data object over libtab with

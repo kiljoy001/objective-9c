@@ -654,7 +654,7 @@ int64 b;
           </tr>
           <tr>
             <td class="kw">tabula</td>
-            <td class="kw-desc">First-class table type. libtab-backed. Text boundary. remove() collapses rows into the hidden nil row. Binary payloads use a 0x column with hex text.</td>
+            <td class="kw-desc">First-class data envelope. Entries are id plus attached values. Nil clears a value; remove() collapses an entry into the hidden nil entry. Binary payloads use a 0x column with hex text.</td>
             <td class="kw-code">tabula t = new tabula("orders", "item,qty");
 t.add("a");
 t.set("item", "widget");
@@ -799,7 +799,7 @@ function rawadd(int64 a) int64 {
           </tr>
           <tr>
             <td class="kw">export</td>
-            <td class="kw-desc">Publish a tabula into the served-tree exports/ dir.</td>
+            <td class="kw-desc">Publish a tabula as a named file under exports/.</td>
             <td class="kw-code">export("inventory", t);</td>
           </tr>
           <tr>
@@ -903,8 +903,8 @@ string pt = decrypt(k, blob);</td>
           <h3>tabula, Namespace &amp; MountTable</h3>
         </div>
         <ul>
-          <li>• tabula = first-class table type (libtab backing)</li>
-          <li>• Every value in/out is string (text boundary)</li>
+          <li>• tabula = first-class data envelope (libtab backing)</li>
+          <li>• Entries are id plus attached text values</li>
           <li>• Namespace = normal object API for namespace setup</li>
           <li>• MountTable = lower-level namespace composition as data</li>
           <li>• Schema: call/fd/old/new/flag/aname/mode</li>

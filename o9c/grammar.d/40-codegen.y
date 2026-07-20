@@ -3791,6 +3791,7 @@ gen_class_dispatch_loop(Node *c)
     print("\t%s_Internal *self = v;\n\tO9Msg *m;\n", c->name);
     print("\to9_actor_enter(self->dispatch_chan, self->oid);\n");
     print("\tfor(;;){\n\t\tm = recvp(self->dispatch_chan);\n\t\tif(m == nil) continue;\n");
+    print("\t\to9_set_current_user(m->caller);\n");
     print("\t\tswitch(m->sel){\n");
     num_emitted = 0;
     gen_dispatch_cases(c, c->name);
@@ -4303,6 +4304,7 @@ gen_spawn_run_send(int np)
     print("\t{ O9Msg *__wm = mallocz(sizeof(O9Msg), 1);\n");
     print("\t  __wm->sel = 0x%lux; __wm->args = %s; __wm->nargs = %d; __wm->replyc = __replyc;\n",
         o9_hash("run"), np > 0 ? "__args" : "nil", np);
+    print("\t  __wm->caller = o9_current_user_c();\n");
     print("\t  sendp(__inst->dispatch_chan, __wm); }\n");
 }
 
@@ -4595,6 +4597,7 @@ gen_class_ctl_send_and_recv(Node *m, int np)
 {
     print("\t\t\t\t{ O9Msg __wm = {0x%lux, %s, %d, chancreate(sizeof(void*), 0)};\n",
         o9_hash(m->name), np > 0 ? "__wargs" : "nil", np);
+    print("\t\t\t\t__wm.caller = r->fid != nil ? r->fid->uid : nil;\n");
     print("\t\t\t\tsendp(target->dispatch_chan, &__wm);\n");
     /* REQUEST CONCURRENCY: drop srv->slock while blocked on the actor's
      * reply so other client requests can run meanwhile. Safe now that
@@ -4721,6 +4724,7 @@ gen_class_method_file_writes(Node *c)
             {
                 char *a = np > 0 ? "__wargs" : "nil";
                 print("\t\t{ O9Msg __wm = {0x%lux, %s, %d, chancreate(sizeof(void*), 0)};\n", o9_hash(m->name), a, np);
+                print("\t\t__wm.caller = r->fid != nil ? r->fid->uid : nil;\n");
                 print("\t\tsendp(inst->dispatch_chan, &__wm);\n");
                 if(!type_is_void(m->typeinfo)){
                     /* Return-value method: store O9Reply in fid aux for readback */

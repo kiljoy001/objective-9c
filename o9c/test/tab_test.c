@@ -62,6 +62,28 @@ threadmain(int, char**)
 	o9_string_release(ob);
 	o9_string_release(oc);
 
+	/* nil writes clear/omit the cell instead of serializing col=nil. */
+	oa = o9_string_from_c("b");
+	ob = o9_string_from_c("qty");
+	if(o9_tab_write(t, oa, ob, nil) != 0)
+		sysfatal("clear qty");
+	os = o9_tab_value(t, oa, ob);
+	qty = o9_string_cstr(os);
+	o9_string_release(os);
+	if(qty == nil || qty[0] != '\0')
+		sysfatal("cleared qty still visible");
+	free(qty);
+	q = o9_tab_query(t, ob, nil);
+	if(q == nil || !o9_tab_first(q))
+		sysfatal("query nil qty");
+	o9_tab_close(q);
+	oc = o9_string_from_c("3");
+	if(o9_tab_write(t, oa, ob, oc) != 0)
+		sysfatal("restore qty");
+	o9_string_release(oa);
+	o9_string_release(ob);
+	o9_string_release(oc);
+
 	/* iterate and count/read back */
 	count = 0;
 	if(o9_tab_first(t)){
@@ -103,6 +125,8 @@ threadmain(int, char**)
 	s = o9_string_cstr(os);
 	if(s == nil || s[0] == '\0')
 		sysfatal("serialize empty");
+	if(strstr(s, "qty=nil") != nil)
+		sysfatal("serialized nil cell");
 	path = "/tmp/o9_tab_test.tab";
 	fd = create(path, OWRITE, 0644);
 	if(fd < 0) sysfatal("create %s", path);

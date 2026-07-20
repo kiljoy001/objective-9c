@@ -65,7 +65,8 @@ main {
 ## tabula Data Publisher
 
 This app publishes a read-only `.tab` file under its mounted `exports/`
-directory.
+directory. The first argument to `write` is the entry id; the other two
+arguments name and set an attached value.
 
 ```o9
 main {

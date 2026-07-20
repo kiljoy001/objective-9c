@@ -1,0 +1,26 @@
+import "net.o9";
+
+class Gate {
+    private Factotum fact;
+
+    method Gate() {
+        fact = new Factotum();
+    }
+
+    method string caller() {
+        return fact.caller();
+    }
+
+    method bool callerIs(string name) {
+        return fact.isCaller(name);
+    }
+
+    method string user() {
+        return fact.user();
+    }
+}
+
+main {
+    Gate g = new Gate();
+    serve();
+}

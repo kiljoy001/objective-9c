@@ -76,6 +76,8 @@ struct O9ProcCtx {
 	char errbuf[192];
 	void *actor_chan;
 	char actor_oid[64];
+	char userbuf[64];
+	char *caller;
 };
 
 static O9ProcCtx*
@@ -123,6 +125,56 @@ o9_actor_enter(void *dispatch_chan, char *oid)
 		snprint(ctx->actor_oid, sizeof ctx->actor_oid, "%s", oid);
 	else
 		ctx->actor_oid[0] = '\0';
+}
+
+void
+o9_set_current_user(char *user)
+{
+	O9ProcCtx *ctx;
+
+	ctx = o9_proc_ctx();
+	if(user == nil || user[0] == '\0'){
+		ctx->caller = nil;
+		ctx->userbuf[0] = '\0';
+		return;
+	}
+	snprint(ctx->userbuf, sizeof ctx->userbuf, "%s", user);
+	ctx->caller = ctx->userbuf;
+}
+
+char*
+o9_current_user_c(void)
+{
+	O9ProcCtx *ctx;
+	char *u;
+
+	ctx = o9_proc_ctx();
+	if(ctx->caller != nil && ctx->caller[0] != '\0')
+		return ctx->caller;
+	u = getuser();
+	return u != nil ? u : "";
+}
+
+O9String*
+o9_current_user(void)
+{
+	return o9_string_from_c(o9_current_user_c());
+}
+
+int
+o9_current_user_is(O9String *user)
+{
+	char *u;
+	int ok;
+
+	if(user == nil)
+		return 0;
+	u = o9_string_cstr(user);
+	if(u == nil)
+		return 0;
+	ok = strcmp(o9_current_user_c(), u) == 0;
+	free(u);
+	return ok;
 }
 
 static int
@@ -1571,17 +1623,17 @@ o9_state_serialize(O9State *s, char *out, int nout)
 	return o9_tab_serialize_into(s->tab, out, nout);
 }
 
-/* ---- Tabula: the language-level table type, over libtab ----
+/* ---- Tabula: the language-level data-envelope type, over libtab ----
  *
- * A Tabula is a thin wrapper: a Tab plus a "current row" cursor for the
- * add/set build style and an iterator for reading.  o9 exposes it with
+ * A Tabula is a thin wrapper: a Tab plus a "current entry" cursor for the
+ * add/set build style and an iterator for reading. o9 exposes it with
  * method syntax (t.write(id, col, val); t.query(col, val); t.read();
  * t.flush()) while keeping the lower-level add/set/get/first/next calls
  * available. Every value in/out is a string — the o9 boundary is text.
  */
 struct O9Tabula {
 	Tab *tab;
-	TabRow *cur;	/* current row: target of set/get, advanced by next */
+	TabRow *cur;	/* current entry: target of set/get, advanced by next */
 	TabIter *it;	/* active read iterator */
 	char *path;	/* nominal path (where a flush would write) */
 	char *remote_addr;
@@ -1648,7 +1700,7 @@ static char*
 o9_tab_store_value(O9String *s)
 {
 	if(s == nil)
-		return strdup("nil");
+		return nil;
 	return o9_string_cstr(s);
 }
 
@@ -1676,7 +1728,7 @@ o9_tab_new(O9String *name, O9String *cols)
 	}
 	t->distance = -1;
 	t->remote_fd = -1;
-	/* column 0 is always "id" — the row head attr tab_add_row keys on,
+	/* column 0 is always "id" — the entry head attr tab_add_row keys on,
 	 * matching the state-tab schema.  User columns follow. */
 	memset(&spec[0], 0, sizeof spec[0]);
 	spec[0].name = "id";
@@ -1775,8 +1827,8 @@ o9_tab_has(O9Tabula *t, O9String *col)
 	return ok;
 }
 
-/* t.add(key) — append a row keyed by "id"=key; it becomes the current
- * row for subsequent set().  Returns 0 / -1. */
+/* t.add(key) — append an entry keyed by "id"=key; it becomes the current
+ * entry for subsequent set().  Returns 0 / -1. */
 int
 o9_tab_add(O9Tabula *t, O9String *key)
 {
@@ -1798,9 +1850,9 @@ o9_tab_add(O9Tabula *t, O9String *key)
 	return ok;
 }
 
-/* t.write(id, col, val) — update an existing id row or create it.
- * The id is the row identity; writing the id column itself is rejected
- * unless the value matches the row id. */
+/* t.write(id, col, val) — update an existing entry or create it.
+ * The id is the entry identity; writing the id column itself is rejected
+ * unless the value matches the entry id. Nil clears a non-id value. */
 int
 o9_tab_write(O9Tabula *t, O9String *id, O9String *col, O9String *val)
 {
@@ -1814,7 +1866,7 @@ o9_tab_write(O9Tabula *t, O9String *id, O9String *col, O9String *val)
 	cid = o9_string_cstr(id);
 	ccol = o9_string_cstr(col);
 	cval = o9_tab_store_value(val);
-	if(cid == nil || ccol == nil || cval == nil){
+	if(cid == nil || ccol == nil || (val != nil && cval == nil)){
 		free(cid);
 		free(ccol);
 		free(cval);
@@ -1829,13 +1881,18 @@ o9_tab_write(O9Tabula *t, O9String *id, O9String *col, O9String *val)
 	head = tab_colname(t->tab, 0);
 	if(head == nil)
 		head = "id";
-	if(strcmp(ccol, head) == 0 && strcmp(cid, cval) != 0){
+	if(strcmp(ccol, head) == 0 && (cval == nil || strcmp(cid, cval) != 0)){
 		free(cid);
 		free(ccol);
 		free(cval);
 		return -1;
 	}
 	r = o9_tab_find_row(t, (char*)head, cid);
+	if(r == nil && val == nil){
+		free(cid);
+		free(ccol);
+		return 0;
+	}
 	if(r == nil)
 		r = tab_add_row(t->tab, head, cid);
 	if(r == nil){
@@ -1844,7 +1901,12 @@ o9_tab_write(O9Tabula *t, O9String *id, O9String *col, O9String *val)
 		free(cval);
 		return -1;
 	}
-	rv = strcmp(ccol, head) == 0 ? 0 : tab_set(t->tab, r, ccol, cval);
+	if(strcmp(ccol, head) == 0)
+		rv = 0;
+	else if(val == nil)
+		rv = tab_clear(t->tab, r, ccol);
+	else
+		rv = tab_set(t->tab, r, ccol, cval);
 	t->cur = r;
 	free(cid);
 	free(ccol);
@@ -1852,7 +1914,7 @@ o9_tab_write(O9Tabula *t, O9String *id, O9String *col, O9String *val)
 	return rv;
 }
 
-/* t.remove(id) - collapse the row into the hidden canonical nil row. */
+/* t.remove(id) - collapse the entry into the hidden canonical nil entry. */
 int
 o9_tab_remove(O9Tabula *t, O9String *id)
 {
@@ -1881,7 +1943,7 @@ o9_tab_remove(O9Tabula *t, O9String *id)
 	return rv;
 }
 
-/* t.set(col, val) — set a cell on the current row. */
+/* t.set(col, val) — set or clear a value on the current entry. */
 int
 o9_tab_set(O9Tabula *t, O9String *col, O9String *val)
 {
@@ -1892,18 +1954,19 @@ o9_tab_set(O9Tabula *t, O9String *col, O9String *val)
 		return -1;
 	ccol = o9_string_cstr(col);
 	cval = o9_tab_store_value(val);
-	if(ccol == nil || cval == nil){
+	if(ccol == nil || (val != nil && cval == nil)){
 		free(ccol);
 		free(cval);
 		return -1;
 	}
-	r = tab_set(t->tab, t->cur, ccol, cval);
+	r = val == nil ? tab_clear(t->tab, t->cur, ccol) :
+		tab_set(t->tab, t->cur, ccol, cval);
 	free(ccol);
 	free(cval);
 	return r;
 }
 
-/* t.get(col) — read a cell from the current row (empty string if none). */
+/* t.get(col) — read a value from the current entry. */
 O9String*
 o9_tab_get(O9Tabula *t, O9String *col)
 {
@@ -1920,9 +1983,9 @@ o9_tab_get(O9Tabula *t, O9String *col)
 	return v != nil ? o9_string_from_c((char*)v) : nil;
 }
 
-/* t.value(id, col) - direct coordinate lookup by the row identity
- * column (the first schema column) and a column name.  Does not change
- * the current iterator row. */
+/* t.value(id, col) - direct coordinate lookup by the entry identity
+ * column (the first schema column) and a value name.  Does not change
+ * the current iterator entry. */
 O9String*
 o9_tab_value(O9Tabula *t, O9String *id, O9String *col)
 {
@@ -1959,8 +2022,8 @@ o9_tab_value(O9Tabula *t, O9String *id, O9String *col)
 	return v != nil ? o9_string_from_c((char*)v) : nil;
 }
 
-/* t.first() — start iteration; sets current row to the first, or nil.
- * Returns 1 if there is a row, 0 if empty. */
+/* t.first() — start iteration; sets current entry to the first, or nil.
+ * Returns 1 if there is an entry, 0 if empty. */
 int
 o9_tab_first(O9Tabula *t)
 {
@@ -1977,7 +2040,7 @@ o9_tab_first(O9Tabula *t)
 	return t->cur != nil ? 1 : 0;
 }
 
-/* t.next() — advance to the next row.  Returns 1 if a row is now
+/* t.next() — advance to the next entry.  Returns 1 if an entry is now
  * current, 0 at end (iterator closed). */
 int
 o9_tab_next(O9Tabula *t)
@@ -2031,6 +2094,8 @@ o9_tab_query(O9Tabula *t, O9String *col, O9String *val)
 		return nil;
 	ccol = o9_string_cstr(col);
 	cval = o9_tab_store_value(val);
+	if(cval == nil)
+		cval = strdup("nil");
 	if(ccol == nil || cval == nil){
 		free(ccol);
 		free(cval);
@@ -3692,6 +3757,7 @@ obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int narg
         m->args = args;
         m->nargs = nargs;
         m->replyc = chancreate(sizeof(void*), 0);
+        m->caller = o9_current_user_c();
         sendp(obj->dispatch_chan, m);
         r = recvp(m->replyc);
         if(r->err != nil){
@@ -3739,6 +3805,7 @@ obj9_msgSendDoubleN(void *receiver, char *method, ulong selector, void *args, in
         m->args = args;
         m->nargs = nargs;
         m->replyc = chancreate(sizeof(void*), 0);
+        m->caller = o9_current_user_c();
         sendp(obj->dispatch_chan, m);
         r = recvp(m->replyc);
         if(r->err != nil){
@@ -3794,6 +3861,7 @@ obj9_msgSendObjectN(void *receiver, char *method, ulong selector, void *args,
         m->args = args;
         m->nargs = nargs;
         m->replyc = chancreate(sizeof(void*), 0);
+        m->caller = o9_current_user_c();
         sendp(obj->dispatch_chan, m);
         r = recvp(m->replyc);
         ret = -1;

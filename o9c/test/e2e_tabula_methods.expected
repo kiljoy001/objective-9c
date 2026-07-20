@@ -1,6 +1,7 @@
 schema orders has 1 missing 0
 value widget||
 nilcell |1
+clearcell |0|1
 remove 0 |0 -1 -1
 paid 1 widget 5
 readcmp 0

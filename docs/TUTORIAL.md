@@ -228,7 +228,8 @@ main {
 ```
 
 `Bytes`, `Buffer`, `File`, and `Path` live in `stdlib/`. `tabula` is built into
-the runtime because it wraps libtab:
+the runtime because it wraps libtab. A tabula is a collection of entries; each
+entry is an id plus attached named values:
 
 ```
 main {
