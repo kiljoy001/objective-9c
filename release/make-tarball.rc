@@ -10,10 +10,12 @@ if not if(! ~ $#* 0){
 	exit usage
 }
 
-if(! test -f mkfile || ! test -f o9proj || ! test -d stdlib){
+if(! test -f mkfile || ! test -f o9build || ! test -f o9plumbbuild || ! test -f o9proj || ! test -d stdlib){
 	echo 'make-tarball: run from the objective-9c repository root' >[1=2]
 	exit root
 }
+
+stdlib_modules=(stdlib/buffer.o9 stdlib/bytes.o9 stdlib/collections.o9 stdlib/draw.o9 stdlib/file.o9 stdlib/io.o9 stdlib/math.o9 stdlib/namespace.o9 stdlib/net.o9 stdlib/path.o9 stdlib/process.o9 stdlib/random.o9 stdlib/string.o9 stdlib/time.o9)
 
 if(! test -x o9c/o9c || ! test -f libo9.a){
 	echo 'make-tarball: run mk first' >[1=2]
@@ -30,20 +32,28 @@ mkdir -p $stage/amd64/lib
 mkdir -p $stage/rc/bin
 mkdir -p $stage/sys/include
 mkdir -p $stage/sys/lib/o9/stdlib
+mkdir -p $stage/sys/lib/plumb
 mkdir -p $stage/sys/lib/pac9/changelog
 mkdir -p $stage/sys/src/cmd
 
 cp o9c/o9c $stage/amd64/bin/o9c
+cp o9build $stage/rc/bin/o9build
+cp o9plumb $stage/rc/bin/o9plumb
+cp o9plumbbuild $stage/rc/bin/o9plumbbuild
 cp o9proj $stage/rc/bin/o9proj
 cp libo9.a $stage/amd64/lib/libo9.a
 cp o9.h $stage/sys/include/o9.h
-cp stdlib/*.o9 $stage/sys/lib/o9/stdlib
+cp $stdlib_modules $stage/sys/lib/o9/stdlib
+cp plumb/o9 $stage/sys/lib/plumb/o9
 cp o9_dispatch.s $stage/sys/src/cmd/o9_dispatch.s
 cp o9_runtime.c $stage/sys/src/cmd/o9_runtime.c
 cp o9_tab_discard.c $stage/sys/src/cmd/o9_tab_discard.c
 cp release/CHANGELOG $stage/sys/lib/pac9/changelog/$pkg
 
 chmod +x $stage/amd64/bin/o9c
+chmod +x $stage/rc/bin/o9build
+chmod +x $stage/rc/bin/o9plumb
+chmod +x $stage/rc/bin/o9plumbbuild
 chmod +x $stage/rc/bin/o9proj
 
 @{ cd $stage && tar cf $tar amd64 rc sys }

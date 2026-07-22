@@ -9,9 +9,12 @@ src=stdlib/auth_facade_app.o9
 bin=/tmp/o9auth.$pid
 mtpt=/n/o9auth.$pid
 srv=/srv/o9.$app.$app.app
+adminpath=/tmp/o9auth_admin.tab
 fail=0
 p=''
 watch=''
+authdom=''
+keytag=o9auth$pid
 
 fn depincs {
 	awk '/^\/\* o9: include / { print "-I" $4 }' $1
@@ -23,12 +26,37 @@ fn deparchs {
 
 fn cleanup {
 	unmount $mtpt >[2]/dev/null
+	if(! ~ $"keytag '')
+		echo 'delkey o9test='^$keytag > /mnt/factotum/ctl >[2]/dev/null
 	if(! ~ $"watch '')
 		kill $watch | rc >[2]/dev/null
 	if(! ~ $"p '')
 		kill $p | rc >[2]/dev/null
 	kill o9auth.$pid | rc >[2]/dev/null
-	rm -f $srv $bin /tmp/o9auth.$pid.^*
+	rm -f $srv $bin $adminpath /tmp/o9auth.$pid.^*
+}
+
+fn authdomain {
+	sysname=`{cat /dev/sysname >[2]/dev/null}
+	if(! ~ $"sysname '')
+		authdom=`{ndb/query sys $sysname authdom >[2]/dev/null}
+}
+
+fn loadtestkeys {
+	authdomain
+	if(~ $"authdom ''){
+		echo 'auth: FAIL: no authdom for test key' >[1=2]
+		fail=1
+		return
+	}
+	if(! echo 'key proto=dp9ik dom='^$authdom^' user='^$me^' o9test='^$keytag^' !password='^$"O9_TEST_PASSWORD > /mnt/factotum/ctl){
+		echo 'auth: FAIL: could not add dp9ik test key' >[1=2]
+		fail=1
+	}
+	if(! echo 'key proto=p9sk1 dom='^$authdom^' user='^$me^' o9test='^$keytag^' !password='^$"O9_TEST_PASSWORD > /mnt/factotum/ctl){
+		echo 'auth: FAIL: could not add p9sk1 test key' >[1=2]
+		fail=1
+	}
 }
 
 if(! test -e $tool){ echo missing $tool >[1=2]; exit missing }
@@ -42,7 +70,7 @@ if(~ $"me ''){
 	exit fail
 }
 
-rm -f $srv
+rm -f $srv $adminpath
 if(! $tool $src > /tmp/o9auth.$pid.c){ echo 'auth: FAIL: transpile' >[1=2]; exit fail }
 incs=`{depincs /tmp/o9auth.$pid.c}
 archs=`{deparchs /tmp/o9auth.$pid.c}
@@ -74,7 +102,7 @@ i=0
 while(! test -e $srv && test $i -lt 12){ sleep 1; i=`{hoc -e $i+1} }
 if(! test -e $srv){ echo 'auth: FAIL: no /srv post' >[1=2]; cleanup; exit fail }
 
-if(! mount -c $srv $mtpt){ echo 'auth: FAIL: mount' >[1=2]; cleanup; exit fail }
+if(! mount -n -c $srv $mtpt){ echo 'auth: FAIL: mount' >[1=2]; cleanup; exit fail }
 
 sid=`{cat $mtpt/clone}
 if(~ $"sid ''){ echo 'auth: FAIL: clone gave no id' >[1=2]; cleanup; exit fail }
@@ -88,8 +116,30 @@ if(! ~ $"caller $"me){
 
 echo 'method Gate.g callerIs arg0='$me > $mtpt/$sid/ctl
 ok=`{cat $mtpt/$sid/data}
-if(! ~ $"ok 1){
-	echo 'auth: FAIL: callerIs returned '^$"ok >[1=2]
+if(! ~ $"ok 0){
+	echo 'auth: FAIL: unblessed callerIs returned '^$"ok >[1=2]
+	fail=1
+}
+
+echo 'method Gate.g blessed' > $mtpt/$sid/ctl
+ok=`{cat $mtpt/$sid/data}
+if(! ~ $"ok 0){
+	echo 'auth: FAIL: unblessed blessed returned '^$"ok >[1=2]
+	fail=1
+}
+
+echo 'method Gate.g verify arg0='$me > $mtpt/$sid/ctl
+ok=`{cat $mtpt/$sid/data}
+if(! ~ $"ok 0){
+	echo 'auth: FAIL: unblessed verify current user returned '^$"ok >[1=2]
+	fail=1
+}
+
+other=o9adminother$pid
+echo 'method Gate.g verify arg0='$other > $mtpt/$sid/ctl
+ok=`{cat $mtpt/$sid/data}
+if(! ~ $"ok 0){
+	echo 'auth: FAIL: verify other returned '^$"ok >[1=2]
 	fail=1
 }
 
@@ -99,6 +149,154 @@ if(~ $"procuser ''){
 	echo 'auth: FAIL: empty process user' >[1=2]
 	fail=1
 }
+
+echo 'method Gate.g adminConfigured' > $mtpt/$sid/ctl
+ok=`{cat $mtpt/$sid/data}
+if(! ~ $"ok 1){
+	echo 'auth: FAIL: adminConfigured returned '^$"ok >[1=2]
+	fail=1
+}
+
+echo 'method Gate.g adminUser' > $mtpt/$sid/ctl
+admin=`{cat $mtpt/$sid/data}
+if(! ~ $"admin $"me){
+	echo 'auth: FAIL: admin='^$"admin^' want='^$"me >[1=2]
+	fail=1
+}
+
+echo 'method Gate.g adminCaller' > $mtpt/$sid/ctl
+ok=`{cat $mtpt/$sid/data}
+if(! ~ $"ok 0){
+	echo 'auth: FAIL: unblessed adminCaller returned '^$"ok >[1=2]
+	fail=1
+}
+
+echo 'method Gate.g adminBlessed' > $mtpt/$sid/ctl
+ok=`{cat $mtpt/$sid/data}
+if(! ~ $"ok 0){
+	echo 'auth: FAIL: unblessed adminBlessed returned '^$"ok >[1=2]
+	fail=1
+}
+
+echo 'method Gate.g adminIs arg0='$me > $mtpt/$sid/ctl
+ok=`{cat $mtpt/$sid/data}
+if(! ~ $"ok 0){
+	echo 'auth: FAIL: unblessed adminIs current user returned '^$"ok >[1=2]
+	fail=1
+}
+
+echo 'method Gate.g adminIs arg0='$other > $mtpt/$sid/ctl
+ok=`{cat $mtpt/$sid/data}
+if(! ~ $"ok 0){
+	echo 'auth: FAIL: adminIs other returned '^$"ok >[1=2]
+	fail=1
+}
+
+echo 'method Gate.g setAdmin arg0='$other > $mtpt/$sid/ctl
+ok=`{cat $mtpt/$sid/data}
+if(! ~ $"ok 0){
+	echo 'auth: FAIL: unblessed setAdmin returned '^$"ok >[1=2]
+	fail=1
+}
+
+echo 'login '$me' definitely-not-the-password-'$pid > $mtpt/$sid/ctl
+echo 'method Gate.g blessed' > $mtpt/$sid/ctl
+ok=`{cat $mtpt/$sid/data}
+if(! ~ $"ok 0){
+	echo 'auth: FAIL: failed login blessed session returned '^$"ok >[1=2]
+	fail=1
+}
+
+if(~ $"O9AUTH_TEST required){
+	if(~ $"O9_TEST_PASSWORD ''){
+		echo 'auth: FAIL: O9AUTH_TEST=required but O9_TEST_PASSWORD is empty' >[1=2]
+		fail=1
+	}
+	if not {
+		loadtestkeys
+		echo login $me $"O9_TEST_PASSWORD > $mtpt/$sid/ctl
+		who=`{cat $mtpt/$sid/data}
+		if(! ~ $"who $"me){
+			echo 'auth: FAIL: login data='^$"who^' want='^$"me >[1=2]
+			echo 'auth: login status follows:' >[1=2]
+			cat $mtpt/$sid/status >[1=2]
+			fail=1
+		}
+
+		echo whoami > $mtpt/$sid/ctl
+		who=`{cat $mtpt/$sid/data}
+		if(! ~ $"who $"me' 1'){
+			echo 'auth: FAIL: whoami='^$"who^' want='^$"me^' 1' >[1=2]
+			fail=1
+		}
+
+		echo 'method Gate.g callerIs arg0='$me > $mtpt/$sid/ctl
+		ok=`{cat $mtpt/$sid/data}
+		if(! ~ $"ok 1){
+			echo 'auth: FAIL: blessed callerIs returned '^$"ok >[1=2]
+			fail=1
+		}
+
+		echo 'method Gate.g blessed' > $mtpt/$sid/ctl
+		ok=`{cat $mtpt/$sid/data}
+		if(! ~ $"ok 1){
+			echo 'auth: FAIL: blessed returned '^$"ok >[1=2]
+			fail=1
+		}
+
+		echo 'method Gate.g verify arg0='$me > $mtpt/$sid/ctl
+		ok=`{cat $mtpt/$sid/data}
+		if(! ~ $"ok 1){
+			echo 'auth: FAIL: blessed verify current user returned '^$"ok >[1=2]
+			fail=1
+		}
+
+		echo 'method Gate.g adminCaller' > $mtpt/$sid/ctl
+		ok=`{cat $mtpt/$sid/data}
+		if(! ~ $"ok 1){
+			echo 'auth: FAIL: blessed adminCaller returned '^$"ok >[1=2]
+			fail=1
+		}
+
+		echo 'method Gate.g adminIs arg0='$me > $mtpt/$sid/ctl
+		ok=`{cat $mtpt/$sid/data}
+		if(! ~ $"ok 1){
+			echo 'auth: FAIL: blessed adminIs current user returned '^$"ok >[1=2]
+			fail=1
+		}
+
+		echo 'method Gate.g setAdmin arg0='$other > $mtpt/$sid/ctl
+		ok=`{cat $mtpt/$sid/data}
+		if(! ~ $"ok 1){
+			echo 'auth: FAIL: blessed setAdmin returned '^$"ok >[1=2]
+			fail=1
+		}
+
+		echo 'method Gate.g adminUser' > $mtpt/$sid/ctl
+		admin=`{cat $mtpt/$sid/data}
+		if(! ~ $"admin $"other){
+			echo 'auth: FAIL: rotated admin='^$"admin^' want='^$"other >[1=2]
+			fail=1
+		}
+
+		echo 'method Gate.g adminCaller' > $mtpt/$sid/ctl
+		ok=`{cat $mtpt/$sid/data}
+		if(! ~ $"ok 0){
+			echo 'auth: FAIL: adminCaller after rotation returned '^$"ok >[1=2]
+			fail=1
+		}
+
+		echo logout > $mtpt/$sid/ctl
+		echo 'method Gate.g blessed' > $mtpt/$sid/ctl
+		ok=`{cat $mtpt/$sid/data}
+		if(! ~ $"ok 0){
+			echo 'auth: FAIL: logout blessed returned '^$"ok >[1=2]
+			fail=1
+		}
+	}
+}
+if not
+	echo 'auth: SKIP: set O9AUTH_TEST=required and O9_TEST_PASSWORD for positive factotum login'
 
 echo close > $mtpt/$sid/ctl
 cleanup

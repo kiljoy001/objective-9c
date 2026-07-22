@@ -396,8 +396,9 @@ o9_type_name_is_tabula(char *name)
 static int
 o9_type_is_tabula(Type *t)
 {
-    return t != nil && t->kind == TyName && t->name != nil &&
-        o9_type_name_is_tabula(t->name);
+    return t != nil &&
+        (t->kind == TyName || t->kind == TyApply) &&
+        t->name != nil && o9_type_name_is_tabula(t->name);
 }
 
 static void

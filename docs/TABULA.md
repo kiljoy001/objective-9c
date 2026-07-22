@@ -103,6 +103,36 @@ t.flush()
 - `read()` returns the complete serialized text form.
 - `flush()` persists the current in-memory document to its backing path.
 
+Typed tabulae make the "struct in text form" relation explicit:
+
+```o9
+struct NdbEntry {
+    string sys;      // entry id
+    string ip;
+    string dom;
+    int64 version;
+}
+
+NdbEntry entry;
+tabula<NdbEntry> entries = new tabula<NdbEntry>("ndb_entry");
+
+entry.sys = "box1";
+entry.ip = "10.0.0.2";
+entry.dom = "box1.grid";
+entry.version = 1;
+
+entries.write(entry);
+NdbEntry copy = entries.row("box1");
+```
+
+The first struct field is the entry id. The other fields are attached values.
+This is intentionally positional: there is no `id` keyword, annotation, or
+special field name. If `sys` is first, `sys` is the id. If `name` is first,
+`name` is the id. The compiler derives the `.tab` column list from the struct
+and keeps the runtime representation as ordinary inert tabula text.
+`tabula<T>` accepts only structs whose first field is string and whose
+remaining fields are string or scalar values.
+
 Persistence is explicit at the o9 level.  Closing a `tabula` discards
 unflushed changes; `flush()` is the disk boundary.
 

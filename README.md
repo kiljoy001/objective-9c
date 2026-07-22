@@ -22,12 +22,14 @@ From the repository root on 9front:
 
 ```rc
 mk
-o9c/o9c < source.o9 > output.c
-6c -FVw -I. -o output.6 output.c
-6l -o output output.6 libo9.a /$objtype/lib/libndb.a
+mk install
+o9build source.o9
 ```
 
-`libo9.a` is the runtime library linked with generated o9 programs.
+`o9build` binds the installed stdlib into the source directory namespace,
+transpiles the `.o9` file, compiles the generated C, links `libo9.a`, and
+writes an executable next to the source. Use `o9c` directly only when debugging
+the compiler.
 
 ## Install With Pac9
 
@@ -44,14 +46,23 @@ Pac9 clones the repo, runs `mk install`, and records the package as
 pac9 uninstall objective-9c
 ```
 
-After installation, `o9c` and `o9proj` should be on the command path. Start a
-small project with:
+After installation, `o9c`, `o9build`, `o9plumb`, and `o9proj` should be on the
+command path. Start a small project with:
 
 ```rc
 o9proj myapp
 cd myapp
 mk run
 ```
+
+To make plumbing an `.o9` file start a build, run:
+
+```rc
+o9plumb
+```
+
+That installs an `include` line in `$home/lib/plumbing` and reloads plumber
+when `/mnt/plumb/rules` is available.
 
 For a pac9 registry tarball package, build the amd64 release archive on 9front:
 

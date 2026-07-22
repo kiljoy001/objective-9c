@@ -11,7 +11,7 @@ codegen(Node *root)
     mono_scan_node(root);
 
     print("/* Generated o9 Source */\n");
-    print("#include <u.h>\n#include <libc.h>\n#include <thread.h>\n#include <fcall.h>\n#include <9p.h>\n#include <o9.h>\n\n");
+    print("#include <u.h>\n#include <libc.h>\n#include <thread.h>\n#include <fcall.h>\n#include <9p.h>\n#include <auth.h>\n#include <o9.h>\n\n");
     emit_cdeps();
     print("#ifndef _O9_COMMON_\n#define _O9_COMMON_\n");
     print("#define o9_offsetof(s, m) (long)(&(((s*)0)->m))\n");
@@ -90,6 +90,7 @@ codegen(Node *root)
     print("File *o9app_exports_dir;\t/* served-tree exports/ dir (mutable) */\n");
     print("File *o9app_imports_dir;\t/* served-tree imports/ dir (mutable) */\n");
     print("int o9app_debug;\t/* set from O9DEBUG at startup */\n\n");
+    print("int o9app_auth_required;\t/* set from O9AUTH=required at startup */\n\n");
     /* One published tabula: its serialized bytes live in the File's aux,
      * served ramfs-style on read.  This is the mutable part of the fs. */
     print("typedef struct O9Export O9Export;\n");
@@ -134,7 +135,7 @@ codegen(Node *root)
     print("typedef struct O9Session O9Session;\n");
     /* QLock per session guards data/status against concurrent request
      * handlers (once srvrelease lets requests interleave). */
-    print("struct O9Session { int tag; int id; File *dir; QLock lock; long ref; int inuse; char data[4096]; char status[256]; };\n");
+    print("struct O9Session { int tag; int id; File *dir; QLock lock; long ref; int inuse; int blessed; char authuser[64]; char data[4096]; char status[256]; };\n");
     print("static O9Session **o9app_sessions;\t/* the pool (grows) */\n");
     print("static int o9app_nsessions;\t/* slots created */\n");
     print("static int o9app_sessions_cap;\n");
@@ -159,6 +160,56 @@ codegen(Node *root)
     print("static void o9app_put_status(Req *r, char *s){\n");
     print("\tO9Session *sess = o9app_req_session(r);\n");
     print("\tif(sess != nil){ qlock(&sess->lock); snprint(sess->status, sizeof sess->status, \"%%s\", s); qunlock(&sess->lock); }\n");
+    print("}\n");
+    print("static void o9app_req_user(Req *r, char *buf, int nbuf){\n");
+    print("\tO9Session *sess; char *u;\n");
+    print("\tif(buf == nil || nbuf <= 0) return;\n");
+    print("\tbuf[0] = '\\0';\n");
+    print("\tsess = o9app_req_session(r);\n");
+    print("\tif(sess != nil){\n");
+    print("\t\tqlock(&sess->lock);\n");
+    print("\t\tif(sess->blessed && sess->authuser[0] != '\\0') snprint(buf, nbuf, \"%%s\", sess->authuser);\n");
+    print("\t\tqunlock(&sess->lock);\n");
+    print("\t\tif(buf[0] != '\\0') return;\n");
+    print("\t}\n");
+    print("\tif(r != nil && r->fid != nil && r->fid->uid != nil){ snprint(buf, nbuf, \"%%s\", r->fid->uid); return; }\n");
+    print("\tu = getuser();\n");
+    print("\tsnprint(buf, nbuf, \"%%s\", u != nil ? u : \"\");\n");
+    print("}\n");
+    print("static int o9app_req_blessed(Req *r){\n");
+    print("\tO9Session *sess; int ok;\n");
+    print("\tsess = o9app_req_session(r);\n");
+    print("\tif(sess != nil){ qlock(&sess->lock); ok = sess->blessed; qunlock(&sess->lock); if(ok) return 1; }\n");
+    print("\tif(o9app_auth_required && r != nil && r->fid != nil && r->fid->uid != nil) return strcmp(r->fid->uid, \"none\") != 0;\n");
+    print("\treturn 0;\n");
+    print("}\n");
+    print("static void o9app_wipe(void *p, int n){\n");
+    print("\tvolatile uchar *q;\n");
+    print("\tif(p == nil) return;\n");
+    print("\tq = p;\n");
+    print("\twhile(n-- > 0) *q++ = 0;\n");
+    print("}\n");
+    print("static int o9app_login_name_ok(char *s){\n");
+    print("\tuchar *p; int n;\n");
+    print("\tif(s == nil || s[0] == '\\0') return 0;\n");
+    print("\tn = 0;\n");
+    print("\tfor(p = (uchar*)s; *p != '\\0'; p++){\n");
+    print("\t\tif(*p <= ' ' || *p == 0177 || *p == '/') return 0;\n");
+    print("\t\tif(++n >= 64) return 0;\n");
+    print("\t}\n");
+    print("\treturn 1;\n");
+    print("}\n");
+    print("static int o9app_auth_login(char *user, char *pass, char *err, int nerr){\n");
+    print("\tAuthInfo *ai; int ok;\n");
+    print("\tif(err != nil && nerr > 0) err[0] = '\\0';\n");
+    print("\tif(!o9app_login_name_ok(user)){ if(err != nil) snprint(err, nerr, \"bad user\"); return 0; }\n");
+    print("\tif(pass == nil || pass[0] == '\\0'){ if(err != nil) snprint(err, nerr, \"empty password\"); return 0; }\n");
+    print("\tai = auth_userpasswd(user, pass);\n");
+    print("\tif(ai == nil){ if(err != nil) snprint(err, nerr, \"%%r\"); return 0; }\n");
+    print("\tok = ai->cuid != nil && strcmp(ai->cuid, user) == 0;\n");
+    print("\tif(!ok && err != nil) snprint(err, nerr, \"authenticated as %%s\", ai->cuid != nil ? ai->cuid : \"none\");\n");
+    print("\tauth_freeAI(ai);\n");
+    print("\treturn ok;\n");
     print("}\n");
     /* Create one new pool slot: <i>/{ctl,data,status} into the stable root
      * (single createfile-into-stable-parent — the safe pattern; done at
@@ -199,6 +250,8 @@ codegen(Node *root)
     print("\tif(s == nil){ qunlock(&o9app_pool_lock); return nil; }\n");
     print("\ts->inuse = 1; s->ref = 0;\n");
     print("\tqlock(&s->lock);\n");
+    print("\ts->blessed = 0;\n");
+    print("\ts->authuser[0] = '\\0';\n");
     print("\ts->data[0] = '\\0';\n");
     print("\tsnprint(s->status, sizeof s->status, \"ready\\n\");\n");
     print("\tqunlock(&s->lock);\n");
@@ -210,7 +263,7 @@ codegen(Node *root)
     print("\tif(s == nil) return;\n");
     print("\tqlock(&o9app_pool_lock);\n");
     print("\ts->inuse = 0;\n");
-    print("\tqlock(&s->lock); snprint(s->status, sizeof s->status, \"closed\\n\"); s->data[0] = '\\0'; qunlock(&s->lock);\n");
+    print("\tqlock(&s->lock); s->blessed = 0; s->authuser[0] = '\\0'; snprint(s->status, sizeof s->status, \"closed\\n\"); s->data[0] = '\\0'; qunlock(&s->lock);\n");
     print("\tqunlock(&o9app_pool_lock);\n");
     print("}\n");
     print("static O9ImportStage *o9app_import_stage_new(O9Export *imp, int copy){\n");
@@ -284,6 +337,7 @@ codegen(Node *root)
      * end the conversation — the client owns it until an explicit close.
      * This is what makes echo>ctl; cat data safe (ctl clunks first). */
     print("static void o9app_destroyfid(Fid *f){\n");
+    print("\tauthdestroy(f);\n");
     print("\to9app_import_commit(f);\n");
     print("\tif(f != nil && f->file != nil && f->file->aux != nil &&\n");
     print("\t   *(int*)f->file->aux == O9AUX_SESSION && f->omode != -1){\n");
@@ -310,6 +364,18 @@ codegen(Node *root)
     print("\t}\n");
     print("\trespond(r, nil);\n");
     print("}\n");
+    print("static void o9app_auth(Req *r){\n");
+    print("\tif(!o9app_auth_required){ respond(r, \"authentication not required\"); return; }\n");
+    print("\tauth9p(r);\n");
+    print("}\n");
+    print("static void o9app_attach(Req *r){\n");
+    print("\tif(o9app_auth_required && authattach(r) < 0) return;\n");
+    print("\tif(r->fid == nil || o9app_tree == nil || o9app_tree->root == nil){ respond(r, \"no root\"); return; }\n");
+    print("\tr->fid->file = o9app_tree->root;\n");
+    print("\tr->fid->qid = o9app_tree->root->qid;\n");
+    print("\tr->ofcall.qid = r->fid->qid;\n");
+    print("\trespond(r, nil);\n");
+    print("}\n");
     print("static void o9app_create(Req *r){\n");
     print("\tFile *f; O9Export *imp; O9ImportStage *st;\n");
     print("\tif(r == nil || r->fid == nil || r->fid->file == nil){ respond(r, \"bad fid\"); return; }\n");
@@ -331,6 +397,7 @@ codegen(Node *root)
     print("\trespond(r, nil);\n");
     print("}\n");
     print("static void o9app_root_read(Req *r){\n");
+    print("\tif(r != nil && r->fid != nil && (r->fid->qid.type & QTAUTH)){ authread(r); return; }\n");
     print("\tchar *name = r->fid->file->name;\n");
     print("\tchar buf[8192]; char *p = buf; int i;\n");
     /* clone: reading allocates a session and returns its id. */
@@ -397,6 +464,7 @@ codegen(Node *root)
     print("\t\treadstr(r, __dbuf); free(__dbuf); respond(r, nil); return; }\n\t}\n");
     print("\trespond(r, \"not found\");\n}\n");
     print("static void o9app_root_write(Req *r){\n");
+    print("\tif(r != nil && r->fid != nil && (r->fid->qid.type & QTAUTH)){ authwrite(r); return; }\n");
     print("\tchar *name = r->fid->file->name;\n");
     print("\tchar cmd[1024], *f[16]; int nf; char inst[64]; O9ClassH *ch;\n");
     print("\tif(r->fid != nil && r->fid->file != nil && r->fid->file->aux != nil && *(int*)r->fid->file->aux == O9AUX_IMPORT){ o9app_import_write(r); return; }\n");
@@ -412,7 +480,29 @@ codegen(Node *root)
     print("\t\tO9Session *__cs = o9app_req_session(r);\n");
     print("\t\tif(__cs != nil) o9app_close_session(__cs);\n");
     print("\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t}\n");
-    print("\tif(nf < 3 || (strcmp(f[0], \"method\") != 0 && strcmp(f[0], \"new\") != 0)){ respond(r, \"want: method Class.inst name | new Class inst | close\"); return; }\n");
+    print("\tif(nf >= 1 && strcmp(f[0], \"login\") == 0){\n");
+    print("\t\tO9Session *__ls = o9app_req_session(r); char __err[128]; int __ok;\n");
+    print("\t\tif(__ls == nil){ o9app_wipe(cmd, sizeof cmd); respond(r, \"login requires session ctl\"); return; }\n");
+    print("\t\tif(nf != 3){ o9app_put_status(r, \"error: want login user password\\n\"); o9app_put_result(r, \"\"); o9app_wipe(cmd, sizeof cmd); r->ofcall.count = r->ifcall.count; respond(r, nil); return; }\n");
+    print("\t\tif(r->srv != nil) srvrelease(r->srv);\n");
+    print("\t\t__ok = o9app_auth_login(f[1], f[2], __err, sizeof __err);\n");
+    print("\t\tif(r->srv != nil) srvacquire(r->srv);\n");
+    print("\t\tqlock(&__ls->lock);\n");
+    print("\t\tif(__ok){ __ls->blessed = 1; snprint(__ls->authuser, sizeof __ls->authuser, \"%%s\", f[1]); snprint(__ls->status, sizeof __ls->status, \"ok login %%s\\n\", f[1]); snprint(__ls->data, sizeof __ls->data, \"%%s\\n\", f[1]); }\n");
+    print("\t\telse { __ls->blessed = 0; __ls->authuser[0] = '\\0'; snprint(__ls->status, sizeof __ls->status, \"error: login failed: %%s\\n\", __err[0] != '\\0' ? __err : \"auth failed\"); __ls->data[0] = '\\0'; }\n");
+    print("\t\tqunlock(&__ls->lock);\n");
+    print("\t\to9app_wipe(cmd, sizeof cmd);\n");
+    print("\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t}\n");
+    print("\tif(nf >= 1 && strcmp(f[0], \"logout\") == 0){\n");
+    print("\t\tO9Session *__ls = o9app_req_session(r);\n");
+    print("\t\tif(__ls == nil){ respond(r, \"logout requires session ctl\"); return; }\n");
+    print("\t\tqlock(&__ls->lock); __ls->blessed = 0; __ls->authuser[0] = '\\0'; snprint(__ls->status, sizeof __ls->status, \"ok logout\\n\"); __ls->data[0] = '\\0'; qunlock(&__ls->lock);\n");
+    print("\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t}\n");
+    print("\tif(nf >= 1 && strcmp(f[0], \"whoami\") == 0){\n");
+    print("\t\tchar __ub[64], __wb[96]; o9app_req_user(r, __ub, sizeof __ub); snprint(__wb, sizeof __wb, \"%%s %%d\\n\", __ub, o9app_req_blessed(r));\n");
+    print("\t\to9app_put_status(r, \"ok\\n\"); o9app_put_result(r, __wb);\n");
+    print("\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t}\n");
+    print("\tif(nf < 3 || (strcmp(f[0], \"method\") != 0 && strcmp(f[0], \"new\") != 0)){ respond(r, \"want: method Class.inst name | new Class inst | login user password | logout | whoami | close\"); return; }\n");
     /* Resolve to a class handler. new Class inst -> resolve by CLASS name
      * (f[1] is the class). method Class.inst -> resolve by Class.inst.
      * The class fswrite re-tokenizes r->ifcall.data itself and handles
@@ -481,6 +571,9 @@ codegen(Node *root)
     for(n = mono_list; n; n = n->next)
         if(n->type == NStruct)
             gen_struct_def(n);
+    emit_tabula_helpers_node(root);
+    for(n = mono_list; n; n = n->next)
+        emit_tabula_helpers_node(n);
     for(n = mono_list; n; n = n->next)
         if(n->type == NClass && (n->flags & NFAbstract) == 0)
             gen_class_server(n);
@@ -494,6 +587,7 @@ codegen(Node *root)
     print("\tif(argc > 1 && argv[1] != nil && argv[1][0] != '\\0') __o9app = argv[1];\n");
     print("\tsnprint(o9app_name, sizeof o9app_name, \"%%s\", __o9app);\n");
     print("\t{ char *__d = getenv(\"O9DEBUG\"); o9app_debug = (__d != nil && __d[0] != '\\0'); free(__d); }\n");
+    print("\t{ char *__a = getenv(\"O9AUTH\"); o9app_auth_required = (__a != nil && strcmp(__a, \"required\") == 0); free(__a); }\n");
     print("\to9_ns_app_root(o9app_root, sizeof o9app_root, __o9app);\n");
     print("\to9_ns_service_name(o9app_srvname, sizeof o9app_srvname, __o9app, __o9app, \"app\");\n");
     print("\to9_ns_class_path(o9app_mount, sizeof o9app_mount, o9app_root, __o9app);\n");
@@ -501,6 +595,11 @@ codegen(Node *root)
     print("\to9app_tree = alloctree(nil, nil, DMDIR|0555, nil);\n");
     print("\to9app_srv.tree = o9app_tree;\n");
     print("\to9app_srv.read = o9app_root_read;\n\to9app_srv.write = o9app_root_write;\n");
+    print("\tif(o9app_auth_required){\n");
+    print("\t\to9app_srv.auth = o9app_auth;\n");
+    print("\t\to9app_srv.attach = o9app_attach;\n");
+    print("\t\to9app_srv.keyspec = \"proto=p9any role=server\";\n");
+    print("\t}\n");
     print("\to9app_srv.create = o9app_create;\n");
     print("\to9app_srv.open = o9app_open;\n\to9app_srv.destroyfid = o9app_destroyfid;\t/* session fid diagnostics */\n");
     /* The four control files + state are a FIXED shape, built once, never

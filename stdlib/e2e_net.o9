@@ -17,7 +17,13 @@ main {
     Factotum ft = new Factotum();
     print("factotum ", ft.available(), "\n");
     string ftuser = ft.user();
-    print("user ", len(ftuser) > 0, " ", ft.isUser(ftuser), " ", ft.isCaller(ft.caller()), "\n");
+    print("user ", len(ftuser) > 0, " ", ft.isUser(ftuser), " ", ft.blessed(), " ", ft.isCaller(ft.caller()), "\n");
+    writefile("/tmp/o9_admin_policy.tab", "");
+    FactotumAdmin admin = new FactotumAdmin("/tmp/o9_admin_policy.tab", ftuser);
+    print("admin ", admin.configured(), " ", admin.isAdmin(), " ", admin.is(ftuser), "\n");
+    FactotumAdmin reloaded = new FactotumAdmin("/tmp/o9_admin_policy.tab", "nobody");
+    print("adminload ", reloaded.configured(), " ", reloaded.is(ftuser), " ", reloaded.is("nobody"), "\n");
+    print("adminset ", admin.setAdmin("nobody"), " ", admin.isAdmin(), " ", admin.is("nobody"), "\n");
 
     string unlock = passkey("unlock", "net.token.unlock.v1");
     string wrong = passkey("wrong", "net.token.unlock.v1");

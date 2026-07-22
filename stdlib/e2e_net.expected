@@ -4,7 +4,10 @@ close 1 0
 bad 0
 listen 0 dir [] local []
 factotum 1
-user 1 1 1
+user 1 1 0 0
+admin 1 0 0
+adminload 1 0 0
+adminset 0 0 0
 token 1 0 0
 ident 1 1
 load 1 0

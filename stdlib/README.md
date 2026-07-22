@@ -1092,8 +1092,10 @@ Methods:
 - `path() string`
 - `user() string`
 - `caller() string`
+- `blessed() bool`
 - `isUser(string name) bool`
 - `isCaller(string name) bool`
+- `verify(string name) bool`
 - `available() bool`
 - `keys() string`
 - `has(string query) bool`
@@ -1103,13 +1105,77 @@ Methods:
 
 `user` returns the local Plan 9 user. `caller` returns the current 9P request
 user when a method is invoked through the generated app facade, falling back
-to the local user outside a facade call. `isUser` and `isCaller` are exact
-string checks intended for simple controller policy.
+to the local user outside a facade call. That name is metadata. `blessed`
+returns true only when the current clone session has completed a generated
+facade `ctl` login verified by Plan 9 `auth_userpasswd` through factotum.
+`isCaller` and `verify` require both: the request must be blessed and the
+blessed caller name must match.
+
+The default generated facade command is:
+
+```rc
+sid=`{cat /mnt/app/clone}
+echo 'login scott password' > /mnt/app/$sid/ctl
+```
+
+The password is transient `ctl` input, not policy data. The generated server
+wipes its local command buffer after the factotum check and stores only the
+session result: blessed/unblessed plus the verified user name. For networked
+mounts, protect the transport separately if you do not want the login command
+visible on the wire.
 
 `addKey` writes `key <spec>` to factotum's `ctl` file; `delKey` writes
 `delkey <query>`. The object does not expose private key bytes. It checks
 caller identity and controls the native auth agent without handing raw secrets
 to o9 code.
+
+`FactotumAdmin` is the small app-policy layer over `Factotum.verify()`. It does
+not create Plan 9 accounts and does not edit `/adm/users`; it records which
+factotum-blessed Plan 9 user is allowed to administer this o9 app facade. The
+policy is stored as a `.tab` file so first-launch bootstrap is explicit and
+auditable:
+
+```o9
+import "net.o9";
+
+class Controller {
+    private FactotumAdmin auth;
+
+    method Controller(string firstAdmin) {
+        auth = new FactotumAdmin("/usr/scott/lib/myapp.admin.tab", firstAdmin);
+    }
+
+    method bool mutate(string value) {
+        if(!auth.isAdmin()) {
+            return false;
+        }
+        // mutation goes here
+        return true;
+    }
+}
+```
+
+The constructor takes `(policyPath, firstAdmin)`. If `policyPath` already
+contains policy data, the file wins and `firstAdmin` is ignored. If the file is
+empty or missing, `firstAdmin` is written as the initial admin.
+
+Methods:
+
+- `FactotumAdmin(string policyPath, string firstAdmin)`
+- `ensure(string firstAdmin) bool`
+- `load() bool`
+- `configured() bool`
+- `admin() string`
+- `caller() string`
+- `blessed() bool`
+- `isAdmin() bool`
+- `is(string user) bool`
+- `setAdmin(string nextAdmin) bool`
+- `read() string`
+
+`setAdmin` only succeeds when the current caller is already the configured
+admin. This makes admin rotation an authenticated app action instead of a
+manual edit to the policy file.
 
 `NetToken` is the portable fallback for capability-style authorization strings,
 mainly for Unix interop or exported `.tab` workflows where factotum is not
@@ -1226,6 +1292,10 @@ Constructors:
 - `new tabula(path)` opens an existing `.tab` file.
 - `new tabula(schema, "col1,col2")` creates an in-memory document whose
   first column is the entry identity column `id`.
+- `new tabula<Struct>(schema)` creates an in-memory document whose columns
+  are derived from `Struct` fields. The first field must be `string` and is
+  the entry id. This is positional: there is no `id` keyword or annotation.
+  Put the key field first.
 
 Methods:
 
@@ -1233,6 +1303,7 @@ Methods:
 - `has(string col) int64`
 - `add(string id) int64`
 - `write(string id, string col, string val) int64`
+- `write(Struct record) int64` on `tabula<Struct>`
 - `remove(string id) int64`
 - `set(string col, string val) int64`
 - `get(string col) string`
@@ -1242,6 +1313,7 @@ Methods:
 - `read() string`
 - `serialize() string`
 - `query(string col, string val) tabula`
+- `row(string id) Struct` on `tabula<Struct>`
 - `flush() int64`
 - `sync() int64`
 - `push() int64`
@@ -1255,6 +1327,32 @@ entry into the hidden nil entry, so it disappears from iteration, query, and
 serialization. `value` reads one attached value by entry id and value name
 without changing the current cursor. `set` and `get` operate on the current
 entry after `add`, `first`, or `next`.
+
+Typed tabula keeps schemas DRY when a `.tab` represents repeated copies of one
+struct. The first field is the identity field; in this example `sys` is the
+entry id because it appears first:
+
+```o9
+struct NdbEntry {
+    string sys;
+    string ip;
+    string dom;
+    int64 version;
+}
+
+main {
+    tabula<NdbEntry> entries = new tabula<NdbEntry>("ndb_entry");
+    NdbEntry e;
+
+    e.sys = "box1";
+    e.ip = "10.0.0.2";
+    e.dom = "box1.grid";
+    e.version = 1;
+
+    entries.write(e);
+    e = entries.row("box1");
+}
+```
 
 Binary data should be stored as hex text in a column named `0x`:
 

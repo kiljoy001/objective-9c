@@ -455,6 +455,8 @@ type_storage(Type *type)
 		if(p != nil)
 			return estrdup(p);
 	}
+	if(type->kind == TyApply && strcmp(canonical_type_name(type->name), "tabula") == 0)
+		return estrdup("O9Tabula*");
 	if(type->kind == TyPtr || type->kind == TyArray){
 		p = type_storage(type->base);
 		len = strlen(p) + 2;
@@ -486,6 +488,8 @@ type_plan9(Type *type)
 		return type_storage(type);
 	if(type->kind == TyArray)
 		return estrdup("O9Slice");
+	if(type->kind == TyApply && strcmp(canonical_type_name(type->name), "tabula") == 0)
+		return estrdup("O9Tabula*");
 	if(type->kind == TyApply)
 		return type_cname(type);
 	return type_storage(type);
@@ -510,6 +514,8 @@ type_abi(Type *type)
 		return "pointer";
 	if(type->kind == TyArray)
 		return "slice";
+	if(type->kind == TyApply && strcmp(canonical_type_name(type->name), "tabula") == 0)
+		return "pointer";
 	if(type->kind == TyApply)
 		return "generic";
 	return "unknown";

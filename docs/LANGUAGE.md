@@ -61,8 +61,10 @@ import "file.o9";
 import "namespace.o9";
 ```
 
-Stdlib modules live under `stdlib/`. See [../stdlib/README.md](../stdlib/README.md)
-for the current module list.
+Imports are resolved inside the source tree namespace. The normal `o9build`
+command binds the installed stdlib into that namespace before invoking `o9c`,
+so installed projects can import either `file.o9` or `stdlib/file.o9`.
+See [../stdlib/README.md](../stdlib/README.md) for the current module list.
 
 Raw C dependencies are not imported this way. They are declared with `use`
 inside a `function` body.
@@ -531,6 +533,43 @@ flush()
 close()
 ```
 
+Typed tabulae bind that text document to a struct shape. The first data field
+is the entry id; the remaining fields become attached values. This is
+positional by design: there is no `id` keyword, annotation, or extra sugar.
+Put the key field first. The constructor derives the column list from the
+struct, so the schema is written once in code:
+
+```o9
+struct NdbEntry {
+    string sys;      // row/entry id
+    string ip;
+    string dom;
+    int64 version;
+}
+
+main {
+    tabula<NdbEntry> entries = new tabula<NdbEntry>("ndb_entry");
+    NdbEntry e;
+
+    e.sys = "box1";
+    e.ip = "10.0.0.2";
+    e.dom = "box1.grid";
+    e.version = 1;
+
+    entries.write(e);
+
+    NdbEntry copy = entries.row("box1");
+    print(copy.ip, "\n");
+}
+```
+
+`tabula<T>` requires `T` to be a struct whose first data field is `string`.
+That first field names the identity column for this table: `sys` in the
+example above, `id` only if the struct author names it `id`. Fields may be
+`string` or scalar builtin values. It remains a normal `.tab` document
+underneath: typed `write(record)` writes cells, `row(id)` hydrates a plain
+value struct, and `query(col, val)` returns another `tabula<T>`.
+
 `add` and `write` require a non-empty entry id; `nil` is reserved for the
 hidden canonical nil entry. `nil` values are semantic nil, not empty strings:
 writing nil clears the attached value, so the serialized entry omits that
@@ -644,8 +683,24 @@ echo close > /mnt/o9/$sid/ctl
 The session id carries the conversation across separate shell commands.
 Root-level `ctl` is for compatibility/debug and app-wide commands; normal
 method calls that return data should use session-local `ctl` and `data`.
-Controller methods can use `Factotum.caller()` from `stdlib/net.o9` to inspect
-the current 9P request user and decide whether a mutation is allowed.
+Generated app facades support session-local login through `ctl`:
+
+```rc
+sid=`{cat /mnt/o9/clone}
+echo 'login scott password' > /mnt/o9/$sid/ctl
+```
+
+The generated server verifies the submitted user/password with Plan 9
+`auth_userpasswd`, which talks to `/mnt/factotum/rpc` and the native auth
+system. The app does not store the password; it only records that this clone
+session is blessed as that user. Controller methods can use
+`Factotum.caller()` from `stdlib/net.o9` to inspect the current request name,
+and `Factotum.blessed()`/`Factotum.verify(name)` to require a successful
+session login.
+`FactotumAdmin` builds the common first-launch policy on top of that: it stores
+one configured admin user in a `.tab` file, bootstrapping from the constructor
+only when that file is empty or missing. It is app policy, not Plan 9 account
+creation.
 
 Apps can publish `.tab` data under `exports/`:
 

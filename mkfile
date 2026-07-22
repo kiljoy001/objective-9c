@@ -1,7 +1,7 @@
 # root mkfile — build and install o9 toolchain
 # Targets:
 #   mk            — build o9c compiler + libo9.a
-#   mk install    — install o9c, o9.h, libo9.a, stdlib, and o9proj
+#   mk install    — install o9c, o9.h, libo9.a, stdlib, o9build, and o9proj
 #   mk uninstall  — remove files installed by mk install
 #   mk release-tarball — build a pac9-compatible amd64 tarball
 #   mk clean      — clean build artifacts
@@ -11,6 +11,22 @@
 default:V: o9c libo9.a
 
 VERSION=0.1.0
+
+STDLIB_MODULES=\
+	stdlib/buffer.o9\
+	stdlib/bytes.o9\
+	stdlib/collections.o9\
+	stdlib/draw.o9\
+	stdlib/file.o9\
+	stdlib/io.o9\
+	stdlib/math.o9\
+	stdlib/namespace.o9\
+	stdlib/net.o9\
+	stdlib/path.o9\
+	stdlib/process.o9\
+	stdlib/random.o9\
+	stdlib/string.o9\
+	stdlib/time.o9\
 
 # === o9c compiler ===
 CFILES=\
@@ -217,6 +233,30 @@ install:V: o9c libo9.a
 		chmod +x $home/bin/$objtype/o9c
 	}
 	if(test -e /bin/o9c) chmod +x /bin/o9c
+	if(! cp o9build /rc/bin/o9build){
+		echo 'warning: could not install /rc/bin/o9build; using '$home'/bin/rc/o9build' >[1=2]
+		if(! test -d $home/bin) mkdir $home/bin
+		if(! test -d $home/bin/rc) mkdir $home/bin/rc
+		cp o9build $home/bin/rc/o9build
+		chmod +x $home/bin/rc/o9build
+	}
+	if(test -e /rc/bin/o9build) chmod +x /rc/bin/o9build
+	if(! cp o9plumb /rc/bin/o9plumb){
+		echo 'warning: could not install /rc/bin/o9plumb; using '$home'/bin/rc/o9plumb' >[1=2]
+		if(! test -d $home/bin) mkdir $home/bin
+		if(! test -d $home/bin/rc) mkdir $home/bin/rc
+		cp o9plumb $home/bin/rc/o9plumb
+		chmod +x $home/bin/rc/o9plumb
+	}
+	if(test -e /rc/bin/o9plumb) chmod +x /rc/bin/o9plumb
+	if(! cp o9plumbbuild /rc/bin/o9plumbbuild){
+		echo 'warning: could not install /rc/bin/o9plumbbuild; using '$home'/bin/rc/o9plumbbuild' >[1=2]
+		if(! test -d $home/bin) mkdir $home/bin
+		if(! test -d $home/bin/rc) mkdir $home/bin/rc
+		cp o9plumbbuild $home/bin/rc/o9plumbbuild
+		chmod +x $home/bin/rc/o9plumbbuild
+	}
+	if(test -e /rc/bin/o9plumbbuild) chmod +x /rc/bin/o9plumbbuild
 	if(! cp o9proj /rc/bin/o9proj){
 		echo 'warning: could not install /rc/bin/o9proj; using '$home'/bin/rc/o9proj' >[1=2]
 		if(! test -d $home/bin) mkdir $home/bin
@@ -242,32 +282,52 @@ install:V: o9c libo9.a
 	if(! @{
 		if(! test -d /sys/lib/o9) mkdir /sys/lib/o9
 		if(! test -d /sys/lib/o9/stdlib) mkdir /sys/lib/o9/stdlib
-		cp stdlib/*.o9 /sys/lib/o9/stdlib
+		rm -f /sys/lib/o9/stdlib/*
+		cp $STDLIB_MODULES /sys/lib/o9/stdlib
 	}){
 		echo 'warning: could not install /sys/lib/o9/stdlib; using '$home'/lib/o9/stdlib' >[1=2]
 		if(! test -d $home/lib) mkdir $home/lib
 		if(! test -d $home/lib/o9) mkdir $home/lib/o9
 		if(! test -d $home/lib/o9/stdlib) mkdir $home/lib/o9/stdlib
-		cp stdlib/*.o9 $home/lib/o9/stdlib
+		rm -f $home/lib/o9/stdlib/*
+		cp $STDLIB_MODULES $home/lib/o9/stdlib
+	}
+	if(! @{
+		if(! test -d /sys/lib/plumb) mkdir /sys/lib/plumb
+		cp plumb/o9 /sys/lib/plumb/o9
+	}){
+		echo 'warning: could not install /sys/lib/plumb/o9; using '$home'/lib/plumb/o9' >[1=2]
+		if(! test -d $home/lib) mkdir $home/lib
+		if(! test -d $home/lib/plumb) mkdir $home/lib/plumb
+		cp plumb/o9 $home/lib/plumb/o9
 	}
 	@ echo ''
 	@ echo '=== o9 toolchain installed ==='
 	@ echo '  o9c      -> /bin/o9c or '$home'/bin/'$objtype'/o9c'
+	@ echo '  o9build  -> /rc/bin/o9build or '$home'/bin/rc/o9build'
+	@ echo '  o9plumb  -> /rc/bin/o9plumb or '$home'/bin/rc/o9plumb'
+	@ echo '  o9plumbbuild -> /rc/bin/o9plumbbuild or '$home'/bin/rc/o9plumbbuild'
 	@ echo '  o9proj   -> /rc/bin/o9proj or '$home'/bin/rc/o9proj'
 	@ echo '  o9.h     -> /sys/include/o9.h or '$home'/include/o9.h'
 	@ echo '  libo9.a  -> /'$objtype'/lib/libo9.a or '$home'/lib/o9/libo9.a'
 	@ echo '  stdlib   -> /sys/lib/o9/stdlib or '$home'/lib/o9/stdlib'
+	@ echo '  plumbing -> /sys/lib/plumb/o9 or '$home'/lib/plumb/o9'
 	@ echo ''
 	@ echo 'Usage:'
-	@ echo '  o9c < source.o9 > out.c'
-	@ echo '  6c out.c'
-	@ echo '  6l out.6 -lo9'
+	@ echo '  o9build source.o9'
 	@ echo '  o9proj myapp'
+	@ echo '  o9plumb'
 
 uninstall:V:
 	if(! rm -f /$objtype/bin/o9c) echo 'warning: could not remove /'$objtype'/bin/o9c' >[1=2]
 	if(! rm -f /bin/o9c) echo 'warning: could not remove /bin/o9c' >[1=2]
 	if(! rm -f $home/bin/$objtype/o9c) echo 'warning: could not remove '$home'/bin/'$objtype'/o9c' >[1=2]
+	if(! rm -f /rc/bin/o9build) echo 'warning: could not remove /rc/bin/o9build' >[1=2]
+	if(! rm -f $home/bin/rc/o9build) echo 'warning: could not remove '$home'/bin/rc/o9build' >[1=2]
+	if(! rm -f /rc/bin/o9plumb) echo 'warning: could not remove /rc/bin/o9plumb' >[1=2]
+	if(! rm -f $home/bin/rc/o9plumb) echo 'warning: could not remove '$home'/bin/rc/o9plumb' >[1=2]
+	if(! rm -f /rc/bin/o9plumbbuild) echo 'warning: could not remove /rc/bin/o9plumbbuild' >[1=2]
+	if(! rm -f $home/bin/rc/o9plumbbuild) echo 'warning: could not remove '$home'/bin/rc/o9plumbbuild' >[1=2]
 	if(! rm -f /rc/bin/o9proj) echo 'warning: could not remove /rc/bin/o9proj' >[1=2]
 	if(! rm -f /bin/o9proj) echo 'warning: could not remove /bin/o9proj' >[1=2]
 	if(! rm -f $home/bin/rc/o9proj) echo 'warning: could not remove '$home'/bin/rc/o9proj' >[1=2]
@@ -280,6 +340,8 @@ uninstall:V:
 	if(! rm -f /sys/src/cmd/o9_tab_discard.c) echo 'warning: could not remove /sys/src/cmd/o9_tab_discard.c' >[1=2]
 	if(! rm -f /sys/lib/o9/stdlib/*.o9) echo 'warning: could not remove /sys/lib/o9/stdlib/*.o9' >[1=2]
 	if(! rm -f $home/lib/o9/stdlib/*.o9) echo 'warning: could not remove '$home'/lib/o9/stdlib/*.o9' >[1=2]
+	if(! rm -f /sys/lib/plumb/o9) echo 'warning: could not remove /sys/lib/plumb/o9' >[1=2]
+	if(! rm -f $home/lib/plumb/o9) echo 'warning: could not remove '$home'/lib/plumb/o9' >[1=2]
 	if(test -d /sys/lib/o9/stdlib) if(! rm /sys/lib/o9/stdlib >[2]/dev/null) echo 'warning: leaving /sys/lib/o9/stdlib' >[1=2]
 	if(test -d $home/lib/o9/stdlib) if(! rm $home/lib/o9/stdlib >[2]/dev/null) echo 'warning: leaving '$home'/lib/o9/stdlib' >[1=2]
 	if(test -d /sys/lib/o9) if(! rm /sys/lib/o9 >[2]/dev/null) echo 'warning: leaving /sys/lib/o9' >[1=2]

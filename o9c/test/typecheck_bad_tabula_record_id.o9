@@ -1,0 +1,8 @@
+struct BadRow {
+    int64 id;
+    string name;
+}
+
+main {
+    tabula<BadRow> bad = new tabula<BadRow>("bad");
+}

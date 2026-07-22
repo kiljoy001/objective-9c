@@ -79,6 +79,8 @@ apply_storage_for_codegen(Type *t)
         return "O9Dict";
     if(strcmp(t->name, "Task") == 0)
         return "O9Task*";	/* handle; <T> only types await's return */
+    if(o9_type_name_is_tabula(t->name))
+        return "O9Tabula*";	/* <T> is schema metadata; runtime handle is unchanged */
     if(strcmp(t->name, "Tuple") == 0)
         return tuple_storage_name(t);
     base = type_name(t->name);
@@ -192,6 +194,54 @@ static int
 type_is_list(Type *t)
 {
     return type_is_collection(t, "List");
+}
+
+static int
+type_is_typed_tabula(Type *t)
+{
+    return o9_type_is_tabula(t) && t->kind == TyApply;
+}
+
+static Type*
+tabula_record_type(Type *t)
+{
+    if(!type_is_typed_tabula(t))
+        return nil;
+    return type_list_at(t->args, 0);
+}
+
+static int
+node_is_data_field(Node *m)
+{
+    return m != nil && (m->type == NProp || m->type == NState);
+}
+
+static Node*
+first_data_field(Node *c)
+{
+    Node *m;
+
+    if(c == nil)
+        return nil;
+    for(m = c->left; m != nil; m = m->next)
+        if(node_is_data_field(m))
+            return m;
+    return nil;
+}
+
+static Node*
+tabula_record_struct(Type *t)
+{
+    Type *rt;
+    Node *d;
+
+    rt = tabula_record_type(t);
+    if(rt == nil)
+        return nil;
+    d = type_decl_node(rt);
+    if(d == nil || d->type != NStruct)
+        return nil;
+    return d;
 }
 
 static int

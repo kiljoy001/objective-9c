@@ -662,6 +662,19 @@ print(t.value("a", "item"));  // widget
 t.remove("a");</td>
           </tr>
           <tr>
+            <td class="kw">tabula&lt;T&gt;</td>
+            <td class="kw-desc">Struct-backed tabula. The first struct field is the entry id by position; there is no id keyword or annotation. The compiler derives columns and row(id) returns a value struct.</td>
+            <td class="kw-code">struct Order {
+    string id;
+    string item;
+    int64 qty;
+}
+
+tabula&lt;Order&gt; t = new tabula&lt;Order&gt;("orders");
+t.write(order);
+Order copy = t.row("a");</td>
+          </tr>
+          <tr>
             <td class="kw">MountTable</td>
             <td class="kw-desc">Lower-level namespace composition as data. Prefer <code>Namespace</code> for normal code.</td>
             <td class="kw-code">MountTable mt = new MountTable();
@@ -1024,12 +1037,12 @@ t.sleep(1);</td>
           </tr>
           <tr>
             <td class="kw">net</td>
-            <td class="kw-desc">Network objects: dial/listen/read/write/close plus factotum identity, portable token fallback, and TOFU known-remote pinning.</td>
+            <td class="kw-desc">Network objects: dial/listen/read/write/close plus factotum identity, session ctl login, portable token fallback, and TOFU known-remote pinning.</td>
             <td class="kw-code">import "net.o9";
-NetConn c = new NetConn();
-c.dial("tcp!example.com!80");
+NetConn c = new NetConn("tcp!example.com!80");
+c.dial();
 c.write("GET / HTTP/1.0\n\n");
-print(c.read(), "\n");
+print(c.read(1024), "\n");
 c.close();</td>
           </tr>
           <tr>
@@ -1133,6 +1146,8 @@ if(w.open()) {
           <li>• Raw C in <code>function</code> bodies wraps Plan 9 libc calls</li>
           <li>• Classes expose methods; blocking ops use <code>spawn</code> + <code>await</code></li>
           <li>• <code>import "string.o9"</code> splices declarations into source</li>
+          <li>• <code>o9build</code> binds installed stdlib into the project namespace before compiling</li>
+          <li>• <code>o9plumb</code> lets plumbing an <code>.o9</code> file start an <code>o9build</code> build</li>
           <li>• 13 modules, all e2e tested with expected output</li>
           <li>• Constrained deps: <code>use { bio }</code> for buffered I/O, <code>use { memdraw }</code>/<code>use { draw }</code> for drawing</li>
         </ul>

@@ -1,0 +1,14 @@
+# Build o9 source files through the installed o9 build wrapper.
+#
+# This intentionally starts o9build instead of teaching plumber to resolve
+# imports.  The build wrapper owns the namespace setup.
+
+plumb to none
+
+type is text
+data matches '[a-zA-Z¡-￿0-9_\-.,/]+'
+data matches '([a-zA-Z¡-￿0-9_\-.,/]+)\.o9'
+arg isfile	$0
+data set	$file
+plumb to none
+plumb start o9plumbbuild $file

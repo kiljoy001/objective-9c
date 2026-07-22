@@ -12,6 +12,7 @@ struct O9Msg {
     int nargs;
     void *replyc;		/* Channel* */
     char *caller;		/* authenticated/request user, copied by actor */
+    int blessed;		/* caller completed factotum-backed auth */
 };
 
 struct O9Reply {
@@ -103,9 +104,11 @@ extern void  o9_set_call_err(char *e);
 extern char* o9_get_call_err(void);
 extern void  o9_actor_enter(void *dispatch_chan, char *oid);
 extern void  o9_set_current_user(char *user);
+extern void  o9_set_current_request(char *user, int blessed);
 extern char* o9_current_user_c(void);
 extern O9String* o9_current_user(void);
 extern int   o9_current_user_is(O9String *user);
+extern int   o9_current_user_blessed(void);
 
 /* O9String — immutable language-level string.
  *

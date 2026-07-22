@@ -1,0 +1,32 @@
+struct NdbEntry {
+    string sys;
+    string ip;
+    string dom;
+    bool restricted;
+    int64 version;
+    double load;
+}
+
+main {
+    tabula<NdbEntry> t = new tabula<NdbEntry>("ndb_entry");
+    NdbEntry e;
+    NdbEntry out;
+    tabula<NdbEntry> q;
+
+    e.sys = "box1";
+    e.ip = "10.0.0.2";
+    e.dom = "box1.grid";
+    e.restricted = true;
+    e.version = 7;
+    e.load = 1.5;
+
+    print("schema ", t.schema(), " ", t.has("sys"), " ", t.has("ip"), " ", t.has("version"), "\n");
+    print("write ", t.write(e), "\n");
+    print("value ", t.value("box1", "ip"), " ", t.value("box1", "restricted"), " ", t.value("box1", "version"), " ", t.value("box1", "load"), "\n");
+
+    out = t.row("box1");
+    print("row ", out.sys, " ", out.ip, " ", out.dom, " ", out.restricted, " ", out.version, " ", out.load, "\n");
+
+    q = t.query("ip", "10.0.0.2");
+    print("query ", q.first(), " ", q.get("sys"), " ", q.get("dom"), "\n");
+}

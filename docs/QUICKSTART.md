@@ -14,12 +14,16 @@ pwd
 
 ```rc
 mk
+mk install
 ```
 
 That builds:
 
 - `o9c/o9c` - the o9-to-C transpiler
 - `libo9.a` - the runtime library linked with generated o9 programs
+- `o9build` - the normal build wrapper for user programs
+- `o9proj` - project scaffolding
+- `o9plumb` - optional plumber setup for `.o9` build messages
 
 ## First Program
 
@@ -49,12 +53,10 @@ main {
 }
 ```
 
-Transpile, compile, link, and run:
+Build and run:
 
 ```rc
-o9c/o9c < /tmp/counter.o9 > /tmp/counter.c
-6c -FVw -I. -o /tmp/counter.6 /tmp/counter.c
-6l -o /tmp/counter /tmp/counter.6 libo9.a /$objtype/lib/libndb.a
+o9build /tmp/counter.o9
 /tmp/counter
 ```
 
@@ -94,9 +96,7 @@ main {
 Build and start it:
 
 ```rc
-o9c/o9c < /tmp/countersrv.o9 > /tmp/countersrv.c
-6c -FVw -I. -o /tmp/countersrv.6 /tmp/countersrv.c
-6l -o /tmp/countersrv /tmp/countersrv.6 libo9.a /$objtype/lib/libndb.a
+o9build /tmp/countersrv.o9
 /tmp/countersrv &
 srvpid=$apid
 ```
@@ -158,6 +158,8 @@ mk run-test
 ```
 
 ## Next Reading
+
+Run `o9plumb` once to make plumbing an `.o9` file start an `o9build` build.
 
 - [Language Guide](LANGUAGE.md)
 - [Examples](EXAMPLES.md)

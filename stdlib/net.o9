@@ -204,6 +204,14 @@ function FactotumCallerRaw() string {
     return out;
 }
 
+function FactotumBlessedRaw() int64 {
+    int64 out;
+    c {
+        out = o9_current_user_blessed();
+    }
+    return out;
+}
+
 function FactotumAvailableRaw(string mount) int64 {
     int64 out;
     c {
@@ -439,6 +447,11 @@ class Factotum {
         return t.await();
     }
 
+    method bool blessed() {
+        Task<int64> t = spawn FactotumBlessedRaw();
+        return t.await() == 1;
+    }
+
     method bool isUser(string name) {
         string current;
         current = user();
@@ -447,8 +460,15 @@ class Factotum {
 
     method bool isCaller(string name) {
         string current;
+        if(!blessed()) {
+            return false;
+        }
         current = caller();
         return cmp(current, name) == 0;
+    }
+
+    method bool verify(string name) {
+        return isCaller(name);
     }
 
     method bool available() {
@@ -477,6 +497,111 @@ class Factotum {
 
     method bool delKey(string query) {
         return ctl(cat("delkey ", query));
+    }
+}
+
+class FactotumAdmin {
+    private Factotum fact;
+    private string path;
+    private string adminName;
+
+    method FactotumAdmin(string policyPath, string firstAdmin) {
+        fact = new Factotum();
+        path = policyPath;
+        adminName = "";
+        ensure(firstAdmin);
+    }
+
+    private method bool writeAdmin(string name) {
+        if(len(path) == 0 || len(name) == 0) {
+            return false;
+        }
+        tabula t = new tabula("o9_admin", "role");
+        t.write(name, "role", "admin");
+        return writefile(path, t.read()) == 0;
+    }
+
+    method bool ensure(string firstAdmin) {
+        if(len(path) == 0) {
+            return false;
+        }
+        if(len(readfile(path)) > 0) {
+            return load();
+        }
+        if(len(firstAdmin) == 0) {
+            return false;
+        }
+        if(!writeAdmin(firstAdmin)) {
+            return false;
+        }
+        adminName = firstAdmin;
+        return true;
+    }
+
+    method bool load() {
+        if(len(path) == 0 || len(readfile(path)) == 0) {
+            adminName = "";
+            return false;
+        }
+        tabula t = new tabula(path);
+        tabula q = t.query("role", "admin");
+        if(q.first() == 0) {
+            adminName = "";
+            return false;
+        }
+        adminName = q.get("id");
+        return len(adminName) > 0;
+    }
+
+    method bool configured() {
+        if(len(adminName) > 0) {
+            return true;
+        }
+        return load();
+    }
+
+    method string admin() {
+        if(len(adminName) == 0) {
+            load();
+        }
+        return adminName;
+    }
+
+    method string caller() {
+        return fact.caller();
+    }
+
+    method bool blessed() {
+        return fact.blessed();
+    }
+
+    method bool isAdmin() {
+        if(!configured()) {
+            return false;
+        }
+        return fact.isCaller(adminName);
+    }
+
+    method bool is(string user) {
+        if(!configured()) {
+            return false;
+        }
+        return fact.verify(user) && cmp(user, adminName) == 0;
+    }
+
+    method bool setAdmin(string nextAdmin) {
+        if(len(nextAdmin) == 0 || !isAdmin()) {
+            return false;
+        }
+        if(!writeAdmin(nextAdmin)) {
+            return false;
+        }
+        adminName = nextAdmin;
+        return true;
+    }
+
+    method string read() {
+        return readfile(path);
     }
 }
 

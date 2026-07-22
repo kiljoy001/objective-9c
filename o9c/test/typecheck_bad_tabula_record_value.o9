@@ -1,0 +1,12 @@
+class Box {
+    prop int64 n;
+}
+
+struct BadRow {
+    string id;
+    Box box;
+}
+
+main {
+    tabula<BadRow> bad = new tabula<BadRow>("bad");
+}

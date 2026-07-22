@@ -1,0 +1,3 @@
+main {
+    tabula<int64> bad = new tabula<int64>("numbers");
+}

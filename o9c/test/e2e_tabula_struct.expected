@@ -1,0 +1,5 @@
+schema ndb_entry 1 1 1
+write 0
+value 10.0.0.2 1 7 1.5
+row box1 10.0.0.2 box1.grid 1 7 1.5
+query 1 box1 box1.grid

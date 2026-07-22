@@ -68,6 +68,7 @@ type_arity_rule(char *name)
         { "List", 1, 0, "List needs 1 type argument" },
         { "Task", 1, 0, "Task needs 1 type argument" },
         { "Dict", 2, 0, "Dict needs 2 type arguments" },
+        { "tabula", 1, 0, "tabula needs 1 type argument" },
         { "Tuple", -1, 2, "tuple needs at least 2 type arguments" },
         { nil, 0, 0, nil }
     };
@@ -107,6 +108,43 @@ validate_builtin_apply_type(Type *t, int *errs)
             fprint(2, "o9c: error: line %d: Dict key type must be string or scalar\n",
                 sem_line);
             (*errs)++;
+        }
+    }
+    if(o9_type_name_is_tabula(t->name)){
+        Type *rt;
+        Node *st, *id, *m;
+
+        rt = tabula_record_type(t);
+        st = tabula_record_struct(t);
+        if(st == nil){
+            fprint(2, "o9c: error: line %d: tabula<T> requires T to be a struct\n",
+                sem_line);
+            (*errs)++;
+            return 1;
+        }
+        id = first_data_field(st);
+        if(id == nil){
+            fprint(2, "o9c: error: line %d: tabula<%s> struct must have at least one prop field\n",
+                sem_line, rt != nil ? type_render(rt) : "?");
+            (*errs)++;
+            return 1;
+        }
+        if(!type_is_string(id->typeinfo)){
+            fprint(2, "o9c: error: line %d: tabula<%s> first struct field '%s' must be string; it is the row id\n",
+                sem_line, rt != nil ? type_render(rt) : "?", id->name);
+            (*errs)++;
+        }
+        for(m = st->left; m != nil; m = m->next){
+            if(!node_is_data_field(m))
+                continue;
+            if(!type_is_string(m->typeinfo) &&
+               !(m->typeinfo != nil && m->typeinfo->kind == TyName &&
+                 type_builtin_abi(m->typeinfo->name) != nil &&
+                 strcmp(type_builtin_abi(m->typeinfo->name), "scalar") == 0)){
+                fprint(2, "o9c: error: line %d: tabula<%s> field '%s' must be string or scalar\n",
+                    sem_line, rt != nil ? type_render(rt) : "?", m->name);
+                (*errs)++;
+            }
         }
     }
     return 1;
@@ -1129,7 +1167,7 @@ annotate_handle_msg_type(Node *e, Type *lt)
            expr_name_is(e, "read") || expr_name_is(e, "serialize"))
             return type_name("string");
         if(expr_name_is(e, "query"))
-            return type_name("tabula");
+            return o9_type_is_tabula(lt) ? lt : type_name("tabula");
         if(expr_name_is(e, "close"))
             return type_name("void");
         return type_name("int64");
@@ -1161,6 +1199,11 @@ annotate_msg_send_expr(Node *e, Node *scope_class)
     annotate_expr_list(e->right, scope_class);
     if(type_apply_named(lt, "Task") && expr_name_is(e, "await"))
         return set_expr_type(e, type_list_at(lt->args, 0));
+    if(o9_type_is_tabula(lt) && expr_name_is(e, "row")){
+        if(type_is_typed_tabula(lt))
+            return set_expr_type(e, tabula_record_type(lt));
+        return set_expr_type(e, nil);
+    }
     t = annotate_handle_msg_type(e, lt);
     if(t != nil)
         return set_expr_type(e, t);
@@ -1723,7 +1766,11 @@ typecheck_tabula_new(Node *e, Node *scope_class, int *errs)
             sem_line);
         (*errs)++;
     }
-    if(got != 1 && got != 2){
+    if(type_is_typed_tabula(e->typeinfo) && got != 1){
+        fprint(2, "o9c: error: line %d: typed tabula constructor is new tabula<Struct>(schema), got %d arguments\n",
+            sem_line, got);
+        (*errs)++;
+    } else if(!type_is_typed_tabula(e->typeinfo) && got != 1 && got != 2){
         fprint(2, "o9c: error: line %d: tabula constructor takes 1 path argument or 2 schema arguments, got %d\n",
             sem_line, got);
         (*errs)++;
@@ -2227,15 +2274,35 @@ typecheck_tabula_msg(Node *e, Node *scope_class, Type *lt, int *errs)
         {"sync", 0, 0, 0, -1, 0},
         {"push", 0, 0, 0, -1, 0},
         {"close", 0, 0, 0, -1, 0},
+        {"row", 1, 1, 0, -1, 0},
     };
     MsgRule *r;
+    Type *rt;
+    int argc;
 
     if(!o9_type_is_tabula(lt))
         return 0;
+    if(expr_name_is(e, "row") && !type_is_typed_tabula(lt)){
+        fprint(2, "o9c: error: line %d: tabula.row is only available on tabula<Struct>\n",
+            sem_line);
+        (*errs)++;
+        typecheck_arg_values(e->right, scope_class, errs);
+        return 1;
+    }
+    if(type_is_typed_tabula(lt) && expr_name_is(e, "write")){
+        argc = node_list_len(e->right);
+        if(argc == 1){
+            typecheck_arg_values(e->right, scope_class, errs);
+            rt = tabula_record_type(lt);
+            if(!type_assignable_semantic(rt, e->right != nil ? e->right->typeinfo : nil))
+                type_mismatch_error("pass", rt, e->right != nil ? e->right->typeinfo : nil, errs);
+            return 1;
+        }
+    }
     r = lookup_msg_rule(rules, nelem(rules), e->name);
     if(r == nil){
         fprint(2, "o9c: error: line %d: tabula has no method '%s' "
-            "(schema/has/add/write/remove/set/get/value/first/next/read/serialize/query/flush/sync/push/close)\n",
+            "(schema/has/add/write/remove/set/get/value/row/first/next/read/serialize/query/flush/sync/push/close)\n",
             sem_line, e->name);
         (*errs)++;
         typecheck_arg_values(e->right, scope_class, errs);

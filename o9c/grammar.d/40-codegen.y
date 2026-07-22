@@ -116,7 +116,7 @@ type_named(Type *t, char *name)
 {
     if(t == nil)
         return 0;
-    if(t->kind != TyName)
+    if(t->kind != TyName && t->kind != TyApply)
         return 0;
     if(t->name == nil)
         return 0;
@@ -280,11 +280,29 @@ gen_tuple_lit_expr(Node *e)
 static int
 gen_tabula_new_expr(Node *e)
 {
-    int argc;
+    Node *s, *m;
+    int argc, first;
 
     if(!o9_type_is_tabula(e->typeinfo))
         return 0;
     argc = node_list_len(e->right);
+    s = tabula_record_struct(e->typeinfo);
+    if(s != nil && argc == 1){
+        print("o9_tab_new(");
+        gen_expr(e->right);
+        print(", o9_string_from_c(\"");
+        first = 1;
+        for(m = s->left; m != nil; m = m->next){
+            if(!node_is_data_field(m))
+                continue;
+            if(!first)
+                print(",");
+            print("%s", m->name);
+            first = 0;
+        }
+        print("\"))");
+        return 1;
+    }
     if(argc == 1){
         print("o9_tab_open(");
         gen_expr(e->right);
@@ -457,6 +475,118 @@ gen_tabula_msg(Node *e, Type *lt)
     };
 
     return gen_mapped_handle_msg(e, lt, "tabula", map, nelem(map));
+}
+
+static void
+gen_struct_field_ref(Node *row, char *field)
+{
+    print("(");
+    gen_expr(row);
+    print(").%s", field);
+}
+
+static void
+gen_struct_named_field_ref(char *row, char *field)
+{
+    print("%s.%s", row, field);
+}
+
+static void
+gen_tabula_field_string_named(char *row, Node *field)
+{
+    Type *ft;
+    char *fmt, *cast;
+
+    ft = field != nil ? field->typeinfo : nil;
+    if(type_is_string(ft)){
+        gen_struct_named_field_ref(row, field->name);
+        return;
+    }
+    fmt = type_fmt_for_codegen(ft);
+    cast = type_cast_for_codegen(ft);
+    print("o9_string_take(smprint(\"%s\", ", fmt);
+    if(cast != nil && cast[0] != 0)
+        print("(%s)", cast);
+    print("(");
+    gen_struct_named_field_ref(row, field->name);
+    print(")))");
+}
+
+static int
+gen_tabula_struct_write(Node *e, Type *lt)
+{
+    Node *s;
+
+    if(!expr_name_is(e, "write"))
+        return 0;
+    if(node_list_len(e->right) != 1)
+        return 0;
+    s = tabula_record_struct(lt);
+    if(s == nil)
+        return 0;
+    print("o9_tab_write_%s(", s->name);
+    gen_expr(e->left);
+    print(", ");
+    gen_expr(e->right);
+    print(")");
+    return 1;
+}
+
+static void
+gen_tabula_field_load_code(char *tabname, char *idname, char *rowname, Node *field)
+{
+    Type *ft;
+    char *cast;
+
+    ft = field != nil ? field->typeinfo : nil;
+    print("\t__o9cell = o9_tab_value(%s, %s, o9_string_from_c(\"%s\"));\n",
+        tabname, idname, field->name);
+    if(type_is_string(ft)){
+        print("\t%s.%s = __o9cell;\n", rowname, field->name);
+        return;
+    }
+    print("\t__o9c = __o9cell != nil ? o9_string_cstr(__o9cell) : nil;\n");
+    if(type_is_double(ft)){
+        print("\t%s.%s = __o9c != nil ? strtod(__o9c, nil) : 0.0;\n",
+            rowname, field->name);
+    } else {
+        cast = type_cast_for_codegen(ft);
+        print("\t%s.%s = __o9c != nil ? (%s)strtoll(__o9c, nil, 0) : 0;\n",
+            rowname, field->name, cast != nil && cast[0] != 0 ? cast : "vlong");
+    }
+    print("\tfree(__o9c);\n");
+}
+
+static int
+gen_tabula_struct_row(Node *e, Type *lt)
+{
+    Node *s;
+
+    if(!expr_name_is(e, "row"))
+        return 0;
+    if(node_list_len(e->right) != 1)
+        return 0;
+    s = tabula_record_struct(lt);
+    if(s == nil)
+        return 0;
+    print("o9_tab_row_%s(", s->name);
+    gen_expr(e->left);
+    print(", ");
+    gen_expr(e->right);
+    print(")");
+    return 1;
+}
+
+static int
+gen_tabula_typed_msg(Node *e, Type *lt)
+{
+    if(!type_is_typed_tabula(lt))
+        return 0;
+    if(gen_tabula_struct_write(e, lt))
+        return 1;
+    if(gen_tabula_struct_row(e, lt))
+        return 1;
+    return 0;
 }
 
 static int
@@ -858,6 +988,7 @@ gen_object_msg_send(Node *e)
 
 static GenMsgFn gen_msg_handlers[] = {
     gen_task_msg,
+    gen_tabula_typed_msg,
     gen_tabula_msg,
     gen_mounttable_msg,
     gen_list_msg,
@@ -2938,6 +3069,112 @@ gen_struct_def(Node *c)
     print("};\n\n");
 }
 
+static char *emitted_tabula_record_helpers[256];
+static int nemitted_tabula_record_helpers;
+
+static int
+tabula_record_helper_emitted(char *name)
+{
+    int i;
+
+    for(i = 0; i < nemitted_tabula_record_helpers; i++)
+        if(strcmp(emitted_tabula_record_helpers[i], name) == 0)
+            return 1;
+    return 0;
+}
+
+static void
+emit_tabula_write_helper(Node *s, Node *id)
+{
+    Node *m;
+
+    print("static vlong\n");
+    print("o9_tab_write_%s(O9Tabula *tab, %s row)\n{\n", s->name, s->name);
+    print("\tint __o9rv;\n");
+    print("\tO9String *__o9id;\n\n");
+    print("\t__o9rv = 0;\n");
+    print("\t__o9id = row.%s;\n", id->name);
+    print("\tif(tab == nil || __o9id == nil)\n\t\treturn -1;\n");
+    for(m = s->left; m != nil; m = m->next){
+        if(!node_is_data_field(m))
+            continue;
+        print("\tif(o9_tab_write(tab, __o9id, o9_string_from_c(\"%s\"), ",
+            m->name);
+        gen_tabula_field_string_named("row", m);
+        print(") < 0)\n\t\t__o9rv = -1;\n");
+    }
+    print("\treturn __o9rv;\n");
+    print("}\n\n");
+}
+
+static void
+emit_tabula_row_helper(Node *s, Node *id)
+{
+    Node *m;
+
+    print("static %s\n", s->name);
+    print("o9_tab_row_%s(O9Tabula *tab, O9String *__o9id)\n{\n", s->name);
+    print("\t%s __o9row;\n", s->name);
+    print("\tO9String *__o9cell;\n");
+    print("\tchar *__o9c;\n\n");
+    print("\tmemset(&__o9row, 0, sizeof __o9row);\n");
+    print("\tif(tab == nil || __o9id == nil)\n\t\treturn __o9row;\n");
+    print("\t__o9row.%s = __o9id;\n", id->name);
+    for(m = s->left; m != nil; m = m->next){
+        if(!node_is_data_field(m) || m == id)
+            continue;
+        gen_tabula_field_load_code("tab", "__o9id", "__o9row", m);
+    }
+    print("\treturn __o9row;\n");
+    print("}\n\n");
+}
+
+static void
+emit_tabula_record_helper(Node *s)
+{
+    Node *id;
+
+    if(s == nil || s->name == nil)
+        return;
+    if(tabula_record_helper_emitted(s->name))
+        return;
+    if(nemitted_tabula_record_helpers < nelem(emitted_tabula_record_helpers))
+        emitted_tabula_record_helpers[nemitted_tabula_record_helpers++] = s->name;
+    id = first_data_field(s);
+    if(id == nil)
+        return;
+    emit_tabula_write_helper(s, id);
+    emit_tabula_row_helper(s, id);
+}
+
+static void
+emit_tabula_helpers_type(Type *t)
+{
+    TypeList *a;
+    Node *s;
+
+    if(t == nil)
+        return;
+    if(type_is_typed_tabula(t)){
+        s = tabula_record_struct(t);
+        emit_tabula_record_helper(s);
+    }
+    for(a = t->args; a != nil; a = a->next)
+        emit_tabula_helpers_type(a->type);
+    emit_tabula_helpers_type(t->base);
+}
+
+static void
+emit_tabula_helpers_node(Node *n)
+{
+    for(; n != nil; n = n->next){
+        emit_tabula_helpers_type(n->typeinfo);
+        emit_tabula_helpers_node(n->params);
+        emit_tabula_helpers_node(n->left);
+        emit_tabula_helpers_node(n->right);
+    }
+}
+
 static char *emitted_tuple_types[256];
 static int nemitted_tuple_types;
 
@@ -3791,7 +4028,7 @@ gen_class_dispatch_loop(Node *c)
     print("\t%s_Internal *self = v;\n\tO9Msg *m;\n", c->name);
     print("\to9_actor_enter(self->dispatch_chan, self->oid);\n");
     print("\tfor(;;){\n\t\tm = recvp(self->dispatch_chan);\n\t\tif(m == nil) continue;\n");
-    print("\t\to9_set_current_user(m->caller);\n");
+    print("\t\to9_set_current_request(m->caller, m->blessed);\n");
     print("\t\tswitch(m->sel){\n");
     num_emitted = 0;
     gen_dispatch_cases(c, c->name);
@@ -4305,6 +4542,7 @@ gen_spawn_run_send(int np)
     print("\t  __wm->sel = 0x%lux; __wm->args = %s; __wm->nargs = %d; __wm->replyc = __replyc;\n",
         o9_hash("run"), np > 0 ? "__args" : "nil", np);
     print("\t  __wm->caller = o9_current_user_c();\n");
+    print("\t  __wm->blessed = o9_current_user_blessed();\n");
     print("\t  sendp(__inst->dispatch_chan, __wm); }\n");
 }
 
@@ -4597,7 +4835,8 @@ gen_class_ctl_send_and_recv(Node *m, int np)
 {
     print("\t\t\t\t{ O9Msg __wm = {0x%lux, %s, %d, chancreate(sizeof(void*), 0)};\n",
         o9_hash(m->name), np > 0 ? "__wargs" : "nil", np);
-    print("\t\t\t\t__wm.caller = r->fid != nil ? r->fid->uid : nil;\n");
+    print("\t\t\t\tchar __caller[64]; o9app_req_user(r, __caller, sizeof __caller); __wm.caller = __caller;\n");
+    print("\t\t\t\t__wm.blessed = o9app_req_blessed(r);\n");
     print("\t\t\t\tsendp(target->dispatch_chan, &__wm);\n");
     /* REQUEST CONCURRENCY: drop srv->slock while blocked on the actor's
      * reply so other client requests can run meanwhile. Safe now that
@@ -4724,7 +4963,8 @@ gen_class_method_file_writes(Node *c)
             {
                 char *a = np > 0 ? "__wargs" : "nil";
                 print("\t\t{ O9Msg __wm = {0x%lux, %s, %d, chancreate(sizeof(void*), 0)};\n", o9_hash(m->name), a, np);
-                print("\t\t__wm.caller = r->fid != nil ? r->fid->uid : nil;\n");
+                print("\t\tchar __caller[64]; o9app_req_user(r, __caller, sizeof __caller); __wm.caller = __caller;\n");
+                print("\t\t__wm.blessed = o9app_req_blessed(r);\n");
                 print("\t\tsendp(inst->dispatch_chan, &__wm);\n");
                 if(!type_is_void(m->typeinfo)){
                     /* Return-value method: store O9Reply in fid aux for readback */

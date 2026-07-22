@@ -78,6 +78,7 @@ struct O9ProcCtx {
 	char actor_oid[64];
 	char userbuf[64];
 	char *caller;
+	int blessed;
 };
 
 static O9ProcCtx*
@@ -128,11 +129,12 @@ o9_actor_enter(void *dispatch_chan, char *oid)
 }
 
 void
-o9_set_current_user(char *user)
+o9_set_current_request(char *user, int blessed)
 {
 	O9ProcCtx *ctx;
 
 	ctx = o9_proc_ctx();
+	ctx->blessed = blessed ? 1 : 0;
 	if(user == nil || user[0] == '\0'){
 		ctx->caller = nil;
 		ctx->userbuf[0] = '\0';
@@ -140,6 +142,12 @@ o9_set_current_user(char *user)
 	}
 	snprint(ctx->userbuf, sizeof ctx->userbuf, "%s", user);
 	ctx->caller = ctx->userbuf;
+}
+
+void
+o9_set_current_user(char *user)
+{
+	o9_set_current_request(user, 0);
 }
 
 char*
@@ -159,6 +167,12 @@ O9String*
 o9_current_user(void)
 {
 	return o9_string_from_c(o9_current_user_c());
+}
+
+int
+o9_current_user_blessed(void)
+{
+	return o9_proc_ctx()->blessed;
 }
 
 int
@@ -3758,6 +3772,7 @@ obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int narg
         m->nargs = nargs;
         m->replyc = chancreate(sizeof(void*), 0);
         m->caller = o9_current_user_c();
+        m->blessed = o9_current_user_blessed();
         sendp(obj->dispatch_chan, m);
         r = recvp(m->replyc);
         if(r->err != nil){
@@ -3806,6 +3821,7 @@ obj9_msgSendDoubleN(void *receiver, char *method, ulong selector, void *args, in
         m->nargs = nargs;
         m->replyc = chancreate(sizeof(void*), 0);
         m->caller = o9_current_user_c();
+        m->blessed = o9_current_user_blessed();
         sendp(obj->dispatch_chan, m);
         r = recvp(m->replyc);
         if(r->err != nil){
@@ -3862,6 +3878,7 @@ obj9_msgSendObjectN(void *receiver, char *method, ulong selector, void *args,
         m->nargs = nargs;
         m->replyc = chancreate(sizeof(void*), 0);
         m->caller = o9_current_user_c();
+        m->blessed = o9_current_user_blessed();
         sendp(obj->dispatch_chan, m);
         r = recvp(m->replyc);
         ret = -1;

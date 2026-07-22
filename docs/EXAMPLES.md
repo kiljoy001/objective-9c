@@ -109,6 +109,33 @@ decides later what the data means:
 cat local-orders.tab > /mnt/o9/imports/local-orders.tab
 ```
 
+When the table has one repeated shape, bind it to a struct and let the
+compiler derive the columns. The first struct field is the entry id; this is
+positional, so `id` below is ordinary field naming, not a required keyword:
+
+```o9
+struct Order {
+    string id;
+    string item;
+    int64 qty;
+    string status;
+}
+
+main {
+    tabula<Order> orders = new tabula<Order>("orders");
+    Order o;
+
+    o.id = "a";
+    o.item = "widget";
+    o.qty = 5;
+    o.status = "paid";
+
+    orders.write(o);
+    o = orders.row("a");
+    print(o.item, "\n");
+}
+```
+
 Binary payloads stay text by using a `0x` column with hex from `Bytes`:
 
 ```o9

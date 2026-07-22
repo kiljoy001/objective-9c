@@ -1,0 +1,8 @@
+#!/bin/rc
+
+if(! ~ $#* 1){
+	echo 'usage: o9plumbbuild source.o9' >[1=2]
+	exit usage
+}
+
+o9build $1
