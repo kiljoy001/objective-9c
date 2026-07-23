@@ -1,0 +1,17 @@
+class Leaker {
+    prop int64 payload;
+    prop function leak;
+
+    method Leaker() {
+        payload = 42;
+        leak = function bad() int64 {
+            return payload;
+        };
+    }
+}
+
+main {
+    Leaker l = new Leaker();
+    Task<int64> t = spawn l.leak();
+    print(t.await(), "\n");
+}

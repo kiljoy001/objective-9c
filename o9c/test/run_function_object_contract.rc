@@ -1,0 +1,133 @@
+#!/bin/rc
+# Contract tests for the intended anonymous function-object model.
+#
+# This target is expected to fail until `function` is refactored away from the
+# current synthesized-name/free-function path and into real anonymous objects.
+
+tool=./o9c/o9c
+dir=o9c/test/function_object_contract
+fail=0
+
+fn depincs {
+	awk '/^\/\* o9: include / { print "-I" $4 }' $1
+}
+
+fn deparchs {
+	awk '/^\/\* o9: archive / { print $4 }' $1
+}
+
+fn buildprog {
+	name=$1
+	cfile=$2
+	ofile=$3
+	bin=$4
+	incs=`{depincs $cfile}
+	archs=`{deparchs $cfile}
+	cerr=$ofile^.err
+	buildok=0
+
+	if(! 6c -FVw -I. $incs -o $ofile $cfile > $cerr >[2=1]){
+		cat $cerr >[1=2]
+		rm -f $cerr
+	}
+	if not {
+		if(grep -s 'warning:' $cerr){
+			echo $name': 6c warning treated as error' >[1=2]
+			cat $cerr >[1=2]
+			rm -f $cerr
+		}
+		if not {
+			rm -f $cerr
+			if(6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a $archs)
+				buildok=1
+		}
+	}
+}
+
+fn runcase {
+	name=$1
+	src=$dir/$name^.o9
+	expected=$dir/$name^.expected
+	cfile=/tmp/o9_function_contract_$name.$pid.c
+	ofile=/tmp/o9_function_contract_$name.$pid.6
+	bin=/tmp/o9_function_contract_$name.$pid
+	out=/tmp/o9_function_contract_$name.$pid.out
+
+	if(! $tool $src > $cfile){
+		echo $name': transpile failed' >[1=2]
+		fail=1
+		rm -f $cfile $ofile $bin $out
+	}
+	if not{
+		buildprog $name $cfile $ofile $bin
+		if(~ $buildok 1){
+			$bin > $out >[2=1]
+			if(! ~ $status ''){
+				echo $name': run failed:' $status >[1=2]
+				fail=1
+			}
+			if not if(! cmp -s $out $expected){
+				echo $name': output mismatch' >[1=2]
+				echo '--- expected ---' >[1=2]
+				cat $expected >[1=2]
+				echo '--- actual ---' >[1=2]
+				cat $out >[1=2]
+				fail=1
+			}
+			if not
+				echo $name: OK
+		}
+		if not{
+			echo $name': build failed' >[1=2]
+			fail=1
+		}
+	}
+	rm -f $cfile $ofile $bin $out
+	broke | rc
+}
+
+fn require_error {
+	name=$1
+	pattern=$2
+	src=$dir/$name^.o9
+	ast=/tmp/o9_function_contract_$name.$pid.ast
+	err=/tmp/o9_function_contract_$name.$pid.err
+
+	$tool $src > $ast >[2] $err
+	grep $"pattern $err > /dev/null
+	if(! ~ $status ''){
+		echo missing expected error for $src: $pattern >[1=2]
+		cat $err >[1=2]
+		fail=1
+	}
+	if not
+		echo $name: OK
+	rm -f $ast $err
+}
+
+if(! test -e $tool){
+	echo missing $tool >[1=2]
+	exit missing
+}
+if(! test -e libo9.a){
+	echo missing libo9.a >[1=2]
+	exit missing
+}
+
+runcase e2e_function_object_property
+runcase e2e_function_object_rawc
+
+require_error typecheck_bad_function_object_capture_field 'function bodies do not capture outer variables'
+require_error typecheck_bad_function_object_capture_method 'function bodies do not capture outer methods'
+require_error typecheck_bad_function_object_object_param 'function object cannot take object handle'
+require_error typecheck_bad_function_object_rawc_self 'raw C function blocks cannot access self'
+require_error typecheck_bad_function_object_generic_type 'function type does not accept angle brackets'
+require_error typecheck_bad_function_object_new_keyword 'new function is not valid'
+require_error typecheck_bad_function_object_direct_call 'function object calls must use spawn'
+
+if(~ $fail 0)
+	echo function_object_contract: OK
+if not{
+	echo function_object_contract: FAIL >[1=2]
+	exit fail
+}

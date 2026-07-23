@@ -55,7 +55,7 @@ o9c/grammar.y:	$GRAMMAR_PARTS
 	cat $GRAMMAR_PARTS > o9c/grammar.y
 
 o9c/y.tab.h o9c/y.tab.c: o9c/grammar.y o9c/o9_type.h
-	cd o9c; yacc -d grammar.y
+	cd o9c; yacc -d grammar.y >/tmp/o9_yacc.$pid >[2=1]; st=$status; cat /tmp/o9_yacc.$pid; if(! ~ $st '') exit $st; if(grep -s 'conflicts:' /tmp/o9_yacc.$pid) exit conflicts; rm -f /tmp/o9_yacc.$pid
 
 o9c/y.tab.$O:	o9c/y.tab.c
 	cd o9c; $CC -o y.tab.$O y.tab.c
@@ -124,6 +124,9 @@ debug-test:V:	o9c libo9.a
 issue-test:V:	o9c libo9.a
 	rc ./o9c/test/run_issue_regressions.rc
 
+function-object-contract-test:V:	o9c libo9.a
+	rc ./o9c/test/run_function_object_contract.rc
+
 crap-test:V:	libo9.a
 	rc ./o9c/test/run_crap.rc
 
@@ -153,7 +156,7 @@ crypto-test:V:	libo9.a
 	o9c/test/crypto_test
 
 tab-test:V:	libo9.a
-	$CC -I. o9c/test/tab_test.c
+	$CC -I. -Ilibtab o9c/test/tab_test.c
 	$LD -o o9c/test/tab_test tab_test.$O libo9.a
 	o9c/test/tab_test
 

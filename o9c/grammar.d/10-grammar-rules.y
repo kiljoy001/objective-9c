@@ -37,9 +37,10 @@ member_name:
     | TENUMIDENT { $$ = $1; }
     ;
 
-spawn_name:
+function_var_name:
     TIDENT { $$ = $1; }
     | TTYPEIDENT { $$ = $1; }
+    | TENUMIDENT { $$ = $1; }
     ;
 
 dep_name:
@@ -374,6 +375,14 @@ prop_decl:
     {
         $$ = mk_typed(NProp, $3->name, $2, nil, nil);
     }
+    | TPROP TFUNCTION function_var_name ';'
+    {
+        $$ = mk_typed(NProp, $3->name, typed_node_from_name("function"), nil, nil);
+    }
+    | TPROP TFUNCTION '<' type_args '>' function_var_name ';'
+    {
+        $$ = mk_typed(NProp, $6->name, type_node(type_apply("function", $4)), nil, nil);
+    }
     ;
 
 atomic_decl:
@@ -520,6 +529,14 @@ var_decl:
     {
         $$ = mk_typed(NProp, $2->name, $1, nil, nil);
     }
+    | TFUNCTION function_var_name ';'
+    {
+        $$ = mk_typed(NProp, $2->name, typed_node_from_name("function"), nil, nil);
+    }
+    | TFUNCTION '<' type_args '>' function_var_name ';'
+    {
+        $$ = mk_typed(NProp, $5->name, type_node(type_apply("function", $3)), nil, nil);
+    }
     | TCHAN TIDENT ';'
     {
         $$ = mk_typed(NStream, $2->name, typed_node_from_name("chan"), nil, nil);
@@ -554,6 +571,14 @@ param:
     {
         $$ = mk_typed(NProp, $2->name, $1, nil, nil);
     }
+    | TFUNCTION function_var_name
+    {
+        $$ = mk_typed(NProp, $2->name, typed_node_from_name("function"), nil, nil);
+    }
+    | TFUNCTION '<' type_args '>' function_var_name
+    {
+        $$ = mk_typed(NProp, $5->name, type_node(type_apply("function", $3)), nil, nil);
+    }
     ;
 
 destructor_decl:
@@ -584,6 +609,26 @@ stmt_list:
 stmt:
     typename member_name ';' { $$ = mk_typed(NLocalVar, $2->name, $1, nil, nil); note_var_class_type($2->name, $1->typeinfo); }
     | typename member_name TEQ expr ';' { $$ = mk_typed(NLocalVar, $2->name, $1, $4, nil); note_var_class_type($2->name, $1->typeinfo); }
+    | TFUNCTION function_var_name ';' {
+        Node *tn = typed_node_from_name("function");
+        $$ = mk_typed(NLocalVar, $2->name, tn, nil, nil);
+        note_var_class_type($2->name, tn->typeinfo);
+    }
+    | TFUNCTION function_var_name TEQ expr ';' {
+        Node *tn = typed_node_from_name("function");
+        $$ = mk_typed(NLocalVar, $2->name, tn, $4, nil);
+        note_var_class_type($2->name, tn->typeinfo);
+    }
+    | TFUNCTION '<' type_args '>' function_var_name ';' {
+        Node *tn = type_node(type_apply("function", $3));
+        $$ = mk_typed(NLocalVar, $5->name, tn, nil, nil);
+        note_var_class_type($5->name, tn->typeinfo);
+    }
+    | TFUNCTION '<' type_args '>' function_var_name TEQ expr ';' {
+        Node *tn = type_node(type_apply("function", $3));
+        $$ = mk_typed(NLocalVar, $5->name, tn, $7, nil);
+        note_var_class_type($5->name, tn->typeinfo);
+    }
     | locality typename member_name TEQ expr '@' expr ';' {
         $$ = mk_typed(NLocalVar, $3->name, $2, $5, nil);
         $$->cname = strdup($1->name);	/* locality tag for this declaration */
@@ -729,10 +774,33 @@ expr:
         n->right = $4;
         $$ = n;
     }
-    /* spawn f(args): run function-class f concurrently; evaluates to a
-     * Task<T> (join handle). name = function, right = args. */
-    | TSPAWN spawn_name '(' call_args ')' {
-        Node *n = mk(NSpawn, $2->name, nil, nil, $4);
+    /* spawn f(args): run a function object concurrently; evaluates to a
+     * Task<T> (join handle).  The argument is parsed as an ordinary call,
+     * then rewritten into a spawn target so direct calls stay illegal. */
+    | TSPAWN TTYPEIDENT '(' call_args ')' {
+        Node *target = mk(NIdent, $2->name, nil, nil, nil);
+        Node *n = mk(NSpawn, $2->name, nil, target, $4);
+        $$ = n;
+    }
+    | TSPAWN expr %prec TSPAWN { $$ = spawn_from_call($2); }
+    | TFUNCTION TIDENT '(' param_list ')' typename '{' stmt_list '}' {
+        Node *n = synth_function_expr($2->name, $6, $4, $8);
+        $$ = n;
+    }
+    | TFUNCTION TIDENT '(' param_list ')' '{' stmt_list '}' {
+        Node *n = synth_function_expr($2->name, nil, $4, $7);
+        $$ = n;
+    }
+    | TNEW TFUNCTION TIDENT '(' param_list ')' typename '{' stmt_list '}' {
+        Node *n = synth_function_expr($3->name, $7, $5, $9);
+        n->type = NFunctionExpr;
+        n->typename = "newfunction";
+        $$ = n;
+    }
+    | TNEW TFUNCTION TIDENT '(' param_list ')' '{' stmt_list '}' {
+        Node *n = synth_function_expr($3->name, nil, $5, $8);
+        n->type = NFunctionExpr;
+        n->typename = "newfunction";
         $$ = n;
     }
     | TCAST '<' type_expr '>' '(' expr ')' {

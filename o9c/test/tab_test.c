@@ -1,7 +1,8 @@
-#include <u.h>
-#include <libc.h>
+#include "libtab/tab_internal.h"
 #include <thread.h>
 #include "o9.h"
+
+extern void o9_tab_discard(Tab*);
 
 /* Exercises the tabula runtime over libtab: create -> add rows -> set
  * cells -> iterate/get -> serialize -> reopen the serialized bytes and
@@ -12,7 +13,12 @@ threadmain(int, char**)
 {
 	O9Tabula *t, *t2, *q;
 	O9String *os, *oa, *ob, *oc;
-	char *s, *item, *qty, *path;
+	char *s, *item, *qty, *path, *dupepath;
+	Tab *raw;
+	TabRow *rr;
+	TabIter *it;
+	TabColSpec specs[2];
+	char *ts;
 	int fd, n, count;
 
 	/* build a two-column tab with two rows */
@@ -157,6 +163,80 @@ threadmain(int, char**)
 	}
 	if(count != 2)
 		sysfatal("reopened: expected 2 rows, got %d", count);
+
+	/* typed schema metadata must survive serialization. */
+	memset(specs, 0, sizeof specs);
+	specs[0].name = "id";
+	specs[1].name = "digest";
+	specs[1].type = "HASHED";
+	specs[1].algo = "blake2b";
+	raw = tab_create("/tmp/o9_tab_typed.tab", "typed", specs, 2);
+	if(raw == nil)
+		sysfatal("typed create: %s", tab_lasterror());
+	ts = tab_serialize(raw, &n);
+	if(ts == nil)
+		sysfatal("typed serialize: %s", tab_lasterror());
+	if(strstr(ts, "col=digest type=HASHED algo=blake2b") == nil)
+		sysfatal("typed schema metadata missing");
+	free(ts);
+	tab_close(raw);
+	remove("/tmp/o9_tab_typed.tab");
+
+	/* discard clears dirty so close does not auto-flush a mutation. */
+	memset(specs, 0, sizeof specs);
+	specs[0].name = "id";
+	specs[1].name = "value";
+	raw = tab_create("/tmp/o9_tab_discard.tab", "discard", specs, 2);
+	if(raw == nil)
+		sysfatal("discard create: %s", tab_lasterror());
+	if(tab_commit(raw) != 0)
+		sysfatal("discard initial commit: %s", tab_lasterror());
+	rr = tab_add_row(raw, "id", "kept-in-memory");
+	if(rr == nil || tab_set(raw, rr, "value", "not-on-disk") != 0)
+		sysfatal("discard mutate: %s", tab_lasterror());
+	if(raw->dirty != 1)
+		sysfatal("discard setup did not mark dirty");
+	o9_tab_discard(raw);
+	if(raw->dirty != 0)
+		sysfatal("discard did not clear dirty");
+	tab_close(raw);
+	raw = tab_open("/tmp/o9_tab_discard.tab");
+	if(raw == nil)
+		sysfatal("discard reopen: %s", tab_lasterror());
+	count = 0;
+	it = tab_iter(raw);
+	while(tab_iter_next(it) != nil)
+		count++;
+	tab_iter_close(it);
+	if(count != 0)
+		sysfatal("discard close flushed %d rows", count);
+	tab_close(raw);
+	remove("/tmp/o9_tab_discard.tab");
+
+	/* duplicate rows collapse on open; the text file remains the source. */
+	dupepath = "/tmp/o9_tab_dupe.tab";
+	fd = create(dupepath, OWRITE|OTRUNC, 0644);
+	if(fd < 0)
+		sysfatal("create duplicate tab");
+	s = "schema=dupe\n\tcol=id\n\tcol=value\n\n"
+	    "id=same\n\tvalue=one\n\n"
+	    "id=same\n\tvalue=one\n\n";
+	n = strlen(s);
+	if(write(fd, s, n) != n)
+		sysfatal("write duplicate tab");
+	close(fd);
+	raw = tab_open(dupepath);
+	if(raw == nil)
+		sysfatal("open duplicate tab: %s", tab_lasterror());
+	count = 0;
+	it = tab_iter(raw);
+	while(tab_iter_next(it) != nil)
+		count++;
+	tab_iter_close(it);
+	if(count != 1)
+		sysfatal("duplicate rows not collapsed: %d", count);
+	tab_close(raw);
+	remove(dupepath);
 
 	o9_tab_close(t);
 	o9_tab_close(t2);

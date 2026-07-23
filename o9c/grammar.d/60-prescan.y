@@ -210,18 +210,8 @@ scan_enum_decl(char *buf, long len, long *pos, PrescanCtx *ctx)
     }
 }
 
-static int
-scan_decl_type(char *word)
-{
-    if(strcmp(word, "interface") == 0)
-        return NInterface;
-    if(strcmp(word, "struct") == 0)
-        return NStruct;
-    return NClass;
-}
-
 static void
-scan_type_decl(char *buf, long len, long *pos, PrescanCtx *ctx, char *word)
+scan_type_decl(char *buf, long len, long *pos, PrescanCtx *ctx)
 {
     char name[64];
     char *q, *cn;
@@ -232,7 +222,9 @@ scan_type_decl(char *buf, long len, long *pos, PrescanCtx *ctx, char *word)
         return;
     q = qualify_source_name(scan_current_module(ctx), name);
     cn = mangle_source_name(q);
-    n = mk(scan_decl_type(word), cn, nil, nil, nil);
+    /* Prescan only teaches the lexer which words are type names. The real
+     * parser overwrites this placeholder with class/struct/interface shape. */
+    n = mk(NClass, cn, nil, nil, nil);
     add_class(cn, n);
 }
 
@@ -249,7 +241,7 @@ scan_decl_word(char *buf, long len, long *pos, PrescanCtx *ctx, char *word)
     }
     if(strcmp(word, "class") == 0 || strcmp(word, "interface") == 0 ||
        strcmp(word, "struct") == 0)
-        scan_type_decl(buf, len, pos, ctx, word);
+        scan_type_decl(buf, len, pos, ctx);
 }
 
 static void

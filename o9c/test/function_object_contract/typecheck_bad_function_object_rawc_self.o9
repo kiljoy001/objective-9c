@@ -1,0 +1,21 @@
+class Runner {
+    prop function bad;
+
+    method Runner() {
+        bad = function reach() int64 {
+            int64 out;
+
+            c {
+                out = self->__spawn_index;
+            }
+
+            return out;
+        };
+    }
+}
+
+main {
+    Runner r = new Runner();
+    Task<int64> t = spawn r.bad();
+    print(t.await(), "\n");
+}

@@ -186,6 +186,17 @@ gen_spawn_expr(Node *e)
     char *fc;
     Node *a;
 
+    if(e->left != nil && type_is_function_object(e->left->typeinfo)){
+        fc = type_cname(e->left->typeinfo);
+        print("o9_spawn_call_%s(&", fc);
+        gen_expr(e->left);
+        for(a = e->right; a; a = a->next){
+            print(", ");
+            gen_expr(a);
+        }
+        print(")");
+        return;
+    }
     fc = spawn_function_cname(e->name, gen_class);
     print("o9_spawn_%s(", fc);
     for(a = e->right; a; a = a->next){
@@ -4461,6 +4472,8 @@ gen_spawn_context_type(Node *c)
 {
     print("typedef struct O9SpawnCtx_%s { Channel *replyc; O9Task *task; %s_Internal *inst; } O9SpawnCtx_%s;\n",
         c->name, c->name, c->name);
+    print("typedef struct O9SpawnCallCtx_%s { Channel *replyc; O9Task *task; } O9SpawnCallCtx_%s;\n",
+        c->name, c->name);
 }
 
 static void
@@ -4473,6 +4486,12 @@ gen_spawn_forward_proc(Node *c)
     print("\t/* reap the one-shot instance */\n");
     print("\t{ O9Msg *__dm = mallocz(sizeof(O9Msg), 1); __dm->sel = 0x%lux; __dm->replyc = nil;\n", o9_hash("destroy"));
     print("\t  sendp(ctx->inst->dispatch_chan, __dm); }\n");
+    print("\tchanfree(ctx->replyc); free(ctx);\n");
+    print("}\n");
+    print("static void o9_spawn_call_forward_%s(void *v){\n", c->name);
+    print("\tO9SpawnCallCtx_%s *ctx = v;\n", c->name);
+    print("\tO9Reply *__r = recvp(ctx->replyc);\n");
+    print("\tsendp((Channel*)o9_task_chan(ctx->task), __r);\n");
     print("\tchanfree(ctx->replyc); free(ctx);\n");
     print("}\n");
     print("static int o9_spawn_id_%s;\n", c->name);
@@ -4555,6 +4574,39 @@ gen_spawn_forward_start(Node *c)
 }
 
 static void
+gen_spawn_call_signature(Node *c, Node *rm, int np)
+{
+    Node *pn;
+    int pi;
+
+    print("O9Task *o9_spawn_call_%s(%s_Client *__fn", c->name, c->name);
+    for(pn = (rm ? rm->right : nil), pi = 0; pn; pn = pn->next, pi++)
+        print(", %s __a%d", type_storage_for_codegen(pn->typeinfo), pi);
+    print("){\n");
+    (void)np;
+}
+
+static void
+gen_spawn_call_body(Node *c, Node *rm, int np)
+{
+    (void)rm;
+    print("\tint __id = o9_spawn_id_%s++;\n", c->name);
+    print("\tO9Task *__task = o9_task_new(__id);\n");
+    print("\tChannel *__replyc = chancreate(sizeof(void*), 1);\n");
+    gen_spawn_arg_pack(rm, np);
+    print("\t{ O9Msg *__wm = mallocz(sizeof(O9Msg), 1);\n");
+    print("\t  __wm->sel = 0x%lux; __wm->args = %s; __wm->nargs = %d; __wm->replyc = __replyc;\n",
+        o9_hash("run"), np > 0 ? "__args" : "nil", np);
+    print("\t  __wm->caller = o9_current_user_c();\n");
+    print("\t  __wm->blessed = o9_current_user_blessed();\n");
+    print("\t  sendp(__fn->dispatch_chan, __wm); }\n");
+    print("\t{ O9SpawnCallCtx_%s *__ctx = mallocz(sizeof(O9SpawnCallCtx_%s), 1);\n", c->name, c->name);
+    print("\t  __ctx->replyc = __replyc; __ctx->task = __task;\n");
+    print("\t  proccreate(o9_spawn_call_forward_%s, __ctx, 32*1024); }\n", c->name);
+    print("\treturn __task;\n}\n");
+}
+
+static void
 gen_class_spawn_helper(Node *c)
 {
     Node *rm;
@@ -4572,6 +4624,8 @@ gen_class_spawn_helper(Node *c)
     gen_spawn_run_send(np);
     gen_spawn_forward_start(c);
     print("\treturn __task;\n}\n");
+    gen_spawn_call_signature(c, rm, np);
+    gen_spawn_call_body(c, rm, np);
 }
 
 static void

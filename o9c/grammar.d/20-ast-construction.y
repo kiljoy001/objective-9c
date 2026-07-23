@@ -117,17 +117,59 @@ synth_function_class(char *fname, Node *rettn, Node *params, Node *body)
     members->next->next = mk_typed(NStream, "__spawn_result", typed_node_from_name("chan"), nil, nil);
     members->next->next->flags |= NFPrivate;
 
-    /* The one user method, named `run`. */
+    /* The one runtime method, named `run`.  It is intentionally not marked
+     * NFSelfCalled: user code starts it through spawn, not direct .run(). */
     if(rettn != nil)
         meth = mk_typed(NMethod, "run", rettn, body, params);
     else
         meth = mk_typed(NMethod, "run", typed_node_from_name("void"), body, params);
-    meth->flags |= NFSelfCalled;	/* callable directly too */
     members->next->next->next = meth;
 
     cls->left = members;
     add_class(cls->name, cls);
     return cls;
+}
+
+static Node*
+synth_function_expr(char *label, Node *rettn, Node *params, Node *body)
+{
+    char fname[256];
+    Node *cls;
+
+    function_expr_counter++;
+    if(current_parse_class_source != nil)
+        snprint(fname, sizeof fname, "%s.%s_fn%d",
+            current_parse_class_source, label != nil ? label : "anon",
+            function_expr_counter);
+    else
+        snprint(fname, sizeof fname, "%s_fn%d",
+            label != nil ? label : "anon", function_expr_counter);
+    cls = synth_function_class(fname, rettn, params, body);
+    function_expr_classes = append_node(function_expr_classes, cls);
+    return mk(NClass, cls->name, "function", nil, nil);
+}
+
+static Node*
+spawn_from_call(Node *call)
+{
+    Node *target, *n;
+
+    if(call != nil && call->type == NSelfCall){
+        target = mk(NIdent, call->name, nil, nil, nil);
+        n = mk(NSpawn, call->name, nil, target, call->right);
+        n->line = call->line;
+        return n;
+    }
+    if(call != nil && call->type == NMsgSend){
+        target = mk(NPropRead, call->name, nil, call->left, nil);
+        n = mk(NSpawn, call->name, nil, target, call->right);
+        n->line = call->line;
+        return n;
+    }
+    n = mk(NSpawn, nil, nil, call, nil);
+    if(call != nil)
+        n->line = call->line;
+    return n;
 }
 
 static char*

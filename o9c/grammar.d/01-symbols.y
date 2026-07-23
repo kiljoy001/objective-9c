@@ -26,6 +26,21 @@ static Type* get_typeinfo_sym(char *name) {
     return nil;
 }
 
+static void
+update_typeinfo_sym(char *name, Type *typeinfo)
+{
+    TypeSym *s;
+
+    if(name == nil || typeinfo == nil)
+        return;
+    for(s = type_syms; s; s = s->next)
+        if(strcmp(s->name, name) == 0){
+            s->typeinfo = typeinfo;
+            return;
+        }
+    add_type_sym_typed(name, typeinfo);
+}
+
 static TypeSym*
 mark_type_syms(void)
 {

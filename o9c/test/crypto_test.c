@@ -9,6 +9,8 @@ void
 threadmain(int, char**)
 {
 	char pub[65], sec[129], sig[129], h1[65], h2[65];
+	O9String *pass, *salt, *pk;
+	char *spk;
 	uchar msg[] = "the network is the computer";
 	long n = sizeof msg - 1;
 
@@ -34,6 +36,20 @@ threadmain(int, char**)
 		sysfatal("hash");
 	if(strlen(h1) != 64 || strcmp(h1, h2) != 0)
 		sysfatal("hash not stable");
+
+	pass = o9_string_from_c("hunter2");
+	salt = o9_string_from_c("e2e.vault.salt");
+	pk = o9_passkey(pass, salt);
+	o9_string_release(pass);
+	o9_string_release(salt);
+	if(pk == nil)
+		sysfatal("passkey returned nil");
+	spk = o9_string_cstr(pk);
+	o9_string_release(pk);
+	if(spk == nil ||
+	   strcmp(spk, "81aee1a7dc10473b68f7593ac3ab9bee7e12e08290f886fa23faf4c6d66de95b") != 0)
+		sysfatal("passkey mismatch: %s", spk != nil ? spk : "<nil>");
+	free(spk);
 
 	print("crypto_test: OK\n");
 	threadexitsall(nil);

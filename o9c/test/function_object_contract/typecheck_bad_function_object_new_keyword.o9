@@ -1,0 +1,15 @@
+class Runner {
+    prop function bad;
+
+    method Runner() {
+        bad = new function reach() int64 {
+            return 1;
+        };
+    }
+}
+
+main {
+    Runner r = new Runner();
+    Task<int64> t = spawn r.bad();
+    print(t.await(), "\n");
+}

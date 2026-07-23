@@ -82,6 +82,7 @@ enum {
     NTry,
     NDefer,
     NSpawn,
+    NFunctionExpr,
     NCast,
     NRawC,
     NUse,
@@ -151,6 +152,8 @@ static Type *gen_return_type;        /* method return type while emitting body *
 static char *parse_class_stack[32];
 static int parse_class_depth;
 static char *current_parse_class_source;
+static Node *function_expr_classes;
+static int function_expr_counter;
 static char last_caps_ident[128];   /* capitalized ident not in type registry */
 static int last_caps_line;
 
@@ -220,6 +223,9 @@ find_class(char *name)
 Node* mk(int type, char *name, char *typename, Node *l, Node *r);
 static Node* mk_secret_field(Node *tn, char *name);
 static Node* synth_function_class(char *fname, Node *rettn, Node *params, Node *body);
+static Node* synth_function_expr(char *label, Node *rettn, Node *params, Node *body);
+static Node* spawn_from_call(Node *call);
+static int type_is_function_object(Type *t);
 static void o9_note_registered(char *name);
 static int member_exists(Node *cnode, char *name);
 Node* append_node(Node *list, Node *node);

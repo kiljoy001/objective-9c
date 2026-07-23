@@ -161,6 +161,25 @@ if(! test -e libo9.a){
 	exit missing
 }
 
+if(! ~ $#* 0){
+	for(name in $*){
+		if(test -e stdlib/$name.o9)
+			stdlibcase $name
+		if not if(~ $name e2e_import e2e_import_strip_main)
+			importcase $name
+		if not if(test -e o9c/test/$name.o9)
+			runcase $name
+		if not{
+			echo unknown e2e case: $name >[1=2]
+			fail=1
+		}
+	}
+	if(! ~ $fail 0)
+		exit fail
+	echo e2e_run: OK
+	exit ''
+}
+
 runcase e2e_run
 runcase e2e_text
 runcase e2e_delete

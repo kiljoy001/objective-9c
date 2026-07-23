@@ -1,0 +1,34 @@
+class Probe {
+    prop function nonempty;
+
+    method Probe() {
+        nonempty = function check(string s) bool {
+            bool out;
+
+            c {
+                char *cs;
+
+                out = 0;
+                cs = o9_string_cstr(s);
+                if(cs != nil) {
+                    if(cs[0] != 0)
+                        out = 1;
+                    free(cs);
+                }
+            }
+
+            return out;
+        };
+    }
+
+    method bool check(string s) {
+        Task<bool> t = spawn nonempty(s);
+        return t.await();
+    }
+}
+
+main {
+    Probe p = new Probe();
+    print("empty ", p.check(""), "\n");
+    print("value ", p.check("box1"), "\n");
+}

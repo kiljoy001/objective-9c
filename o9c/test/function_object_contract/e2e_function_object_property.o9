@@ -1,0 +1,19 @@
+class MathBox {
+    prop function op;
+
+    method MathBox() {
+        op = function plusone(int64 n) int64 {
+            return n + 1;
+        };
+    }
+
+    method int64 apply(int64 n) {
+        Task<int64> t = spawn op(n);
+        return t.await();
+    }
+}
+
+main {
+    MathBox m = new MathBox();
+    print("apply ", m.apply(9), "\n");
+}

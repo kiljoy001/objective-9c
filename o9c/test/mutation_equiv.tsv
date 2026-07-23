@@ -1,0 +1,4 @@
+# source	mutant	reason
+o9_runtime.c	o9_runtime.mutant.29117.c	o9_9p_rpc returns -1 or a valid 9P size >=5, so m<=0 is equivalent to m<0
+libtab/tab_open.c	tab_open.mutant.1388.c	allocator-failure-only branch; current native gate has no malloc fault injection
+libtab/tab_persist.c	tab_persist.mutant.734.c	plan9port __GNUC__ 9P persistence branch; not compiled by native 9front gate

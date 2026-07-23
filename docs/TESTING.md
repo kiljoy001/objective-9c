@@ -129,6 +129,153 @@ still succeeds means the mutant survived. Surviving mutants are more useful
 than the mutation score itself: each survivor should become a new regression
 test, then the mutant should be killed on the next run.
 
+### Universal Mutator
+
+`tools/o9mutate.py` is for hand-picked semantic mutants. For broader mutation
+testing, use Universal Mutator through `tools/o9um.py`. Universal Mutator is
+host-side; it generates mutated source files. The preferred runner mode is
+`--synthetic-ramfs`: `o9um.py` writes a tiny rc script, drawterm runs it on
+9front, the script creates a private `ramfs` worktree, copies maintained source
+inputs into it, writes the mutant into that ramfs copy, runs the real gate, and
+throws the whole synthetic tree away. The real checkout is not opened for write.
+
+Install Universal Mutator into an isolated host venv:
+
+```sh
+python3 -m venv /tmp/o9-universalmutator-venv
+/tmp/o9-universalmutator-venv/bin/python -m pip install universalmutator
+```
+
+Run a small sampled pass against the type system source:
+
+```sh
+python3 tools/o9um.py run o9c/o9_type.c \
+  --clean --limit 10 --seed 9009 --synthetic-ramfs \
+  --timeout 180 --status-marker O9UM \
+  --gate-rc 'fail=0
+if(! mk ast-test) fail=1
+if(~ $fail 0) echo O9UM pass
+if not echo O9UM fail' \
+  --cmd "PASS='\$Master001' timeout 150s drawterm -G -h dev9p.rentonsoftworks.coin -a Authomatic.rentonsoftworks.coin -u scott -c 'rc {script}'"
+```
+
+The marker is important because drawterm may still exit 0 after the remote rc
+script reports a test failure. `O9UM pass` means the original or mutant passed
+the verification command; `O9UM fail` means the mutant was killed. The TSV
+`exit` column records the host command status, but the `result` column is the
+authoritative classification when a status marker is used.
+
+`--synthetic-ramfs` requires `--cmd` to contain `{script}`. `o9um.py` replaces
+that placeholder with a host-generated rc script path as seen from 9front
+through `/mnt/term`. The rc snippet passed to `--gate-rc` runs from the root of
+the private ramfs worktree, not the real repo.
+
+Good first Universal Mutator targets are:
+
+```text
+o9c/o9_type.c
+o9c/grammar.d/70-typecheck.y
+o9c/grammar.d/40-codegen.y
+o9c/grammar.d/10-grammar-rules.y
+```
+
+The campaign wrapper has explicit source sets:
+
+```sh
+python3 tools/o9um.py list-targets
+```
+
+Run a sampled compiler campaign:
+
+```sh
+python3 tools/o9um.py batch --target-set compiler \
+  --clean --limit 5 --seed 9009 --synthetic-ramfs \
+  --timeout 180 --status-marker O9UM \
+  --gate-rc 'fail=0
+if(! mk ast-test) fail=1
+if(! mk run-test) fail=1
+if(~ $fail 0) echo O9UM pass
+if not echo O9UM fail' \
+  --cmd "PASS='\$Master001' timeout 150s drawterm -G -h dev9p.rentonsoftworks.coin -a Authomatic.rentonsoftworks.coin -u scott -c 'rc {script}'"
+```
+
+Run a sampled runtime/libtab campaign:
+
+```sh
+python3 tools/o9um.py batch --target-set runtime \
+  --limit 1 --seed 9009 --synthetic-ramfs \
+  --timeout 180 --status-marker O9UM \
+  --gate-rc 'fail=0
+if(! mk crypto-test) fail=1
+if(! mk tab-test) fail=1
+if(~ $fail 0) echo O9UM pass
+if not echo O9UM fail' \
+  --cmd "PASS='\$Master001' timeout 160s drawterm -G -h dev9p.rentonsoftworks.coin -a Authomatic.rentonsoftworks.coin -u scott -c 'rc {script}'"
+```
+
+Prefer focused gates. For example, `mk ast-test` is a good compiler
+type/parser gate, and `mk crypto-test && mk tab-test` is a good local runtime
+gate. Full transport gates such as `mk tabula-transport-test` are valuable
+verification tests, but they are too slow to use as the default mutation gate
+for every runtime mutant.
+
+Run the maintained-source campaign as a long/nightly pass:
+
+```sh
+python3 tools/o9um.py batch --target-set all \
+  --clean --limit 5 --seed 9009 --synthetic-ramfs \
+  --timeout 300 --status-marker O9UM \
+  --gate-rc 'fail=0
+if(! mk ast-test) fail=1
+if(! mk run-test) fail=1
+if(! mk crypto-test) fail=1
+if(! mk tab-test) fail=1
+if(! mk function-object-contract-test) fail=1
+if(~ $fail 0) echo O9UM pass
+if not echo O9UM fail' \
+  --cmd "PASS='\$Master001' timeout 270s drawterm -G -h dev9p.rentonsoftworks.coin -a Authomatic.rentonsoftworks.coin -u scott -c 'rc {script}'"
+```
+
+The mutation score is:
+
+```text
+killed / (killed + survived + timeout)
+```
+
+Known equivalent or out-of-target mutants are tracked in
+`o9c/test/mutation_equiv.tsv` as exact `source, mutant, reason` triples.
+`tools/o9um.py` reports them separately as `equivalent` and excludes them from
+the score denominator. Do not add broad patterns here. A mutant only belongs in
+that file when the behavior is actually impossible under the gate, such as an
+allocator-failure branch with no fault injection or code under `#ifdef
+__GNUC__` when the gate is native 9front.
+
+The working project target is at least 90% on sampled campaigns and no known
+survivors for hand-picked semantic mutants. A survivor is not just a score
+problem; it is a missing executable invariant. Add the smallest regression
+test that kills it, then rerun the same mutant set.
+
+Do not mutate generated files such as `o9c/grammar.y`, `o9c/y.tab.c`, or temp
+generated C. Mutating generated output tests yacc/codegen noise, not the source
+rules we maintain.
+
+Weaknesses of this approach:
+
+- Sampled campaigns are evidence, not proof. `--limit 1` per source verifies
+  the harness and catches broad gaps, but it does not exhaustively measure the
+  source.
+- The gate decides what a survivor means. A local runtime gate cannot kill a
+  transport-only mutant; use a focused transport gate or classify the mutant
+  exactly when the behavior is outside that gate.
+- Equivalent classification is a sharp tool. Keep
+  `o9c/test/mutation_equiv.tsv` small and exact. Broad equivalence rules make
+  the score meaningless.
+- Synthetic ramfs copies only the maintained inputs named by `tools/o9um.py`.
+  If a future test depends on a new source directory, add it to the synthetic
+  copy list before trusting mutation results for that path.
+- Slow tests distort mutation work. Use `mk verify` for final confidence, but
+  prefer small gates while developing tests for a surviving mutant.
+
 ## Duplicate Detection
 
 PMD/CPD is a host-side static gate. It is not part of `mk verify` because PMD

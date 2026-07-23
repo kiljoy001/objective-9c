@@ -577,6 +577,7 @@ codegen(Node *root)
     for(n = mono_list; n; n = n->next)
         if(n->type == NClass && (n->flags & NFAbstract) == 0)
             gen_class_server(n);
+    gen_classes(function_expr_classes);
     last = gen_classes(root);
 
     /* Per-app facade: one Srv/tree for the whole program.  o9_app_start

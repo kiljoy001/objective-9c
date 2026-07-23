@@ -68,6 +68,7 @@ type_arity_rule(char *name)
         { "List", 1, 0, "List needs 1 type argument" },
         { "Task", 1, 0, "Task needs 1 type argument" },
         { "Dict", 2, 0, "Dict needs 2 type arguments" },
+        { "function", 0, 0, "function type does not accept angle brackets" },
         { "tabula", 1, 0, "tabula needs 1 type argument" },
         { "Tuple", -1, 2, "tuple needs at least 2 type arguments" },
         { nil, 0, 0, nil }
@@ -397,7 +398,7 @@ rawc_forbidden_ident(char *id, char **why)
     };
     static char *exact[] = {
         "O9Msg", "O9Reply", "O9ObjectStore", "O9State", "ArcLedger",
-        "dispatch_chan", "shm_base", "objdir", nil
+        "dispatch_chan", "shm_base", "objdir", "self", nil
     };
 
     if(id == nil)
@@ -525,6 +526,12 @@ rawc_check_ident(char *id, int *errs)
     char *why;
 
     why = nil;
+    if(id != nil && strcmp(id, "self") == 0){
+        fprint(2, "o9c: error: line %d: raw C function blocks cannot access self\n",
+            sem_line);
+        (*errs)++;
+        return;
+    }
     if(rawc_forbidden_ident(id, &why)){
         fprint(2, "o9c: error: line %d: raw C block uses forbidden o9 internal symbol '%s' "
             "(raw C may use Plan 9 C and local values, not generated object internals)\n",
@@ -813,6 +820,35 @@ type_is_bool(Type *t)
 }
 
 static int
+type_is_function_placeholder(Type *t)
+{
+    return t != nil && t->name != nil && strcmp(t->name, "function") == 0;
+}
+
+static int
+type_is_function_object(Type *t)
+{
+    Node *d;
+
+    d = type_decl_node(t);
+    return d != nil && d->type == NClass && (d->flags & NFFunction) != 0;
+}
+
+static Node*
+function_run_method(Type *t)
+{
+    Node *d, *m;
+
+    d = type_decl_node(t);
+    if(d == nil || (d->flags & NFFunction) == 0)
+        return nil;
+    for(m = d->left; m != nil; m = m->next)
+        if(m->type == NMethod && m->name != nil && strcmp(m->name, "run") == 0)
+            return m;
+    return nil;
+}
+
+static int
 type_numeric_scalar(Type *t)
 {
     if(!type_scalar_builtin(t))
@@ -1017,6 +1053,16 @@ annotate_spawn_expr(Node *e, Node *scope_class)
     char *fcn;
 
     rt = type_name("int64");
+    if(e->left != nil){
+        annotate_expr_type(e->left, scope_class);
+        annotate_expr_list(e->right, scope_class);
+        if(type_is_function_object(e->left->typeinfo)){
+            rm = function_run_method(e->left->typeinfo);
+            if(rm != nil && rm->typeinfo != nil)
+                rt = rm->typeinfo;
+            return set_expr_type(e, type_apply("Task", type_list(rt)));
+        }
+    }
     fcn = spawn_function_cname(e->name, scope_class);
     annotate_expr_list(e->right, scope_class);
     fc = find_class(fcn);
@@ -1197,6 +1243,8 @@ annotate_msg_send_expr(Node *e, Node *scope_class)
 
     lt = annotate_expr_type(e->left, scope_class);
     annotate_expr_list(e->right, scope_class);
+    if(type_is_function_placeholder(lt) || type_is_function_object(lt))
+        return set_expr_type(e, nil);
     if(type_apply_named(lt, "Task") && expr_name_is(e, "await"))
         return set_expr_type(e, type_list_at(lt->args, 0));
     if(o9_type_is_tabula(lt) && expr_name_is(e, "row")){
@@ -1715,6 +1763,26 @@ check_concrete_contract_impls(Node *cnode, int *errs)
 }
 
 static void
+check_function_signature(Node *cnode, int *errs)
+{
+    Node *m, *p;
+
+    if(cnode == nil || (cnode->flags & NFFunction) == 0)
+        return;
+    m = function_run_method(type_name(cnode->qname != nil ? cnode->qname : cnode->name));
+    if(m == nil)
+        return;
+    for(p = m->right; p != nil; p = p->next){
+        if(type_is_object_ref(p->typeinfo)){
+            fprint(2, "o9c: error: line %d: function object cannot take object handle '%s'\n",
+                p->line > 0 ? p->line : sem_line,
+                p->name != nil ? p->name : "?");
+            (*errs)++;
+        }
+    }
+}
+
+static void
 check_inheritance_contract(Node *cnode, int *errs)
 {
     Node *m;
@@ -1733,6 +1801,7 @@ check_inheritance_contract(Node *cnode, int *errs)
     }
     check_override_compat(cnode, errs);
     check_concrete_contract_impls(cnode, errs);
+    check_function_signature(cnode, errs);
 }
 
 static void typecheck_expr(Node *e, Node *scope_class, int *errs);
@@ -1819,8 +1888,14 @@ typecheck_ident(Node *e, Node *scope_class, int *errs)
 {
     Type *st;
     TypedMember tm;
+    Node *fc;
+    char *fcn;
 
     if(e->name == nil || get_typeinfo_sym(e->name) != nil)
+        return;
+    fcn = spawn_function_cname(e->name, scope_class);
+    fc = find_class(fcn);
+    if(fc != nil && (fc->flags & NFFunction))
         return;
     if(scope_class == nil){
         fprint(2, "o9c: error: line %d: unknown identifier '%s'\n",
@@ -1876,6 +1951,11 @@ typecheck_class_new(Node *e, Node *scope_class, int *errs)
 {
     Node *d;
 
+    if(e->typename != nil && strcmp(e->typename, "newfunction") == 0){
+        fprint(2, "o9c: error: line %d: new function is not valid\n", sem_line);
+        (*errs)++;
+        return;
+    }
     validate_type(e->typeinfo, errs);
     if(is_tabula_new(e)){
         typecheck_tabula_new(e, scope_class, errs);
@@ -1905,6 +1985,16 @@ typecheck_class_new(Node *e, Node *scope_class, int *errs)
         fprint(2, "o9c: error: line %d: cannot 'new %s' inside %s's own constructor "
             "(a class cannot construct itself while it is half-built; build it in a method or factory)\n",
             sem_line, ctor_class_name, ctor_class_name);
+        (*errs)++;
+    }
+}
+
+static void
+typecheck_function_expr(Node *e, Node *scope_class, int *errs)
+{
+    (void)scope_class;
+    if(e->typename != nil && strcmp(e->typename, "newfunction") == 0){
+        fprint(2, "o9c: error: line %d: new function is not valid\n", sem_line);
         (*errs)++;
     }
 }
@@ -2474,6 +2564,13 @@ typecheck_msg_send(Node *e, Node *scope_class, int *errs)
         return;
     }
     lt = e->left->typeinfo;
+    if(type_is_function_placeholder(lt) || type_is_function_object(lt)){
+        fprint(2, "o9c: error: line %d: function object calls must use spawn\n",
+            sem_line);
+        (*errs)++;
+        typecheck_arg_values(e->right, scope_class, errs);
+        return;
+    }
     for(i = 0; typecheck_msg_handlers[i] != nil; i++)
         if(typecheck_msg_handlers[i](e, scope_class, lt, errs))
             return;
@@ -2639,8 +2736,25 @@ typecheck_tuple_assign_expr(Node *e, int *errs)
 }
 
 static void
-typecheck_plain_assign_expr(Node *e, int *errs)
+typecheck_plain_assign_expr(Node *e, Node *scope_class, int *errs)
 {
+    Type *lt, *rt;
+    Node *m;
+
+    lt = e->left != nil ? e->left->typeinfo : nil;
+    rt = e->right != nil ? e->right->typeinfo : nil;
+    if(type_is_function_placeholder(lt) && type_is_function_object(rt)){
+        if(e->left->type == NIdent && e->left->name != nil){
+            m = member_node(scope_class, e->left->name, 0);
+            if(m != nil)
+                m->typeinfo = rt;
+            update_typeinfo_sym(e->left->name, rt);
+            add_var_class(e->left->name, type_cname(rt));
+        }
+        e->left->typeinfo = rt;
+        e->typeinfo = rt;
+        return;
+    }
     if(e->left != nil && e->right != nil &&
        !type_assignable_semantic(e->left->typeinfo, e->right->typeinfo))
         type_mismatch_error("assign", e->left->typeinfo, e->right->typeinfo, errs);
@@ -2654,7 +2768,7 @@ typecheck_assign_expr(Node *e, Node *scope_class, int *errs)
     if(e->left != nil && e->left->type == NTupleLit)
         typecheck_tuple_assign_expr(e, errs);
     else
-        typecheck_plain_assign_expr(e, errs);
+        typecheck_plain_assign_expr(e, scope_class, errs);
 }
 
 static void
@@ -2665,6 +2779,78 @@ typecheck_delete_expr(Node *e, Node *scope_class, int *errs)
         fprint(2, "o9c: error: line %d: delete needs a class instance\n", sem_line);
         (*errs)++;
     }
+}
+
+static Node*
+spawn_target_run(Node *e, Node *scope_class, Type **target_type)
+{
+    char *fcn;
+    Node *fc;
+    Type *tt;
+
+    if(target_type != nil)
+        *target_type = nil;
+    tt = e->left != nil ? e->left->typeinfo : nil;
+    if(type_is_function_object(tt)){
+        if(target_type != nil)
+            *target_type = tt;
+        return function_run_method(tt);
+    }
+    if(e->left != nil && e->left->type == NIdent){
+        fcn = spawn_function_cname(e->left->name, scope_class);
+        fc = find_class(fcn);
+        if(fc != nil && (fc->flags & NFFunction)){
+            tt = type_name(fc->qname != nil ? fc->qname : fc->name);
+            if(target_type != nil)
+                *target_type = tt;
+            return function_run_method(tt);
+        }
+    }
+    return nil;
+}
+
+static void
+typecheck_spawn_args(Node *e, Node *rm, int *errs)
+{
+    Node *p, *a;
+    int got, want, pi;
+
+    got = node_list_len(e->right);
+    want = node_list_len(rm != nil ? rm->right : nil);
+    if(got != want){
+        fprint(2, "o9c: error: line %d: spawn target needs %d argument(s), got %d\n",
+            sem_line, want, got);
+        (*errs)++;
+        return;
+    }
+    for(p = rm->right, a = e->right, pi = 0; p != nil && a != nil; p = p->next, a = a->next, pi++){
+        if(!type_assignable_semantic(p->typeinfo, a->typeinfo)){
+            fprint(2, "o9c: error: line %d: argument %d to spawn has type %s, expected %s\n",
+                sem_line, pi + 1,
+                a->typeinfo != nil ? type_render(a->typeinfo) : "<unknown>",
+                p->typeinfo != nil ? type_render(p->typeinfo) : "<unknown>");
+            (*errs)++;
+        }
+    }
+}
+
+static void
+typecheck_spawn_expr(Node *e, Node *scope_class, int *errs)
+{
+    Node *rm;
+    Type *tt;
+
+    annotate_expr_type(e, scope_class);
+    rm = spawn_target_run(e, scope_class, &tt);
+    if(e->left != nil && e->left->typeinfo != nil)
+        typecheck_expr(e->left, scope_class, errs);
+    typecheck_arg_values(e->right, scope_class, errs);
+    if(rm == nil){
+        fprint(2, "o9c: error: line %d: spawn target must be a function object\n", sem_line);
+        (*errs)++;
+        return;
+    }
+    typecheck_spawn_args(e, rm, errs);
 }
 
 static void
@@ -2861,6 +3047,12 @@ typecheck_local_initializer(Node *e, int *errs)
     if(e->left->type == NSelfCall && e->left->name != nil &&
        strcmp(e->left->name, "lookup") == 0)
         return;
+    if(type_is_function_placeholder(e->typeinfo) && type_is_function_object(e->left->typeinfo)){
+        e->typeinfo = e->left->typeinfo;
+        update_typeinfo_sym(e->name, e->typeinfo);
+        add_var_class(e->name, type_cname(e->typeinfo));
+        return;
+    }
     if(!type_assignable_semantic(e->typeinfo, e->left->typeinfo))
         type_mismatch_error("initialize", e->typeinfo, e->left->typeinfo, errs);
 }
@@ -2897,6 +3089,7 @@ init_typecheck_expr_handlers(void)
     typecheck_expr_handlers[NMethod] = typecheck_method_expr;
     typecheck_expr_handlers[NTupleLit] = typecheck_tuple_lit;
     typecheck_expr_handlers[NClass] = typecheck_class_new;
+    typecheck_expr_handlers[NFunctionExpr] = typecheck_function_expr;
     typecheck_expr_handlers[NObject] = typecheck_object_expr;
     typecheck_expr_handlers[NPropRead] = typecheck_prop_read;
     typecheck_expr_handlers[NSelfCall] = typecheck_self_call;
@@ -2906,6 +3099,7 @@ init_typecheck_expr_handlers(void)
     typecheck_expr_handlers[NChanTry] = typecheck_chan_send_expr;
     typecheck_expr_handlers[NChanRecv] = typecheck_chan_recv_expr;
     typecheck_expr_handlers[NAssign] = typecheck_assign_expr;
+    typecheck_expr_handlers[NSpawn] = typecheck_spawn_expr;
     typecheck_expr_handlers[NDelete] = typecheck_delete_expr;
     typecheck_expr_handlers[NRawC] = typecheck_rawc_expr;
     typecheck_expr_handlers[NUse] = typecheck_use_expr;
@@ -3178,6 +3372,7 @@ typecheck(Node *root)
         errors++;
     }
 
+    check_node(function_expr_classes, nil, &errors);
     check_node(root, nil, &errors);
 
     return errors;

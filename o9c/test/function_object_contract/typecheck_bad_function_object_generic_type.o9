@@ -1,0 +1,7 @@
+class Runner {
+    prop function<int64> bad;
+}
+
+main {
+    Runner r = new Runner();
+}

@@ -74,6 +74,7 @@ node_kind(int type)
         "NTry",
         "NDefer",
         "NSpawn",
+        "NFunctionExpr",
         "NCast",
         "NRawC",
         "NUse",

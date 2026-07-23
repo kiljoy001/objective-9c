@@ -1,0 +1,24 @@
+class Counter {
+    prop int64 value;
+
+    method Counter(int64 n) {
+        value = n;
+    }
+}
+
+class Runner {
+    prop function bad;
+
+    method Runner() {
+        bad = function grab(Counter c) int64 {
+            return 1;
+        };
+    }
+}
+
+main {
+    Runner r = new Runner();
+    Counter c = new Counter(1);
+    Task<int64> t = spawn r.bad(c);
+    print(t.await(), "\n");
+}
