@@ -51,7 +51,11 @@ typedef struct o9_AsmTable {
 
 /* Root Object Template
  *
- * WARNING: The asm dispatch (o9_dispatch.s) references fixed offsets:
+ * WARNING: The asm dispatch references fixed, pointer-width-dependent
+ * offsets into o9_Object and o9_AsmTable, so each supported platform
+ * ships its own source: o9_dispatch_<objtype>.s (e.g. o9_dispatch_amd64.s,
+ * o9_dispatch_386.s). The mkfile assembles the one matching $objtype.
+ * The offsets below are the amd64 layout; the 386 file uses +8/+12/768.
  *   +0:  int fd
  *   +8:  void *shm_base
  *   +16: o9_AsmTable *table

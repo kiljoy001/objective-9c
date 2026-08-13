@@ -1,0 +1,107 @@
+#!/bin/rc
+
+tool=./o9c/o9c
+fail=0
+tmpbase=/tmp
+if(test -d /mnt/term/tmp)
+	tmpbase=/mnt/term/tmp
+if(! ~ $#O9MUT_TMP 0)
+	tmpbase=$O9MUT_TMP
+tmp=$tmpbase/o9mutgrid.$pid
+src=$tmp/src
+
+fn cleanup {
+	rm -rf $tmp >[2]/dev/null
+}
+
+fn buildgrid {
+	name=$1
+	cfile=$tmp/$name.c
+	ofile=$tmp/$name.6
+	bin=$tmp/$name
+	cerr=$tmp/$name.err
+
+	if(! $tool $src/$name.o9 >$cfile){
+		echo $name': transpile failed' >[1=2]
+		fail=1
+	}
+	if(~ $fail 0 && ! 6c -FVw -I. -o $ofile $cfile >$cerr >[2=1]){
+		echo $name': compile failed' >[1=2]
+		cat $cerr >[1=2]
+		fail=1
+	}
+	if(~ $fail 0 && grep -s 'warning:' $cerr){
+		echo $name': 6c warning treated as error' >[1=2]
+		cat $cerr >[1=2]
+		fail=1
+	}
+	if(~ $fail 0 && ! 6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a){
+		echo $name': link failed' >[1=2]
+		fail=1
+	}
+}
+
+if(! test -e $tool){
+	echo missing $tool >[1=2]
+	exit missing
+}
+if(! test -e libo9.a){
+	echo missing libo9.a >[1=2]
+	exit missing
+}
+
+cleanup
+mkdir $tmp
+mkdir $src
+mkdir $src/stdlib
+cp grid/*.o9 $src
+stdsrc=stdlib
+if(! test -e $stdsrc/process.o9)
+	stdsrc=/sys/lib/o9/stdlib
+if(! test -e $stdsrc/process.o9)
+	stdsrc=$home/lib/o9/stdlib
+if(! test -e $stdsrc/process.o9){
+	echo 'o9mutgrid: missing stdlib/process.o9' >[1=2]
+	cleanup
+	exit missing
+}
+cp $stdsrc/*.o9 $src/stdlib
+
+for(name in o9mutctl o9mutw o9mutd)
+	buildgrid $name
+
+if(! ~ $fail 0){
+	cleanup
+	exit fail
+}
+
+root=$tmp/root
+$tmp/o9mutctl -r $root init >$tmp/init.out >[2=1]
+$tmp/o9mutctl -r $root enqueue pass sample sample 'echo pass' 5000 100 >>$tmp/init.out >[2=1]
+$tmp/o9mutctl -r $root enqueue kill sample sample 'exit fail' 5000 100 >>$tmp/init.out >[2=1]
+$tmp/o9mutw -r $root -w smoke -n 2 >$tmp/worker.out >[2=1]
+$tmp/o9mutctl -r $root status >$tmp/status.out >[2=1]
+
+if(! grep -s 'survived	1' $tmp/status.out){
+	echo 'o9mutgrid: missing survived count' >[1=2]
+	cat $tmp/status.out >[1=2]
+	fail=1
+}
+if(! grep -s 'killed	1' $tmp/status.out){
+	echo 'o9mutgrid: missing killed count' >[1=2]
+	cat $tmp/status.out >[1=2]
+	fail=1
+}
+if(! grep -s 'done	2' $tmp/status.out){
+	echo 'o9mutgrid: missing done count' >[1=2]
+	cat $tmp/status.out >[1=2]
+	fail=1
+}
+
+if(~ $fail 0)
+	echo o9mutgrid: OK
+
+cleanup
+if(! ~ $fail 0)
+	exit fail
+exit ''

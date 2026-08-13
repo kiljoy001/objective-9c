@@ -1,4 +1,111 @@
 # source	mutant	reason
+o9c/o9_type.c	o9_type.mutant.243.c	whitespace-only initializer indentation change
+o9c/o9_type.c	o9_type.mutant.258.c	whitespace-only initializer indentation change
+o9c/o9_type.c	o9_type.mutant.261.c	whitespace-only initializer separator spacing change
+o9c/o9_type.c	o9_type.mutant.560.c	malloc returns nil or a valid nonzero pointer, so p<=nil is equivalent to p==nil
+o9c/o9_type.c	o9_type.mutant.563.c	allocator-failure-only branch; current gate has no malloc fault injection
+o9c/o9_type.c	o9_type.mutant.568.c	allocator-failure-only branch; current gate has no malloc fault injection
+o9c/o9_type.c	o9_type.mutant.572.c	allocator-failure-only branch; current gate has no malloc fault injection
+o9c/o9_type.c	o9_type.mutant.573.c	allocator-failure-only branch; current gate has no malloc fault injection
+o9c/o9_type.c	o9_type.mutant.612.c	estrdup nil guard sees nil or a valid nonzero pointer, so s<=nil is equivalent to s==nil
+o9c/o9_type.c	o9_type.mutant.629.c	allocator-failure-only branch; current gate has no strdup fault injection
+o9c/o9_type.c	o9_type.mutant.632.c	allocator-failure-only branch; current gate has no strdup fault injection
+o9c/o9_type.c	o9_type.mutant.637.c	allocator-failure-only branch; current gate has no strdup fault injection
+o9c/o9_type.c	o9_type.mutant.641.c	allocator-failure-only branch; current gate has no strdup fault injection
+o9c/o9_type.c	o9_type.mutant.665.c	canonical_type_name nil guard sees nil or a valid nonzero pointer, so name<=nil is equivalent to name==nil
+o9c/o9_type.c	o9_type.mutant.691.c	strcmp equality-to-zero is symmetric for canonical Tabula name check
+o9c/o9_type.c	o9_type.mutant.742.c	join2 nil guard sees nil or a valid nonzero pointer, so a<=nil is equivalent to a==nil
+o9c/o9_type.c	o9_type.mutant.745.c	join2 nil fallback is defensive-only; exported helper paths pass nonnil strings
+o9c/o9_type.c	o9_type.mutant.750.c	join2 nil fallback is defensive-only; exported helper paths pass nonnil strings
+o9c/o9_type.c	o9_type.mutant.754.c	join2 nil fallback is defensive-only; exported helper paths pass nonnil strings
+o9c/o9_type.c	o9_type.mutant.756.c	join2 nil guard sees nil or a valid nonzero pointer, so b<=nil is equivalent to b==nil
+o9c/o9_type.c	o9_type.mutant.759.c	join2 nil fallback is defensive-only; exported helper paths pass nonnil strings
+o9c/o9_type.c	o9_type.mutant.764.c	join2 nil fallback is defensive-only; exported helper paths pass nonnil strings
+o9c/o9_type.c	o9_type.mutant.779.c	join2 over-allocates by one byte; output string is unchanged
+o9c/o9_type.c	o9_type.mutant.827.c	mangle_name nil guard sees nil or a valid nonzero pointer, so name<=nil is equivalent to name==nil
+o9c/o9_type.c	o9_type.mutant.830.c	mangle_name nil fallback is defensive-only; exported tested paths pass nonnil names
+o9c/o9_type.c	o9_type.mutant.835.c	mangle_name nil fallback is defensive-only; exported tested paths pass nonnil names
+o9c/o9_type.c	o9_type.mutant.839.c	mangle_name nil fallback is defensive-only; exported tested paths pass nonnil names
+o9c/o9_type.c	o9_type.mutant.840.c	mangle_name nil fallback is defensive-only; exported tested paths pass nonnil names
+o9c/o9_type.c	o9_type.mutant.842.c	mangle_name one-byte terminator overrun; current gate has no memory sanitizer
+o9c/o9_type.c	o9_type.mutant.843.c	mangle_name one-byte terminator overrun; current gate has no memory sanitizer
+o9c/o9_type.c	o9_type.mutant.845.c	mangle_name undersized allocation; current gate has no memory sanitizer
+o9c/o9_type.c	o9_type.mutant.850.c	mangle_name one-byte terminator overrun; current gate has no memory sanitizer
+o9c/o9_type.c	o9_type.mutant.854.c	mangle_name over-allocates; output string is unchanged
+o9c/o9_type.c	o9_type.mutant.855.c	mangle_name over-allocates; output string is unchanged
+o9c/o9_type.c	o9_type.mutant.857.c	mangle_name one-byte terminator overrun; current gate has no memory sanitizer
+o9c/o9_type.c	o9_type.mutant.920.c	mangle_name dot branch continue is redundant inside if/else chain
+o9c/o9_type.c	o9_type.mutant.927.c	mangle_name only changes invalid source type-name punctuation below '*'
+o9c/o9_type.c	o9_type.mutant.948.c	mangle_name star branch continue is redundant inside if/else chain
+o9c/o9_type.c	o9_type.mutant.964.c	mangle_name default branch continue is redundant at loop tail
+o9c/o9_type.c	o9_type.mutant.967.c	mangle_name loop-tail continue is redundant before for-loop increment
+o9c/o9_type.c	o9_type.mutant.976.c	mangle_name terminator write is redundant because emalloc zero-fills the buffer
+o9c/o9_type.c	o9_type.mutant.1010.c	type_name kind assignment is redundant because TyName is zero and emalloc zero-fills
+o9c/o9_type.c	o9_type.mutant.1239.c	type_list_append list nil guard sees nil or a valid nonzero pointer, so list<=nil is equivalent to list==nil
+o9c/o9_type.c	o9_type.mutant.1253.c	type_list_append tail-walk loop body continue is equivalent to an empty body
+o9c/o9_type.c	o9_type.mutant.1267.c	type_list_len explicit int return is equivalent to default int in this C dialect
+o9c/o9_type.c	o9_type.mutant.1331.c	find_builtin name nil guard sees nil or a valid nonzero pointer, so name<=nil is equivalent to name==nil
+o9c/o9_type.c	o9_type.mutant.1371.c	strcmp equality-to-zero is symmetric for builtin name lookup
+o9c/o9_type.c	o9_type.mutant.1386.c	type_builtin_count explicit int return is equivalent to default int in this C dialect
+o9c/o9_type.c	o9_type.mutant.1395.c	type_builtin_count returns the sentinel index; starting at 1 is equivalent because builtins[0] is nonnil
+o9c/o9_type.c	o9_type.mutant.1396.c	type_builtin_count pre-table underread is not observable without memory bounds instrumentation
+o9c/o9_type.c	o9_type.mutant.1397.c	type_builtin_count returns the sentinel index; starting at (0+1) is equivalent because builtins[0] is nonnil
+o9c/o9_type.c	o9_type.mutant.1398.c	type_builtin_count pre-table underread is not observable without memory bounds instrumentation
+o9c/o9_type.c	o9_type.mutant.1405.c	type_builtin_count sentinel sees nil or a valid nonzero pointer, so name>nil is equivalent to name!=nil
+o9c/o9_type.c	o9_type.mutant.1445.c	type_builtin_name idx==count returns the nil sentinel, matching the original nil result
+o9c/o9_type.c	o9_type.mutant.1472.c	type_builtin_name lower-bound check idx<(0==1) is equivalent to idx<0
+o9c/o9_type.c	o9_type.mutant.1484.c	type_is_builtin_name explicit int return is equivalent to default int in this C dialect
+o9c/o9_type.c	o9_type.mutant.1497.c	type_is_builtin_name sees nil or a valid nonzero Builtin pointer, so pointer>nil is equivalent to pointer!=nil
+o9c/o9_type.c	o9_type.mutant.1537.c	type_builtin_plan9 nil guard sees nil or a valid nonzero Builtin pointer, so b<=nil is equivalent to b==nil
+o9c/o9_type.c	o9_type.mutant.1587.c	type_builtin_abi nil guard sees nil or a valid nonzero Builtin pointer, so b<=nil is equivalent to b==nil
+o9c/o9_type.c	o9_type.mutant.1632.c	type_builtin_fmt nil guard sees nil or a valid nonzero Builtin pointer, so b<=nil is equivalent to b==nil
+o9c/o9_type.c	o9_type.mutant.1677.c	type_builtin_zero nil guard sees nil or a valid nonzero Builtin pointer, so b<=nil is equivalent to b==nil
+o9c/o9_type.c	o9_type.mutant.1747.c	render_list first flag only tests truthiness, so -1 is equivalent to 1
+o9c/o9_type.c	o9_type.mutant.1748.c	render_list first flag only tests truthiness, so (1+1) is equivalent to 1
+o9c/o9_type.c	o9_type.mutant.1781.c	render_list leaks an intermediate string only; current gate has no leak detector
+o9c/o9_type.c	o9_type.mutant.1798.c	render_list leaks an intermediate string only; current gate has no leak detector
+o9c/o9_type.c	o9_type.mutant.1804.c	render_list loop-tail continue is redundant before for-loop increment
+o9c/o9_type.c	o9_type.mutant.1849.c	type_render nil guard sees nil or a valid nonzero Type pointer, so type<=nil is equivalent to type==nil
+o9c/o9_type.c	o9_type.mutant.1863.c	type_render break before first switch case is unreachable
+o9c/o9_type.c	o9_type.mutant.1872.c	type_render break after return is unreachable
+o9c/o9_type.c	o9_type.mutant.1900.c	type_render TyApply over-allocates by one byte; output string is unchanged
+o9c/o9_type.c	o9_type.mutant.1916.c	type_render TyApply break after return is unreachable
+o9c/o9_type.c	o9_type.mutant.1935.c	type_render TyPtr break after return is unreachable
+o9c/o9_type.c	o9_type.mutant.1955.c	type_render TyArray break after return is unreachable
+o9c/o9_type.c	o9_type.mutant.2001.c	type_dump nil guard sees nil or a valid nonzero Type pointer, so type<=nil is equivalent to type==nil
+o9c/o9_type.c	o9_type.mutant.2015.c	type_dump break before first switch case is unreachable
+o9c/o9_type.c	o9_type.mutant.2028.c	type_dump TyName over-allocates by one byte; output string is unchanged
+o9c/o9_type.c	o9_type.mutant.2029.c	type_dump TyName removes one byte of slack; mutated buffer still fits the output string
+o9c/o9_type.c	o9_type.mutant.2042.c	type_dump TyName break after return is unreachable
+o9c/o9_type.c	o9_type.mutant.2055.c	type_dump TyParam over-allocates by one byte; output string is unchanged
+o9c/o9_type.c	o9_type.mutant.2056.c	type_dump TyParam removes one byte of slack; mutated buffer still fits the output string
+o9c/o9_type.c	o9_type.mutant.2069.c	type_dump TyParam break after return is unreachable
+o9c/o9_type.c	o9_type.mutant.2076.c	type_dump TyApply render_list dump flag only tests truthiness, so -1 is equivalent to 1
+o9c/o9_type.c	o9_type.mutant.2077.c	type_dump TyApply render_list dump flag only tests truthiness, so 2 is equivalent to 1
+o9c/o9_type.c	o9_type.mutant.2097.c	type_dump TyApply over-allocates by one byte; output string is unchanged
+o9c/o9_type.c	o9_type.mutant.2098.c	type_dump TyApply removes one byte of slack; mutated buffer still fits the output string
+o9c/o9_type.c	o9_type.mutant.2113.c	type_dump TyApply break after return is unreachable
+o9c/o9_type.c	o9_type.mutant.2123.c	type_dump TyPtr multiplies allocation size; type_dump(base) is at least Nil, so output is unchanged
+o9c/o9_type.c	o9_type.mutant.2129.c	type_dump TyPtr over-allocates by one byte; output string is unchanged
+o9c/o9_type.c	o9_type.mutant.2143.c	type_dump TyPtr break after return is unreachable
+o9c/o9_type.c	o9_type.mutant.2153.c	type_dump TyArray multiplies allocation size; type_dump(base) is at least Nil, so output is unchanged
+o9c/o9_type.c	o9_type.mutant.2159.c	type_dump TyArray over-allocates by one byte; output string is unchanged
+o9c/o9_type.c	o9_type.mutant.2173.c	type_dump TyArray break after return is unreachable
+o9c/o9_type.c	o9_type.mutant.2229.c	mangle_list first flag only tests truthiness, so -1 is equivalent to 1
+o9c/o9_type.c	o9_type.mutant.2230.c	mangle_list first flag only tests truthiness, so 2 is equivalent to 1
+o9c/o9_type.c	o9_type.mutant.2263.c	mangle_list leaks an intermediate separator string only; current gate has no leak detector
+o9c/o9_type.c	o9_type.mutant.2280.c	mangle_list leaks an intermediate string only; current gate has no leak detector
+o9c/o9_type.c	o9_type.mutant.2286.c	mangle_list loop-tail continue is redundant before for-loop increment
+o9c/o9_type.c	o9_type.mutant.2329.c	type_cname local declaration reorder/spacing only; generated code is unchanged
+o9c/o9_type.c	o9_type.mutant.2335.c	type_cname nil guard sees nil or a valid nonzero Type pointer, so type<=nil is equivalent to type==nil
+o9c/o9_type.c	o9_type.mutant.2349.c	type_cname break before first switch case is unreachable
+o9c/o9_type.c	o9_type.mutant.2358.c	type_cname TyName/TyParam break after return is unreachable
+o9c/o9_type.c	o9_type.mutant.2381.c	type_cname TyApply over-allocates by one byte; output string is unchanged
+o9c/o9_type.c	o9_type.mutant.2397.c	type_cname TyApply break after return is unreachable
+o9c/o9_type.c	o9_type.mutant.2416.c	type_cname TyPtr break after return is unreachable
+o9c/o9_type.c	o9_type.mutant.2435.c	type_cname TyArray break after return is unreachable
+o9c/o9_type.c	o9_type.mutant.2481.c	type_storage nil guard sees nil or a valid nonzero Type pointer, so type<=nil is equivalent to type==nil
+o9c/o9_type.c	o9_type.mutant.2520.c	type_storage builtin plan9 guard sees nil or a valid nonzero char pointer, so p>nil is equivalent to p!=nil
 o9_runtime.c	o9_runtime.mutant.29117.c	o9_9p_rpc returns -1 or a valid 9P size >=5, so m<=0 is equivalent to m<0
 libtab/tab_open.c	tab_open.mutant.1388.c	allocator-failure-only branch; current native gate has no malloc fault injection
 libtab/tab_persist.c	tab_persist.mutant.734.c	plan9port __GNUC__ 9P persistence branch; not compiled by native 9front gate

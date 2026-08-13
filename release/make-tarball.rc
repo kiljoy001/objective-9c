@@ -45,7 +45,7 @@ cp libo9.a $stage/amd64/lib/libo9.a
 cp o9.h $stage/sys/include/o9.h
 cp $stdlib_modules $stage/sys/lib/o9/stdlib
 cp plumb/o9 $stage/sys/lib/plumb/o9
-cp o9_dispatch.s $stage/sys/src/cmd/o9_dispatch.s
+cp o9_dispatch_amd64.s $stage/sys/src/cmd/o9_dispatch.s
 cp o9_runtime.c $stage/sys/src/cmd/o9_runtime.c
 cp o9_tab_discard.c $stage/sys/src/cmd/o9_tab_discard.c
 cp release/CHANGELOG $stage/sys/lib/pac9/changelog/$pkg

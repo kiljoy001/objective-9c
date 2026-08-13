@@ -10,7 +10,10 @@ succeeds means the mutant survived and the tests are missing an invariant.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import dataclasses
+import fcntl
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -24,12 +27,24 @@ class Mutant:
     old: str
     new: str
     count: int = 1
+    target: str = "o9c/grammar.d"
 
 
 @dataclasses.dataclass(frozen=True)
 class SourceFile:
     path: Path
     original: str
+
+
+@contextlib.contextmanager
+def mutation_lock():
+    lock_path = os.environ.get("O9_MUTATE_LOCK", "/tmp/o9mutate.lock")
+    with open(lock_path, "w", encoding="utf-8") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 MUTANTS = (
@@ -40,26 +55,110 @@ MUTANTS = (
         "if(0 && nf - 3 != %d){ char __ab[96];",
     ),
     Mutant(
+        "private_field_read",
+        "allow private field reads from outside the declaring class",
+        "} else if(tm.node != nil && (tm.node->flags & NFPrivate) &&\n"
+        "              tm.owner != scope_class){",
+        "} else if(0 && tm.node != nil && (tm.node->flags & NFPrivate) &&\n"
+        "              tm.owner != scope_class){",
+    ),
+    Mutant(
+        "private_method_call",
+        "allow private method calls from outside the declaring class",
+        "if((tm.node->flags & NFPrivate) && tm.owner != scope_class)\n"
+        "        fprint(2, \"o9c: error: line %d: '%s.%s' is private\\n\", sem_line,\n"
+        "            tm.owner != nil ? tm.owner->name : cnode->name, e->name), (*errs)++;",
+        "if(0 && (tm.node->flags & NFPrivate) && tm.owner != scope_class)\n"
+        "        fprint(2, \"o9c: error: line %d: '%s.%s' is private\\n\", sem_line,\n"
+        "            tm.owner != nil ? tm.owner->name : cnode->name, e->name), (*errs)++;",
+    ),
+    Mutant(
+        "allow_bool_int_assignment",
+        "allow bool and integer scalar assignment compatibility",
+        "if(!type_is_bool(target) && !type_is_bool(actual))\n"
+        "            return 1;",
+        "if(1 || (!type_is_bool(target) && !type_is_bool(actual)))\n"
+        "            return 1;",
+    ),
+    Mutant(
+        "allow_nonscalar_cast",
+        "allow casts between non-scalar values",
+        "return type_scalar_builtin(target) && type_scalar_builtin(actual);",
+        "return 1;",
+    ),
+    Mutant(
+        "weaken_cast_width_lowering",
+        "lower scalar casts through vlong instead of the target storage width",
+        "if(storage_is_scalar_cast(s))\n"
+        "        return s;",
+        "if(0 && storage_is_scalar_cast(s))\n"
+        "        return s;",
+    ),
+    Mutant(
         "remote_objects",
         "allow near/far/listener declarations on non-Tabula objects",
         "if(!o9_type_is_tabula(e->typeinfo)){\n"
-        "            fprint(2, \"o9c: error: line %d: remote objects are not supported; only Tabula data may be declared near/far/listener with @\\n\",\n"
-        "                sem_line);\n"
-        "            (*errs)++;\n"
-        "        }",
+        "        fprint(2, \"o9c: error: line %d: remote objects are not supported; only tabula data may be declared near/far/listener with @\\n\",\n"
+        "            sem_line);\n"
+        "        (*errs)++;\n"
+        "    }",
         "if(0 && !o9_type_is_tabula(e->typeinfo)){\n"
-        "            fprint(2, \"o9c: error: line %d: remote objects are not supported; only Tabula data may be declared near/far/listener with @\\n\",\n"
-        "                sem_line);\n"
-        "            (*errs)++;\n"
-        "        }",
+        "        fprint(2, \"o9c: error: line %d: remote objects are not supported; only tabula data may be declared near/far/listener with @\\n\",\n"
+        "            sem_line);\n"
+        "        (*errs)++;\n"
+        "    }",
+    ),
+    Mutant(
+        "allow_import_escape",
+        "allow imports to resolve outside the importing file subtree",
+        "if(path_within_subtree(clean) < 0){\n"
+        "        fprint(2, \"o9c: error: line %d: import path '%s' escapes the \"\n"
+        "            \"importing file's directory; imports must stay within the \"\n"
+        "            \"project subtree\\n\", line, rel);\n"
+        "        semantic_errors++;\n"
+        "        return nil;\n"
+        "    }",
+        "if(0 && path_within_subtree(clean) < 0){\n"
+        "        fprint(2, \"o9c: error: line %d: import path '%s' escapes the \"\n"
+        "            \"importing file's directory; imports must stay within the \"\n"
+        "            \"project subtree\\n\", line, rel);\n"
+        "        semantic_errors++;\n"
+        "        return nil;\n"
+        "    }",
+    ),
+    Mutant(
+        "keep_imported_main",
+        "preserve main blocks from imported source files",
+        "strip_imported_main(fsrc);",
+        "/* invariant mutant: keep imported main */",
+    ),
+    Mutant(
+        "allow_multiple_main",
+        "allow more than one root main block",
+        "if(nmain > 1){\n"
+        "        fprint(2, \"o9c: error: program has %d main blocks; only one main block is allowed\\n\", nmain);\n"
+        "        errors++;\n"
+        "    }",
+        "if(0 && nmain > 1){\n"
+        "        fprint(2, \"o9c: error: program has %d main blocks; only one main block is allowed\\n\", nmain);\n"
+        "        errors++;\n"
+        "    }",
     ),
     Mutant(
         "tabula_ctor_arity",
         "allow malformed Tabula constructor arity",
-        "if(got != 1 && got != 2){\n"
-        "        fprint(2, \"o9c: error: line %d: Tabula constructor takes 1 path argument or 2 schema arguments, got %d\\n\",",
-        "if(0 && got != 1 && got != 2){\n"
-        "        fprint(2, \"o9c: error: line %d: Tabula constructor takes 1 path argument or 2 schema arguments, got %d\\n\",",
+        "} else if(!type_is_typed_tabula(e->typeinfo) && got != 1 && got != 2){\n"
+        "        fprint(2, \"o9c: error: line %d: tabula constructor takes 1 path argument or 2 schema arguments, got %d\\n\",",
+        "} else if(0 && !type_is_typed_tabula(e->typeinfo) && got != 1 && got != 2){\n"
+        "        fprint(2, \"o9c: error: line %d: tabula constructor takes 1 path argument or 2 schema arguments, got %d\\n\",",
+    ),
+    Mutant(
+        "weaken_msg_rule_arity",
+        "allow wrong arity for tabula and other rule-backed methods",
+        "if(got != r->argc)\n"
+        "        msg_arity_error(owner, e, r->argc, got, errs);",
+        "if(0 && got != r->argc)\n"
+        "        msg_arity_error(owner, e, r->argc, got, errs);",
     ),
     Mutant(
         "send_to_recvonly",
@@ -74,10 +173,101 @@ MUTANTS = (
         "if(0 && recvop && (m->flags & NFChanSendOnly)){",
     ),
     Mutant(
+        "allow_dict_channel_payload",
+        "allow Dict values as channel payloads",
+        "if(type_is_collection(c->typeinfo, \"Dict\")){\n"
+        "        fprint(2, \"o9c: error: line %d: Dict values cannot be used as channel payloads yet\\n\",\n"
+        "            c->line > 0 ? c->line : sem_line);\n"
+        "        (*errs)++;\n"
+        "    }",
+        "if(0 && type_is_collection(c->typeinfo, \"Dict\")){\n"
+        "        fprint(2, \"o9c: error: line %d: Dict values cannot be used as channel payloads yet\\n\",\n"
+        "            c->line > 0 ? c->line : sem_line);\n"
+        "        (*errs)++;\n"
+        "    }",
+    ),
+    Mutant(
         "tuple_object_payload",
         "allow object handles inside tuple payloads",
         "if(tuple_field_is_object_handle(a)){",
         "if(0 && tuple_field_is_object_handle(a)){",
+    ),
+    Mutant(
+        "allow_rawc_internals",
+        "allow raw C blocks to access self and generated o9 internals",
+        "static void\n"
+        "rawc_check_ident(char *id, int *errs)\n"
+        "{\n"
+        "    char *why;\n"
+        "\n"
+        "    why = nil;\n"
+        "    if(id != nil && strcmp(id, \"self\") == 0){\n"
+        "        fprint(2, \"o9c: error: line %d: raw C function blocks cannot access self\\n\",\n"
+        "            sem_line);\n"
+        "        (*errs)++;\n"
+        "        return;\n"
+        "    }\n"
+        "    if(rawc_forbidden_ident(id, &why)){\n"
+        "        fprint(2, \"o9c: error: line %d: raw C block uses forbidden o9 internal symbol '%s' \"\n"
+        "            \"(raw C may use Plan 9 C and local values, not generated object internals)\\n\",\n"
+        "            sem_line, why);\n"
+        "        (*errs)++;\n"
+        "    }\n"
+        "}",
+        "static void\n"
+        "rawc_check_ident(char *id, int *errs)\n"
+        "{\n"
+        "    (void)id;\n"
+        "    (void)errs;\n"
+        "}",
+    ),
+    Mutant(
+        "allow_rawc_object_handles",
+        "allow function raw C bodies to accept object handles at the o9 boundary",
+        "if(type_is_object_ref(p->typeinfo)){\n"
+        "            fprint(2, \"o9c: error: line %d: raw C functions cannot take object handle '%s' \"\n"
+        "                \"(pass ordinary values into c blocks; object mutation must go through o9 methods/properties)\\n\",\n"
+        "                sem_line, p->name != nil ? p->name : \"?\");\n"
+        "            (*errs)++;\n"
+        "        }",
+        "if(0 && type_is_object_ref(p->typeinfo)){\n"
+        "            fprint(2, \"o9c: error: line %d: raw C functions cannot take object handle '%s' \"\n"
+        "                \"(pass ordinary values into c blocks; object mutation must go through o9 methods/properties)\\n\",\n"
+        "                sem_line, p->name != nil ? p->name : \"?\");\n"
+        "            (*errs)++;\n"
+        "        }",
+    ),
+    Mutant(
+        "allow_function_type_args",
+        "allow function<T> placeholder type arguments",
+        "{ \"function\", 0, 0, \"function type does not accept angle brackets\" },",
+        "{ \"function\", -1, 0, \"function type does not accept angle brackets\" },",
+    ),
+    Mutant(
+        "allow_function_object_params",
+        "allow function objects to take object handles",
+        "if(type_is_object_ref(p->typeinfo)){\n"
+        "            fprint(2, \"o9c: error: line %d: function object cannot take object handle '%s'\\n\",\n"
+        "                p->line > 0 ? p->line : sem_line,\n"
+        "                p->name != nil ? p->name : \"?\");\n"
+        "            (*errs)++;\n"
+        "        }",
+        "if(0 && type_is_object_ref(p->typeinfo)){\n"
+        "            fprint(2, \"o9c: error: line %d: function object cannot take object handle '%s'\\n\",\n"
+        "                p->line > 0 ? p->line : sem_line,\n"
+        "                p->name != nil ? p->name : \"?\");\n"
+        "            (*errs)++;\n"
+        "        }",
+    ),
+    Mutant(
+        "disable_self_send_guard",
+        "allow synchronous actor calls to the current actor's own dispatch channel",
+        "if(dispatch_chan == nil || ctx->actor_chan == nil ||\n"
+        "\t   dispatch_chan != ctx->actor_chan)\n"
+        "\t\treturn 0;",
+        "if(1)\n"
+        "\t\treturn 0;",
+        target="o9_runtime.c",
     ),
 )
 
@@ -173,17 +363,19 @@ def command_survived(args: argparse.Namespace, code: int | None, output: str) ->
 
 
 def run_mutants(args: argparse.Namespace) -> int:
-    sources = load_sources(args.file)
     failed = False
 
     for mutant in selected_mutants(args.only):
         print(f"mutant {mutant.name}: {mutant.description}", flush=True)
-        try:
-            apply_mutant(sources, mutant)
-            code, output = run_command(args)
-        finally:
-            restore_sources(sources)
-            remove_generated_grammar(args.file)
+        with mutation_lock():
+            target = args.file if args.file is not None else mutant.target
+            sources = load_sources(target)
+            try:
+                apply_mutant(sources, mutant)
+                code, output = run_command(args)
+            finally:
+                restore_sources(sources)
+                remove_generated_grammar(target)
 
         if output:
             print(output, end="" if output.endswith("\n") else "\n")
@@ -200,7 +392,7 @@ def run_mutants(args: argparse.Namespace) -> int:
 
 def list_mutants(_: argparse.Namespace) -> int:
     for mutant in MUTANTS:
-        print(f"{mutant.name}\t{mutant.description}")
+        print(f"{mutant.name}\t{mutant.target}\t{mutant.description}")
     return 0
 
 
@@ -212,7 +404,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.set_defaults(func=list_mutants)
 
     p = sub.add_parser("run", help="run mutants against a test command")
-    p.add_argument("--file", default="o9c/grammar.d", help="grammar file or chunk directory to mutate")
+    p.add_argument("--file", default=None, help="override the source file or chunk directory to mutate")
     p.add_argument("--only", action="append", default=[])
     p.add_argument("--keep-going", action="store_true")
     p.add_argument("--timeout", type=float, default=None)

@@ -1,0 +1,46 @@
+import "o9mutlib.o9";
+import "stdlib/process.o9";
+import "stdlib/time.o9";
+
+main {
+    Process p = new Process();
+    Time tm = new Time();
+    O9Mut grid = new O9Mut();
+    Time sleeper = new Time();
+    string root = grid.defaultRoot();
+    int64 intervalMs = 30000;
+    int64 staleSec = 300;
+    int64 cycles = 0;
+    int64 nargs = p.argc();
+    int64 i = 1;
+    int64 done = 0;
+
+    while(i < nargs) {
+        if(cmp(p.arg(i), "-r") == 0 && i + 1 < nargs) {
+            root = p.arg(i + 1);
+            i = i + 2;
+        } else if(cmp(p.arg(i), "-interval-ms") == 0 && i + 1 < nargs) {
+            intervalMs = tm.parse(p.arg(i + 1));
+            i = i + 2;
+        } else if(cmp(p.arg(i), "-stale-sec") == 0 && i + 1 < nargs) {
+            staleSec = tm.parse(p.arg(i + 1));
+            i = i + 2;
+        } else if(cmp(p.arg(i), "-cycles") == 0 && i + 1 < nargs) {
+            cycles = tm.parse(p.arg(i + 1));
+            i = i + 2;
+        } else {
+            print("usage: o9mutd [-r root] [-interval-ms ms] [-stale-sec sec] [-cycles n]\n");
+            i = nargs;
+            cycles = 1;
+        }
+    }
+
+    while(cycles == 0 || done < cycles) {
+        print(grid.requeueStale(root, staleSec));
+        print(grid.report(root));
+        done = done + 1;
+        if(cycles == 0 || done < cycles) {
+            sleeper.sleep(intervalMs);
+        }
+    }
+}

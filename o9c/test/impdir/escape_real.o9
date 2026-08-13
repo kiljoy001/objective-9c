@@ -1,0 +1,6 @@
+import "../simple.o9";
+
+main {
+    Simple s = new Simple();
+    print("escape ", s.x, "\n");
+}

@@ -359,54 +359,75 @@ namespace MONOCYPHER_CPP_NAMESPACE {
   //   ctx->h <= 4_ffffffff_ffffffff_ffffffff_ffffffff
   static void poly_blocks(crypto_poly1305_ctx * ctx, const u8 *in,
                           size_t nb_blocks, unsigned end) {
-    // Local all the things!
-    const u32 r0 = ctx->r[0];
-    const u32 r1 = ctx->r[1];
-    const u32 r2 = ctx->r[2];
-    const u32 r3 = ctx->r[3];
-    const u32 rr0 = (r0 >> 2) * 5;  // lose 2 bits...
-    const u32 rr1 = (r1 >> 2) + r1; // rr1 == (r1 >> 2) * 5
-    const u32 rr2 = (r2 >> 2) + r2; // rr1 == (r2 >> 2) * 5
-    const u32 rr3 = (r3 >> 2) + r3; // rr1 == (r3 >> 2) * 5
-    const u32 rr4 = r0 & 3;         // ...recover 2 bits
-    u32 h0 = ctx->h[0];
-    u32 h1 = ctx->h[1];
-    u32 h2 = ctx->h[2];
-    u32 h3 = ctx->h[3];
-    u32 h4 = ctx->h[4];
+    size_t i;
+    u32 r0, r1, r2, r3, rr0, rr1, rr2, rr3, rr4;
+    u32 h0, h1, h2, h3, h4;
+    u64 s0, s1, s2, s3, x0, x1, x2, x3, u0, u1, u2, u3;
+    u32 s4, x4, u4, u5;
 
-    FOR(i, 0, nb_blocks) {
+    r0 = ctx->r[0];
+    r1 = ctx->r[1];
+    r2 = ctx->r[2];
+    r3 = ctx->r[3];
+    rr0 = (r0 >> 2) * 5;
+    rr1 = (r1 >> 2) + r1;
+    rr2 = (r2 >> 2) + r2;
+    rr3 = (r3 >> 2) + r3;
+    rr4 = r0 & 3;
+    h0 = ctx->h[0];
+    h1 = ctx->h[1];
+    h2 = ctx->h[2];
+    h3 = ctx->h[3];
+    h4 = ctx->h[4];
+
+    for(i = 0; i < nb_blocks; i++) {
       // h + c, without carry propagation
-      const u64 s0 = (u64)h0 + load32_le(in);
+      s0 = (u64)h0 + load32_le(in);
       in += 4;
-      const u64 s1 = (u64)h1 + load32_le(in);
+      s1 = (u64)h1 + load32_le(in);
       in += 4;
-      const u64 s2 = (u64)h2 + load32_le(in);
+      s2 = (u64)h2 + load32_le(in);
       in += 4;
-      const u64 s3 = (u64)h3 + load32_le(in);
+      s3 = (u64)h3 + load32_le(in);
       in += 4;
-      const u32 s4 = h4 + end;
+      s4 = h4 + end;
 
       // (h + c) * r, without carry propagation
-      const u64 x0 = s0 * r0 + s1 * rr3 + s2 * rr2 + s3 * rr1 + s4 * rr0;
-      const u64 x1 = s0 * r1 + s1 * r0 + s2 * rr3 + s3 * rr2 + s4 * rr1;
-      const u64 x2 = s0 * r2 + s1 * r1 + s2 * r0 + s3 * rr3 + s4 * rr2;
-      const u64 x3 = s0 * r3 + s1 * r2 + s2 * r1 + s3 * r0 + s4 * rr3;
-      const u32 x4 = s4 * rr4;
+      x0 = s0 * r0;
+      x0 += s1 * rr3;
+      x0 += s2 * rr2;
+      x0 += s3 * rr1;
+      x0 += (u64)s4 * rr0;
+      x1 = s0 * r1;
+      x1 += s1 * r0;
+      x1 += s2 * rr3;
+      x1 += s3 * rr2;
+      x1 += (u64)s4 * rr1;
+      x2 = s0 * r2;
+      x2 += s1 * r1;
+      x2 += s2 * r0;
+      x2 += s3 * rr3;
+      x2 += (u64)s4 * rr2;
+      x3 = s0 * r3;
+      x3 += s1 * r2;
+      x3 += s2 * r1;
+      x3 += s3 * r0;
+      x3 += (u64)s4 * rr3;
+      x4 = s4 * rr4;
 
       // partial reduction modulo 2^130 - 5
-      const u32 u5 = x4 + (x3 >> 32); // u5 <= 7ffffff5
-      const u64 u0 = (u5 >> 2) * 5 + (x0 & 0xffffffff);
-      const u64 u1 = (u0 >> 32) + (x1 & 0xffffffff) + (x0 >> 32);
-      const u64 u2 = (u1 >> 32) + (x2 & 0xffffffff) + (x1 >> 32);
-      const u64 u3 = (u2 >> 32) + (x3 & 0xffffffff) + (x2 >> 32);
-      const u32 u4 = (u3 >> 32) + (u5 & 3); // u4 <= 4
+      u5 = x4 + (x3 >> 32);
+      u0 = (u64)(u5 >> 2) * 5 + (x0 & 0xffffffffUL);
+      u1 = (u0 >> 32) + (x1 & 0xffffffffUL) + (x0 >> 32);
+      u2 = (u1 >> 32) + (x2 & 0xffffffffUL) + (x1 >> 32);
+      u3 = (u2 >> 32) + (x3 & 0xffffffffUL) + (x2 >> 32);
+      u4 = (u3 >> 32) + (u5 & 3);
 
       // Update the hash
-      h0 = u0 & 0xffffffff;
-      h1 = u1 & 0xffffffff;
-      h2 = u2 & 0xffffffff;
-      h3 = u3 & 0xffffffff;
+      h0 = u0 & 0xffffffffUL;
+      h1 = u1 & 0xffffffffUL;
+      h2 = u2 & 0xffffffffUL;
+      h3 = u3 & 0xffffffffUL;
       h4 = u4;
     }
     ctx->h[0] = h0;

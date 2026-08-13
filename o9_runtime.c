@@ -2985,7 +2985,7 @@ o9_fill_from_buf(o9_AsmTable *table, Biobuf *bp)
 			long off = strtol(val, nil, 10);
 			if(table){
 				table->data_cache[h & 63].hash = h;
-				table->data_cache[h & 63].ptr = (void*)(intptr)off;
+				table->data_cache[h & 63].ptr = (void*)(uintptr)off;
 			}
 		}
 		if(key[0] == 'c'){
@@ -3051,7 +3051,7 @@ o9_init_client_cache(void *client, char *cachepath, char *srvname, int size)
 		int i;
 		for(i = 0; i < 64; i++){
 			if(table->data_cache[i].ptr != nil)
-				table->data_cache[i].ptr = (char*)obj->shm_base + (intptr)table->data_cache[i].ptr;
+				table->data_cache[i].ptr = (char*)obj->shm_base + (uintptr)table->data_cache[i].ptr;
 		}
 	}
 

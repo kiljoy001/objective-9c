@@ -1,0 +1,128 @@
+#!/bin/rc
+
+rfork ne
+
+repo=/mnt/term/mnt/term/home/scott/Repo/objective-9c
+if(! ~ $#O9MUT_PLAN9_REPO 0)
+	repo=$O9MUT_PLAN9_REPO
+
+src=$O9MUT_SOURCE
+mut=$O9MUT_MUTANT
+tmpbase=/mnt/term/tmp
+probe=$tmpbase/o9tmp.$pid
+if(! mkdir $probe >[2]/dev/null){
+	tmpbase=/usr/$user/tmp
+	probe=$tmpbase/o9tmp.$pid
+	if(! mkdir $probe >[2]/dev/null){
+		tmpbase=/tmp
+		probe=$tmpbase/o9tmp.$pid
+		mkdir $probe >[2]/dev/null
+	}
+}
+rm -rf $probe >[2]/dev/null
+if(! ~ $#O9MUT_TMP 0)
+	tmpbase=$O9MUT_TMP
+scratch=$tmpbase/o9umgrid.$pid
+
+fn die {
+	echo o9um-grid-gate: $* >[1=2]
+	exit setup
+}
+
+if(~ $#src 0 || ~ $src '')
+	die missing O9MUT_SOURCE
+if(~ $#mut 0 || ~ $mut '')
+	die missing O9MUT_MUTANT
+if(! test -e $repo/mkfile)
+	die missing repo $repo
+if(! test -e $mut)
+	die missing mutant $mut
+
+mkdir $scratch >[2]/dev/null
+mnt=$scratch/ram
+mkdir $mnt >[2]/dev/null
+if(! ramfs -m $mnt)
+	die ramfs
+
+work=$mnt/repo
+mkdir $work || die mkdir work
+
+fn copydir {
+	if(test -d $repo/$1){
+		mkdir $work/$1 || exit copydir
+		dircp $repo/$1 $work/$1 || exit copydir
+	}
+}
+
+fn copyfile {
+	if(test -e $repo/$1)
+		cp $repo/$1 $work/$1 || exit copyfile
+}
+
+fn copy_o9c {
+	mkdir $work/o9c || exit copy_o9c
+	for(f in $repo/o9c/*){
+		name=`{basename $f}
+		if(~ $name test grammar.d){
+			skip=1
+		}
+		if not {
+			if(! test -d $f)
+				cp $f $work/o9c/$name || exit copy_o9c
+		}
+	}
+	mkdir $work/o9c/grammar.d || exit copy_o9c
+	dircp $repo/o9c/grammar.d $work/o9c/grammar.d || exit copy_o9c
+	mkdir $work/o9c/test || exit copy_o9c
+	for(f in $repo/o9c/test/*){
+		name=`{basename $f}
+		if(~ $name artifacts){
+			skip=1
+		}
+		if not {
+			if(test -d $f){
+				mkdir $work/o9c/test/$name || exit copy_o9c
+				dircp $f $work/o9c/test/$name || exit copy_o9c
+			}
+			if not
+				cp $f $work/o9c/test/$name || exit copy_o9c
+		}
+	}
+	mkdir $work/o9c/test/artifacts >[2]/dev/null
+	if(test -e $repo/o9c/test/artifacts/.gitignore)
+		cp $repo/o9c/test/artifacts/.gitignore $work/o9c/test/artifacts/.gitignore >[2]/dev/null
+}
+
+copy_o9c || die copy o9c
+copydir libtab || die copy libtab
+copydir stdlib || die copy stdlib
+copyfile mkfile || die copy mkfile
+copyfile o9.h || die copy o9.h
+copyfile o9_runtime.c || die copy o9_runtime.c
+copyfile o9_crypto.c || die copy o9_crypto.c
+copyfile o9_tab_discard.c || die copy o9_tab_discard.c
+copyfile o9_dispatch_$objtype.s || die copy o9_dispatch_$objtype.s
+copyfile monocypher.c || die copy monocypher.c
+copyfile monocypher.h || die copy monocypher.h
+
+cp $mut $work/$src || die apply mutant $mut $src
+mkdir $work/tmp || die mkdir tmp
+bind -c $work/tmp /tmp || die bind tmp
+cd $work || die cd work
+mk clean >/dev/null >[2=1]
+
+fail=0
+switch($src){
+case libtab/* o9_runtime.c o9_crypto.c o9_tab_discard.c
+	if(! mk crypto-test) fail=1
+	if(! mk tab-test) fail=1
+case *
+	if(! mk ast-test) fail=1
+	if(! mk run-test) fail=1
+	if(! mk function-object-contract-test) fail=1
+}
+
+unmount $mnt >[2]/dev/null
+if(~ $fail 0)
+	exit ''
+exit fail

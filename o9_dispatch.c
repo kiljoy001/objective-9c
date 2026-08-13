@@ -5,9 +5,11 @@
 /*
  * o9_dispatch.c -- C fallback for o9 asm dispatch.
  *
- * Only used when the asm stubs in o9_dispatch.s are unavailable
- * (e.g., cross-compiling for a non-amd64 target).
- * On amd64, o9_dispatch.s is linked instead for L1 performance.
+ * Only used when no o9_dispatch_<objtype>.s exists for the target
+ * (e.g., a newly ported platform before its asm stub is written).
+ * On amd64/386, o9_dispatch_amd64.s / o9_dispatch_386.s is linked
+ * instead for L1 performance. Add a new platform by writing its
+ * o9_dispatch_<objtype>.s; the mkfile picks it up via $objtype.
  *
  * The C versions are functionally identical:
  *   - o9_dispatch_data: hot hit returns ptr, cold miss calls cache_fill + retry

@@ -60,14 +60,14 @@
  * unit.  Flat #ifdef-only block — 6c's cpp rejects "#if defined(...)". */
 #ifndef _STDINT_PLAN9_H
 #define _STDINT_PLAN9_H
-typedef u8int uint8_t;
-typedef u16int uint16_t;
-typedef u32int uint32_t;
-typedef u64int uint64_t;
-typedef s8int int8_t;
-typedef s16int int16_t;
-typedef s32int int32_t;
-typedef s64int int64_t;
+typedef unsigned char uint8_t;
+typedef unsigned short uint16_t;
+typedef unsigned long uint32_t;
+typedef uvlong uint64_t;
+typedef signed char int8_t;
+typedef short int16_t;
+typedef long int32_t;
+typedef vlong int64_t;
 typedef ulong size_t;
 #endif
 #else

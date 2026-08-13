@@ -1,0 +1,65 @@
+import "o9mutlib.o9";
+import "stdlib/process.o9";
+import "stdlib/time.o9";
+
+main {
+    Process p = new Process();
+    Time tm = new Time();
+    O9Mut grid = new O9Mut();
+    string root = grid.defaultRoot();
+    string cmd;
+    string priority;
+    int64 nargs = p.argc();
+
+    if(nargs < 2) {
+        print("usage: o9mutctl [-r root] init|status|report|requeue-stale|drain-worker|manifest|enqueue ...\n");
+    } else {
+        int64 idx = 1;
+        if(nargs > 3 && cmp(p.arg(1), "-r") == 0) {
+            root = p.arg(2);
+            idx = 3;
+        }
+        cmd = p.arg(idx);
+        if(cmp(cmd, "init") == 0) {
+            if(grid.init(root)) {
+                print("initialized\t", root, "\n");
+            } else {
+                print("init failed\t", root, "\n");
+            }
+        } else if(cmp(cmd, "status") == 0) {
+            print(grid.status(root));
+        } else if(cmp(cmd, "report") == 0) {
+            print(grid.report(root));
+        } else if(cmp(cmd, "requeue-stale") == 0) {
+            int64 stale = 300;
+            if(nargs > idx + 1) {
+                stale = tm.parse(p.arg(idx + 1));
+            }
+            print(grid.requeueStale(root, stale));
+        } else if(cmp(cmd, "drain-worker") == 0) {
+            if(nargs <= idx + 1) {
+                print("usage: o9mutctl [-r root] drain-worker worker-id\n");
+            } else {
+                print(grid.drainWorker(root, p.arg(idx + 1)));
+            }
+        } else if(cmp(cmd, "manifest") == 0) {
+            if(nargs <= idx + 1) {
+                print("usage: o9mutctl [-r root] manifest manifest.tsv\n");
+            } else {
+                print(grid.enqueueManifest(root, p.arg(idx + 1)));
+            }
+        } else if(cmp(cmd, "enqueue") == 0) {
+            if(nargs <= idx + 5) {
+                print("usage: o9mutctl [-r root] enqueue task-id source mutant-path gate timeout-ms [priority]\n");
+            } else {
+                priority = "100";
+                if(nargs > idx + 6) {
+                    priority = p.arg(idx + 6);
+                }
+                print(grid.enqueue(root, p.arg(idx + 1), p.arg(idx + 2), p.arg(idx + 3), p.arg(idx + 4), p.arg(idx + 5), priority));
+            }
+        } else {
+            print("unknown command\t", cmd, "\n");
+        }
+    }
+}

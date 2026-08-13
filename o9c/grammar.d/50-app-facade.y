@@ -12,6 +12,15 @@ codegen(Node *root)
 
     print("/* Generated o9 Source */\n");
     print("#include <u.h>\n#include <libc.h>\n#include <thread.h>\n#include <fcall.h>\n#include <9p.h>\n#include <auth.h>\n#include <o9.h>\n\n");
+    print("#ifndef O9_HAVE_SRVRELEASE\n");
+    print("/* 9legacy lib9p lacks 9front's srvrelease/srvacquire. o9build defines */\n");
+    print("/* O9_HAVE_SRVRELEASE (via a <9p.h> probe) on 9front so the real API is */\n");
+    print("/* used and requests can interleave; 9legacy falls back to these no-ops. */\n");
+    print("static void o9_compat_srvrelease(Srv *s){ USED(s); }\n");
+    print("static void o9_compat_srvacquire(Srv *s){ USED(s); }\n");
+    print("#define srvrelease o9_compat_srvrelease\n");
+    print("#define srvacquire o9_compat_srvacquire\n");
+    print("#endif\n\n");
     emit_cdeps();
     print("#ifndef _O9_COMMON_\n#define _O9_COMMON_\n");
     print("#define o9_offsetof(s, m) (long)(&(((s*)0)->m))\n");

@@ -1,0 +1,51 @@
+#!/bin/rc
+
+rfork e
+
+killfactotum=0
+killworkers=0
+
+fn usage {
+	echo 'usage: grid/cleanup_mutation_node.rc [-f] [-w]' >[1=2]
+	echo '  -f also slays factotum; expect to re-authenticate' >[1=2]
+	echo '  -w also slays o9 mutation workers' >[1=2]
+	exit usage
+}
+
+while(! ~ $#* 0){
+	switch($1){
+	case -f
+		killfactotum=1
+	case -w
+		killworkers=1
+	case -h --help
+		usage
+	case *
+		usage
+	}
+	shift
+}
+
+echo 'cleanup: stale web/session helpers'
+slay webfs | rc >[2]/dev/null
+slay webcookies | rc >[2]/dev/null
+slay plumber | rc >[2]/dev/null
+
+echo 'cleanup: orphaned mutation gate children'
+slay o9_type_test | rc >[2]/dev/null
+slay o9c | rc >[2]/dev/null
+slay mk | rc >[2]/dev/null
+slay ramfs | rc >[2]/dev/null
+
+if(~ $killworkers 1){
+	echo 'cleanup: mutation workers'
+	slay o9mutq | rc >[2]/dev/null
+	slay o9mutw | rc >[2]/dev/null
+}
+
+if(~ $killfactotum 1){
+	echo 'cleanup: factotum'
+	slay factotum | rc >[2]/dev/null
+}
+
+echo 'cleanup: done'

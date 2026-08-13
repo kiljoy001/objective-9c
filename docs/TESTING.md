@@ -116,6 +116,48 @@ the files. List mutants:
 python3 tools/o9mutate.py list
 ```
 
+### Invariant Dashboard
+
+Known compiler semantic invariants are cataloged in
+`o9c/test/invariants.tab`. Each row names the invariant, the checked-in tests
+that exercise it, the semantic mutant(s) that break it, and the focused gate
+that must kill those mutants. Run the registry gate:
+
+```sh
+mk invariant-test
+```
+
+or directly:
+
+```sh
+python3 tools/o9invariant.py run --keep-going
+```
+
+The dashboard first checks that each listed test file exists and that the
+unmutated gate passes. It then applies each named semantic mutant with
+`tools/o9mutate.py`, runs the assigned gate, restores the source, and reports
+`killed`, `survived`, `timeout`, or `setup_error`. A semantic mutant must not
+survive. Equivalent semantic mutants are not accepted; if one is equivalent,
+replace the mutant with one that really violates the invariant. Timeouts are
+reported separately because the self-send guard mutant is killed by the
+deadlock it would otherwise reintroduce.
+
+Semantic mutation runs take a shared `/tmp/o9mutate.lock` while a source file
+is mutated and its gate is running. Do not bypass that lock with ad hoc
+rewrites; two concurrent mutation runs against one checkout can corrupt the
+working tree.
+
+Good invariant rows use focused gates such as `ast-test`,
+`function-object-contract-test`, or `run-test:e2e_widths,e2e_cast` instead of
+the full `mk verify` target. New compiler features should update
+`invariants.tab` and add at least one named semantic mutant before relying on
+sampled Universal Mutator campaigns.
+
+When running from the host with drawterm, wrap each gate command with
+`O9_INVARIANT_CMD_TEMPLATE` and set `O9_INVARIANT_STATUS_MARKER` so drawterm's
+exit status cannot hide a remote test failure. The template must contain
+`{gate}`, which is replaced by the registry gate command.
+
 Run one mutant against a focused 9front command:
 
 ```sh
@@ -185,7 +227,15 @@ The campaign wrapper has explicit source sets:
 python3 tools/o9um.py list-targets
 ```
 
-Run a sampled compiler campaign:
+Use sampled campaigns only for quick harness checks. The real audit uses
+`--exhaustive` and lets the run finish instead of stopping on the first live
+mutant. Per-mutant reports are streamed to `o9c/test/artifacts/o9um_<source>.tsv`
+as each mutant completes, so an interrupted run can be resumed with
+`--resume-report` for one source or `--resume-reports` for a batch target set.
+`--stop-on-survive` is for debugging one mutant locally; do not use it for a
+real campaign.
+
+Run a quick sampled compiler campaign:
 
 ```sh
 python3 tools/o9um.py batch --target-set compiler \
@@ -219,11 +269,102 @@ gate. Full transport gates such as `mk tabula-transport-test` are valuable
 verification tests, but they are too slow to use as the default mutation gate
 for every runtime mutant.
 
-Run the maintained-source campaign as a long/nightly pass:
+Run the maintained-source campaign as a real unattended pass:
 
 ```sh
 python3 tools/o9um.py batch --target-set all \
-  --clean --limit 5 --seed 9009 --synthetic-ramfs \
+  --clean --exhaustive --resume-reports --synthetic-ramfs \
+  --timeout 300 --status-marker O9UM \
+  --gate-rc 'fail=0
+if(! mk ast-test) fail=1
+if(! mk run-test) fail=1
+if(! mk crypto-test) fail=1
+if(! mk tab-test) fail=1
+if(! mk function-object-contract-test) fail=1
+if(~ $fail 0) echo O9UM pass
+if not echo O9UM fail' \
+  --cmd "PASS='\$Master001' timeout 270s drawterm -G -h dev9p.rentonsoftworks.coin -a Authomatic.rentonsoftworks.coin -u scott -c 'rc {script}'"
+```
+
+For a resumed unattended pass, rerun the same command without `--clean`.
+`o9um.py` skips mutant names already present in the streamed per-source report
+and appends new rows as each remaining mutant completes. For a single source,
+use `run --exhaustive --resume-report o9c/test/artifacts/o9um_o9c_o9_type.c.tsv`
+with the same gate arguments.
+
+After a batch campaign, classify all live rows into one triage report:
+
+```sh
+python3 tools/o9um.py triage-batch --target-set all \
+  --mutant-root /tmp/o9um-batch \
+  --output o9c/test/artifacts/o9um_batch_all.triage.tsv
+```
+
+### 3-node 9front grid campaign
+
+For long native 9front campaigns, generate Universal Mutator files on the host
+once, then let the o9 grid drain the queue through the shared 9P fileserver.
+The host-side generator writes worker-visible mutant paths and a small rc
+enqueue wrapper:
+
+```sh
+python3 tools/o9grid_um_manifest.py --target-set all \
+  --mutant-root o9c/test/artifacts/o9um-grid-mutants \
+  --manifest o9c/test/artifacts/o9um_grid_manifest.tsv \
+  --enqueue-rc o9c/test/artifacts/o9um_grid_enqueue.rc \
+  --timeout-ms 300000
+```
+
+From drawterm on `dev9p`, launch persistent workers across the three nodes:
+
+```rc
+cd /mnt/term/home/scott/Repo/objective-9c
+root=/n/babyFileServer.rentonsoftworks.coin/tmp/o9mut-campaign
+rc grid/run_3node_campaign.rc \
+  -r $root \
+  -n 3 \
+  -j 0 \
+  -E /mnt/term/home/scott/Repo/objective-9c/o9c/test/artifacts/o9um_grid_enqueue.rc \
+  dev9p authomatic babyFileServer.rentonsoftworks.coin
+```
+
+The launcher asks you to confirm that `rcpu` login has already been warmed for
+each node, then runs an auth probe before launching workers. After you have
+already done that preflight and want a non-interactive rerun, pass `-y`. Use
+`-A` only when intentionally skipping the rcpu probe.
+
+`-j 0` keeps workers alive until drained. Monitor from `dev9p`:
+
+```rc
+$root/bin/o9mutctl -r $root status
+ls $root/results | wc -l
+```
+
+To stop the campaign cleanly, request a drain for each worker; workers finish
+their current task and then exit:
+
+```rc
+for(n in dev9p authomatic babyFileServer.rentonsoftworks.coin)
+  for(i in 1 2 3)
+    $root/bin/o9mutctl -r $root drain-worker $n^-$i
+```
+
+The triage report has one row per survived or timed-out mutant. Exact ledger
+matches are `ledger_equivalent`; whitespace/comment-only changes are
+`lexical_equivalent` in triage and can be preclassified during the run with
+`--classify-whitespace-equivalent`; likely but unproven cases are only
+`equivalent_candidate`. Candidates still require review and an exact
+`o9c/test/mutation_equiv.tsv` entry before they stop counting as open work.
+
+After adding tests or exact equivalence entries, recheck only the actionable
+bucket instead of rerunning the whole campaign:
+
+```sh
+python3 tools/o9um.py recheck \
+  --triage o9c/test/artifacts/o9um_batch_all.triage.tsv \
+  --mutant-root /tmp/o9um-batch \
+  --class test_gap,timeout \
+  --skip-baseline --synthetic-ramfs \
   --timeout 300 --status-marker O9UM \
   --gate-rc 'fail=0
 if(! mk ast-test) fail=1
@@ -250,10 +391,11 @@ that file when the behavior is actually impossible under the gate, such as an
 allocator-failure branch with no fault injection or code under `#ifdef
 __GNUC__` when the gate is native 9front.
 
-The working project target is at least 90% on sampled campaigns and no known
-survivors for hand-picked semantic mutants. A survivor is not just a score
-problem; it is a missing executable invariant. Add the smallest regression
-test that kills it, then rerun the same mutant set.
+The working project target is zero live survivors in `mk invariant-test` and
+zero live survivors in the real maintained-source Universal Mutator campaign
+after exact equivalents are removed. Sampled campaigns are only harness checks.
+A survivor is not just a score problem; it is a missing executable invariant.
+Add the smallest regression test that kills it, then rerun the same mutant set.
 
 Do not mutate generated files such as `o9c/grammar.y`, `o9c/y.tab.c`, or temp
 generated C. Mutating generated output tests yacc/codegen noise, not the source

@@ -1,0 +1,153 @@
+#!/bin/rc
+
+rfork e
+
+repo=`{pwd}
+nodes=(dev9p authomatic babyFileServer.rentonsoftworks.coin)
+workers=3
+jobs=2
+tasks=18
+root=''
+try=''
+fail=0
+authcheck=1
+
+fn usage {
+	echo 'usage: grid/run_9worker_trial.rc [-A] [-r root] [-n workers-per-node] [-j jobs-per-worker] [-t task-count] [node ...]' >[1=2]
+	exit usage
+}
+
+while(! ~ $#* 0){
+	switch($1){
+	case -r
+		if(~ $#* 1) usage
+		root=$2
+		shift
+	case -n
+		if(~ $#* 1) usage
+		workers=$2
+		shift
+	case -j
+		if(~ $#* 1) usage
+		jobs=$2
+		shift
+	case -t
+		if(~ $#* 1) usage
+		tasks=$2
+		shift
+	case -A
+		authcheck=0
+	case -h --help
+		usage
+	case *
+		nodes=$*
+		*=''
+	}
+	shift
+}
+
+if(~ $root '')
+	root=/n/babyFileServer.rentonsoftworks.coin/tmp/o9mut-grid.$pid
+
+tmpbase=/tmp
+if(test -d /mnt/term/tmp)
+	tmpbase=/mnt/term/tmp
+if(! ~ $#O9MUT_TMP 0)
+	tmpbase=$O9MUT_TMP
+try=$tmpbase/o9mutgrid.launch.$pid
+src=$try/src
+
+fn buildtool {
+	name=$1
+	echo build $name
+	if(! ./o9c/o9c $src/$name.o9 >$try/$name.c){
+		echo $name': transpile failed' >[1=2]
+		fail=1
+	}
+	if(~ $fail 0 && ! 6c -FVw -I. -o $try/$name.6 $try/$name.c >$try/$name.err >[2=1]){
+		echo $name': compile failed' >[1=2]
+		cat $try/$name.err >[1=2]
+		fail=1
+	}
+	if(~ $fail 0 && grep -s 'warning:' $try/$name.err){
+		echo $name': warning treated as error' >[1=2]
+		cat $try/$name.err >[1=2]
+		fail=1
+	}
+	if(~ $fail 0 && ! 6l -o $try/$name $try/$name.6 libo9.a /$objtype/lib/libndb.a){
+		echo $name': link failed' >[1=2]
+		fail=1
+	}
+}
+
+echo repo $repo
+echo root $root
+echo nodes $nodes
+echo workers_per_node $workers
+echo jobs_per_worker $jobs
+echo tasks $tasks
+
+mkdir $try
+mkdir $src
+mkdir $src/stdlib
+cp grid/*.o9 $src
+
+stdsrc=stdlib
+if(! test -e $stdsrc/process.o9)
+	stdsrc=/sys/lib/o9/stdlib
+if(! test -e $stdsrc/process.o9)
+	stdsrc=$home/lib/o9/stdlib
+if(! test -e $stdsrc/process.o9){
+	echo 'missing stdlib/process.o9' >[1=2]
+	exit missing
+}
+cp $stdsrc/*.o9 $src/stdlib
+
+for(name in o9mutctl o9mutw)
+	buildtool $name
+
+if(! ~ $fail 0)
+	exit build
+
+echo init
+if(! $try/o9mutctl -r $root init)
+	exit init
+
+bindir=$root/bin
+mkdir $bindir
+cp $try/o9mutctl $try/o9mutw $bindir
+
+echo enqueue
+for(i in `{seq 1 $tasks})
+	$bindir/o9mutctl -r $root enqueue pass-$i sample sample /bin/echo 5000 100 >/dev/null
+
+if(~ $authcheck 1){
+	echo auth-check
+	for(node in $nodes){
+		authlog=$root/logs/auth.$node.out
+		echo rcpu-auth $node
+		if(! rcpu -h $node -c 'echo o9mut-auth-ok' >$authlog >[2=1]){
+			echo 'auth check failed for '^$node >[1=2]
+			cat $authlog >[1=2]
+			fail=1
+		}
+	}
+	if(! ~ $fail 0)
+		exit auth
+}
+
+echo launch
+remoteroot=/mnt/term^$root
+remotebindir=/mnt/term^$bindir
+for(node in $nodes){
+	for(w in `{seq 1 $workers}){
+		worker=$node^-$w
+		echo rcpu $node $worker
+		rcpu -h $node -c $remotebindir/o9mutw' -r '$remoteroot' -w '$worker' -n '$jobs </dev/null >$root/logs/launch.$worker.out >[2=1] &
+	}
+}
+
+echo launched
+echo 'monitor with:'
+echo '  '$bindir'/o9mutctl -r '$root' status'
+echo '  ls '$root'/results | wc -l'

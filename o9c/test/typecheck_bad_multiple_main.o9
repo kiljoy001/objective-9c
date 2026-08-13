@@ -1,0 +1,7 @@
+main {
+    print("one\n");
+}
+
+main {
+    print("two\n");
+}

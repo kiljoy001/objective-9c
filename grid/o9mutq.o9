@@ -1,0 +1,36 @@
+import "o9mutlib.o9";
+import "stdlib/process.o9";
+import "stdlib/time.o9";
+
+main {
+    Process p = new Process();
+    Time tm = new Time();
+    O9Mut grid = new O9Mut();
+    string root = grid.defaultRoot();
+    string worker = grid.defaultWorker();
+    int64 idleMs = 1000;
+    int64 maxPending = 512;
+    int64 nargs = p.argc();
+    int64 i = 1;
+
+    while(i < nargs) {
+        if(cmp(p.arg(i), "-r") == 0 && i + 1 < nargs) {
+            root = p.arg(i + 1);
+            i = i + 2;
+        } else if(cmp(p.arg(i), "-w") == 0 && i + 1 < nargs) {
+            worker = p.arg(i + 1);
+            i = i + 2;
+        } else if(cmp(p.arg(i), "-idle-ms") == 0 && i + 1 < nargs) {
+            idleMs = tm.parse(p.arg(i + 1));
+            i = i + 2;
+        } else if(cmp(p.arg(i), "-max-pending") == 0 && i + 1 < nargs) {
+            maxPending = tm.parse(p.arg(i + 1));
+            i = i + 2;
+        } else {
+            print("usage: o9mutq [-r root] [-w worker-id] [-idle-ms ms] [-max-pending n]\n");
+            i = nargs;
+        }
+    }
+
+    print(grid.runQueueWorker(root, worker, idleMs, maxPending));
+}

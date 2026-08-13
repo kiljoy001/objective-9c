@@ -55,7 +55,7 @@ o9c/grammar.y:	$GRAMMAR_PARTS
 	cat $GRAMMAR_PARTS > o9c/grammar.y
 
 o9c/y.tab.h o9c/y.tab.c: o9c/grammar.y o9c/o9_type.h
-	cd o9c; yacc -d grammar.y >/tmp/o9_yacc.$pid >[2=1]; st=$status; cat /tmp/o9_yacc.$pid; if(! ~ $st '') exit $st; if(grep -s 'conflicts:' /tmp/o9_yacc.$pid) exit conflicts; rm -f /tmp/o9_yacc.$pid
+	cd o9c; yacc -d grammar.y >o9_yacc.$pid >[2=1]; st=$status; cat o9_yacc.$pid; if(! ~ $st '') exit $st; if(grep -s 'conflicts:' o9_yacc.$pid) exit conflicts; rm -f o9_yacc.$pid
 
 o9c/y.tab.$O:	o9c/y.tab.c
 	cd o9c; $CC -o y.tab.$O y.tab.c
@@ -67,7 +67,7 @@ o9c:V:	$CFILES
 o9c/o9_type.$O:	o9c/o9_type.c o9c/o9_type.h
 	cd o9c; $CC -o o9_type.$O o9_type.c
 
-ast-test:V:	o9c
+ast-test:V:	o9c type-test
 	rc ./o9c/test/production_ast.rc
 
 run-test:V:	o9c libo9.a
@@ -127,6 +127,17 @@ issue-test:V:	o9c libo9.a
 function-object-contract-test:V:	o9c libo9.a
 	rc ./o9c/test/run_function_object_contract.rc
 
+type-test:V:	o9c/o9_type.$O
+	$CC -I. -Io9c o9c/test/o9_type_test.c
+	$LD -o o9c/test/o9_type_test o9_type_test.$O o9c/o9_type.$O
+	o9c/test/o9_type_test
+
+invariant-test:V:
+	python3 tools/o9invariant.py run --keep-going
+
+o9mutgrid-test:V:	o9c libo9.a
+	rc ./o9c/test/run_o9mutgrid.rc
+
 crap-test:V:	libo9.a
 	rc ./o9c/test/run_crap.rc
 
@@ -180,8 +191,12 @@ LIBTAB_OBJ=\
 	libtab_tab_serialize.$O\
 	libtab_tab_persist.$O\
 
-o9_dispatch.$O:	o9_dispatch.s
-	$AS o9_dispatch.s
+# Arch switch: dispatch offsets are pointer-width dependent, so each
+# supported platform ships its own o9_dispatch_$objtype.s. Add a new
+# platform by dropping o9_dispatch_<objtype>.s next to these; no other
+# wiring is needed ($AS/$objtype come from /$objtype/mkfile).
+o9_dispatch.$O:	o9_dispatch_$objtype.s
+	$AS -o o9_dispatch.$O o9_dispatch_$objtype.s
 
 o9_runtime.$O:	o9_runtime.c o9.h
 	$CC -I$LIBTABDIR o9_runtime.c
@@ -268,7 +283,7 @@ install:V: o9c libo9.a
 		chmod +x $home/bin/rc/o9proj
 	}
 	if(test -e /rc/bin/o9proj) chmod +x /rc/bin/o9proj
-	if(! cp o9_dispatch.s /sys/src/cmd/o9_dispatch.s) echo 'warning: could not install /sys/src/cmd/o9_dispatch.s' >[1=2]
+	if(! cp o9_dispatch_$objtype.s /sys/src/cmd/o9_dispatch.s) echo 'warning: could not install /sys/src/cmd/o9_dispatch.s' >[1=2]
 	if(! cp o9_runtime.c /sys/src/cmd/o9_runtime.c) echo 'warning: could not install /sys/src/cmd/o9_runtime.c' >[1=2]
 	if(! cp o9_tab_discard.c /sys/src/cmd/o9_tab_discard.c) echo 'warning: could not install /sys/src/cmd/o9_tab_discard.c' >[1=2]
 	if(! cp o9.h /sys/include/o9.h){

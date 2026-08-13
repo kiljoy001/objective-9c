@@ -24,10 +24,22 @@ class BoolBox {
     }
 }
 
+class BoolDefaults {
+    prop bool flag;
+
+    method bool value() {
+        return flag;
+    }
+}
+
 main {
     BoolBox t = new BoolBox(true, false);
+    BoolDefaults d = new BoolDefaults();
+    bool local;
     print("both ", t.both(), "\n");
     print("either ", t.either(), "\n");
     print("flipped ", t.flipped(), "\n");
     print("compare ", t.compare(3, 9), "\n");
+    print("default object ", d.value(), "\n");
+    print("default local ", local, "\n");
 }

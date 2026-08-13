@@ -99,7 +99,30 @@ if(! $o9compiler $src >$cfile)
 depincs=`{awk '/^\/\* o9: include / { print "-I" $4 }' $cfile}
 deparchs=`{awk '/^\/\* o9: archive / { print $4 }' $cfile}
 
-if(! $cc -FVw -I$o9include $depincs -o $ofile $cfile)
+# Detect whether this platform's <9p.h> declares srvrelease/srvacquire
+# (9front: yes; 9legacy: no). The generated facade wraps its compat shim in
+# #ifndef O9_HAVE_SRVRELEASE: defining this when the real API is visible makes
+# 9front use real srvrelease/srvacquire (requests interleave) and 9legacy fall
+# back to the no-op shim. Probe the real compiler + headers through the exact
+# include chain the facade uses, so it is correct regardless of which header
+# declares srvrelease.
+probestem=/tmp/o9_srvprobe.$pid
+probe=$probestem.c
+{
+	echo '#include <u.h>'
+	echo '#include <libc.h>'
+	echo '#include <thread.h>'
+	echo '#include <fcall.h>'
+	echo '#include <9p.h>'
+	echo 'void (*o9_probe_srvrelease)(Srv*) = srvrelease;'
+	echo 'void (*o9_probe_srvacquire)(Srv*) = srvacquire;'
+} > $probe
+srvflags=()
+if($cc -FV -I$o9include -c $probe -o $probestem.$O >[2]/dev/null)
+	srvflags=(-DO9_HAVE_SRVRELEASE)
+rm $probe $probestem.$O >[2]/dev/null
+
+if(! $cc -FV -I$o9include $depincs $srvflags -o $ofile $cfile)
 	exit compile
 if(! $ld -o $out $ofile $o9lib /$objtype/lib/libndb.a $deparchs)
 	exit link
