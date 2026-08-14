@@ -3,7 +3,7 @@
 rfork e
 
 repo=`{pwd}
-nodes=(dev9p authomatic babyFileServer.rentonsoftworks.coin)
+nodes=(dev9p.rentonsoftworks.coin Authomatic.rentonsoftworks.coin babyFileServer.rentonsoftworks.coin)
 workers=3
 jobs=2
 tasks=18
@@ -11,9 +11,11 @@ root=''
 try=''
 fail=0
 authcheck=1
+launchmode=rcpu
+agentprefix=''
 
 fn usage {
-	echo 'usage: grid/run_9worker_trial.rc [-A] [-r root] [-n workers-per-node] [-j jobs-per-worker] [-t task-count] [node ...]' >[1=2]
+	echo 'usage: grid/run_9worker_trial.rc [-A] [-L rcpu|agent] [-M agent-path-prefix] [-r root] [-n workers-per-node] [-j jobs-per-worker] [-t task-count] [node ...]' >[1=2]
 	exit usage
 }
 
@@ -37,6 +39,14 @@ while(! ~ $#* 0){
 		shift
 	case -A
 		authcheck=0
+	case -L
+		if(~ $#* 1) usage
+		launchmode=$2
+		shift
+	case -M
+		if(~ $#* 1) usage
+		agentprefix=$2
+		shift
 	case -h --help
 		usage
 	case *
@@ -86,6 +96,12 @@ echo nodes $nodes
 echo workers_per_node $workers
 echo jobs_per_worker $jobs
 echo tasks $tasks
+echo launch_mode $launchmode
+if(! ~ $agentprefix '')
+	echo agent_path_prefix $agentprefix
+
+if(! ~ $launchmode rcpu agent)
+	usage
 
 mkdir $try
 mkdir $src
@@ -116,11 +132,15 @@ if(! $try/o9mutctl -r $root init)
 bindir=$root/bin
 mkdir $bindir
 cp $try/o9mutctl $try/o9mutw $bindir
+if(~ $launchmode agent)
+	cp grid/o9mutagent.rc $bindir
 
 echo enqueue
 for(i in `{seq 1 $tasks})
 	$bindir/o9mutctl -r $root enqueue pass-$i sample sample /bin/echo 5000 100 >/dev/null
 
+if(~ $launchmode agent)
+	authcheck=0
 if(~ $authcheck 1){
 	echo auth-check
 	for(node in $nodes){
@@ -139,15 +159,67 @@ if(~ $authcheck 1){
 echo launch
 remoteroot=/mnt/term^$root
 remotebindir=/mnt/term^$bindir
-for(node in $nodes){
-	for(w in `{seq 1 $workers}){
-		worker=$node^-$w
-		echo rcpu $node $worker
-		rcpu -h $node -c $remotebindir/o9mutw' -r '$remoteroot' -w '$worker' -n '$jobs </dev/null >$root/logs/launch.$worker.out >[2=1] &
+remoterepo=/mnt/term^$repo
+agentroot=$root
+agentbindir=$bindir
+agentrepo=$repo
+if(! ~ $agentprefix ''){
+	agentroot=$agentprefix^$root
+	agentbindir=$agentprefix^$bindir
+	agentrepo=$agentprefix^$repo
+}
+
+fn agent_dirs {
+	node=$1
+	mkdir $root/agents >[2]/dev/null
+	mkdir $root/agents/$node >[2]/dev/null
+	mkdir $root/agents/$node/pending >[2]/dev/null
+	mkdir $root/agents/$node/claimed >[2]/dev/null
+	mkdir $root/agents/$node/done >[2]/dev/null
+	mkdir $root/agents/$node/failed >[2]/dev/null
+}
+
+fn agent_worker {
+	node=$1
+	worker=$2
+	log=$remoteroot/logs/launch.$worker.out
+	if(~ $launchmode agent)
+		log=$agentroot/logs/launch.$worker.out
+	id=$worker^'.'^$pid
+	agent_dirs $node
+	cmdpath=$root/agents/$node/pending/$id.tab
+	echo 'op	root	bindir	repo	worker	jobs	idle_ms	max_pending	interval_ms	stale_sec	cycles	log' >$cmdpath
+	echo 'start-worker	'$agentroot'	'$agentbindir'	'$agentrepo'	'$worker'	'$jobs'	5000	-	-	-	-	'$log >>$cmdpath
+	echo agent $node $worker
+}
+
+if(~ $launchmode rcpu){
+	for(node in $nodes){
+		for(w in `{seq 1 $workers}){
+			worker=$node^-$w
+			echo rcpu $node $worker
+			rcpu -h $node -c $remotebindir/o9mutw' -r '$remoteroot' -w '$worker' -n '$jobs </dev/null >$root/logs/launch.$worker.out >[2=1] &
+		}
+	}
+}
+if(~ $launchmode agent){
+	for(node in $nodes){
+		for(w in `{seq 1 $workers}){
+			worker=$node^-$w
+			agent_worker $node $worker
+		}
 	}
 }
 
 echo launched
+if(~ $launchmode agent){
+	echo 'agent launch mode: start one agent per node if it is not already running:'
+	for(node in $nodes)
+		echo '  '$agentbindir'/o9mutagent.rc -r '$agentroot' -n '$node
+	echo 'agent command status:'
+	echo '  ls '$root'/agents/*/done'
+	echo '  ls '$root'/agents/*/failed'
+}
 echo 'monitor with:'
 echo '  '$bindir'/o9mutctl -r '$root' status'
 echo '  ls '$root'/results | wc -l'

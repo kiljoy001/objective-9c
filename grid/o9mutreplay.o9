@@ -29,7 +29,7 @@ function O9MutReplayRun(string root, string ftype, string forigin, string afters
         int fd, rn, j, k, m, nlines, nev, ecap, tot, e, e2, first, ofd;
         int hasexit, hasdone, hasrequeue, hasdrain, hasstop, hasclaim;
         vlong aft, bft;
-        char *buf, *s, *line, *st;
+        char *buf, *s, *line, *raw, *jfields[6], *jdetail;
         long *ev_seq; vlong *ev_ts;
         char *ev_origin, *ev_type, *ev_kind, *ev_id, *ev_detail;
         char **ev_line;
@@ -37,7 +37,8 @@ function O9MutReplayRun(string root, string ftype, string forigin, string afters
         char fres[64], fworker[64], chunk[128], src[128], mut[1024];
         vlong elapsed; long fattempt;
         long killed, survived, timeout, equivalent, infra_fail, setup_error;
-        Dir *rdirs; int rdn, ri, rfd, rrn, rj; char rpath[1024], rbuf[8192], *rrow, *rfields[16], *rs, rsrc[128], rres[64];
+        Dir *rdirs; int rdn, ri, rfd; char rpath[1024], rsrc[256], rres[64];
+        char *routs[2]; const char *rnames[2]; int rsizes[2];
         char *srcs; long sk[256], ss[256], stt[256]; int nsrc, si;
 
         /* bring the string/int64 params into C locals once */
@@ -92,39 +93,21 @@ function O9MutReplayRun(string root, string ftype, string forigin, string afters
                 int eol = (*s == '\n');
                 *s = '\0';
                 if(line[0] != '\0'){
-                    int f = 0, l;
-                    char *q;
-                    st = line;
+                    raw = strdup(line);
                     ev_seq[nev] = 0; ev_ts[nev] = 0;
                     ev_origin[nev*64] = '\0'; ev_type[nev*40] = '\0';
                     ev_kind[nev*40] = '\0'; ev_id[nev*128] = '\0';
                     ev_detail[nev*1024] = '\0';
-                    for(q = line; *q; q++){
-                        if(*q == '\t'){
-                            l = (int)(q - st);
-                            switch(f){
-                            case 0: ev_seq[nev] = strtol(st, nil, 10); break;
-                            case 1: ev_ts[nev] = strtoll(st, nil, 10); break;
-                            case 2: if(l>63)l=63; memmove(ev_origin+nev*64, st, l); ev_origin[nev*64+l]='\0'; break;
-                            case 3: if(l>39)l=39; memmove(ev_type+nev*40, st, l); ev_type[nev*40+l]='\0'; break;
-                            case 4: if(l>39)l=39; memmove(ev_kind+nev*40, st, l); ev_kind[nev*40+l]='\0'; break;
-                            case 5: if(l>127)l=127; memmove(ev_id+nev*128, st, l); ev_id[nev*128+l]='\0'; break;
-                            case 6: if(l>1023)l=1023; memmove(ev_detail+nev*1024, st, l); ev_detail[nev*1024+l]='\0'; break;
-                            }
-                            f++; st = q + 1;
-                        }
-                    }
-                    l = (int)(q - st);
-                    switch(f){
-                    case 0: ev_seq[nev] = strtol(st, nil, 10); break;
-                    case 1: ev_ts[nev] = strtoll(st, nil, 10); break;
-                    case 2: if(l>63)l=63; memmove(ev_origin+nev*64, st, l); ev_origin[nev*64+l]='\0'; break;
-                    case 3: if(l>39)l=39; memmove(ev_type+nev*40, st, l); ev_type[nev*40+l]='\0'; break;
-                    case 4: if(l>39)l=39; memmove(ev_kind+nev*40, st, l); ev_kind[nev*40+l]='\0'; break;
-                    case 5: if(l>127)l=127; memmove(ev_id+nev*128, st, l); ev_id[nev*128+l]='\0'; break;
-                    case 6: if(l>1023)l=1023; memmove(ev_detail+nev*1024, st, l); ev_detail[nev*1024+l]='\0'; break;
-                    }
-                    ev_line[nev] = line;
+                    jdetail = "";
+                    o9_journal_split(line, jfields, 6, &jdetail);
+                    ev_seq[nev] = strtol(jfields[0], nil, 10);
+                    ev_ts[nev] = strtoll(jfields[1], nil, 10);
+                    snprint(ev_origin + nev*64, 64, "%s", jfields[2]);
+                    snprint(ev_type + nev*40, 40, "%s", jfields[3]);
+                    snprint(ev_kind + nev*40, 40, "%s", jfields[4]);
+                    snprint(ev_id + nev*128, 128, "%s", jfields[5]);
+                    snprint(ev_detail + nev*1024, 1024, "%s", jdetail);
+                    ev_line[nev] = raw != nil ? raw : line;
                     nev++;
                 }
                 if(!eol) break;
@@ -279,7 +262,7 @@ function O9MutReplayRun(string root, string ftype, string forigin, string afters
         } else if(summary){
             killed = survived = timeout = equivalent = infra_fail = setup_error = 0;
             nsrc = 0;
-            srcs = malloc(128 * 256);
+            srcs = malloc(256 * 256);
             for(si = 0; si < 256; si++){ sk[si] = ss[si] = stt[si] = 0; }
             print("summary\n");
             snprint(rpath, sizeof rpath, "%s/results", rt);
@@ -287,35 +270,23 @@ function O9MutReplayRun(string root, string ftype, string forigin, string afters
             if(rfd < 0){
                 print("  (no results dir)\n");
             } else {
+                rnames[0] = "result"; routs[0] = rres; rsizes[0] = sizeof rres;
+                rnames[1] = "source"; routs[1] = rsrc; rsizes[1] = sizeof rsrc;
                 rdirs = nil; rdn = dirreadall(rfd, &rdirs); close(rfd);
                 for(ri = 0; ri < rdn; ri++){
-                    if(strlen(rdirs[ri].name) <= 4) continue;
+                    if((rdirs[ri].mode & DMDIR) != 0 || !o9_has_suffix(rdirs[ri].name, ".tab")) continue;
                     snprint(rpath, sizeof rpath, "%s/results/%s", rt, rdirs[ri].name);
-                    rfd = open(rpath, OREAD);
-                    if(rfd < 0) continue;
-                    rrn = read(rfd, rbuf, sizeof rbuf - 1); close(rfd);
-                    if(rrn < 0) rrn = 0; rbuf[rrn] = '\0';
-                    rrow = strchr(rbuf, '\n');
-                    if(rrow == nil) continue;
-                    rrow++;
-                    for(rj = 0; rj < 16; rj++) rfields[rj] = "";
-                    rfields[0] = rrow; rj = 1;
-                    for(rs = rrow; *rs && rj < 16; rs++){
-                        if(*rs == '\t'){ *rs = '\0'; rfields[rj++] = rs + 1; }
-                        else if(*rs == '\n' || *rs == '\r'){ *rs = '\0'; break; }
-                    }
-                    rres[0] = '\0';
-                    if(rj > 4) snprint(rres, sizeof rres, "%s", rfields[4]);
+                    rres[0] = rsrc[0] = '\0';
+                    o9_tsv_get_cols(rpath, rnames, routs, rsizes, 2);
                     if(strcmp(rres,"killed")==0) killed++;
                     else if(strcmp(rres,"survived")==0) survived++;
                     else if(strcmp(rres,"timeout")==0) timeout++;
                     else if(strcmp(rres,"equivalent")==0) equivalent++;
                     else if(strcmp(rres,"infra_fail")==0) infra_fail++;
                     else if(strcmp(rres,"setup_error")==0) setup_error++;
-                    if(bysource && rj > 2){
-                        snprint(rsrc, sizeof rsrc, "%s", rfields[2]);
-                        for(si = 0; si < nsrc; si++) if(strcmp(srcs + si*128, rsrc) == 0) break;
-                        if(si == nsrc && nsrc < 256){ snprint(srcs + nsrc*128, 128, "%s", rsrc); nsrc++; }
+                    if(bysource && rsrc[0] != '\0'){
+                        for(si = 0; si < nsrc; si++) if(strcmp(srcs + si*256, rsrc) == 0) break;
+                        if(si == nsrc && nsrc < 256){ snprint(srcs + nsrc*256, 256, "%s", rsrc); nsrc++; }
                         if(si < 256){
                             if(strcmp(rres,"killed")==0) sk[si]++;
                             else if(strcmp(rres,"survived")==0) ss[si]++;
@@ -333,12 +304,12 @@ function O9MutReplayRun(string root, string ftype, string forigin, string afters
                         if(fin > 0){
                             double score = (double)sk[si] / (double)fin;
                             print("    %s\tkilled=%ld\tsurvived=%ld\ttimeout=%ld\tscore=%g\n",
-                                  srcs + si*128, sk[si], ss[si], stt[si], score);
+                                  srcs + si*256, sk[si], ss[si], stt[si], score);
                         }
                     }
                     for(si = 0; si < nsrc; si++){
                         if(sk[si] + ss[si] == 0)
-                            print("    zero-finished\t%s\n", srcs + si*128);
+                            print("    zero-finished\t%s\n", srcs + si*256);
                     }
                 }
             }

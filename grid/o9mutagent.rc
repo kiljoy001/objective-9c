@@ -1,0 +1,158 @@
+#!/bin/rc
+
+rfork e
+
+root=''
+node=''
+pollsec=1
+once=0
+
+fn usage {
+	echo 'usage: o9mutagent.rc -r root [-n node-name] [-poll-sec seconds] [-once]' >[1=2]
+	exit usage
+}
+
+while(! ~ $#* 0){
+	switch($1){
+	case -r
+		if(~ $#* 1) usage
+		root=$2
+		shift
+	case -n
+		if(~ $#* 1) usage
+		node=$2
+		shift
+	case -poll-sec
+		if(~ $#* 1) usage
+		pollsec=$2
+		shift
+	case -once
+		once=1
+	case -h --help
+		usage
+	case *
+		usage
+	}
+	shift
+}
+
+if(~ $root '')
+	usage
+if(~ $node ''){
+	if(test -e /dev/sysname)
+		node=`{cat /dev/sysname}
+	if(~ $node '')
+		node=unknown
+}
+
+agentdir=$root/agents/$node
+
+fn ensure_agent_dirs {
+	mkdir $root/agents >[2]/dev/null
+	mkdir $agentdir >[2]/dev/null
+	mkdir $agentdir/pending >[2]/dev/null
+	mkdir $agentdir/claimed >[2]/dev/null
+	mkdir $agentdir/done >[2]/dev/null
+	mkdir $agentdir/failed >[2]/dev/null
+}
+
+fn write_status {
+	out=$1
+	id=$2
+	op=$3
+	statusv=$4
+	logv=$5
+	pidv=$6
+	echo 'id	op	status	pid	log' >$out
+	echo $"id'	'$"op'	'$"statusv'	'$"pidv'	'$"logv >>$out
+}
+
+fn run_command {
+	cmdfile=$1
+	id=$2
+	donefile=$agentdir/done/$id.tab
+	failfile=$agentdir/failed/$id.tab
+	vals=`{sed -n '2p' $cmdfile}
+	if(~ $#vals 0){
+		write_status $failfile $id malformed failed - -
+	}
+	if(! ~ $#vals 0 && ! ~ $#vals 12){
+		write_status $failfile $id malformed failed - -
+	}
+	if(~ $#vals 12){
+
+		op=$vals(1)
+		cmdroot=$vals(2)
+		bindir=$vals(3)
+		repo=$vals(4)
+		worker=$vals(5)
+		jobs=$vals(6)
+		idle=$vals(7)
+		maxpending=$vals(8)
+		interval=$vals(9)
+		stale=$vals(10)
+		cycles=$vals(11)
+		log=$vals(12)
+
+		switch($op){
+		case start-worker
+			if(~ $idle -)
+				idle=5000
+			if(~ $jobs -)
+				jobs=0
+			if(~ $repo -)
+				$bindir/o9mutw -r $cmdroot -w $worker -n $jobs -idle-ms $idle >$log >[2=1] &
+			if(! ~ $repo -)
+				O9MUT_PLAN9_REPO=$repo $bindir/o9mutw -r $cmdroot -w $worker -n $jobs -idle-ms $idle >$log >[2=1] &
+			write_status $donefile $id $op accepted $log $apid
+		case start-queue
+			if(~ $idle -)
+				idle=1000
+			if(~ $maxpending -)
+				maxpending=512
+			$bindir/o9mutq -r $cmdroot -w $worker -idle-ms $idle -max-pending $maxpending >$log >[2=1] &
+			write_status $donefile $id $op accepted $log $apid
+		case start-daemon
+			if(~ $interval -)
+				interval=30000
+			if(~ $stale -)
+				stale=300
+			if(~ $cycles -)
+				cycles=0
+			if(~ $repo -)
+				$bindir/o9mutd -r $cmdroot -cycles $cycles -interval-ms $interval -stale-sec $stale >$log >[2=1] &
+			if(! ~ $repo -)
+				O9MUT_PLAN9_REPO=$repo $bindir/o9mutd -r $cmdroot -cycles $cycles -interval-ms $interval -stale-sec $stale >$log >[2=1] &
+			write_status $donefile $id $op accepted $log $apid
+		case ping
+			write_status $donefile $id $op ok - -
+		case *
+			write_status $failfile $id $op failed - -
+		}
+	}
+}
+
+fn claim_command {
+	file=$1
+	id=`{echo $file | sed 's!.*/!!; s!\.tab$!!'}
+	claimdir=$agentdir/claimed/$id
+	if(! mkdir $claimdir >[2]/dev/null)
+		return
+	cp $file $claimdir/command.tab
+	rm -f $file
+	run_command $claimdir/command.tab $id >$claimdir/agent.out >[2=1]
+}
+
+ensure_agent_dirs
+echo 'o9mutagent node='$node' root='$root
+
+while(~ 1 1){
+	ensure_agent_dirs
+	for(file in $agentdir/pending/*.tab){
+		if(test -e $file)
+			claim_command $file
+	}
+	if(~ $once 1)
+		exit ''
+	sleep $pollsec
+}

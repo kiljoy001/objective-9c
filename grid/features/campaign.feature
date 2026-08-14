@@ -3,20 +3,26 @@ Feature: Multi-node campaign launch and unattended completion
   run_3node_campaign.rc is the operator entry point for a long native 9front
   campaign. It builds the grid tools for the local objtype, inits the shared
   root, enqueues work (optionally via an external enqueue script), auth-probes
-  each node, then launches one queue worker (o9mutq) per node and N task
-  workers (o9mutw) per node over rcpu. New in this pass: it can also launch a
-  recovery daemon (o9mutd) and optionally block until the grid drains, so a
-  campaign can run start-to-finish unattended.
+  each node in rcpu mode, then launches one queue worker (o9mutq) per node and
+  N task workers (o9mutw) per node. Launches can go over rcpu or through
+  resident node agents that consume inert tabula command files. New in this
+  pass: it can also launch a recovery daemon (o9mutd) and optionally block
+  until the grid drains, so a campaign can run start-to-finish unattended.
 
-  Nodes default to: dev9p authomatic babyFileServer.rentonsoftworks.coin
+  Nodes default to: dev9p.rentonsoftworks.coin Authomatic.rentonsoftworks.coin babyFileServer.rentonsoftworks.coin
 
   Usage:
-    grid/run_3node_campaign.rc [-A] [-y] [-W] [-D] [-r root]
+    grid/run_3node_campaign.rc [-A] [-y] [-W] [-D] [-L rcpu|agent] [-M agent-path-prefix] [-r root]
       [-n workers-per-node] [-j jobs-per-worker] [-E enqueue.rc] [node ...]
       -j 0 means persistent workers; drain them with o9mutctl drain-worker
       -A skips rcpu auth probes; -y skips interactive login confirmation
       -W wait for the grid to drain after launching (unattended)
       -D launch one o9mutd recovery daemon on the first node
+      -L agent queues tabula launch commands for resident node agents
+      -M prefixes paths inside agent commands, e.g. /mnt/term for rcpu bootstrap
+
+  Recommended high-throughput native mode:
+    grid/run_3node_campaign.rc -L agent -M /mnt/term -D -W -y -j 0 -n 3 -E enqueue.rc
 
   Background:
     Given a repo checkout reachable from every node at the same 9P path
@@ -74,6 +80,19 @@ Feature: Multi-node campaign launch and unattended completion
     When the campaign is launched with -A
     Then no rcpu -h <node> -c 'echo o9mut-auth-ok' probes are run
 
+  @new @unattended
+  Scenario: Agent launch mode skips rcpu auth and uses resident agents
+    When the campaign is launched with -L agent
+    Then no rcpu auth probes are run
+    And the preflight asks for one o9mutagent.rc process per node
+    And launch commands are queued as tabula files
+
+  @new @unattended
+  Scenario: Agent launch mode can target rcpu-mounted controller paths
+    When the campaign is launched with -L agent -M /mnt/term
+    Then each queued command uses "/mnt/term" before root, bindir, repo, and log paths
+    And agents started through rcpu can consume the commands from their remote namespace
+
   @existing
   Scenario: A failed auth probe aborts the campaign before launching workers
     Given a node whose rcpu probe returns non-zero
@@ -89,11 +108,23 @@ Feature: Multi-node campaign launch and unattended completion
     Then 3 rcpu o9mutq processes are started, one per node
     And each o9mutq uses a worker id of <node>-queue
 
+  @new @unattended
+  Scenario: Agent mode queues one start-queue command per node
+    When the campaign launches with -L agent across 3 nodes
+    Then 3 tabula commands with op=start-queue are written under "agents/<node>/pending/"
+    And each command uses a worker id of <node>-queue
+
   @existing
   Scenario: N task workers are launched per node
     When the campaign launches with -n 3 across 3 nodes
     Then 9 rcpu o9mutw processes are started
     And each uses a worker id of <node>-<i>
+
+  @new @unattended
+  Scenario: Agent mode queues N start-worker commands per node
+    When the campaign launches with -L agent -n 3 across 3 nodes
+    Then 9 tabula commands with op=start-worker are written under "agents/<node>/pending/"
+    And each command carries the node-visible root, bindir, repo, log path, worker id, and job limit
 
   @existing
   Scenario: Persistent workers (-j 0) run until drained
@@ -121,6 +152,12 @@ Feature: Multi-node campaign launch and unattended completion
     Then one o9mutd is started via rcpu on the first node
     And the daemon runs with cycles=0 so it loops requeue-stale + report until killed
     And the daemon is logged under root/logs/
+
+  @new @unattended
+  Scenario: -D with agent mode queues one daemon command on the first node
+    When the campaign is launched with -L agent -D
+    Then one tabula command with op=start-daemon is written for the first node
+    And the command carries cycles=0, interval-ms=30000, stale-sec=300, and root/logs/daemon.out
 
   @new @unattended
   Scenario: Omitting -D launches no daemon; stale recovery is manual

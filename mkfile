@@ -144,6 +144,9 @@ o9mutjournal-test:V:	o9c libo9.a
 o9mutreplay-test:V:	o9c libo9.a
 	rc ./o9c/test/run_o9mutreplay.rc
 
+o9mutagent-test:V:
+	rc ./o9c/test/run_o9mutagent.rc
+
 crap-test:V:	libo9.a
 	rc ./o9c/test/run_crap.rc
 

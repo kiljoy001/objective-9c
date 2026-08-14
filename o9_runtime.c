@@ -301,6 +301,410 @@ o9_kv_int(const char *path, const char *key, long def)
 }
 
 int
+o9_has_suffix(const char *name, const char *suffix)
+{
+	int n, s;
+
+	if(name == nil || suffix == nil)
+		return 0;
+	n = strlen(name);
+	s = strlen(suffix);
+	if(n < s)
+		return 0;
+	return strcmp(name + n - s, suffix) == 0;
+}
+
+long
+o9_count_dir(const char *path, int dirs_only, const char *suffix)
+{
+	Dir *dirs;
+	int fd, n, i;
+	long count;
+
+	if(path == nil)
+		return 0;
+	fd = open(path, OREAD);
+	if(fd < 0)
+		return 0;
+	dirs = nil;
+	n = dirreadall(fd, &dirs);
+	close(fd);
+	count = 0;
+	for(i = 0; i < n; i++){
+		if(dirs_only && (dirs[i].mode & DMDIR) == 0)
+			continue;
+		if(!dirs_only && (dirs[i].mode & DMDIR) != 0)
+			continue;
+		if(suffix != nil && suffix[0] != '\0' && !o9_has_suffix(dirs[i].name, suffix))
+			continue;
+		count++;
+	}
+	free(dirs);
+	return count;
+}
+
+char*
+o9_read_file_c(const char *path, vlong *outlen, long max)
+{
+	Dir *st;
+	char *buf;
+	vlong len, off;
+	int fd, want, n;
+
+	if(outlen != nil)
+		*outlen = 0;
+	if(path == nil || path[0] == '\0')
+		return nil;
+	st = dirstat(path);
+	if(st == nil)
+		return nil;
+	len = st->length;
+	free(st);
+	if(max > 0 && len > max)
+		len = max;
+	buf = malloc(len + 1);
+	if(buf == nil)
+		return nil;
+	fd = open(path, OREAD);
+	if(fd < 0){
+		free(buf);
+		return nil;
+	}
+	off = 0;
+	while(off < len){
+		want = (int)(len - off);
+		if(want > 8192)
+			want = 8192;
+		n = read(fd, buf + off, want);
+		if(n <= 0)
+			break;
+		off += n;
+	}
+	close(fd);
+	buf[off] = '\0';
+	if(outlen != nil)
+		*outlen = off;
+	return buf;
+}
+
+const char*
+o9_basename_c(const char *path)
+{
+	const char *p, *base;
+
+	if(path == nil)
+		return "";
+	base = path;
+	for(p = path; *p != '\0'; p++)
+		if(*p == '/')
+			base = p + 1;
+	return base;
+}
+
+void
+o9_strip_repo_prefix(char *path, const char *repo)
+{
+	char *trim, *match;
+	int n;
+
+	if(path == nil || repo == nil || repo[0] == '\0')
+		return;
+	n = strlen(repo);
+	if(strncmp(path, repo, n) == 0)
+		match = path;
+	else {
+		match = strstr(path, repo);
+		if(match == nil)
+			return;
+	}
+	trim = match + n;
+	if(*trim == '/')
+		trim++;
+	memmove(path, trim, strlen(trim) + 1);
+}
+
+static int
+o9_split_tabs(char *line, char **fields, int max)
+{
+	char *p;
+	int n;
+
+	if(line == nil || fields == nil || max <= 0)
+		return 0;
+	n = 0;
+	fields[n++] = line;
+	for(p = line; *p != '\0' && n < max; p++){
+		if(*p == '\t'){
+			*p = '\0';
+			fields[n++] = p + 1;
+		}else if(*p == '\n' || *p == '\r'){
+			*p = '\0';
+			break;
+		}
+	}
+	return n;
+}
+
+int
+o9_journal_split(char *line, char **fields, int nfields, char **detail)
+{
+	char *p, *start;
+	int i, n;
+
+	if(fields != nil)
+		for(i = 0; i < nfields; i++)
+			fields[i] = "";
+	if(detail != nil)
+		*detail = "";
+	if(line == nil || fields == nil || nfields <= 0)
+		return 0;
+	start = line;
+	n = 0;
+	for(p = line; *p != '\0'; p++){
+		if(*p != '\t')
+			continue;
+		*p = '\0';
+		if(n < nfields)
+			fields[n] = start;
+		n++;
+		start = p + 1;
+		if(n == nfields){
+			if(detail != nil)
+				*detail = start;
+			return n;
+		}
+	}
+	if(n < nfields)
+		fields[n++] = start;
+	if(detail != nil)
+		*detail = "";
+	return n;
+}
+
+int
+o9_tsv_get_cols(const char *path, const char **names, char **outs, int *outsz, int nout)
+{
+	char buf[8192], *header, *row, *end;
+	char *cols[64], *vals[64];
+	int fd, n, ncols, nvals, i, j, found, len;
+
+	if(path == nil || names == nil || outs == nil || outsz == nil || nout <= 0)
+		return 0;
+	for(i = 0; i < nout; i++)
+		if(outs[i] != nil && outsz[i] > 0)
+			outs[i][0] = '\0';
+	fd = open(path, OREAD);
+	if(fd < 0)
+		return 0;
+	n = read(fd, buf, sizeof buf - 1);
+	close(fd);
+	if(n <= 0)
+		return 0;
+	buf[n] = '\0';
+	header = buf;
+	row = strchr(header, '\n');
+	if(row == nil)
+		return 0;
+	*row++ = '\0';
+	end = strchr(row, '\n');
+	if(end != nil)
+		*end = '\0';
+	end = strchr(row, '\r');
+	if(end != nil)
+		*end = '\0';
+	ncols = o9_split_tabs(header, cols, nelem(cols));
+	nvals = o9_split_tabs(row, vals, nelem(vals));
+	found = 0;
+	for(i = 0; i < nout; i++){
+		if(names[i] == nil || outs[i] == nil || outsz[i] <= 0)
+			continue;
+		for(j = 0; j < ncols; j++){
+			if(strcmp(cols[j], names[i]) != 0)
+				continue;
+			if(j >= nvals)
+				break;
+			len = strlen(vals[j]);
+			if(len >= outsz[i])
+				len = outsz[i] - 1;
+			memmove(outs[i], vals[j], len);
+			outs[i][len] = '\0';
+			found++;
+			break;
+		}
+	}
+	return found;
+}
+
+int
+o9_tsv_get_col(const char *path, const char *name, char *out, int outsz)
+{
+	const char *names[1];
+	char *outs[1];
+	int sizes[1];
+
+	names[0] = name;
+	outs[0] = out;
+	sizes[0] = outsz;
+	return o9_tsv_get_cols(path, names, outs, sizes, 1);
+}
+
+int
+o9_equiv_ledger_lookup(const char *path, const char *source, const char *mutant, char *reason, int rsz)
+{
+	char *buf, *line, *next;
+	char *cols[4];
+	const char *mbase;
+	int ncols, found;
+	vlong len;
+
+	if(reason != nil && rsz > 0)
+		reason[0] = '\0';
+	if(path == nil || source == nil || mutant == nil)
+		return 0;
+	buf = o9_read_file_c(path, &len, 1024 * 1024);
+	if(buf == nil)
+		return 0;
+	mbase = o9_basename_c(mutant);
+	found = 0;
+	for(line = buf; line != nil && *line != '\0'; line = next){
+		next = strchr(line, '\n');
+		if(next != nil)
+			*next++ = '\0';
+		if(line[0] == '\0' || line[0] == '#')
+			continue;
+		ncols = o9_split_tabs(line, cols, nelem(cols));
+		if(ncols < 3)
+			continue;
+		if(strcmp(cols[0], source) != 0)
+			continue;
+		if(strcmp(cols[1], mbase) != 0 && strcmp(cols[1], mutant) != 0)
+			continue;
+		if(reason != nil && rsz > 0)
+			snprint(reason, rsz, "%s", cols[2]);
+		found = 1;
+		break;
+	}
+	free(buf);
+	return found;
+}
+
+static char*
+o9_c_without_ws_comments(const char *in)
+{
+	char *out;
+	int i, o, inquote, quote, esc;
+
+	if(in == nil)
+		return nil;
+	out = malloc(strlen(in) + 1);
+	if(out == nil)
+		return nil;
+	o = 0;
+	inquote = 0;
+	quote = 0;
+	esc = 0;
+	for(i = 0; in[i] != '\0'; i++){
+		if(inquote){
+			out[o++] = in[i];
+			if(esc)
+				esc = 0;
+			else if(in[i] == '\\')
+				esc = 1;
+			else if(in[i] == quote)
+				inquote = 0;
+			continue;
+		}
+		if(in[i] == '"' || in[i] == '\''){
+			inquote = 1;
+			quote = in[i];
+			out[o++] = in[i];
+			continue;
+		}
+		if(in[i] == '/' && in[i+1] == '*'){
+			i += 2;
+			while(in[i] != '\0' && !(in[i] == '*' && in[i+1] == '/'))
+				i++;
+			if(in[i] != '\0')
+				i++;
+			continue;
+		}
+		if(in[i] == '/' && in[i+1] == '/'){
+			i += 2;
+			while(in[i] != '\0' && in[i] != '\n')
+				i++;
+			continue;
+		}
+		if(in[i] == ' ' || in[i] == '\t' || in[i] == '\n' ||
+		   in[i] == '\r' || in[i] == '\v' || in[i] == '\f')
+			continue;
+		out[o++] = in[i];
+	}
+	out[o] = '\0';
+	return out;
+}
+
+int
+o9_c_lexical_whitespace_equiv(const char *source_path, const char *mutant_path)
+{
+	char *src, *mut, *sn, *mn;
+	int ok;
+
+	src = o9_read_file_c(source_path, nil, 2 * 1024 * 1024);
+	mut = o9_read_file_c(mutant_path, nil, 2 * 1024 * 1024);
+	if(src == nil || mut == nil){
+		free(src);
+		free(mut);
+		return 0;
+	}
+	ok = 0;
+	if(strcmp(src, mut) != 0){
+		sn = o9_c_without_ws_comments(src);
+		mn = o9_c_without_ws_comments(mut);
+		if(sn != nil && mn != nil && strcmp(sn, mn) == 0)
+			ok = 1;
+		free(sn);
+		free(mn);
+	}
+	free(src);
+	free(mut);
+	return ok;
+}
+
+int
+o9_equiv_candidate_reason(const char *source_path, const char *mutant_path, char *reason, int rsz)
+{
+	char *src, *mut;
+	int ok;
+
+	if(reason != nil && rsz > 0)
+		reason[0] = '\0';
+	src = o9_read_file_c(source_path, nil, 2 * 1024 * 1024);
+	mut = o9_read_file_c(mutant_path, nil, 2 * 1024 * 1024);
+	if(src == nil || mut == nil){
+		free(src);
+		free(mut);
+		return 0;
+	}
+	ok = 0;
+	if((strstr(src, "== nil") != nil && strstr(mut, "<= nil") != nil) ||
+	   (strstr(src, "!= nil") != nil && strstr(mut, "> nil") != nil)){
+		if(reason != nil && rsz > 0)
+			snprint(reason, rsz, "pointer-domain comparison candidate");
+		ok = 1;
+	}else if((strstr(src, "= 1") != nil &&
+	          (strstr(mut, "= -1") != nil || strstr(mut, "= (1+1)") != nil || strstr(mut, "= 2") != nil)) ||
+	         (strstr(src, ", 1") != nil &&
+	          (strstr(mut, ", -1") != nil || strstr(mut, ", (1+1)") != nil || strstr(mut, ", 2") != nil))){
+		if(reason != nil && rsz > 0)
+			snprint(reason, rsz, "truthy value changed to another truthy value candidate");
+		ok = 1;
+	}
+	free(src);
+	free(mut);
+	return ok;
+}
+
+int
 o9_ns_app_root(char *buf, int nbuf, char *app)
 {
 	if(buf == nil || nbuf <= 0 || app == nil || app[0] == '\0')

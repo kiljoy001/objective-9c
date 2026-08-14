@@ -19,12 +19,14 @@ preserved is tagged `@existing`; behaviour added by this pass is tagged
 | `event_journal.feature` | Quake-3-style append-only event log; one event per transition | @journal |
 | `replay.feature` | reconstruct timeline/lifecycle/integrity/summary from the journal | @replay |
 | `control.feature` | o9mutctl subcommands incl. new wait-drain and triage | @control, @hygiene, @unattended, @triage, @journal |
-| `campaign.feature` | multi-node rcpu launch, auth preflight, daemon launch, wait-for-drain | @unattended, @hygiene |
+| `campaign.feature` | multi-node rcpu or tabula-agent launch, auth preflight, daemon launch, wait-for-drain | @unattended, @hygiene |
+| `agent_launch.feature` | resident node agents consuming inert tabula launch commands instead of per-worker rcpu | @agent, @unattended |
+| `throughput.feature` | recommended high-throughput campaign shape: agents, persistent workers, queues, daemon, wait-drain | @throughput, @agent, @unattended |
 | `triage_bridge.feature` | grid results → o9um triage schema → recheck round-trip | @triage |
 | `status_observability.feature` | per-source progress, mutation score, worker liveness, robust parsing | @hygiene, @journal |
 | `gate.feature` | the gate: ramfs worktree, repo copy list, mk-target routing by source, teardown | @gate, @hygiene |
 | `host_bridge.feature` | Python bridges: o9grid_prepare.py (layout+enqueue) and o9grid_um_manifest.py (manifest+enqueue-rc gen) | @host_bridge |
-| `smoke.feature` | run_o9mutgrid.rc smoke contract + run_9worker_trial.rc trial | @smoke |
+| `smoke.feature` | run_o9mutgrid.rc, run_o9mutjournal.rc, run_o9mutreplay.rc, run_9worker_trial.rc, cleanup_mutation_node.rc | @smoke, @journal, @replay, @hygiene |
 
 ## Tag legend
 
@@ -39,10 +41,12 @@ Bundle (maps to the four requested bundles + the event/replay system):
 - `@unattended` — start-to-finish unattended campaigns: daemon + wait-drain.
 - `@triage` — grid → o9um triage bridge, recheck round-trip.
 - `@hygiene` — worker leaks, scratch cleanup, robust parsing, portability.
+- `@agent` — resident node launcher that consumes tabula command files.
+- `@throughput` — utilization-oriented campaign behavior for large mutation runs.
 
 Component:
-- `@queue` `@worker` `@control` `@gate` `@host_bridge` `@smoke` — which part
-  of the runtime the scenario exercises.
+- `@queue` `@worker` `@control` `@gate` `@host_bridge` `@smoke` `@agent` `@throughput` — which part
+  of the runtime or harness suite the scenario exercises.
 
 ## Domain glossary
 
@@ -64,6 +68,13 @@ Component:
 - **queue worker (o9mutq)** — claims a chunk, expands it into pending tasks
   respecting `max-pending` backpressure. One chunk at a time.
 - **daemon (o9mutd)** — loops `requeue-stale` + `report` at an interval.
+- **agent (o9mutagent.rc)** — optional resident per-node launcher. It polls
+  `agents/<node>/pending/*.tab` for inert launch commands, claims each command
+  by directory lock, and starts local `o9mutq`, `o9mutw`, or `o9mutd` without
+  a per-worker `rcpu` login.
+- **agent command** — a tabula row with columns
+  `op root bindir repo worker jobs idle_ms max_pending interval_ms stale_sec cycles log`.
+  The row is data only; supported ops are explicitly enumerated by the agent.
 - **gate (o9um_gate.rc)** — the per-task verification script the worker forks.
   Builds a private ramfs worktree, copies the maintained tree, overwrites the
   target source with the mutant, runs `mk clean` then a source-routed set of
@@ -82,6 +93,10 @@ Component:
   increments attempt; when it exceeds `max_attempts` (from `config.tab`,
   default 3) the task is retired as `infra_fail`.
 - **stale** — a claim dir whose mtime is older than `stale_sec` (default 300).
+- **throughput campaign** — the recommended large-run topology:
+  `run_3node_campaign.rc -L agent -M /mnt/term -D -W -y -j 0 -n 3 -E enqueue.rc`.
+  It uses resident agents, persistent workers, queue workers, daemon recovery,
+  and wait-drain to keep nodes busy without per-worker rcpu.
 
 ## The two crash-recovery invariants
 

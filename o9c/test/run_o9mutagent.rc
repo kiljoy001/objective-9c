@@ -1,0 +1,122 @@
+#!/bin/rc
+
+rfork e
+
+tmpbase=/tmp
+if(test -d /mnt/term/tmp)
+	tmpbase=/mnt/term/tmp
+if(! ~ $#O9MUT_TMP 0)
+	tmpbase=$O9MUT_TMP
+root=$tmpbase/o9mutagent.$pid
+node=testnode
+fail=0
+
+fn cleanup {
+	rm -rf $root
+}
+
+fn ck {
+	if(! $*){
+		echo 'o9mutagent: FAIL:' $* >[1=2]
+		fail=1
+	}
+}
+
+fn has {
+	pat=$1
+	file=$2
+	if(! grep -s $pat $file){
+		echo 'o9mutagent: FAIL: missing '^$pat^' in '^$file >[1=2]
+		if(test -e $file)
+			cat $file >[1=2]
+		fail=1
+	}
+}
+
+fn qcmd {
+	id=$1
+	op=$2
+	worker=$3
+	jobs=$4
+	idle=$5
+	maxpending=$6
+	interval=$7
+	stale=$8
+	cycles=$9
+	log=$root/logs/$id.out
+	cmdpath=$root/agents/$node/pending/$id.tab
+	echo 'op	root	bindir	repo	worker	jobs	idle_ms	max_pending	interval_ms	stale_sec	cycles	log' >$cmdpath
+	echo $op'	'$root'	'$root/bin'	-	'$worker'	'$jobs'	'$idle'	'$maxpending'	'$interval'	'$stale'	'$cycles'	'$log >>$cmdpath
+}
+
+mkdir $root
+mkdir $root/bin
+mkdir $root/logs
+
+{
+	echo '#!/bin/rc'
+	echo 'echo o9mutw $*'
+} >$root/bin/o9mutw
+{
+	echo '#!/bin/rc'
+	echo 'echo o9mutq $*'
+} >$root/bin/o9mutq
+{
+	echo '#!/bin/rc'
+	echo 'echo o9mutd $*'
+} >$root/bin/o9mutd
+chmod +x $root/bin/o9mutw $root/bin/o9mutq $root/bin/o9mutd
+
+rc grid/o9mutagent.rc -r $root -n $node -once >$tmpbase/o9mutagent.init.$pid >[2=1]
+ck test -d $root/agents/$node/pending
+ck test -d $root/agents/$node/claimed
+ck test -d $root/agents/$node/done
+ck test -d $root/agents/$node/failed
+
+qcmd ping1 ping - - - - - - - -
+rc grid/o9mutagent.rc -r $root -n $node -once >$tmpbase/o9mutagent.ping.$pid >[2=1]
+ck test -e $root/agents/$node/claimed/ping1/command.tab
+ck test -e $root/agents/$node/done/ping1.tab
+has 'ping	ok' $root/agents/$node/done/ping1.tab
+ck test ! -e $root/agents/$node/pending/ping1.tab
+
+echo 'op	root	bindir	repo	worker	jobs	idle_ms	max_pending	interval_ms	stale_sec	cycles	log' >$root/agents/$node/pending/badrow.tab
+rc grid/o9mutagent.rc -r $root -n $node -once >$tmpbase/o9mutagent.badrow.$pid >[2=1]
+ck test -e $root/agents/$node/failed/badrow.tab
+has 'malformed	failed' $root/agents/$node/failed/badrow.tab
+
+qcmd badop run-shell fake - - - - - - -
+rc grid/o9mutagent.rc -r $root -n $node -once >$tmpbase/o9mutagent.badop.$pid >[2=1]
+ck test -e $root/agents/$node/failed/badop.tab
+has 'run-shell	failed' $root/agents/$node/failed/badop.tab
+
+qcmd w1 start-worker testnode-1 2 5000 - - - -
+rc grid/o9mutagent.rc -r $root -n $node -once >$tmpbase/o9mutagent.worker.$pid >[2=1]
+ck test -e $root/agents/$node/done/w1.tab
+has 'start-worker	accepted' $root/agents/$node/done/w1.tab
+sleep 1
+has 'o9mutw -r '$root' -w testnode-1 -n 2 -idle-ms 5000' $root/logs/w1.out
+
+qcmd q1 start-queue testnode-queue - 1000 512 - - -
+rc grid/o9mutagent.rc -r $root -n $node -once >$tmpbase/o9mutagent.queue.$pid >[2=1]
+ck test -e $root/agents/$node/done/q1.tab
+has 'start-queue	accepted' $root/agents/$node/done/q1.tab
+sleep 1
+has 'o9mutq -r '$root' -w testnode-queue -idle-ms 1000 -max-pending 512' $root/logs/q1.out
+
+qcmd d1 start-daemon daemon - - - 30000 300 0
+rc grid/o9mutagent.rc -r $root -n $node -once >$tmpbase/o9mutagent.daemon.$pid >[2=1]
+ck test -e $root/agents/$node/done/d1.tab
+has 'start-daemon	accepted' $root/agents/$node/done/d1.tab
+sleep 1
+has 'o9mutd -r '$root' -cycles 0 -interval-ms 30000 -stale-sec 300' $root/logs/d1.out
+
+if(~ $fail 0){
+	cleanup
+	rm -f $tmpbase/o9mutagent.*.$pid
+	echo o9mutagent: OK
+	exit ''
+}
+
+echo 'o9mutagent: root left at' $root >[1=2]
+exit fail

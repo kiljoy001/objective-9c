@@ -291,128 +291,391 @@ function O9MutManifestRaw(string root, string manifest) string {
     return out;
 }
 
-function O9MutStatusRaw(string root) string {
+function O9MutStatusRaw(string root, int64 bySource, int64 workers, int64 fromJournal) string {
     string out;
 
     c {
         char *r;
-        char path[1024], rpath[1024], buf[8192], line[512], result[64];
-        char *q, *p, *field;
+        char path[1024], rpath[1024], *buf, result[64], source[256], taskid[128], detail[1024];
+        char *p, *srcs, *jbuf, *line, *next, *fields[6], *evtype, *evkind, *evdetail;
+        char *outs[2]; const char *names[2]; int sizes[2];
         Dir *dirs;
         int fd, n, rn, i, pending, claimed, done, killed, survived, timeout, equivalent, infra, setup, chunkPending, chunkClaimed, chunkDone;
+        int nsrc, si, heartbeatSec, buflen;
+        long manifestTotal, now, lastSeen, age;
+        long *spending, *sclaimed, *skilled, *ssurvived, *stimeout, *sequiv, *sinfra, *ssetup;
 
         r = o9_string_cstr(root);
         pending = claimed = done = killed = survived = timeout = equivalent = infra = setup = 0;
         chunkPending = chunkClaimed = chunkDone = 0;
+        manifestTotal = 0;
+        buflen = 65536;
+        buf = malloc(buflen);
+        srcs = malloc(256 * 256);
+        spending = malloc(sizeof(long) * 256);
+        sclaimed = malloc(sizeof(long) * 256);
+        skilled = malloc(sizeof(long) * 256);
+        ssurvived = malloc(sizeof(long) * 256);
+        stimeout = malloc(sizeof(long) * 256);
+        sequiv = malloc(sizeof(long) * 256);
+        sinfra = malloc(sizeof(long) * 256);
+        ssetup = malloc(sizeof(long) * 256);
+        nsrc = 0;
+        if(srcs == nil || spending == nil || sclaimed == nil || skilled == nil || ssurvived == nil || stimeout == nil || sequiv == nil || sinfra == nil || ssetup == nil)
+            bySource = 0;
+        for(i = 0; i < 256; i++){
+            if(srcs != nil)
+                (srcs + i * 256)[0] = '\0';
+            if(spending != nil) spending[i] = 0;
+            if(sclaimed != nil) sclaimed[i] = 0;
+            if(skilled != nil) skilled[i] = 0;
+            if(ssurvived != nil) ssurvived[i] = 0;
+            if(stimeout != nil) stimeout[i] = 0;
+            if(sequiv != nil) sequiv[i] = 0;
+            if(sinfra != nil) sinfra[i] = 0;
+            if(ssetup != nil) ssetup[i] = 0;
+        }
+
+        #define SRCIDX(src, idx) do { \
+            for((idx) = 0; (idx) < nsrc; (idx)++) \
+                if(strcmp(srcs + (idx) * 256, (src)) == 0) \
+                    break; \
+            if((idx) == nsrc && nsrc < 256){ \
+                snprint(srcs + nsrc * 256, 256, "%s", (src)); \
+                (idx) = nsrc++; \
+            } \
+        } while(0)
+        #define DETAILKEY(d, key, outv, outn) do { \
+            char *_d=(d), *_p, *_q; (outv)[0]='\0'; \
+            _p = strstr(_d, (key)); \
+            while(_p != nil){ \
+                if((_p == _d || _p[-1] == '\t') && _p[strlen(key)] == '='){ \
+                    _p += strlen(key) + 1; \
+                    _q = strchr(_p, '\t'); \
+                    { int _l = _q ? (int)(_q - _p) : (int)strlen(_p); \
+                      if(_l >= (outn)) _l = (outn) - 1; \
+                      memmove((outv), _p, _l); (outv)[_l] = '\0'; } \
+                    break; \
+                } \
+                _p = strstr(_p + 1, (key)); \
+            } \
+        } while(0)
+
         if(r != nil){
             snprint(path, sizeof path, "%s/tasks/pending", r);
-            fd = open(path, OREAD);
-            if(fd >= 0){
-                dirs = nil;
-                n = dirreadall(fd, &dirs);
-                close(fd);
-                for(i = 0; i < n; i++)
-                    if(strlen(dirs[i].name) > 4)
-                        pending++;
-                free(dirs);
-            }
+            pending = o9_count_dir(path, 0, ".tab");
             snprint(path, sizeof path, "%s/tasks/claimed", r);
-            fd = open(path, OREAD);
-            if(fd >= 0){
-                dirs = nil;
-                n = dirreadall(fd, &dirs);
-                close(fd);
-                for(i = 0; i < n; i++)
-                    if(dirs[i].mode & DMDIR)
-                        claimed++;
-                free(dirs);
-            }
+            claimed = o9_count_dir(path, 1, nil);
             snprint(path, sizeof path, "%s/queue/chunks/pending", r);
-            fd = open(path, OREAD);
-            if(fd >= 0){
-                dirs = nil;
-                n = dirreadall(fd, &dirs);
-                close(fd);
-                for(i = 0; i < n; i++)
-                    if(strlen(dirs[i].name) > 4)
-                        chunkPending++;
-                free(dirs);
-            }
+            chunkPending = o9_count_dir(path, 0, ".tab");
             snprint(path, sizeof path, "%s/queue/chunks/claimed", r);
-            fd = open(path, OREAD);
-            if(fd >= 0){
-                dirs = nil;
-                n = dirreadall(fd, &dirs);
-                close(fd);
-                for(i = 0; i < n; i++)
-                    if(dirs[i].mode & DMDIR)
-                        chunkClaimed++;
-                free(dirs);
-            }
+            chunkClaimed = o9_count_dir(path, 1, nil);
             snprint(path, sizeof path, "%s/queue/chunks/done", r);
-            fd = open(path, OREAD);
-            if(fd >= 0){
-                dirs = nil;
-                n = dirreadall(fd, &dirs);
-                close(fd);
-                for(i = 0; i < n; i++)
-                    if(strlen(dirs[i].name) > 4)
-                        chunkDone++;
-                free(dirs);
-            }
+            chunkDone = o9_count_dir(path, 0, ".tab");
             snprint(path, sizeof path, "%s/results", r);
-            fd = open(path, OREAD);
-            if(fd >= 0){
-                dirs = nil;
-                n = dirreadall(fd, &dirs);
-                close(fd);
-                for(i = 0; i < n; i++){
-                    if(strlen(dirs[i].name) <= 4)
-                        continue;
-                    done++;
-                    snprint(rpath, sizeof rpath, "%s/results/%s", r, dirs[i].name);
-                    fd = open(rpath, OREAD);
-                    if(fd >= 0){
-                        rn = read(fd, line, sizeof line - 1);
-                        close(fd);
-                        if(rn > 0){
-                            line[rn] = '\0';
-                            field = strchr(line, '\n');
-                            if(field != nil){
-                                field++;
-                                q = result;
-                                while(*field != '\0' && *field != '\t') field++;
-                                if(*field == '\t') field++;
-                                while(*field != '\0' && *field != '\t') field++;
-                                if(*field == '\t') field++;
-                                while(*field != '\0' && *field != '\t') field++;
-                                if(*field == '\t') field++;
-                                while(*field != '\0' && *field != '\t') field++;
-                                if(*field == '\t') field++;
-                                while(*field != '\0' && *field != '\t' && q < result + sizeof result - 1)
-                                    *q++ = *field++;
-                                *q = '\0';
-                                if(strcmp(result, "killed") == 0) killed++;
-                                else if(strcmp(result, "survived") == 0) survived++;
-                                else if(strcmp(result, "timeout") == 0) timeout++;
-                                else if(strcmp(result, "equivalent") == 0) equivalent++;
-                                else if(strcmp(result, "infra_fail") == 0) infra++;
-                                else if(strcmp(result, "setup_error") == 0) setup++;
+            done = o9_count_dir(path, 0, ".tab");
+
+            if(fromJournal){
+                snprint(path, sizeof path, "%s/journal.log", r);
+                fd = open(path, OREAD);
+                if(fd >= 0){
+                    jbuf = malloc(65536);
+                    if(jbuf != nil){
+                        rn = read(fd, jbuf, 65535);
+                        if(rn < 0) rn = 0;
+                        jbuf[rn] = '\0';
+                        for(line = jbuf; line != nil && *line != '\0'; line = next){
+                            next = strchr(line, '\n');
+                            if(next != nil)
+                                *next++ = '\0';
+                            if(line[0] == '\0')
+                                continue;
+                            evdetail = "";
+                            o9_journal_split(line, fields, 6, &evdetail);
+                            evtype = fields[3];
+                            evkind = fields[4];
+                            if(strcmp(evtype, "gate_exit") != 0 || strcmp(evkind, "task") != 0)
+                                continue;
+                            DETAILKEY(evdetail, "result", result, sizeof result);
+                            if(strcmp(result, "killed") == 0) killed++;
+                            else if(strcmp(result, "survived") == 0) survived++;
+                            else if(strcmp(result, "timeout") == 0) timeout++;
+                            else if(strcmp(result, "equivalent") == 0) equivalent++;
+                            else if(strcmp(result, "infra_fail") == 0) infra++;
+                            else if(strcmp(result, "setup_error") == 0) setup++;
+                        }
+                        free(jbuf);
+                    }
+                    close(fd);
+                }
+            } else {
+                snprint(path, sizeof path, "%s/results", r);
+                fd = open(path, OREAD);
+                if(fd >= 0){
+                    dirs = nil;
+                    n = dirreadall(fd, &dirs);
+                    close(fd);
+                    for(i = 0; i < n; i++){
+                        if((dirs[i].mode & DMDIR) != 0 || !o9_has_suffix(dirs[i].name, ".tab"))
+                            continue;
+                        snprint(rpath, sizeof rpath, "%s/results/%s", r, dirs[i].name);
+                        result[0] = source[0] = '\0';
+                        names[0] = "result"; outs[0] = result; sizes[0] = sizeof result;
+                        names[1] = "source"; outs[1] = source; sizes[1] = sizeof source;
+                        o9_tsv_get_cols(rpath, names, outs, sizes, 2);
+                        if(strcmp(result, "killed") == 0) killed++;
+                        else if(strcmp(result, "survived") == 0) survived++;
+                        else if(strcmp(result, "timeout") == 0) timeout++;
+                        else if(strcmp(result, "equivalent") == 0) equivalent++;
+                        else if(strcmp(result, "infra_fail") == 0) infra++;
+                        else if(strcmp(result, "setup_error") == 0) setup++;
+                        if(bySource && source[0] != '\0' && srcs != nil){
+                            SRCIDX(source, si);
+                            if(si < 256){
+                                if(strcmp(result, "killed") == 0) skilled[si]++;
+                                else if(strcmp(result, "survived") == 0) ssurvived[si]++;
+                                else if(strcmp(result, "timeout") == 0) stimeout[si]++;
+                                else if(strcmp(result, "equivalent") == 0) sequiv[si]++;
+                                else if(strcmp(result, "infra_fail") == 0) sinfra[si]++;
+                                else if(strcmp(result, "setup_error") == 0) ssetup[si]++;
                             }
                         }
                     }
+                    free(dirs);
                 }
-                free(dirs);
             }
+
+            if(bySource && fromJournal && srcs != nil){
+                snprint(path, sizeof path, "%s/results", r);
+                fd = open(path, OREAD);
+                if(fd >= 0){
+                    dirs = nil;
+                    n = dirreadall(fd, &dirs);
+                    close(fd);
+                    for(i = 0; i < n; i++){
+                        if((dirs[i].mode & DMDIR) != 0 || !o9_has_suffix(dirs[i].name, ".tab"))
+                            continue;
+                        snprint(rpath, sizeof rpath, "%s/results/%s", r, dirs[i].name);
+                        result[0] = source[0] = '\0';
+                        names[0] = "result"; outs[0] = result; sizes[0] = sizeof result;
+                        names[1] = "source"; outs[1] = source; sizes[1] = sizeof source;
+                        o9_tsv_get_cols(rpath, names, outs, sizes, 2);
+                        if(source[0] != '\0'){
+                            SRCIDX(source, si);
+                            if(si < 256){
+                                if(strcmp(result, "killed") == 0) skilled[si]++;
+                                else if(strcmp(result, "survived") == 0) ssurvived[si]++;
+                                else if(strcmp(result, "timeout") == 0) stimeout[si]++;
+                                else if(strcmp(result, "equivalent") == 0) sequiv[si]++;
+                                else if(strcmp(result, "infra_fail") == 0) sinfra[si]++;
+                                else if(strcmp(result, "setup_error") == 0) ssetup[si]++;
+                            }
+                        }
+                    }
+                    free(dirs);
+                }
+            }
+
+            if(bySource && srcs != nil){
+                snprint(path, sizeof path, "%s/tasks/pending", r);
+                fd = open(path, OREAD);
+                if(fd >= 0){
+                    dirs = nil;
+                    n = dirreadall(fd, &dirs);
+                    close(fd);
+                    for(i = 0; i < n; i++){
+                        if((dirs[i].mode & DMDIR) != 0 || !o9_has_suffix(dirs[i].name, ".tab"))
+                            continue;
+                        snprint(rpath, sizeof rpath, "%s/tasks/pending/%s", r, dirs[i].name);
+                        source[0] = '\0';
+                        o9_tsv_get_col(rpath, "source", source, sizeof source);
+                        if(source[0] != '\0'){
+                            SRCIDX(source, si);
+                            if(si < 256) spending[si]++;
+                        }
+                    }
+                    free(dirs);
+                }
+                snprint(path, sizeof path, "%s/tasks/claimed", r);
+                fd = open(path, OREAD);
+                if(fd >= 0){
+                    dirs = nil;
+                    n = dirreadall(fd, &dirs);
+                    close(fd);
+                    for(i = 0; i < n; i++){
+                        if((dirs[i].mode & DMDIR) == 0)
+                            continue;
+                        snprint(rpath, sizeof rpath, "%s/tasks/pending/%s.tab", r, dirs[i].name);
+                        source[0] = '\0';
+                        o9_tsv_get_col(rpath, "source", source, sizeof source);
+                        if(source[0] != '\0'){
+                            SRCIDX(source, si);
+                            if(si < 256) sclaimed[si]++;
+                        }
+                    }
+                    free(dirs);
+                }
+            }
+
+            snprint(path, sizeof path, "%s/queue/counts.tab", r);
+            manifestTotal = o9_kv_int(path, "manifest_enqueued", 0);
+        }
+        if(buf == nil)
+            out = o9_string_from_c("status failed\n");
+        if(buf == nil){
+            goto sdone;
         }
         p = buf;
-        p = seprint(p, buf + sizeof buf, "o9mut grid status\n");
-        p = seprint(p, buf + sizeof buf, "root\t%s\n", r != nil ? r : "");
-        p = seprint(p, buf + sizeof buf, "pending\t%d\nclaimed\t%d\ndone\t%d\n", pending, claimed, done);
-        p = seprint(p, buf + sizeof buf, "chunks_pending\t%d\nchunks_claimed\t%d\nchunks_done\t%d\n", chunkPending, chunkClaimed, chunkDone);
-        seprint(p, buf + sizeof buf, "killed\t%d\nsurvived\t%d\ntimeout\t%d\nequivalent\t%d\ninfra_fail\t%d\nsetup_error\t%d\n",
+        p = seprint(p, buf + buflen, "o9mut grid status\n");
+        p = seprint(p, buf + buflen, "root\t%s\n", r != nil ? r : "");
+        p = seprint(p, buf + buflen, "pending\t%d\nclaimed\t%d\ndone\t%d\n", pending, claimed, done);
+        p = seprint(p, buf + buflen, "chunks_pending\t%d\nchunks_claimed\t%d\nchunks_done\t%d\n", chunkPending, chunkClaimed, chunkDone);
+        p = seprint(p, buf + buflen, "killed\t%d\nsurvived\t%d\ntimeout\t%d\nequivalent\t%d\ninfra_fail\t%d\nsetup_error\t%d\n",
             killed, survived, timeout, equivalent, infra, setup);
+        if(manifestTotal > 0)
+            p = seprint(p, buf + buflen, "progress\t%d/%ld\n", done, manifestTotal);
+        if(bySource && srcs != nil){
+            p = seprint(p, buf + buflen, "by_source\n");
+            for(si = 0; si < nsrc; si++){
+                long fin = skilled[si] + ssurvived[si];
+                p = seprint(p, buf + buflen, "source\t%s\n", srcs + si * 256);
+                p = seprint(p, buf + buflen, "pending\t%ld\nclaimed\t%ld\n", spending[si], sclaimed[si]);
+                p = seprint(p, buf + buflen, "killed\t%ld\nsurvived\t%ld\ntimeout\t%ld\nequivalent\t%ld\ninfra_fail\t%ld\nsetup_error\t%ld\n",
+                    skilled[si], ssurvived[si], stimeout[si], sequiv[si], sinfra[si], ssetup[si]);
+                if(fin > 0)
+                    p = seprint(p, buf + buflen, "score\t%.2f\n", (double)skilled[si] / (double)fin);
+                else
+                    p = seprint(p, buf + buflen, "score\tn/a\n");
+            }
+        }
+        if(workers && r != nil){
+            snprint(path, sizeof path, "%s/config.tab", r);
+            heartbeatSec = o9_kv_int(path, "heartbeat_sec", 30);
+            if(heartbeatSec <= 0)
+                heartbeatSec = 30;
+            now = time(0);
+            p = seprint(p, buf + buflen, "workers\n");
+            if(fromJournal){
+                char *wids, *wstate, *wtask;
+                vlong *wseen;
+                int nw, wi;
+
+                wids = malloc(256 * 128);
+                wstate = malloc(256 * 32);
+                wtask = malloc(256 * 128);
+                wseen = malloc(sizeof(vlong) * 256);
+                nw = 0;
+                if(wids != nil && wstate != nil && wtask != nil && wseen != nil){
+                    for(i = 0; i < 256; i++){
+                        (wids + i * 128)[0] = '\0';
+                        snprint(wstate + i * 32, 32, "unknown");
+                        (wtask + i * 128)[0] = '\0';
+                        wseen[i] = 0;
+                    }
+                    snprint(path, sizeof path, "%s/journal.log", r);
+                    fd = open(path, OREAD);
+                    if(fd >= 0){
+                        jbuf = malloc(65536);
+                        if(jbuf != nil){
+                            rn = read(fd, jbuf, 65535);
+                            if(rn < 0) rn = 0;
+                            jbuf[rn] = '\0';
+                            for(line = jbuf; line != nil && *line != '\0'; line = next){
+                                next = strchr(line, '\n');
+                                if(next != nil)
+                                    *next++ = '\0';
+                                if(line[0] == '\0')
+                                    continue;
+                                evdetail = "";
+                                o9_journal_split(line, fields, 6, &evdetail);
+                                evtype = fields[3];
+                                evkind = fields[4];
+                                taskid[0] = '\0';
+                                if(strcmp(evtype, "drain_requested") == 0 && strcmp(evkind, "worker") == 0)
+                                    snprint(taskid, sizeof taskid, "%s", fields[5]);
+                                else if(strcmp(evtype, "worker_start") == 0 || strcmp(evtype, "worker_heartbeat") == 0 || strcmp(evtype, "worker_stop") == 0 || strcmp(evtype, "worker_drain") == 0)
+                                    snprint(taskid, sizeof taskid, "%s", fields[2]);
+                                if(taskid[0] == '\0')
+                                    continue;
+                                for(wi = 0; wi < nw; wi++)
+                                    if(strcmp(wids + wi * 128, taskid) == 0)
+                                        break;
+                                if(wi == nw && nw < 256){
+                                    snprint(wids + nw * 128, 128, "%s", taskid);
+                                    wi = nw++;
+                                }
+                                if(wi >= 256)
+                                    continue;
+                                wseen[wi] = strtoll(fields[1], nil, 10);
+                                if(strcmp(evtype, "worker_start") == 0)
+                                    snprint(wstate + wi * 32, 32, "running");
+                                else if(strcmp(evtype, "worker_heartbeat") == 0){
+                                    result[0] = '\0';
+                                    source[0] = '\0';
+                                    DETAILKEY(evdetail, "status", result, sizeof result);
+                                    DETAILKEY(evdetail, "task", source, sizeof source);
+                                    if(result[0] != '\0')
+                                        snprint(wstate + wi * 32, 32, "%s", result);
+                                    if(source[0] != '\0')
+                                        snprint(wtask + wi * 128, 128, "%s", source);
+                                } else if(strcmp(evtype, "worker_stop") == 0)
+                                    snprint(wstate + wi * 32, 32, "stopped");
+                                else if(strcmp(evtype, "worker_drain") == 0 || strcmp(evtype, "drain_requested") == 0)
+                                    snprint(wstate + wi * 32, 32, "drained");
+                            }
+                            free(jbuf);
+                        }
+                        close(fd);
+                    }
+                    for(wi = 0; wi < nw; wi++){
+                        p = seprint(p, buf + buflen, "worker\t%s\tstatus=%s\tlast_event_ms=%lld", wids + wi * 128, wstate + wi * 32, wseen[wi]);
+                        if((wtask + wi * 128)[0] != '\0')
+                            p = seprint(p, buf + buflen, "\tcurrent_task=%s", wtask + wi * 128);
+                        p = seprint(p, buf + buflen, "\n");
+                    }
+                }
+                free(wids); free(wstate); free(wtask); free(wseen);
+            } else {
+                snprint(path, sizeof path, "%s/workers", r);
+                fd = open(path, OREAD);
+                if(fd >= 0){
+                    dirs = nil;
+                    n = dirreadall(fd, &dirs);
+                    close(fd);
+                    for(i = 0; i < n; i++){
+                        if((dirs[i].mode & DMDIR) != 0 || !o9_has_suffix(dirs[i].name, ".tab"))
+                            continue;
+                        snprint(rpath, sizeof rpath, "%s/workers/%s", r, dirs[i].name);
+                        taskid[0] = source[0] = result[0] = '\0';
+                        names[0] = "worker_id"; outs[0] = taskid; sizes[0] = sizeof taskid;
+                        names[1] = "status"; outs[1] = result; sizes[1] = sizeof result;
+                        o9_tsv_get_cols(rpath, names, outs, sizes, 2);
+                        source[0] = '\0';
+                        o9_tsv_get_col(rpath, "current_task", source, sizeof source);
+                        detail[0] = '\0';
+                        o9_tsv_get_col(rpath, "last_seen", detail, sizeof detail);
+                        lastSeen = strtol(detail, nil, 10);
+                        age = lastSeen > 0 ? now - lastSeen : 0;
+                        if(result[0] == '\0')
+                            snprint(result, sizeof result, "unknown");
+                        if(lastSeen > 0 && age > heartbeatSec * 2)
+                            snprint(result, sizeof result, "dead");
+                        p = seprint(p, buf + buflen, "worker\t%s\tstatus=%s\tlast_seen_age=%ld", taskid[0] ? taskid : dirs[i].name, result, age);
+                        if(source[0] != '\0')
+                            p = seprint(p, buf + buflen, "\tcurrent_task=%s", source);
+                        p = seprint(p, buf + buflen, "\n");
+                    }
+                    free(dirs);
+                }
+            }
+        }
         out = o9_string_from_c(buf);
+        sdone:
+        #undef SRCIDX
+        #undef DETAILKEY
+        free(buf);
+        free(srcs);
+        free(spending); free(sclaimed); free(skilled); free(ssurvived); free(stimeout); free(sequiv); free(sinfra); free(ssetup);
         free(r);
     }
     return out;
@@ -637,6 +900,229 @@ function O9MutDrainWorkerRaw(string root, string worker) string {
     return out;
 }
 
+function O9MutTriageRaw(string root, string output, int64 fromJournal, string repo, int64 classifyEquivalent, int64 classifyWhitespace, int64 includeMissing, string equivFile) string {
+    string out;
+
+    c {
+        char *r, *op, *rp, *ep, *jbuf, *line, *next, *fields[6], *evdetail;
+        char outpath[1024], path[1024], rpath[1024], triagemsg[2048], ledger[1024];
+        char taskid[128], worker[128], source[512], mutant[1024], result[64], klass[64], confidence[64], suggested[256], reason[256], ledgerReason[256], candidateReason[256], diff[512];
+        char *outs[5], *douts[4]; const char *names[5], *dnames[4]; int sizes[5], dsizes[4];
+        Dir *dirs;
+        int ofd, fd, n, rn, i, rows, selected;
+
+        r = o9_string_cstr(root);
+        op = o9_string_cstr(output);
+        rp = o9_string_cstr(repo);
+        ep = o9_string_cstr(equivFile);
+        rows = 0;
+        ofd = -1;
+        out = o9_string_from_c("triage failed\n");
+        if(r == nil || r[0] == '\0')
+            goto tdone;
+        if(op != nil && op[0] != '\0')
+            snprint(outpath, sizeof outpath, "%s", op);
+        else
+            snprint(outpath, sizeof outpath, "%s/reports/grid_triage.tsv", r);
+        if(ep != nil && ep[0] != '\0')
+            snprint(ledger, sizeof ledger, "%s", ep);
+        else if(rp != nil && rp[0] != '\0')
+            snprint(ledger, sizeof ledger, "%s/o9c/test/mutation_equiv.tsv", rp);
+        else
+            snprint(ledger, sizeof ledger, "o9c/test/mutation_equiv.tsv");
+        ofd = create(outpath, OWRITE, 0644);
+        if(ofd < 0)
+            goto tdone;
+        fprint(ofd, "source\tmutant\tresult\tfunction\toriginal_line\tmutant_line\ttriage_class\tconfidence\tsuggested_action\treason\tdiff_summary\n");
+
+        names[0] = "task_id"; outs[0] = taskid; sizes[0] = sizeof taskid;
+        names[1] = "worker_id"; outs[1] = worker; sizes[1] = sizeof worker;
+        names[2] = "source"; outs[2] = source; sizes[2] = sizeof source;
+        names[3] = "mutant_path"; outs[3] = mutant; sizes[3] = sizeof mutant;
+        names[4] = "result"; outs[4] = result; sizes[4] = sizeof result;
+
+        dnames[0] = "task_id"; douts[0] = taskid; dsizes[0] = sizeof taskid;
+        dnames[1] = "worker_id"; douts[1] = worker; dsizes[1] = sizeof worker;
+        dnames[2] = "source"; douts[2] = source; dsizes[2] = sizeof source;
+        dnames[3] = "mutant_path"; douts[3] = mutant; dsizes[3] = sizeof mutant;
+
+        #define DETKEY(d, key, outv, outn) do { \
+            char *_d=(d), *_p, *_q; (outv)[0]='\0'; \
+            _p = strstr(_d, (key)); \
+            while(_p != nil){ \
+                if((_p == _d || _p[-1] == '\t') && _p[strlen(key)] == '='){ \
+                    _p += strlen(key) + 1; \
+                    _q = strchr(_p, '\t'); \
+                    { int _l = _q ? (int)(_q - _p) : (int)strlen(_p); \
+                      if(_l >= (outn)) _l = (outn) - 1; \
+                      memmove((outv), _p, _l); (outv)[_l] = '\0'; } \
+                    break; \
+                } \
+                _p = strstr(_p + 1, (key)); \
+            } \
+        } while(0)
+        #define CLASSIFY_TRIAGE_ROW() do { \
+            selected = 0; \
+            o9_strip_repo_prefix(source, rp); \
+            snprint(confidence, sizeof confidence, "grid"); \
+            snprint(klass, sizeof klass, "unknown"); \
+            snprint(suggested, sizeof suggested, "inspect this grid result"); \
+            snprint(reason, sizeof reason, "grid result"); \
+            if(strcmp(result, "survived") == 0){ \
+                selected = 1; \
+                if(classifyEquivalent && o9_equiv_ledger_lookup(ledger, source, mutant, ledgerReason, sizeof ledgerReason)){ \
+                    snprint(result, sizeof result, "equivalent"); \
+                    snprint(klass, sizeof klass, "equivalent"); \
+                    snprint(confidence, sizeof confidence, "exact"); \
+                    snprint(suggested, sizeof suggested, "keep the exact equivalence ledger entry"); \
+                    snprint(reason, sizeof reason, "already listed in the equivalence ledger"); \
+                } else if(classifyWhitespace && source[0] != '\0' && mutant[0] != '\0' && o9_c_lexical_whitespace_equiv(source, mutant)){ \
+                    snprint(result, sizeof result, "equivalent"); \
+                    snprint(klass, sizeof klass, "equivalent"); \
+                    snprint(confidence, sizeof confidence, "exact"); \
+                    snprint(suggested, sizeof suggested, "no recheck unless whitespace-sensitive generated text is expected"); \
+                    snprint(reason, sizeof reason, "lexical_equivalent"); \
+                } else if(source[0] != '\0' && mutant[0] != '\0' && o9_equiv_candidate_reason(source, mutant, candidateReason, sizeof candidateReason)){ \
+                    snprint(klass, sizeof klass, "equivalent_candidate"); \
+                    snprint(confidence, sizeof confidence, "medium"); \
+                    snprint(suggested, sizeof suggested, "requires review and an exact ledger entry if equivalent"); \
+                    snprint(reason, sizeof reason, "%s", candidateReason[0] ? candidateReason : "likely equivalent candidate"); \
+                } else { \
+                    snprint(klass, sizeof klass, "test_gap"); \
+                    snprint(confidence, sizeof confidence, "high"); \
+                    snprint(suggested, sizeof suggested, "add or strengthen a focused test, then recheck this mutant"); \
+                    snprint(reason, sizeof reason, "grid survivor"); \
+                } \
+            } else if(strcmp(result, "timeout") == 0){ \
+                selected = 1; \
+                snprint(klass, sizeof klass, "timeout"); \
+                snprint(confidence, sizeof confidence, "needs_recheck"); \
+                snprint(suggested, sizeof suggested, "rerun with a focused gate or classify the timeout cause"); \
+                snprint(reason, sizeof reason, "grid timeout"); \
+            } \
+        } while(0)
+        #define WRITE_TRIAGE_ROW() do { \
+            snprint(diff, sizeof diff, "task_id=%s worker_id=%s", taskid, worker); \
+            fprint(ofd, "%s\t%s\t%s\t\t0\t0\t%s\t%s\t%s\t%s\t%s\n", \
+                source, mutant, result, klass, confidence, suggested, reason, diff); \
+            rows++; \
+        } while(0)
+
+        if(fromJournal){
+            snprint(path, sizeof path, "%s/journal.log", r);
+            fd = open(path, OREAD);
+            if(fd >= 0){
+                jbuf = malloc(262144);
+                if(jbuf != nil){
+                    rn = read(fd, jbuf, 262143);
+                    if(rn < 0) rn = 0;
+                    jbuf[rn] = '\0';
+                    for(line = jbuf; line != nil && *line != '\0'; line = next){
+                        next = strchr(line, '\n');
+                        if(next != nil)
+                            *next++ = '\0';
+                        if(line[0] == '\0')
+                            continue;
+                        evdetail = "";
+                        o9_journal_split(line, fields, 6, &evdetail);
+                        if(strcmp(fields[3], "gate_exit") != 0 || strcmp(fields[4], "task") != 0)
+                            continue;
+                        taskid[0] = worker[0] = source[0] = mutant[0] = result[0] = '\0';
+                        snprint(taskid, sizeof taskid, "%s", fields[5]);
+                        snprint(worker, sizeof worker, "%s", fields[2]);
+                        DETKEY(evdetail, "result", result, sizeof result);
+                        if(strcmp(result, "survived") != 0 && strcmp(result, "timeout") != 0)
+                            continue;
+                        snprint(rpath, sizeof rpath, "%s/results/%s.tab", r, taskid);
+                        o9_tsv_get_cols(rpath, dnames, douts, dsizes, 4);
+                        if(taskid[0] == '\0')
+                            snprint(taskid, sizeof taskid, "%s", fields[5]);
+                        if(worker[0] == '\0')
+                            snprint(worker, sizeof worker, "%s", fields[2]);
+                        CLASSIFY_TRIAGE_ROW();
+                        if(selected)
+                            WRITE_TRIAGE_ROW();
+                    }
+                    free(jbuf);
+                }
+                close(fd);
+            }
+        } else {
+            snprint(path, sizeof path, "%s/results", r);
+            fd = open(path, OREAD);
+            if(fd >= 0){
+                dirs = nil;
+                n = dirreadall(fd, &dirs);
+                close(fd);
+                for(i = 0; i < n; i++){
+                    if((dirs[i].mode & DMDIR) != 0 || !o9_has_suffix(dirs[i].name, ".tab"))
+                        continue;
+                    taskid[0] = worker[0] = source[0] = mutant[0] = result[0] = '\0';
+                    snprint(rpath, sizeof rpath, "%s/results/%s", r, dirs[i].name);
+                    o9_tsv_get_cols(rpath, names, outs, sizes, 5);
+                    if(strcmp(result, "survived") != 0 && strcmp(result, "timeout") != 0)
+                        continue;
+                    CLASSIFY_TRIAGE_ROW();
+                    if(selected)
+                        WRITE_TRIAGE_ROW();
+                }
+                free(dirs);
+            }
+        }
+
+        if(includeMissing){
+            snprint(path, sizeof path, "%s/tasks/done", r);
+            fd = open(path, OREAD);
+            if(fd >= 0){
+                dirs = nil;
+                n = dirreadall(fd, &dirs);
+                close(fd);
+                for(i = 0; i < n; i++){
+                    int l;
+                    if((dirs[i].mode & DMDIR) != 0 || !o9_has_suffix(dirs[i].name, ".tab"))
+                        continue;
+                    snprint(taskid, sizeof taskid, "%s", dirs[i].name);
+                    l = strlen(taskid);
+                    if(l > 4)
+                        taskid[l - 4] = '\0';
+                    snprint(rpath, sizeof rpath, "%s/results/%s.tab", r, taskid);
+                    if(access(rpath, 0) == 0)
+                        continue;
+                    worker[0] = source[0] = mutant[0] = result[0] = '\0';
+                    snprint(rpath, sizeof rpath, "%s/tasks/done/%s", r, dirs[i].name);
+                    o9_tsv_get_cols(rpath, dnames, douts, dsizes, 4);
+                    if(taskid[0] == '\0'){
+                        snprint(taskid, sizeof taskid, "%s", dirs[i].name);
+                        l = strlen(taskid);
+                        if(l > 4)
+                            taskid[l - 4] = '\0';
+                    }
+                    o9_strip_repo_prefix(source, rp);
+                    result[0] = '\0';
+                    snprint(klass, sizeof klass, "missing_report");
+                    snprint(confidence, sizeof confidence, "missing");
+                    snprint(suggested, sizeof suggested, "recover the result or rerun this task");
+                    snprint(reason, sizeof reason, "result file missing");
+                    WRITE_TRIAGE_ROW();
+                }
+                free(dirs);
+            }
+        }
+        close(ofd);
+        ofd = -1;
+        snprint(triagemsg, sizeof triagemsg, "triage\t%s\nrows\t%d\n", outpath, rows);
+        out = o9_string_from_c(triagemsg);
+        tdone:
+        #undef DETKEY
+        #undef CLASSIFY_TRIAGE_ROW
+        #undef WRITE_TRIAGE_ROW
+        if(ofd >= 0)
+            close(ofd);
+        free(r); free(op); free(rp); free(ep);
+    }
+    return out;
+}
+
 function O9MutReportRaw(string root) string {
     string out;
 
@@ -701,8 +1187,8 @@ function O9MutQueueWorkerRaw(string root, string worker, int64 idleMs, int64 max
                 close(fd);
                 claimed = 0;
                 for(i = 0; i < n && !claimed; i++){
-                    if(strlen(dirs[i].name) <= 4)
-                        continue;
+	                    if(!o9_has_suffix(dirs[i].name, ".tab"))
+	                        continue;
                     snprint(claimdir, sizeof claimdir, "%s/queue/chunks/claimed/%s", r, dirs[i].name);
                     fd = create(claimdir, OREAD, DMDIR|0755);
                     if(fd < 0)
@@ -765,9 +1251,9 @@ function O9MutQueueWorkerRaw(string root, string worker, int64 idleMs, int64 max
                                     pdirs = nil;
                                     pn = dirreadall(fd, &pdirs);
                                     close(fd);
-                                    for(pi = 0; pi < pn; pi++)
-                                        if(strlen(pdirs[pi].name) > 4)
-                                            pending++;
+	                                    for(pi = 0; pi < pn; pi++)
+	                                        if((pdirs[pi].mode & DMDIR) == 0 && o9_has_suffix(pdirs[pi].name, ".tab"))
+	                                            pending++;
                                     free(pdirs);
                                 }
                                 if(pending < maxPending)
@@ -827,17 +1313,18 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
     string out;
 
     c {
-        char *r, *w, *tmpenv;
-        char pdir[1024], lockdir[1024], claimfile[1024], taskpath[1024], resultpath[1024], donepath[1024], workerpath[1024], drainpath[1024];
+        char *r, *w, *tmpenv, *sysname;
+        char pdir[1024], lockdir[1024], claimfile[1024], taskpath[1024], resultpath[1024], donepath[1024], workerpath[1024], drainpath[1024], cfgpath[1024];
         char logpath[1024], scratch[1024], buf[8192], jpath[1024], detail[256], *taskbuf, *row, *fields[8], *s;
         char *taskid, *source, *mutant, *gate, *timeouttxt, *attempt, *result;
         Dir *dirs, *st;
-        int fd, n, rn, i, j, claimed, jobs, killed, survived, timeouts, setup, pid, timerpid, lfd, exitcode, timedout, childdone, timerdone;
+        int fd, n, rn, i, j, claimed, jobs, killed, survived, timeouts, setup, pid, timerpid, heartbeatpid, lfd, exitcode, timedout, childdone, timerdone, hbdone, heartbeatSec;
         vlong len, start, elapsed, timeoutms;
         Waitmsg *wm;
 
         r = o9_string_cstr(root);
         w = o9_string_cstr(worker);
+        sysname = nil;
         jobs = killed = survived = timeouts = setup = 0;
         if(r == nil || w == nil || r[0] == '\0' || w[0] == '\0') {
             out = o9_string_from_c("worker setup_error: missing root or worker\n");
@@ -845,12 +1332,17 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
             snprint(workerpath, sizeof workerpath, "%s/workers/%s.tab", r, w);
             snprint(drainpath, sizeof drainpath, "%s/workers/%s.drain", r, w);
             snprint(jpath, sizeof jpath, "%s/journal.log", r);
+            snprint(cfgpath, sizeof cfgpath, "%s/config.tab", r);
+            heartbeatSec = o9_kv_int(cfgpath, "heartbeat_sec", 30);
+            if(heartbeatSec <= 0)
+                heartbeatSec = 30;
+            sysname = getenv("sysname");
             o9_append_event(jpath, w, "worker_start", "worker", w, "");
             for(;;){
             fd = create(workerpath, OWRITE, 0644);
             if(fd >= 0){
                 fprint(fd, "worker_id\tnode\tpid\tstarted_at\tlast_seen\tstatus\tcurrent_task\n");
-                fprint(fd, "%s\t%s\t%d\t%lld\t%lld\tidle\t\n", w, getenv("sysname") != nil ? getenv("sysname") : "", getpid(), (vlong)time(0), (vlong)time(0));
+                fprint(fd, "%s\t%s\t%d\t%lld\t%lld\tidle\t\n", w, sysname != nil ? sysname : "", getpid(), (vlong)time(0), (vlong)time(0));
                 close(fd);
             }
             if(access(drainpath, 0) == 0){
@@ -867,9 +1359,9 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
             n = dirreadall(fd, &dirs);
             close(fd);
             claimed = 0;
-            for(i = 0; i < n && !claimed; i++){
-                if(strlen(dirs[i].name) <= 4)
-                    continue;
+	            for(i = 0; i < n && !claimed; i++){
+	                if((dirs[i].mode & DMDIR) != 0 || !o9_has_suffix(dirs[i].name, ".tab"))
+	                    continue;
                 taskid = strdup(dirs[i].name);
                 if(taskid == nil)
                     continue;
@@ -943,33 +1435,47 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
                 timeoutms = strtoll(timeouttxt, nil, 0);
                 if(timeoutms <= 0)
                     timeoutms = 300000;
-                snprint(logpath, sizeof logpath, "%s/logs/%s.%s.log", r, taskid, w);
-                tmpenv = getenv("O9MUT_TMP");
-                if(tmpenv == nil || tmpenv[0] == '\0')
-                    tmpenv = strdup("/tmp");
-                snprint(scratch, sizeof scratch, "%s/o9mut.%d.%s", tmpenv, getpid(), taskid);
-                fd = create(scratch, OREAD, DMDIR|0755);
-                if(fd >= 0) close(fd);
-                fd = create(workerpath, OWRITE, 0644);
-                if(fd >= 0){
-                    fprint(fd, "worker_id\tnode\tpid\tstarted_at\tlast_seen\tstatus\tcurrent_task\n");
-                    fprint(fd, "%s\t%s\t%d\t%lld\t%lld\trunning\t%s\n", w, getenv("sysname") != nil ? getenv("sysname") : "", getpid(), (vlong)time(0), (vlong)time(0), taskid);
-                    close(fd);
-                }
-                if(gate == nil || gate[0] == '\0'){
-                    fd = create(resultpath, OWRITE, 0644);
-                    if(fd >= 0){
+	                snprint(logpath, sizeof logpath, "%s/logs/%s.%s.log", r, taskid, w);
+	                tmpenv = getenv("O9MUT_TMP");
+	                if(tmpenv == nil || tmpenv[0] == '\0'){
+	                    if(tmpenv != nil)
+	                        free(tmpenv);
+	                    tmpenv = strdup("/tmp");
+	                }
+	                snprint(scratch, sizeof scratch, "%s/o9mut.%d.%s", tmpenv, getpid(), taskid);
+	                fd = create(scratch, OREAD, DMDIR|0755);
+	                if(fd >= 0) close(fd);
+	                fd = create(workerpath, OWRITE, 0644);
+	                if(fd >= 0){
+	                    fprint(fd, "worker_id\tnode\tpid\tstarted_at\tlast_seen\tstatus\tcurrent_task\n");
+	                    fprint(fd, "%s\t%s\t%d\t%lld\t%lld\trunning\t%s\n", w, sysname != nil ? sysname : "", getpid(), (vlong)time(0), (vlong)time(0), taskid);
+	                    close(fd);
+	                }
+	                if(gate == nil || gate[0] == '\0'){
+	                    fd = create(resultpath, OWRITE, 0644);
+	                    if(fd >= 0){
                         fprint(fd, "task_id\tworker_id\tsource\tmutant_path\tresult\texit_code\tseconds\tlog_path\treason\tfinished_at\n");
                         fprint(fd, "%s\t%s\t%s\t%s\tsetup_error\t1\t0\t%s\tmissing gate\t%lld\n", taskid, w, source, mutant, logpath, (vlong)time(0));
                         close(fd);
-                    }
-                    snprint(detail, sizeof detail, "result=setup_error\texit_code=1\treason=missing_gate");
-                    o9_append_event(jpath, w, "task_done", "task", taskid, detail);
-                    setup++;
-                    jobs++;
-                    free(taskbuf);
-                    free(taskid);
-                    free(tmpenv);
+		                    }
+		                    snprint(detail, sizeof detail, "result=setup_error\texit_code=1\treason=missing_gate");
+		                    o9_append_event(jpath, w, "gate_exit", "task", taskid, detail);
+		                    o9_append_event(jpath, w, "task_done", "task", taskid, detail);
+	                    snprint(donepath, sizeof donepath, "%s/tasks/done/%s.tab", r, taskid);
+	                    fd = create(donepath, OWRITE, 0644);
+	                    if(fd >= 0){
+	                        fprint(fd, "task_id\tworker_id\tfinished_at\n%s\t%s\t%lld\n", taskid, w, (vlong)time(0));
+	                        close(fd);
+	                    }
+	                    remove(taskpath);
+	                    remove(claimfile);
+	                    remove(lockdir);
+	                    remove(scratch);
+	                    setup++;
+	                    jobs++;
+	                    free(taskbuf);
+	                    free(taskid);
+	                    free(tmpenv);
                     continue;
                 }
                 start = nsec();
@@ -1004,13 +1510,29 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
                         write(nfd, "kill", 4);
                         close(nfd);
                     }
-                    exits(nil);
-                }
-                childdone = timerdone = timedout = 0;
-                exitcode = 1;
-                while((wm = wait()) != nil){
-                    if(wm->pid == pid){
-                        if(wm->msg == nil || wm->msg[0] == '\0')
+	                    exits(nil);
+	                }
+	                heartbeatpid = rfork(RFPROC|RFFDG|RFNOTEG);
+	                if(heartbeatpid == 0){
+	                    for(;;){
+	                        sleep(heartbeatSec * 1000);
+	                        fd = create(workerpath, OWRITE, 0644);
+	                        if(fd >= 0){
+	                            fprint(fd, "worker_id\tnode\tpid\tstarted_at\tlast_seen\tstatus\tcurrent_task\n");
+	                            fprint(fd, "%s\t%s\t%d\t%lld\t%lld\trunning\t%s\n", w, sysname != nil ? sysname : "", getpid(), (vlong)time(0), (vlong)time(0), taskid);
+	                            close(fd);
+	                        }
+	                        snprint(detail, sizeof detail, "status=running\ttask=%s", taskid);
+	                        o9_append_event(jpath, w, "worker_heartbeat", "worker", w, detail);
+	                    }
+	                }
+	                childdone = timerdone = hbdone = timedout = 0;
+	                if(heartbeatpid < 0)
+	                    hbdone = 1;
+	                exitcode = 1;
+	                while((wm = wait()) != nil){
+	                    if(wm->pid == pid){
+	                        if(wm->msg == nil || wm->msg[0] == '\0')
                             exitcode = 0;
                         else
                             exitcode = 1;
@@ -1018,14 +1540,16 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
                             timedout = 1;
                         if(wm->msg != nil && strstr(wm->msg, "kill") != nil)
                             timedout = 1;
-                        childdone = 1;
-                    } else if(wm->pid == timerpid) {
-                        timerdone = 1;
-                    }
-                    free(wm);
-                    if(childdone)
-                        break;
-                }
+	                        childdone = 1;
+	                    } else if(wm->pid == timerpid) {
+	                        timerdone = 1;
+	                    } else if(wm->pid == heartbeatpid) {
+	                        hbdone = 1;
+	                    }
+	                    free(wm);
+	                    if(childdone)
+	                        break;
+	                }
                 if(!timerdone){
                     char note[64];
                     int nfd;
@@ -1040,11 +1564,28 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
                             free(wm);
                             break;
                         }
-                        free(wm);
-                    }
-                }
-                elapsed = (nsec() - start) / 1000000000LL;
-                result = "infra_fail";
+	                        free(wm);
+	                    }
+	                }
+	                if(!hbdone){
+	                    char note[64];
+	                    int nfd;
+	                    snprint(note, sizeof note, "/proc/%d/notepg", heartbeatpid);
+	                    nfd = open(note, OWRITE);
+	                    if(nfd >= 0){
+	                        write(nfd, "kill", 4);
+	                        close(nfd);
+	                    }
+	                    while((wm = wait()) != nil){
+	                        if(wm->pid == heartbeatpid){
+	                            free(wm);
+	                            break;
+	                        }
+	                        free(wm);
+	                    }
+	                }
+	                elapsed = (nsec() - start) / 1000000000LL;
+	                result = "infra_fail";
                 fd = create(resultpath, OWRITE, 0644);
                 if(fd >= 0){
                     fprint(fd, "task_id\tworker_id\tsource\tmutant_path\tresult\texit_code\tseconds\tlog_path\treason\tfinished_at\n");
@@ -1063,7 +1604,10 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
                     }
                     close(fd);
                 }
-                snprint(detail, sizeof detail, "result=%s\texit_code=%d\tseconds=%lld", result, exitcode, elapsed);
+	                if(timedout)
+	                    snprint(detail, sizeof detail, "result=%s\texit_code=%d\tseconds=%lld\ttimeout_ms=%lld", result, exitcode, elapsed, timeoutms);
+	                else
+	                    snprint(detail, sizeof detail, "result=%s\texit_code=%d\tseconds=%lld", result, exitcode, elapsed);
                 o9_append_event(jpath, w, "gate_exit", "task", taskid, detail);
                 snprint(donepath, sizeof donepath, "%s/tasks/done/%s.tab", r, taskid);
                 fd = create(donepath, OWRITE, 0644);
@@ -1073,12 +1617,13 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
                 }
                 snprint(detail, sizeof detail, "result=%s", result);
                 o9_append_event(jpath, w, "task_done", "task", taskid, detail);
-                remove(taskpath);
-                remove(claimfile);
-                remove(lockdir);
-                jobs++;
-                free(taskbuf);
-                free(taskid);
+	                remove(taskpath);
+	                remove(claimfile);
+	                remove(lockdir);
+	                remove(scratch);
+	                jobs++;
+	                free(taskbuf);
+	                free(taskid);
                 free(tmpenv);
             }
             free(dirs);
@@ -1089,12 +1634,13 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
                 sleep(idleMs > 0 ? idleMs : 1000);
             }
             }
-            o9_append_event(jpath, w, "worker_stop", "worker", w, "");
-            snprint(buf, sizeof buf, "worker\t%s\njobs\t%d\nkilled\t%d\nsurvived\t%d\ntimeout\t%d\nsetup_error\t%d\n", w, jobs, killed, survived, timeouts, setup);
-            out = o9_string_from_c(buf);
-        }
-        free(r); free(w);
-    }
+	            o9_append_event(jpath, w, "worker_stop", "worker", w, "");
+	            snprint(buf, sizeof buf, "worker\t%s\njobs\t%d\nkilled\t%d\nsurvived\t%d\ntimeout\t%d\nsetup_error\t%d\n", w, jobs, killed, survived, timeouts, setup);
+	            out = o9_string_from_c(buf);
+	        }
+	        free(sysname);
+	        free(r); free(w);
+	    }
     return out;
 }
 
@@ -1107,6 +1653,26 @@ function O9MutDaemonRaw(string root, int64 intervalMs, int64 staleSec, int64 cyc
     return out;
 }
 
+function O9MutDaemonCycleRaw(string root, int64 cycle) int64 {
+    int64 ok;
+
+    c {
+        char *r;
+        char jpath[1024], detail[128];
+
+        ok = 0;
+        r = o9_string_cstr(root);
+        if(r != nil && r[0] != '\0'){
+            snprint(jpath, sizeof jpath, "%s/journal.log", r);
+            snprint(detail, sizeof detail, "cycle=%lld", (vlong)cycle);
+            o9_append_event(jpath, "daemon", "daemon_cycle", "root", r, detail);
+            ok = 1;
+        }
+        free(r);
+    }
+    return ok;
+}
+
 /* Wait for the grid to drain: poll the four in-flight queues until every
  * one is empty. Returns "drained\n" once pending, claimed, chunks_pending,
  * and chunks_claimed are all zero; "timeout\t...\n" once timeoutMs has
@@ -1117,16 +1683,15 @@ function O9MutWaitDrainRaw(string root, int64 timeoutMs, int64 intervalMs) strin
     string out;
 
     c {
-        char *r;
-        char ppath[1024], cpath[1024], cppath[1024], ccpath[1024], buf[256];
-        Dir *d;
-        int fd, n;
-        long pend, claim, cpend, cclaim;
-        vlong elapsed;
+	        char *r, *rf;
+	        char ppath[1024], cpath[1024], cppath[1024], ccpath[1024], buf[256];
+	        long pend, claim, cpend, cclaim;
+	        vlong elapsed;
 
-        r = o9_string_cstr(root);
-        if(r == nil || r[0] == '\0')
-            r = "/n/babyFileServer.rentonsoftworks.coin/o9mut";
+	        rf = o9_string_cstr(root);
+	        r = rf;
+	        if(r == nil || r[0] == '\0')
+	            r = "/n/babyFileServer.rentonsoftworks.coin/o9mut";
         if(intervalMs <= 0)
             intervalMs = 1000;
         elapsed = 0;
@@ -1135,25 +1700,24 @@ function O9MutWaitDrainRaw(string root, int64 timeoutMs, int64 intervalMs) strin
             snprint(cpath, sizeof cpath, "%s/tasks/claimed", r);
             snprint(cppath, sizeof cppath, "%s/queue/chunks/pending", r);
             snprint(ccpath, sizeof ccpath, "%s/queue/chunks/claimed", r);
-            #define DIRCOUNT(p, cnt) do { cnt = 0; d = nil; fd = open(p, OREAD); if(fd >= 0){ n = dirreadall(fd, &d); if(n >= 0) cnt = n; close(fd); } free(d); } while(0)
-            DIRCOUNT(ppath, pend);
-            DIRCOUNT(cpath, claim);
-            DIRCOUNT(cppath, cpend);
-            DIRCOUNT(ccpath, cclaim);
-            #undef DIRCOUNT
+	            pend = o9_count_dir(ppath, 0, ".tab");
+	            claim = o9_count_dir(cpath, 1, nil);
+	            cpend = o9_count_dir(cppath, 0, ".tab");
+	            cclaim = o9_count_dir(ccpath, 1, nil);
             if(pend == 0 && claim == 0 && cpend == 0 && cclaim == 0){
                 out = o9_string_from_c("drained\n");
                 goto wdone;
             }
             if(timeoutMs > 0 && elapsed >= timeoutMs){
-                snprint(buf, sizeof buf, "timeout\tpending=%ld\tclaimed=%ld\tchunks_pending=%ld\tchunks_claimed=%ld\n", pend, claim, cpend, cclaim);
+                snprint(buf, sizeof buf, "timeout\tdrain timed out\tpending=%ld\tclaimed=%ld\tchunks_pending=%ld\tchunks_claimed=%ld\n", pend, claim, cpend, cclaim);
                 out = o9_string_from_c(buf);
                 goto wdone;
             }
             sleep((long)intervalMs);
             elapsed += intervalMs;
         }
-        wdone: ;
+	        wdone:
+	        free(rf);
     }
     return out;
 }
@@ -1185,7 +1749,12 @@ class O9Mut {
     }
 
     method string status(string root) {
-        Task<string> t = spawn O9MutStatusRaw(root);
+        Task<string> t = spawn O9MutStatusRaw(root, 0, 0, 0);
+        return t.await();
+    }
+
+    method string statusEx(string root, int64 bySource, int64 workers, int64 fromJournal) {
+        Task<string> t = spawn O9MutStatusRaw(root, bySource, workers, fromJournal);
         return t.await();
     }
 
@@ -1205,6 +1774,11 @@ class O9Mut {
         return t.await();
     }
 
+    method string triage(string root, string output, int64 fromJournal, string repo, int64 classifyEquivalent, int64 classifyWhitespace, int64 includeMissing, string equivFile) {
+        Task<string> t = spawn O9MutTriageRaw(root, output, fromJournal, repo, classifyEquivalent, classifyWhitespace, includeMissing, equivFile);
+        return t.await();
+    }
+
     method string runQueueWorker(string root, string worker, int64 idleMs, int64 maxPending) {
         Task<string> t = spawn O9MutQueueWorkerRaw(root, worker, idleMs, maxPending);
         return t.await();
@@ -1218,6 +1792,11 @@ class O9Mut {
     method string runDaemon(string root, int64 intervalMs, int64 staleSec, int64 cycles) {
         Task<string> t = spawn O9MutDaemonRaw(root, intervalMs, staleSec, cycles);
         return t.await();
+    }
+
+    method bool daemonCycle(string root, int64 cycle) {
+        Task<int64> t = spawn O9MutDaemonCycleRaw(root, cycle);
+        return t.await() == 1;
     }
 
     method string waitDrain(string root, int64 timeoutMs, int64 intervalMs) {

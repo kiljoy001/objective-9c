@@ -3,7 +3,7 @@
 rfork e
 
 repo=`{pwd}
-nodes=(dev9p authomatic babyFileServer.rentonsoftworks.coin)
+nodes=(dev9p.rentonsoftworks.coin Authomatic.rentonsoftworks.coin babyFileServer.rentonsoftworks.coin)
 workers=3
 jobs=0
 root=''
@@ -14,14 +14,18 @@ confirm=1
 daemon=0
 waitdrain=0
 drain_timeout=3600
+launchmode=rcpu
+agentprefix=''
 
 fn usage {
-	echo 'usage: grid/run_3node_campaign.rc [-A] [-y] [-W] [-D] [-r root]' >[1=2]
+	echo 'usage: grid/run_3node_campaign.rc [-A] [-y] [-W] [-D] [-L rcpu|agent] [-M agent-path-prefix] [-r root]' >[1=2]
 	echo '  [-n workers-per-node] [-j jobs-per-worker] [-T drain-timeout-sec] [-E enqueue.rc] [node ...]' >[1=2]
 	echo '  -j 0 means persistent workers; drain them with o9mutctl drain-worker' >[1=2]
 	echo '  -A skips rcpu auth probes; -y skips the interactive login confirmation' >[1=2]
 	echo '  -D launches one o9mutd recovery daemon (cycles=0) on the first node' >[1=2]
 	echo '  -W blocks until the grid drains after launching; -T sets the drain timeout (default 3600s)' >[1=2]
+	echo '  -L agent queues tabula launch commands for resident o9mutagent.rc processes' >[1=2]
+	echo '  -M prefixes paths inside agent commands, e.g. /mnt/term for rcpu-bootstrapped agents' >[1=2]
 	exit usage
 }
 
@@ -46,6 +50,14 @@ while(! ~ $#* 0){
 	case -T
 		if(~ $#* 1) usage
 		drain_timeout=$2
+		shift
+	case -L
+		if(~ $#* 1) usage
+		launchmode=$2
+		shift
+	case -M
+		if(~ $#* 1) usage
+		agentprefix=$2
 		shift
 	case -A
 		authcheck=0
@@ -103,6 +115,9 @@ echo root $root
 echo nodes $nodes
 echo workers_per_node $workers
 echo jobs_per_worker $jobs
+echo launch_mode $launchmode
+if(! ~ $agentprefix '')
+	echo agent_path_prefix $agentprefix
 if(! ~ $enqueue '')
 	echo enqueue_script $enqueue
 if(~ $daemon 1)
@@ -110,12 +125,23 @@ if(~ $daemon 1)
 if(~ $waitdrain 1)
 	echo wait_drain yes timeout $drain_timeout
 
+if(! ~ $launchmode rcpu agent)
+	usage
+if(~ $launchmode agent)
+	authcheck=0
+
 if(~ $confirm 1){
 	echo ''
-	echo 'preflight: each target node must already accept rcpu without prompting.'
-	echo 'run these manually first if you have not already logged in:'
-	for(node in $nodes)
-		echo '  rcpu -h '$node' -c ''echo ok'''
+	if(~ $launchmode rcpu){
+		echo 'preflight: each target node must already accept rcpu without prompting.'
+		echo 'run these manually first if you have not already logged in:'
+		for(node in $nodes)
+			echo '  rcpu -h '$node' -c ''echo ok'''
+	}
+	if(~ $launchmode agent){
+		echo 'preflight: one o9mutagent.rc process must already be running on each target node.'
+		echo 'agent commands will be queued as inert .tab files; this run will not call rcpu.'
+	}
 	echo ''
 	echo 'type y and press Enter to continue launching after node login preflight: [y/n]'
 	answer=`{read}
@@ -160,6 +186,8 @@ binpaths=()
 for(name in $buildlist)
 	binpaths=($binpaths $try/$name)
 cp $binpaths $bindir
+if(~ $launchmode agent)
+	cp grid/o9mutagent.rc $bindir
 
 if(! ~ $enqueue ''){
 	echo enqueue
@@ -193,11 +221,74 @@ remotebindir=/mnt/term^$bindir
 # explicitly frees the gate from its hardcoded /mnt/term/mnt/term/home/scott
 # fallback. The worker's gate child inherits this via rfork+execl.
 remoterepo=/mnt/term^$repo
+agentroot=$root
+agentbindir=$bindir
+agentrepo=$repo
+if(! ~ $agentprefix ''){
+	agentroot=$agentprefix^$root
+	agentbindir=$agentprefix^$bindir
+	agentrepo=$agentprefix^$repo
+}
+
+fn agent_dirs {
+	node=$1
+	mkdir $root/agents >[2]/dev/null
+	mkdir $root/agents/$node >[2]/dev/null
+	mkdir $root/agents/$node/pending >[2]/dev/null
+	mkdir $root/agents/$node/claimed >[2]/dev/null
+	mkdir $root/agents/$node/done >[2]/dev/null
+	mkdir $root/agents/$node/failed >[2]/dev/null
+}
+
+fn agent_common {
+	node=$1
+	id=$2
+	op=$3
+	worker=$4
+	jobsv=$5
+	idlev=$6
+	maxpendingv=$7
+	intervalv=$8
+	stalev=$9
+	agent_dirs $node
+	cmdpath=$root/agents/$node/pending/$id.tab
+	echo 'op	root	bindir	repo	worker	jobs	idle_ms	max_pending	interval_ms	stale_sec	cycles	log' >$cmdpath
+	echo $op'	'$agentroot'	'$agentbindir'	'$agentrepo'	'$worker'	'$jobsv'	'$idlev'	'$maxpendingv'	'$intervalv'	'$stalev'	'$cyclesv'	'$log >>$cmdpath
+}
+
+fn agent_worker_cmd {
+	node=$1
+	worker=$2
+	id=$worker^'.'^$pid
+	log=$agentroot/logs/launch.$worker.out
+	cyclesv=-
+	agent_common $node $id start-worker $worker $jobs 5000 - - -
+}
+
+fn agent_queue_cmd {
+	node=$1
+	worker=$2
+	id=$worker^'.'^$pid
+	log=$agentroot/logs/launchq.$node.out
+	cyclesv=-
+	agent_common $node $id start-queue $worker - 1000 512 - -
+}
+
+fn agent_daemon_cmd {
+	node=$1
+	id=daemon.$pid
+	log=$agentroot/logs/daemon.out
+	cyclesv=0
+	agent_common $node $id start-daemon daemon - - - 30000 300
+}
 
 if(~ $daemon 1){
 	daemonnode=$nodes(1)
 	echo launch-daemon $daemonnode
-	rcpu -h $daemonnode -c 'O9MUT_PLAN9_REPO='$remoterepo' '$remotebindir/o9mutd' -r '$remoteroot' -cycles 0 -interval-ms 30000 -stale-sec 300' </dev/null >$root/logs/daemon.out >[2=1] &
+	if(~ $launchmode rcpu)
+		rcpu -h $daemonnode -c 'O9MUT_PLAN9_REPO='$remoterepo' '$remotebindir/o9mutd' -r '$remoteroot' -cycles 0 -interval-ms 30000 -stale-sec 300' </dev/null >$root/logs/daemon.out >[2=1] &
+	if(~ $launchmode agent)
+		agent_daemon_cmd $daemonnode
 }
 if(! ~ $daemon 1){
 	echo 'no daemon: run o9mutctl requeue-stale manually, or relaunch with -D'
@@ -206,19 +297,39 @@ if(! ~ $daemon 1){
 echo launch-queue
 for(node in $nodes){
 	qworker=$node^'-queue'
-	echo rcpu-queue $node $qworker
-	rcpu -h $node -c $remotebindir/o9mutq' -r '$remoteroot' -w '$qworker' -idle-ms 1000 -max-pending 512' </dev/null >$root/logs/launchq.$node.out >[2=1] &
+	if(~ $launchmode rcpu){
+		echo rcpu-queue $node $qworker
+		rcpu -h $node -c $remotebindir/o9mutq' -r '$remoteroot' -w '$qworker' -idle-ms 1000 -max-pending 512' </dev/null >$root/logs/launchq.$node.out >[2=1] &
+	}
+	if(~ $launchmode agent){
+		echo agent-queue $node $qworker
+		agent_queue_cmd $node $qworker
+	}
 }
 echo launch-workers
 for(node in $nodes){
 	for(w in `{seq 1 $workers}){
 		worker=$node^-$w
-		echo rcpu $node $worker
-		rcpu -h $node -c 'O9MUT_PLAN9_REPO='$remoterepo' '$remotebindir/o9mutw' -r '$remoteroot' -w '$worker' -n '$jobs' -idle-ms 5000' </dev/null >$root/logs/launch.$worker.out >[2=1] &
+		if(~ $launchmode rcpu){
+			echo rcpu $node $worker
+			rcpu -h $node -c 'O9MUT_PLAN9_REPO='$remoterepo' '$remotebindir/o9mutw' -r '$remoteroot' -w '$worker' -n '$jobs' -idle-ms 5000' </dev/null >$root/logs/launch.$worker.out >[2=1] &
+		}
+		if(~ $launchmode agent){
+			echo agent $node $worker
+			agent_worker_cmd $node $worker
+		}
 	}
 }
 
 echo launched
+if(~ $launchmode agent){
+	echo 'agent launch mode: start one agent per node if it is not already running:'
+	for(node in $nodes)
+		echo '  '$agentbindir'/o9mutagent.rc -r '$agentroot' -n '$node
+	echo 'agent command status:'
+	echo '  ls '$root'/agents/*/done'
+	echo '  ls '$root'/agents/*/failed'
+}
 echo 'monitor with:'
 echo '  '$bindir'/o9mutctl -r '$root' status'
 echo '  '$bindir'/o9mutctl -r '$root' report'
