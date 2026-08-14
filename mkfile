@@ -185,13 +185,16 @@ RUNTIME_OBJ=\
 	o9_crypto.$O\
 	monocypher.$O\
 
-# The libtab checkout beside this one, not a vendored copy. This tree
-# carried its own snapshot of the sources, and it drifted the same way
-# the py-libtab copy did: upstream fixed text encoding and grew three
-# files, and the snapshot here kept serialising the old grammar. One
-# library, one set of sources; a build against a stale copy is a build
-# against bugs that were already fixed.
-LIBTABDIR=../libtab
+# libtab is a git submodule at ./libtab (see .gitmodules), pinned to a
+# commit on its main branch. One library, one set of sources; this used
+# to carry a stale vendored snapshot that drifted behind upstream's
+# text-encoding fix and the three files it grew (tab_emit, tab_text,
+# tab_writer), so a build here was a build against bugs already fixed.
+# Capture upstream updates and fixes with:
+#   git submodule update --remote libtab      # advance to latest main
+#   git add libtab                            # record the new pointer
+# A fresh clone needs: git submodule update --init
+LIBTABDIR=libtab
 LIBTAB_OBJ=\
 	libtab_tab_error.$O\
 	libtab_tab_create.$O\
@@ -265,8 +268,8 @@ libtab_tab_emit.$O:	$LIBTABDIR/tab_emit.c $LIBTABDIR/libtab.h $LIBTABDIR/tab_int
 libtab_tab_text.$O:	$LIBTABDIR/tab_text.c $LIBTABDIR/libtab.h $LIBTABDIR/tab_internal.h
 	$CC -I$LIBTABDIR -o $target $LIBTABDIR/tab_text.c
 
-libtab_tab_writer.$O:	$LIBTABDIR/tab_writer.c $LIBTABDIR/libtab.h $LIBTABDIR/tab_internal.h
-	$CC -I$LIBTABDIR -o $target $LIBTABDIR/tab_writer.c
+libtab_tab_writer.$O:	$LIBTABDIR/tab_writer.c $LIBTABDIR/libtab.h $LIBTABDIR/tab_internal.h $LIBTABDIR/monocypher.h
+	$CC -DMONO_PLAN9 -I$LIBTABDIR -o $target $LIBTABDIR/tab_writer.c
 
 libo9.a:	$RUNTIME_OBJ $LIBTAB_OBJ
 	ar r libo9.a $RUNTIME_OBJ $LIBTAB_OBJ
