@@ -1107,6 +1107,57 @@ function O9MutDaemonRaw(string root, int64 intervalMs, int64 staleSec, int64 cyc
     return out;
 }
 
+/* Wait for the grid to drain: poll the four in-flight queues until every
+ * one is empty. Returns "drained\n" once pending, claimed, chunks_pending,
+ * and chunks_claimed are all zero; "timeout\t...\n" once timeoutMs has
+ * elapsed (timeoutMs <= 0 means wait forever). The caller decides what a
+ * timeout means — o9 has no exit statement, so the ctl tool surfaces a
+ * non-zero status by inspecting this string rather than via a process exit. */
+function O9MutWaitDrainRaw(string root, int64 timeoutMs, int64 intervalMs) string {
+    string out;
+
+    c {
+        char *r;
+        char ppath[1024], cpath[1024], cppath[1024], ccpath[1024], buf[256];
+        Dir *d;
+        int fd, n;
+        long pend, claim, cpend, cclaim;
+        vlong elapsed;
+
+        r = o9_string_cstr(root);
+        if(r == nil || r[0] == '\0')
+            r = "/n/babyFileServer.rentonsoftworks.coin/o9mut";
+        if(intervalMs <= 0)
+            intervalMs = 1000;
+        elapsed = 0;
+        for(;;){
+            snprint(ppath, sizeof ppath, "%s/tasks/pending", r);
+            snprint(cpath, sizeof cpath, "%s/tasks/claimed", r);
+            snprint(cppath, sizeof cppath, "%s/queue/chunks/pending", r);
+            snprint(ccpath, sizeof ccpath, "%s/queue/chunks/claimed", r);
+            #define DIRCOUNT(p, cnt) do { cnt = 0; d = nil; fd = open(p, OREAD); if(fd >= 0){ n = dirreadall(fd, &d); if(n >= 0) cnt = n; close(fd); } free(d); } while(0)
+            DIRCOUNT(ppath, pend);
+            DIRCOUNT(cpath, claim);
+            DIRCOUNT(cppath, cpend);
+            DIRCOUNT(ccpath, cclaim);
+            #undef DIRCOUNT
+            if(pend == 0 && claim == 0 && cpend == 0 && cclaim == 0){
+                out = o9_string_from_c("drained\n");
+                goto wdone;
+            }
+            if(timeoutMs > 0 && elapsed >= timeoutMs){
+                snprint(buf, sizeof buf, "timeout\tpending=%ld\tclaimed=%ld\tchunks_pending=%ld\tchunks_claimed=%ld\n", pend, claim, cpend, cclaim);
+                out = o9_string_from_c(buf);
+                goto wdone;
+            }
+            sleep((long)intervalMs);
+            elapsed += intervalMs;
+        }
+        wdone: ;
+    }
+    return out;
+}
+
 class O9Mut {
     method string defaultRoot() {
         Task<string> t = spawn O9MutDefaultRootRaw();
@@ -1166,6 +1217,11 @@ class O9Mut {
 
     method string runDaemon(string root, int64 intervalMs, int64 staleSec, int64 cycles) {
         Task<string> t = spawn O9MutDaemonRaw(root, intervalMs, staleSec, cycles);
+        return t.await();
+    }
+
+    method string waitDrain(string root, int64 timeoutMs, int64 intervalMs) {
+        Task<string> t = spawn O9MutWaitDrainRaw(root, timeoutMs, intervalMs);
         return t.await();
     }
 }

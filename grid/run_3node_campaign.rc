@@ -11,11 +11,17 @@ enqueue=''
 fail=0
 authcheck=1
 confirm=1
+daemon=0
+waitdrain=0
+drain_timeout=3600
 
 fn usage {
-	echo 'usage: grid/run_3node_campaign.rc [-A] [-y] [-r root] [-n workers-per-node] [-j jobs-per-worker] [-E enqueue.rc] [node ...]' >[1=2]
+	echo 'usage: grid/run_3node_campaign.rc [-A] [-y] [-W] [-D] [-r root]' >[1=2]
+	echo '  [-n workers-per-node] [-j jobs-per-worker] [-T drain-timeout-sec] [-E enqueue.rc] [node ...]' >[1=2]
 	echo '  -j 0 means persistent workers; drain them with o9mutctl drain-worker' >[1=2]
 	echo '  -A skips rcpu auth probes; -y skips the interactive login confirmation' >[1=2]
+	echo '  -D launches one o9mutd recovery daemon (cycles=0) on the first node' >[1=2]
+	echo '  -W blocks until the grid drains after launching; -T sets the drain timeout (default 3600s)' >[1=2]
 	exit usage
 }
 
@@ -37,10 +43,18 @@ while(! ~ $#* 0){
 		if(~ $#* 1) usage
 		enqueue=$2
 		shift
+	case -T
+		if(~ $#* 1) usage
+		drain_timeout=$2
+		shift
 	case -A
 		authcheck=0
 	case -y
 		confirm=0
+	case -D
+		daemon=1
+	case -W
+		waitdrain=1
 	case -h --help
 		usage
 	case *
@@ -91,6 +105,10 @@ echo workers_per_node $workers
 echo jobs_per_worker $jobs
 if(! ~ $enqueue '')
 	echo enqueue_script $enqueue
+if(~ $daemon 1)
+	echo daemon yes
+if(~ $waitdrain 1)
+	echo wait_drain yes timeout $drain_timeout
 
 if(~ $confirm 1){
 	echo ''
@@ -123,7 +141,10 @@ if(! test -e $stdsrc/process.o9){
 }
 cp $stdsrc/*.o9 $src/stdlib
 
-for(name in o9mutctl o9mutq o9mutw)
+buildlist=(o9mutctl o9mutq o9mutw)
+if(~ $daemon 1)
+	buildlist=($buildlist o9mutd)
+for(name in $buildlist)
 	buildtool $name
 
 if(! ~ $fail 0)
@@ -135,7 +156,10 @@ if(! $try/o9mutctl -r $root init)
 
 bindir=$root/bin
 mkdir $bindir >[2]/dev/null
-cp $try/o9mutctl $try/o9mutq $try/o9mutw $bindir
+binpaths=()
+for(name in $buildlist)
+	binpaths=($binpaths $try/$name)
+cp $binpaths $bindir
 
 if(! ~ $enqueue ''){
 	echo enqueue
@@ -164,6 +188,21 @@ if(~ $authcheck 1){
 echo launch
 remoteroot=/mnt/term^$root
 remotebindir=/mnt/term^$bindir
+# Node-visible repo path: the gate (o9um_gate.rc) copies the repo out of the
+# launch host's tree, which every node sees under /mnt/term. Exporting it
+# explicitly frees the gate from its hardcoded /mnt/term/mnt/term/home/scott
+# fallback. The worker's gate child inherits this via rfork+execl.
+remoterepo=/mnt/term^$repo
+
+if(~ $daemon 1){
+	daemonnode=$nodes(1)
+	echo launch-daemon $daemonnode
+	rcpu -h $daemonnode -c 'O9MUT_PLAN9_REPO='$remoterepo' '$remotebindir/o9mutd' -r '$remoteroot' -cycles 0 -interval-ms 30000 -stale-sec 300' </dev/null >$root/logs/daemon.out >[2=1] &
+}
+if(! ~ $daemon 1){
+	echo 'no daemon: run o9mutctl requeue-stale manually, or relaunch with -D'
+}
+
 echo launch-queue
 for(node in $nodes){
 	qworker=$node^'-queue'
@@ -175,7 +214,7 @@ for(node in $nodes){
 	for(w in `{seq 1 $workers}){
 		worker=$node^-$w
 		echo rcpu $node $worker
-		rcpu -h $node -c $remotebindir/o9mutw' -r '$remoteroot' -w '$worker' -n '$jobs' -idle-ms 5000' </dev/null >$root/logs/launch.$worker.out >[2=1] &
+		rcpu -h $node -c 'O9MUT_PLAN9_REPO='$remoterepo' '$remotebindir/o9mutw' -r '$remoteroot' -w '$worker' -n '$jobs' -idle-ms 5000' </dev/null >$root/logs/launch.$worker.out >[2=1] &
 	}
 }
 
@@ -188,3 +227,17 @@ echo 'drain with:'
 for(node in $nodes)
 	for(w in `{seq 1 $workers})
 		echo '  '$bindir'/o9mutctl -r '$root' drain-worker '$node^-$w
+if(~ $daemon 1)
+	echo '  kill the daemon on '$nodes(1)' (root/logs/daemon.out) when done'
+
+if(~ $waitdrain 1){
+	echo wait-drain
+	$bindir/o9mutctl -r $root wait-drain $drain_timeout >$root/logs/wait-drain.out >[2=1]
+	if(grep -s '^timeout' $root/logs/wait-drain.out){
+		echo 'drain timed out:' >[1=2]
+		cat $root/logs/wait-drain.out >[1=2]
+		exit drain
+	}
+	echo drain-complete
+	cat $root/logs/wait-drain.out
+}

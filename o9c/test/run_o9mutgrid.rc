@@ -98,6 +98,23 @@ if(! grep -s 'done	2' $tmp/status.out){
 	fail=1
 }
 
+# wait-drain reports drained once the grid is empty (work already processed)
+$tmp/o9mutctl -r $root wait-drain 5 >$tmp/drain.ok.out >[2=1]
+if(! grep -s '^drained' $tmp/drain.ok.out){
+	echo 'o9mutgrid: wait-drain did not report drained' >[1=2]
+	cat $tmp/drain.ok.out >[1=2]
+	fail=1
+}
+
+# wait-drain times out when work stays pending (no worker picks it up)
+$tmp/o9mutctl -r $root enqueue stuck sample sample 'echo pass' 5000 100 >[2]/dev/null
+$tmp/o9mutctl -r $root wait-drain 1 200 >$tmp/drain.to.out >[2=1]
+if(! grep -s '^timeout' $tmp/drain.to.out){
+	echo 'o9mutgrid: wait-drain did not time out' >[1=2]
+	cat $tmp/drain.to.out >[1=2]
+	fail=1
+}
+
 if(~ $fail 0)
 	echo o9mutgrid: OK
 

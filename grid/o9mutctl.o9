@@ -12,7 +12,7 @@ main {
     int64 nargs = p.argc();
 
     if(nargs < 2) {
-        print("usage: o9mutctl [-r root] init|status|report|requeue-stale|drain-worker|manifest|enqueue ...\n");
+        print("usage: o9mutctl [-r root] init|status|report|requeue-stale|drain-worker|manifest|enqueue|wait-drain ...\n");
     } else {
         int64 idx = 1;
         if(nargs > 3 && cmp(p.arg(1), "-r") == 0) {
@@ -58,6 +58,16 @@ main {
                 }
                 print(grid.enqueue(root, p.arg(idx + 1), p.arg(idx + 2), p.arg(idx + 3), p.arg(idx + 4), p.arg(idx + 5), priority));
             }
+        } else if(cmp(cmd, "wait-drain") == 0) {
+            int64 timeoutSec = 0;
+            int64 intervalMs = 1000;
+            if(nargs > idx + 1) {
+                timeoutSec = tm.parse(p.arg(idx + 1));
+            }
+            if(nargs > idx + 2) {
+                intervalMs = tm.parse(p.arg(idx + 2));
+            }
+            print(grid.waitDrain(root, timeoutSec * 1000, intervalMs));
         } else {
             print("unknown command\t", cmd, "\n");
         }
