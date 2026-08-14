@@ -229,6 +229,175 @@ function IOByteStringRaw(byte b) string {
     return out;
 }
 
+/* ---- Stream raws: a single buffered Biobuf held open across calls ---- */
+
+function O9StreamOpenRaw(string path, string mode) int64 {
+    use { bio }
+
+    int64 out;
+    c {
+        Biobuf *b;
+        char *cpath, *cmode;
+        int fd;
+
+        b = nil;
+        cpath = o9_string_cstr(path);
+        cmode = o9_string_cstr(mode);
+        if(cpath != nil && cmode != nil){
+            if(cmode[0] == 'r')
+                b = Bopen(cpath, OREAD);
+            else if(cmode[0] == 'w'){
+                fd = create(cpath, OWRITE, 0644);
+                if(fd >= 0){
+                    b = Bfdopen(fd, OWRITE);
+                    if(b == nil)
+                        close(fd);
+                }
+            } else if(cmode[0] == 'a'){
+                fd = open(cpath, OWRITE);
+                if(fd < 0)
+                    fd = create(cpath, OWRITE, 0644);
+                if(fd >= 0){
+                    seek(fd, 0, 2);
+                    b = Bfdopen(fd, OWRITE);
+                    if(b == nil)
+                        close(fd);
+                }
+            }
+        }
+        free(cpath);
+        free(cmode);
+        out = (vlong)(uintptr)b;
+    }
+    return out;
+}
+
+function O9StreamReadRaw(int64 h, int64 n) string {
+    use { bio }
+
+    string out;
+    c {
+        Biobuf *b;
+        char *buf;
+        long want, nr;
+
+        out = o9_string_new("", 0);
+        b = (Biobuf*)(uintptr)h;
+        want = (long)n;
+        if(b != nil && want > 0){
+            buf = malloc(want);
+            if(buf != nil){
+                nr = Bread(b, buf, want);
+                if(nr > 0)
+                    out = o9_string_new(buf, nr);
+                free(buf);
+            }
+        }
+    }
+    return out;
+}
+
+function O9StreamWriteRaw(int64 h, string data) int64 {
+    use { bio }
+
+    int64 out;
+    c {
+        Biobuf *b;
+        vlong n;
+        long w;
+
+        out = -1;
+        b = (Biobuf*)(uintptr)h;
+        if(b != nil){
+            n = o9_string_len(data);
+            w = Bwrite(b, o9_string_data(data), (long)n);
+            out = (vlong)w;
+        }
+    }
+    return out;
+}
+
+function O9StreamFlushRaw(int64 h) int64 {
+    use { bio }
+
+    int64 out;
+    c {
+        Biobuf *b;
+
+        out = -1;
+        b = (Biobuf*)(uintptr)h;
+        if(b != nil)
+            out = Bflush(b);
+    }
+    return out;
+}
+
+function O9StreamPositionRaw(int64 h) int64 {
+    use { bio }
+
+    int64 out;
+    c {
+        Biobuf *b;
+
+        out = -1;
+        b = (Biobuf*)(uintptr)h;
+        if(b != nil)
+            out = Boffset(b);
+    }
+    return out;
+}
+
+function O9StreamSeekRaw(int64 h, int64 pos) int64 {
+    use { bio }
+
+    int64 out;
+    c {
+        Biobuf *b;
+
+        out = -1;
+        b = (Biobuf*)(uintptr)h;
+        if(b != nil)
+            out = Bseek(b, pos, 0);
+    }
+    return out;
+}
+
+function O9StreamEofRaw(int64 h) int64 {
+    use { bio }
+
+    int64 out;
+    c {
+        Biobuf *b;
+        int ch;
+
+        out = 1;
+        b = (Biobuf*)(uintptr)h;
+        if(b != nil){
+            ch = Bgetc(b);
+            if(ch >= 0){
+                Bungetc(b);
+                out = 0;
+            }
+        }
+    }
+    return out;
+}
+
+function O9StreamCloseRaw(int64 h) int64 {
+    use { bio }
+
+    int64 out;
+    c {
+        Biobuf *b;
+
+        out = -1;
+        b = (Biobuf*)(uintptr)h;
+        if(b != nil)
+            out = Bterm(b);
+    }
+    return out;
+}
+
 class IOBuffer {
     private string path;
     private int64 offset;
@@ -469,6 +638,101 @@ class Appender {
     }
 
     method void close() {
+        closed = 1;
+    }
+}
+
+/* Byte-oriented data streams backed by a single libbio Biobuf that stays
+ * open for the life of the object (unlike Reader/Writer/Appender, which
+ * reopen the file per call).  StreamReader/StreamWriter are the byte analogs
+ * of the C# text adapters: no line methods, just raw bytes via o9's
+ * binary-safe string.  The Biobuf* lives in C heap (Bopen/Bfdopen alloc,
+ * Bterm frees) and is carried between calls as a private int64 handle; every
+ * method spawns the matching raw, which casts the handle back to Biobuf*. */
+class StreamReader {
+    private int64 h;
+    private int64 closed;
+
+    method StreamReader(string path) {
+        Task<int64> t = spawn O9StreamOpenRaw(path, "r");
+        h = t.await();
+        closed = 0;
+    }
+
+    method string read(int64 n) {
+        if(closed == 1) {
+            return "";
+        }
+        Task<string> t = spawn O9StreamReadRaw(h, n);
+        return t.await();
+    }
+
+    method int64 position() {
+        Task<int64> t = spawn O9StreamPositionRaw(h);
+        return t.await();
+    }
+
+    method void seek(int64 pos) {
+        if(pos < 0) {
+            pos = 0;
+        }
+        Task<int64> t = spawn O9StreamSeekRaw(h, pos);
+        t.await();
+    }
+
+    method bool endOfStream() {
+        Task<int64> t = spawn O9StreamEofRaw(h);
+        return t.await() == 1;
+    }
+
+    method void close() {
+        if(closed == 0 && h != 0) {
+            Task<int64> t = spawn O9StreamCloseRaw(h);
+            t.await();
+            h = 0;
+        }
+        closed = 1;
+    }
+}
+
+class StreamWriter {
+    private int64 h;
+    private int64 closed;
+
+    method StreamWriter(string path, string mode) {
+        Task<int64> t = spawn O9StreamOpenRaw(path, mode);
+        h = t.await();
+        closed = 0;
+    }
+
+    method int64 write(string data) {
+        if(closed == 1) {
+            return -1;
+        }
+        Task<int64> t = spawn O9StreamWriteRaw(h, data);
+        return t.await();
+    }
+
+    method int64 writeBytes(Bytes data) {
+        return write(data.text());
+    }
+
+    method int64 flush() {
+        Task<int64> t = spawn O9StreamFlushRaw(h);
+        return t.await();
+    }
+
+    method int64 position() {
+        Task<int64> t = spawn O9StreamPositionRaw(h);
+        return t.await();
+    }
+
+    method void close() {
+        if(closed == 0 && h != 0) {
+            Task<int64> t = spawn O9StreamCloseRaw(h);
+            t.await();
+            h = 0;
+        }
         closed = 1;
     }
 }

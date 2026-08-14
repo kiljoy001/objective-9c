@@ -1,0 +1,10 @@
+w1 6
+w2 6
+flush 0
+pos 12
+wclosed -1
+read 0
+seek world 11
+app 4
+append 0
+len 16

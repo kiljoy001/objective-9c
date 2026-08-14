@@ -243,6 +243,7 @@ stdlibcase e2e_file
 stdlibcase e2e_path
 stdlibcase e2e_time
 stdlibcase e2e_io
+stdlibcase e2e_bio_stream
 stdlibcase e2e_process
 stdlibcase e2e_net
 stdlibcase e2e_namespace

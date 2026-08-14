@@ -1,0 +1,47 @@
+import "io.o9";
+
+main {
+    string p = "/tmp/o9_bio_stream.dat";
+
+    StreamWriter w = new StreamWriter(p, "w");
+    print("w1 ", w.write("hello "), "\n");
+    print("w2 ", w.write("world\n"), "\n");
+    print("flush ", w.flush(), "\n");
+    print("pos ", w.position(), "\n");
+    w.close();
+    print("wclosed ", w.write("x"), "\n");
+
+    StreamReader r = new StreamReader(p);
+    string all = "";
+    string chunk;
+    while(!r.endOfStream()) {
+        chunk = r.read(4);
+        all = cat(all, chunk);
+    }
+    r.close();
+    print("read ", cmp(all, "hello world\n"), "\n");
+
+    StreamReader r2 = new StreamReader(p);
+    r2.seek(6);
+    string mid = r2.read(5);
+    print("seek ", mid, " ", r2.position(), "\n");
+    r2.close();
+
+    StreamWriter a = new StreamWriter(p, "a");
+    print("app ", a.write("more"), "\n");
+    a.flush();
+    a.close();
+
+    StreamReader r3 = new StreamReader(p);
+    string all2 = "";
+    string chunk2;
+    while(!r3.endOfStream()) {
+        chunk2 = r3.read(64);
+        all2 = cat(all2, chunk2);
+    }
+    r3.close();
+    print("append ", cmp(all2, "hello world\nmore"), "\n");
+
+    Bytes b = new Bytes(all2);
+    print("len ", b.length(), "\n");
+}
