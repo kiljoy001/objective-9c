@@ -37,6 +37,14 @@ Feature: High-throughput mutation campaigns keep every node busy
     And worker completion is tracked separately under "workers/" and "results/"
     And a failed command status fails launch diagnostics even if the task queue still has work
 
+  @new
+  Scenario: wait-drain starts only after agent launches are accepted
+    When the campaign is launched with -L agent -W
+    Then it waits for every queued agent command to reach done or failed status
+    And it exits agent-failed if any command writes a failed status
+    And it exits agent-timeout if any command remains unaccepted
+    And it calls o9mutctl wait-drain only after every launch command is accepted
+
   # ---- persistent workers ----
 
   @new
@@ -47,11 +55,12 @@ Feature: High-throughput mutation campaigns keep every node busy
     And status --workers reports each live worker as idle or running instead of dead
 
   @new
-  Scenario: Persistent workers are drained explicitly after wait-drain
+  Scenario: Persistent workers are drained automatically after wait-drain
     Given a persistent-worker campaign has reached wait-drain
-    When the operator wants to stop the campaign cleanly
+    When the campaign was launched with -W -j 0
     Then o9mutctl drain-worker is issued for each worker id
     And each worker exits only after finishing its current task or observing the drain marker
+    And the campaign waits until each worker status is stopped
     And the journal records drain_requested and worker_stop events
 
   # ---- queue expansion ----

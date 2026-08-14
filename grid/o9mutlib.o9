@@ -1634,6 +1634,12 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
                 sleep(idleMs > 0 ? idleMs : 1000);
             }
             }
+	            fd = create(workerpath, OWRITE, 0644);
+	            if(fd >= 0){
+	                fprint(fd, "worker_id\tnode\tpid\tstarted_at\tlast_seen\tstatus\tcurrent_task\n");
+	                fprint(fd, "%s\t%s\t%d\t%lld\t%lld\tstopped\t\n", w, sysname != nil ? sysname : "", getpid(), (vlong)time(0), (vlong)time(0));
+	                close(fd);
+	            }
 	            o9_append_event(jpath, w, "worker_stop", "worker", w, "");
 	            snprint(buf, sizeof buf, "worker\t%s\njobs\t%d\nkilled\t%d\nsurvived\t%d\ntimeout\t%d\nsetup_error\t%d\n", w, jobs, killed, survived, timeouts, setup);
 	            out = o9_string_from_c(buf);

@@ -16,6 +16,8 @@ waitdrain=0
 drain_timeout=3600
 launchmode=rcpu
 agentprefix=''
+agentcmdnodes=()
+agentcmdids=()
 
 fn usage {
 	echo 'usage: grid/run_3node_campaign.rc [-A] [-y] [-W] [-D] [-L rcpu|agent] [-M agent-path-prefix] [-r root]' >[1=2]
@@ -254,6 +256,8 @@ fn agent_common {
 	cmdpath=$root/agents/$node/pending/$id.tab
 	echo 'op	root	bindir	repo	worker	jobs	idle_ms	max_pending	interval_ms	stale_sec	cycles	log' >$cmdpath
 	echo $op'	'$agentroot'	'$agentbindir'	'$agentrepo'	'$worker'	'$jobsv'	'$idlev'	'$maxpendingv'	'$intervalv'	'$stalev'	'$cyclesv'	'$log >>$cmdpath
+	agentcmdnodes=($agentcmdnodes $node)
+	agentcmdids=($agentcmdids $id)
 }
 
 fn agent_worker_cmd {
@@ -342,6 +346,37 @@ if(~ $daemon 1)
 	echo '  kill the daemon on '$nodes(1)' (root/logs/daemon.out) when done'
 
 if(~ $waitdrain 1){
+	if(~ $launchmode agent){
+		echo wait-agent-commands
+		agentaccepted=0
+		for(i in `{seq 1 60}){
+			if(~ $agentaccepted 0){
+				pendingagent=()
+				failedagent=()
+				for(ci in `{seq 1 $#agentcmdids}){
+					cnode=$agentcmdnodes($ci)
+					cid=$agentcmdids($ci)
+					if(test -e $root/agents/$cnode/failed/$cid.tab)
+						failedagent=($failedagent $cnode/$cid)
+					if(! test -e $root/agents/$cnode/done/$cid.tab && ! test -e $root/agents/$cnode/failed/$cid.tab)
+						pendingagent=($pendingagent $cnode/$cid)
+				}
+				if(! ~ $#failedagent 0){
+					echo 'agent command failed:' $failedagent >[1=2]
+					exit agent-failed
+				}
+				if(~ $#pendingagent 0)
+					agentaccepted=1
+				if(~ $agentaccepted 0)
+					sleep 1
+			}
+		}
+		if(~ $agentaccepted 0){
+			echo 'agent command timeout:' $pendingagent >[1=2]
+			exit agent-timeout
+		}
+		echo agent-commands-accepted
+	}
 	echo wait-drain
 	$bindir/o9mutctl -r $root wait-drain $drain_timeout >$root/logs/wait-drain.out >[2=1]
 	if(grep -s '^timeout' $root/logs/wait-drain.out){
@@ -351,4 +386,38 @@ if(~ $waitdrain 1){
 	}
 	echo drain-complete
 	cat $root/logs/wait-drain.out
+	if(~ $jobs 0){
+		echo drain-persistent-workers
+		for(node in $nodes){
+			for(w in `{seq 1 $workers}){
+				worker=$node^-$w
+				$bindir/o9mutctl -r $root drain-worker $worker >>$root/logs/drain-workers.out >[2=1]
+			}
+		}
+		workersstopped=0
+		for(i in `{seq 1 60}){
+			if(~ $workersstopped 0){
+				pendingstops=()
+				for(node in $nodes){
+					for(w in `{seq 1 $workers}){
+						worker=$node^-$w
+						wtab=$root/workers/$worker.tab
+						if(! test -e $wtab)
+							pendingstops=($pendingstops $worker)
+						if(test -e $wtab && ! grep -s '	stopped	' $wtab)
+							pendingstops=($pendingstops $worker)
+					}
+				}
+				if(~ $#pendingstops 0)
+					workersstopped=1
+				if(~ $workersstopped 0)
+					sleep 1
+			}
+		}
+		if(~ $workersstopped 0){
+			echo 'worker drain timed out:' $pendingstops >[1=2]
+			exit worker-drain
+		}
+		echo workers-drained
+	}
 }

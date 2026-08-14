@@ -136,11 +136,11 @@ fn claim_command {
 	file=$1
 	id=`{echo $file | sed 's!.*/!!; s!\.tab$!!'}
 	claimdir=$agentdir/claimed/$id
-	if(! mkdir $claimdir >[2]/dev/null)
-		return
-	cp $file $claimdir/command.tab
-	rm -f $file
-	run_command $claimdir/command.tab $id >$claimdir/agent.out >[2=1]
+	if(mkdir $claimdir >[2]/dev/null){
+		cp $file $claimdir/command.tab
+		rm -f $file
+		run_command $claimdir/command.tab $id >$claimdir/agent.out >[2=1]
+	}
 }
 
 ensure_agent_dirs
