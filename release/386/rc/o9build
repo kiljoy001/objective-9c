@@ -1,0 +1,130 @@
+#!/bin/rc
+
+fn usage {
+	echo 'usage: o9build source.o9 [output]' >[1=2]
+	exit usage
+}
+
+if(! ~ $#* 1 2)
+	usage
+
+src=$1
+if(! test -f $src){
+	echo 'o9build: cannot read '^$src >[1=2]
+	exit missing
+}
+
+file=`{basename $src}
+dir=`{echo $src | sed 's,/[^/]*$,,'}
+if(~ $dir $src)
+	dir=.
+stem=`{basename $file .o9}
+if(~ $stem $file){
+	echo 'o9build: source must end in .o9' >[1=2]
+	exit usage
+}
+
+if(~ $#objtype 0)
+	objtype=amd64
+switch($objtype){
+case amd64
+	O=6; cc=6c; ld=6l
+case 386
+	O=8; cc=8c; ld=8l
+case arm
+	O=5; cc=5c; ld=5l
+case arm64
+	O=7; cc=7c; ld=7l
+case mips
+	O=v; cc=vc; ld=vl
+case power power64
+	O=q; cc=qc; ld=ql
+case sparc sparc64
+	O=k; cc=kc; ld=kl
+case *
+	echo 'o9build: unsupported objtype '^$objtype >[1=2]
+	exit objtype
+}
+
+if(~ $#* 2)
+	out=$2
+if not {
+	if(~ $dir .)
+		out=$stem
+	if not
+		out=$dir/$stem
+}
+cfile=$out^.c
+ofile=$out^.$O
+
+o9stdlib=/sys/lib/o9/stdlib
+if(! test -d $o9stdlib)
+	o9stdlib=$home/lib/o9/stdlib
+if(! test -d $o9stdlib){
+	echo 'o9build: missing o9 stdlib; run mk install from objective-9c first' >[1=2]
+	exit missing
+}
+
+o9include=/sys/include
+if(! test -e $o9include/o9.h)
+	o9include=$home/include
+if(! test -e $o9include/o9.h){
+	echo 'o9build: missing o9.h; run mk install from objective-9c first' >[1=2]
+	exit missing
+}
+
+o9lib=/$objtype/lib/libo9.a
+if(! test -e $o9lib)
+	o9lib=$home/lib/o9/libo9.a
+if(! test -e $o9lib){
+	echo 'o9build: missing libo9.a; run mk install from objective-9c first' >[1=2]
+	exit missing
+}
+
+o9compiler=o9c
+if(! test -x /bin/o9c && test -x $home/bin/$objtype/o9c)
+	o9compiler=$home/bin/$objtype/o9c
+
+# Make installed stdlib visible as project-local source.  The root union
+# supports import "net.o9"; the child bind supports import "stdlib/net.o9".
+bind -ac $o9stdlib $dir
+if(! test -d $dir/stdlib)
+	mkdir $dir/stdlib >[2]/dev/null
+if(test -d $dir/stdlib)
+	bind -ac $o9stdlib $dir/stdlib
+
+if(! $o9compiler $src >$cfile)
+	exit transpile
+
+depincs=`{awk '/^\/\* o9: include / { print "-I" $4 }' $cfile}
+deparchs=`{awk '/^\/\* o9: archive / { print $4 }' $cfile}
+
+# Detect whether this platform's <9p.h> declares srvrelease/srvacquire
+# (9front: yes; 9legacy: no). The generated facade wraps its compat shim in
+# #ifndef O9_HAVE_SRVRELEASE: defining this when the real API is visible makes
+# 9front use real srvrelease/srvacquire (requests interleave) and 9legacy fall
+# back to the no-op shim. Probe the real compiler + headers through the exact
+# include chain the facade uses, so it is correct regardless of which header
+# declares srvrelease.
+probestem=/tmp/o9_srvprobe.$pid
+probe=$probestem.c
+{
+	echo '#include <u.h>'
+	echo '#include <libc.h>'
+	echo '#include <thread.h>'
+	echo '#include <fcall.h>'
+	echo '#include <9p.h>'
+	echo 'void (*o9_probe_srvrelease)(Srv*) = srvrelease;'
+	echo 'void (*o9_probe_srvacquire)(Srv*) = srvacquire;'
+} > $probe
+srvflags=()
+if($cc -FV -I$o9include -c $probe -o $probestem.$O >[2]/dev/null)
+	srvflags=(-DO9_HAVE_SRVRELEASE)
+rm $probe $probestem.$O >[2]/dev/null
+
+if(! $cc -FV -I$o9include $depincs $srvflags -o $ofile $cfile)
+	exit compile
+if(! $ld -o $out $ofile $o9lib /$objtype/lib/libndb.a $deparchs)
+	exit link
+
+echo 'built '^$out

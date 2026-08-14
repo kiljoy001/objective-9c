@@ -1,0 +1,49 @@
+import "bytes.o9";
+
+class Buffer {
+    Bytes bytes;
+
+    method Buffer(string initial) {
+        bytes = new Bytes(initial);
+    }
+
+    method void clear() {
+        bytes.clear();
+    }
+
+    method bool empty() {
+        return bytes.empty();
+    }
+
+    method void append(string s) {
+        bytes.appendString(s);
+    }
+
+    method void appendByte(byte b) {
+        bytes.append(b);
+    }
+
+    method void setByte(int64 index, byte b) {
+        bytes.set(index, b);
+    }
+
+    method byte byteAt(int64 index) {
+        return bytes.get(index);
+    }
+
+    method int64 length() {
+        return bytes.length();
+    }
+
+    method string slice(int64 start, int64 count) {
+        return bytes.slice(start, count);
+    }
+
+    method string hex() {
+        return bytes.hex();
+    }
+
+    method string text() {
+        return bytes.text();
+    }
+}
