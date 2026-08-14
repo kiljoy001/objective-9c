@@ -1,0 +1,173 @@
+#!/bin/rc
+
+# Verify o9mutreplay against a journal produced by a real campaign.
+# Exercises timeline, --task, --worker, --summary, --by-source,
+# --survivors, --integrity, and --export-slice round-trip.
+
+tool=./o9c/o9c
+fail=0
+tmpbase=/tmp
+if(test -d /mnt/term/tmp)
+	tmpbase=/mnt/term/tmp
+if(! ~ $#O9MUT_TMP 0)
+	tmpbase=$O9MUT_TMP
+tmp=$tmpbase/o9mutreplay.$pid
+src=$tmp/src
+
+fn cleanup {
+	rm -rf $tmp >[2]/dev/null
+}
+
+fn buildgrid {
+	name=$1
+	cfile=$tmp/$name.c
+	ofile=$tmp/$name.6
+	bin=$tmp/$name
+	cerr=$tmp/$name.err
+
+	if(! $tool $src/$name.o9 >$cfile){
+		echo $name': transpile failed' >[1=2]
+		fail=1
+	}
+	if(~ $fail 0 && ! 6c -FVw -I. -o $ofile $cfile >$cerr >[2=1]){
+		echo $name': compile failed' >[1=2]
+		cat $cerr >[1=2]
+		fail=1
+	}
+	if(~ $fail 0 && grep -s 'warning:' $cerr){
+		echo $name': 6c warning treated as error' >[1=2]
+		cat $cerr >[1=2]
+		fail=1
+	}
+	if(~ $fail 0 && ! 6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a){
+		echo $name': link failed' >[1=2]
+		fail=1
+	}
+}
+
+if(! test -e $tool){
+	echo missing $tool >[1=2]
+	exit missing
+}
+if(! test -e libo9.a){
+	echo missing libo9.a >[1=2]
+	exit missing
+}
+
+cleanup
+mkdir $tmp
+mkdir $src
+mkdir $src/stdlib
+cp grid/*.o9 $src
+stdsrc=stdlib
+if(! test -e $stdsrc/process.o9)
+	stdsrc=/sys/lib/o9/stdlib
+if(! test -e $stdsrc/process.o9)
+	stdsrc=$home/lib/o9/stdlib
+if(! test -e $stdsrc/process.o9){
+	echo 'o9mutreplay: missing stdlib/process.o9' >[1=2]
+	cleanup
+	exit missing
+}
+cp $stdsrc/*.o9 $src/stdlib
+
+for(name in o9mutctl o9mutw o9mutreplay)
+	buildgrid $name
+
+if(! ~ $fail 0){
+	cleanup
+	exit fail
+}
+
+root=$tmp/root
+$tmp/o9mutctl -r $root init >[2]/dev/null
+$tmp/o9mutctl -r $root enqueue jpass sample sample 'echo pass' 5000 100 >[2]/dev/null
+$tmp/o9mutctl -r $root enqueue jkill sample sample 'exit fail' 5000 100 >[2]/dev/null
+$tmp/o9mutw -r $root -w jw -n 2 >[2]/dev/null
+
+rep=$tmp/o9mutreplay
+
+# timeline prints the lifecycle events in order
+$rep -r $root >$tmp/timeline.out >[2]/dev/null
+if(! grep -s worker_start $tmp/timeline.out || ! grep -s task_done $tmp/timeline.out){
+	echo 'o9mutreplay: timeline missing events' >[1=2]
+	cat $tmp/timeline.out >[1=2]
+	fail=1
+}
+# --type filter yields only that type
+$rep -r $root --type gate_exit >$tmp/ttype.out >[2]/dev/null
+if(grep -s worker_start $tmp/ttype.out){
+	echo 'o9mutreplay: --type filter leaked other types' >[1=2]
+	fail=1
+}
+
+# --task lifecycle states the final result
+$rep -r $root --task jpass >$tmp/task.out >[2]/dev/null
+if(! grep -s 'final_result=survived' $tmp/task.out){
+	echo 'o9mutreplay: --task jpass missing final_result=survived' >[1=2]
+	cat $tmp/task.out >[1=2]
+	fail=1
+}
+
+# --worker lifecycle states the tally
+$rep -r $root --worker jw >$tmp/worker.out >[2]/dev/null
+if(! grep -s 'survived=1' $tmp/worker.out || ! grep -s 'killed=1' $tmp/worker.out){
+	echo 'o9mutreplay: --worker jw missing tally' >[1=2]
+	cat $tmp/worker.out >[1=2]
+	fail=1
+}
+
+# --summary counts match the two results
+$rep -r $root --summary >$tmp/summary.out >[2]/dev/null
+if(! grep -s 'survived=1' $tmp/summary.out || ! grep -s 'killed=1' $tmp/summary.out){
+	echo 'o9mutreplay: --summary missing counts' >[1=2]
+	cat $tmp/summary.out >[1=2]
+	fail=1
+}
+# --by-source reports the one source with its score
+$rep -r $root --summary --by-source >$tmp/bysrc.out >[2]/dev/null
+if(! grep -s 'sample' $tmp/bysrc.out || ! grep -s 'score=' $tmp/bysrc.out){
+	echo 'o9mutreplay: --by-source missing source/score' >[1=2]
+	cat $tmp/bysrc.out >[1=2]
+	fail=1
+}
+
+# --survivors lists the surviving mutant with its source
+$rep -r $root --survivors >$tmp/surv.out >[2]/dev/null
+if(! grep -s jpass $tmp/surv.out || ! grep -s 'source=sample' $tmp/surv.out){
+	echo 'o9mutreplay: --survivors missing jpass/source' >[1=2]
+	cat $tmp/surv.out >[1=2]
+	fail=1
+}
+
+# --integrity on a clean run flags nothing
+$rep -r $root --integrity >$tmp/integ.out >[2]/dev/null
+if(grep -s 'in-flight-without-exit' $tmp/integ.out || grep -s 'lost	' $tmp/integ.out || grep -s 'orphan-gate-exit' $tmp/integ.out){
+	echo 'o9mutreplay: --integrity flagged a clean campaign' >[1=2]
+	cat $tmp/integ.out >[1=2]
+	fail=1
+}
+
+# --export-slice writes a valid journal that replay reads back
+$rep -r $root --export-slice --output $tmp/slice.log >[2]/dev/null
+if(! test -f $tmp/slice.log || ! grep -s task_done $tmp/slice.log){
+	echo 'o9mutreplay: --export-slice did not write task_done' >[1=2]
+	fail=1
+}
+if(~ $fail 0){
+	mkdir $tmp/sliceroot
+	cp $tmp/slice.log $tmp/sliceroot/journal.log
+	$rep -r $tmp/sliceroot >$tmp/slicerp.out >[2]/dev/null
+	if(! grep -s task_done $tmp/slicerp.out){
+		echo 'o9mutreplay: exported slice not readable by replay' >[1=2]
+		fail=1
+	}
+}
+
+if(~ $fail 0)
+	echo o9mutreplay: OK
+
+cleanup
+if(! ~ $fail 0)
+	exit fail
+exit ''

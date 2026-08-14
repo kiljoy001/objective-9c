@@ -5,6 +5,10 @@
 #include "o9.h"
 #include "libtab.h"
 
+#ifndef OAPPEND
+#define OAPPEND 0x80	/* or'ed in, each write appends atomically (absent from some libc.h) */
+#endif
+
 /* tab_serialize is a real libtab export declared in tab_internal.h (the
  * header split is packaging, not a privacy boundary); we use it to write
  * an in-memory state tab to a program-chosen path on explicit flush. */
@@ -222,6 +226,78 @@ o9_hash(char *s)
 	while((c = *s++) != 0)
 		hash = ((hash << 5) + hash) + c;
 	return hash & 0xFFFFFFFFul;
+}
+
+/* Per-process monotonic event sequence (one origin per grid process, so
+ * per-process == per-origin). Only the O9Mut actor proc emits journal events
+ * in a given process, so the increment needs no lock. */
+static int o9_event_seq = 0;
+
+void
+o9_append_event(const char *path, const char *origin, const char *type,
+                const char *entity_kind, const char *entity_id,
+                const char *detail)
+{
+	char line[2048];
+	int fd, n;
+	if(path == nil || path[0] == '\0' || origin == nil || type == nil)
+		return;
+	fd = open(path, OWRITE|OAPPEND);
+	if(fd < 0){
+		/* OAPPEND not honored by this file server (e.g. a foreign 9P
+		 * export such as a drawterm host mount): open for write and seek
+		 * to end instead.  Less atomic under concurrent writers than a
+		 * native OAPPEND, but — unlike create() — it never truncates
+		 * events already on disk. */
+		fd = open(path, OWRITE);
+		if(fd >= 0)
+			seek(fd, 0, 2);
+		else
+			fd = create(path, OWRITE, 0644);	/* first emit, file absent */
+	}
+	if(fd < 0)
+		return;
+	if(detail == nil)
+		detail = "";
+	n = snprint(line, sizeof line, "%d\t%lld\t%s\t%s\t%s\t%s",
+	            ++o9_event_seq, nsec()/1000000LL, origin, type,
+	            entity_kind != nil ? entity_kind : "",
+	            entity_id != nil ? entity_id : "");
+	if(detail[0] != '\0' && n < (int)sizeof line - 4)
+		n += snprint(line + n, sizeof line - n, "\t%s", detail);
+	if(n < (int)sizeof line - 1)
+		line[n++] = '\n';
+	write(fd, line, n);
+	close(fd);
+}
+
+long
+o9_kv_int(const char *path, const char *key, long def)
+{
+	char buf[1024], *line, *next, *tab;
+	int fd, n;
+	if(path == nil || key == nil)
+		return def;
+	fd = open(path, OREAD);
+	if(fd < 0)
+		return def;
+	n = read(fd, buf, sizeof buf - 1);
+	close(fd);
+	if(n < 0)
+		return def;
+	buf[n] = '\0';
+	for(line = buf; line != nil && *line != '\0'; line = next){
+		next = strchr(line, '\n');
+		if(next != nil)
+			*next++ = '\0';
+		tab = strchr(line, '\t');
+		if(tab == nil)
+			continue;
+		*tab = '\0';
+		if(strcmp(line, key) == 0)
+			return strtol(tab + 1, nil, 10);
+	}
+	return def;
 }
 
 int

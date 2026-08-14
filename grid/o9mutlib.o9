@@ -91,6 +91,12 @@ function O9MutInitRaw(string root) int64 {
                     close(fd);
                 }
             }
+            snprint(path, sizeof path, "%s/journal.log", r);
+            if(access(path, 0) < 0){
+                fd = create(path, OWRITE, 0644);
+                if(fd >= 0)
+                    close(fd);
+            }
             ok = 1;
             snprint(path, sizeof path, "%s/tasks/pending", r);
             d = dirstat(path);
@@ -121,7 +127,7 @@ function O9MutEnqueueRaw(string root, string taskId, string source, string mutan
 
     c {
         char *r, *tid, *src, *mut, *g, *to, *prio, *p;
-        char idbuf[128], path[1024];
+        char idbuf[128], path[1024], jpath[1024], detail[1024];
         int fd;
 
         out = o9_string_from_c("enqueue failed\n");
@@ -150,6 +156,9 @@ function O9MutEnqueueRaw(string root, string taskId, string source, string mutan
                 fprint(fd, "task_id\tsource\tmutant_path\tgate\ttimeout_ms\tpriority\tattempt\tcreated_at\n");
                 fprint(fd, "%s\t%s\t%s\t%s\t%s\t%s\t0\t%lld\n", tid, src, mut, g, to, prio, (vlong)time(0));
                 close(fd);
+                snprint(jpath, sizeof jpath, "%s/journal.log", r);
+                snprint(detail, sizeof detail, "source=%s\tmutant_path=%s\tgate=%s\ttimeout_ms=%s\tattempt=0", src, mut, g, to);
+                o9_append_event(jpath, "ctl", "enqueue", "task", tid, detail);
                 snprint(path, sizeof path, "enqueued %s\n", tid);
                 out = o9_string_from_c(path);
             }
@@ -164,7 +173,7 @@ function O9MutManifestRaw(string root, string manifest) string {
 
     c {
         char *r, *m, *buf, *line, *next, *fields[6], *s, *chunkenv;
-        char path[1024], idbuf[256], manifestmsg[256], countpath[1024];
+        char path[1024], idbuf[256], manifestmsg[256], countpath[1024], jpath[1024], detail[256];
         Dir *st;
         int fd, chunkfd, rn, off, want, i, nfields, count, skipped, header, chunks, chunkRows, chunkSize;
         vlong len;
@@ -270,6 +279,9 @@ function O9MutManifestRaw(string root, string manifest) string {
             }
             snprint(manifestmsg, sizeof manifestmsg, "manifest_enqueued\t%d\nmanifest_skipped\t%d\nmanifest_chunks\t%d\nchunk_size\t%d\n", count, skipped, chunks, chunkSize);
             out = o9_string_from_c(manifestmsg);
+            snprint(jpath, sizeof jpath, "%s/journal.log", r);
+            snprint(detail, sizeof detail, "manifest_enqueued=%d\tmanifest_skipped=%d\tmanifest_chunks=%d", count, skipped, chunks);
+            o9_append_event(jpath, "ctl", "manifest_chunked", "manifest", m, detail);
         }
         if(chunkfd >= 0)
             close(chunkfd);
@@ -411,15 +423,57 @@ function O9MutRequeueStaleRaw(string root, int64 staleSec) string {
 
     c {
         char *r;
-        char path[1024], child[1024], claim[1024], buf[256];
+        char path[1024], child[1024], claim[1024], buf[2048], jpath[1024], detail[256];
+        char cfg[1024], pending[1024], resultpath[1024], donepath[1024], *taskbuf, *row, *fields[8], *s;
         Dir *dirs;
-        int fd, n, i, requeued;
-        long now;
+        int fd, n, i, j, rn, requeued_chunks, requeued_tasks, retired, finalized, gotrow;
+        long now, maxattempts, attempt;
 
         r = o9_string_cstr(root);
-        requeued = 0;
+        requeued_chunks = requeued_tasks = retired = finalized = 0;
         now = time(0);
         if(r != nil){
+            snprint(jpath, sizeof jpath, "%s/journal.log", r);
+            snprint(cfg, sizeof cfg, "%s/config.tab", r);
+            maxattempts = o9_kv_int(cfg, "max_attempts", 3);
+            if(staleSec <= 0)
+                staleSec = o9_kv_int(cfg, "stale_sec", 300);
+
+            /* Chunk claims: a stale claim means the queue worker died mid-chunk.
+             * The chunk pending file is removed only after its done marker
+             * (Invariant 1), so it is still on disk — drop the stale claim and
+             * another queue worker re-claims it. If a done marker already
+             * landed the chunk is finished; just reap the orphaned claim dir. */
+            snprint(path, sizeof path, "%s/queue/chunks/claimed", r);
+            fd = open(path, OREAD);
+            if(fd >= 0){
+                dirs = nil;
+                n = dirreadall(fd, &dirs);
+                close(fd);
+                for(i = 0; i < n; i++){
+                    if((dirs[i].mode & DMDIR) == 0)
+                        continue;
+                    if(now - dirs[i].mtime < staleSec)
+                        continue;
+                    snprint(donepath, sizeof donepath, "%s/queue/chunks/done/%s", r, dirs[i].name);
+                    snprint(child, sizeof child, "%s/queue/chunks/claimed/%s", r, dirs[i].name);
+                    if(access(donepath, 0) == 0){
+                        remove(child);
+                        continue;
+                    }
+                    remove(child);
+                    o9_append_event(jpath, "ctl", "chunk_requeue", "chunk", dirs[i].name, "reason=stale_claim");
+                    requeued_chunks++;
+                }
+                free(dirs);
+            }
+
+            /* Task claims: a stale claim means a task worker died mid-task.
+             * The pending file is removed only after the done marker, so the
+             * task is still pending. If a result was already written, finalize
+             * it (done marker + reap). Otherwise bump the attempt counter and
+             * requeue — unless attempt exceeds max_attempts, in which case
+             * retire the task as infra_fail so it cannot loop forever. */
             snprint(path, sizeof path, "%s/tasks/claimed", r);
             fd = open(path, OREAD);
             if(fd >= 0){
@@ -431,16 +485,124 @@ function O9MutRequeueStaleRaw(string root, int64 staleSec) string {
                         continue;
                     if(now - dirs[i].mtime < staleSec)
                         continue;
+                    snprint(resultpath, sizeof resultpath, "%s/results/%s.tab", r, dirs[i].name);
+                    snprint(pending, sizeof pending, "%s/tasks/pending/%s.tab", r, dirs[i].name);
+                    snprint(donepath, sizeof donepath, "%s/tasks/done/%s.tab", r, dirs[i].name);
                     snprint(claim, sizeof claim, "%s/tasks/claimed/%s/claim.tab", r, dirs[i].name);
-                    remove(claim);
                     snprint(child, sizeof child, "%s/tasks/claimed/%s", r, dirs[i].name);
-                    if(remove(child) == 0)
-                        requeued++;
+
+                    if(access(resultpath, 0) == 0){
+                        /* worker wrote the result but crashed before finalize */
+                        fd = create(donepath, OWRITE, 0644);
+                        if(fd >= 0){
+                            fprint(fd, "task_id\tworker_id\tfinished_at\n%s\trecovery\t%lld\n", dirs[i].name, (vlong)now);
+                            close(fd);
+                        }
+                        remove(pending);
+                        remove(claim);
+                        remove(child);
+                        o9_append_event(jpath, "ctl", "task_done", "task", dirs[i].name, "result=recovered");
+                        finalized++;
+                        continue;
+                    }
+
+                    /* read the attempt counter from the pending file */
+                    attempt = 0;
+                    gotrow = 0;
+                    taskbuf = nil;
+                    fd = open(pending, OREAD);
+                    if(fd >= 0){
+                        rn = read(fd, buf, sizeof buf - 1);
+                        close(fd);
+                        if(rn < 0) rn = 0;
+                        buf[rn] = '\0';
+                        taskbuf = buf;
+                    }
+                    if(taskbuf != nil){
+                        row = strchr(taskbuf, '\n');
+                        if(row != nil){
+                            row++;
+                            for(j = 0; j < 8; j++) fields[j] = "";
+                            fields[0] = row;
+                            j = 1;
+                            for(s = row; *s != '\0' && j < 8; s++){
+                                if(*s == '\t'){
+                                    *s = '\0';
+                                    fields[j++] = s + 1;
+                                } else if(*s == '\n' || *s == '\r'){
+                                    *s = '\0';
+                                    break;
+                                }
+                            }
+                            if(fields[0][0] != '\0'){
+                                attempt = strtol(fields[6], nil, 10);
+                                gotrow = 1;
+                            }
+                        }
+                    }
+                    attempt++;
+
+                    if(!gotrow){
+                        /* unreadable/corrupt pending — retire, do not loop */
+                        fd = create(resultpath, OWRITE, 0644);
+                        if(fd >= 0){
+                            fprint(fd, "task_id\tworker_id\tsource\tmutant_path\tresult\texit_code\tseconds\tlog_path\treason\tfinished_at\n");
+                            fprint(fd, "%s\trecovery\t\t\tinfra_fail\t1\t0\t\tunreadable_pending\t%lld\n", dirs[i].name, (vlong)now);
+                            close(fd);
+                        }
+                        fd = create(donepath, OWRITE, 0644);
+                        if(fd >= 0){
+                            fprint(fd, "task_id\tworker_id\tfinished_at\n%s\trecovery\t%lld\n", dirs[i].name, (vlong)now);
+                            close(fd);
+                        }
+                        remove(pending);
+                        remove(claim);
+                        remove(child);
+                        o9_append_event(jpath, "ctl", "task_retire", "task", dirs[i].name, "reason=unreadable_pending");
+                        retired++;
+                        continue;
+                    }
+
+                    if(attempt > maxattempts){
+                        /* exceeded retry budget — retire as infra_fail */
+                        fd = create(resultpath, OWRITE, 0644);
+                        if(fd >= 0){
+                            fprint(fd, "task_id\tworker_id\tsource\tmutant_path\tresult\texit_code\tseconds\tlog_path\treason\tfinished_at\n");
+                            fprint(fd, "%s\trecovery\t%s\t%s\tinfra_fail\t1\t0\t\tmax_attempts_exceeded\t%lld\n", dirs[i].name, fields[1], fields[2], (vlong)now);
+                            close(fd);
+                        }
+                        fd = create(donepath, OWRITE, 0644);
+                        if(fd >= 0){
+                            fprint(fd, "task_id\tworker_id\tfinished_at\n%s\trecovery\t%lld\n", dirs[i].name, (vlong)now);
+                            close(fd);
+                        }
+                        remove(pending);
+                        remove(claim);
+                        remove(child);
+                        snprint(detail, sizeof detail, "reason=max_attempts_exceeded\tattempt=%ld", attempt);
+                        o9_append_event(jpath, "ctl", "task_retire", "task", dirs[i].name, detail);
+                        retired++;
+                        continue;
+                    }
+
+                    /* bump attempt in the pending file and requeue */
+                    fd = create(pending, OWRITE, 0644);
+                    if(fd >= 0){
+                        fprint(fd, "task_id\tsource\tmutant_path\tgate\ttimeout_ms\tpriority\tattempt\tcreated_at\n");
+                        fprint(fd, "%s\t%s\t%s\t%s\t%s\t%s\t%ld\t%s\n",
+                            fields[0], fields[1], fields[2], fields[3], fields[4], fields[5], attempt, fields[7]);
+                        close(fd);
+                    }
+                    remove(claim);
+                    remove(child);
+                    snprint(detail, sizeof detail, "attempt=%ld", attempt);
+                    o9_append_event(jpath, "ctl", "task_requeue", "task", dirs[i].name, detail);
+                    requeued_tasks++;
                 }
                 free(dirs);
             }
         }
-        snprint(buf, sizeof buf, "requeued_stale\t%d\n", requeued);
+        snprint(buf, sizeof buf, "requeued_chunks\t%d\nrequeued_tasks\t%d\nretired\t%d\nfinalized\t%d\n", requeued_chunks, requeued_tasks, retired, finalized);
         out = o9_string_from_c(buf);
         free(r);
     }
@@ -452,7 +614,7 @@ function O9MutDrainWorkerRaw(string root, string worker) string {
 
     c {
         char *r, *w;
-        char path[1024], buf[256];
+        char path[1024], buf[256], jpath[1024];
         int fd;
 
         r = o9_string_cstr(root);
@@ -464,6 +626,8 @@ function O9MutDrainWorkerRaw(string root, string worker) string {
             if(fd >= 0){
                 fprint(fd, "worker\trequested_at\n%s\t%lld\n", w, (vlong)time(0));
                 close(fd);
+                snprint(jpath, sizeof jpath, "%s/journal.log", r);
+                o9_append_event(jpath, "ctl", "drain_requested", "worker", w, "");
                 snprint(buf, sizeof buf, "drain_requested\t%s\n", w);
             }
         }
@@ -502,7 +666,7 @@ function O9MutQueueWorkerRaw(string root, string worker, int64 idleMs, int64 max
     c {
         char *r, *w, *buf, *line, *next, *fields[6], *s;
         char qdir[1024], qpath[1024], claimdir[1024], donepath[1024], taskpath[1024], workerpath[1024];
-        char idbuf[256], qmsg[512];
+        char idbuf[256], qmsg[512], jpath[1024], detail[256];
         Dir *dirs, *st, *pdirs;
         int fd, n, rn, i, j, claimed, chunks, tasks, skipped, pending, pn, pi;
         vlong len;
@@ -518,6 +682,8 @@ function O9MutQueueWorkerRaw(string root, string worker, int64 idleMs, int64 max
             out = o9_string_from_c("queue_worker setup_error: missing root or worker\n");
         } else {
             snprint(workerpath, sizeof workerpath, "%s/workers/%s.queue.tab", r, w);
+            snprint(jpath, sizeof jpath, "%s/journal.log", r);
+            o9_append_event(jpath, w, "worker_start", "worker", w, "");
             for(;;){
                 fd = create(workerpath, OWRITE, 0644);
                 if(fd >= 0){
@@ -525,6 +691,7 @@ function O9MutQueueWorkerRaw(string root, string worker, int64 idleMs, int64 max
                     fprint(fd, "%s\t%d\t%lld\tidle\t%d\t%d\n", w, getpid(), (vlong)time(0), chunks, tasks);
                     close(fd);
                 }
+                o9_append_event(jpath, w, "worker_heartbeat", "worker", w, "status=idle");
                 snprint(qdir, sizeof qdir, "%s/queue/chunks/pending", r);
                 fd = open(qdir, OREAD);
                 if(fd < 0)
@@ -542,6 +709,7 @@ function O9MutQueueWorkerRaw(string root, string worker, int64 idleMs, int64 max
                         continue;
                     close(fd);
                     claimed = 1;
+                    o9_append_event(jpath, w, "chunk_claim", "chunk", dirs[i].name, "");
                     snprint(qpath, sizeof qpath, "%s/queue/chunks/pending/%s", r, dirs[i].name);
                     buf = nil;
                     st = dirstat(qpath);
@@ -559,7 +727,7 @@ function O9MutQueueWorkerRaw(string root, string worker, int64 idleMs, int64 max
                             close(fd);
                         }
                     }
-                    remove(qpath);
+                    /* chunk removed after done marker is written (Invariant 1) */
                     fd = create(workerpath, OWRITE, 0644);
                     if(fd >= 0){
                         fprint(fd, "worker_id\tpid\tlast_seen\tstatus\tchunks\ttasks\n");
@@ -624,6 +792,8 @@ function O9MutQueueWorkerRaw(string root, string worker, int64 idleMs, int64 max
                             fprint(fd, "%s\t%s\t%s\t%s\t%s\t%s\t0\t%lld\n",
                                 idbuf, fields[1], fields[2], fields[3], fields[4], fields[5], (vlong)time(0));
                             close(fd);
+                            snprint(detail, sizeof detail, "chunk=%s\tsource=%s\tmutant_path=%s\tgate=%s\ttimeout_ms=%s\tattempt=0", dirs[i].name, fields[1], fields[2], fields[3], fields[4]);
+                            o9_append_event(jpath, w, "enqueue", "task", idbuf, detail);
                             tasks++;
                         }
                         free(buf);
@@ -634,6 +804,9 @@ function O9MutQueueWorkerRaw(string root, string worker, int64 idleMs, int64 max
                         fprint(fd, "chunk\tworker_id\tfinished_at\n%s\t%s\t%lld\n", dirs[i].name, w, (vlong)time(0));
                         close(fd);
                     }
+                    remove(qpath);
+                    snprint(detail, sizeof detail, "worker=%s\ttasks=%d", w, tasks);
+                    o9_append_event(jpath, w, "chunk_done", "chunk", dirs[i].name, detail);
                     remove(claimdir);
                     chunks++;
                 }
@@ -641,6 +814,7 @@ function O9MutQueueWorkerRaw(string root, string worker, int64 idleMs, int64 max
                 if(!claimed)
                     break;
             }
+            o9_append_event(jpath, w, "worker_stop", "worker", w, "");
             snprint(qmsg, sizeof qmsg, "queue_worker\t%s\nchunks\t%d\ntasks\t%d\nskipped\t%d\n", w, chunks, tasks, skipped);
             out = o9_string_from_c(qmsg);
         }
@@ -655,8 +829,8 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
     c {
         char *r, *w, *tmpenv;
         char pdir[1024], lockdir[1024], claimfile[1024], taskpath[1024], resultpath[1024], donepath[1024], workerpath[1024], drainpath[1024];
-        char logpath[1024], scratch[1024], buf[8192], *taskbuf, *row, *fields[8], *s;
-        char *taskid, *source, *mutant, *gate, *timeouttxt, *attempt;
+        char logpath[1024], scratch[1024], buf[8192], jpath[1024], detail[256], *taskbuf, *row, *fields[8], *s;
+        char *taskid, *source, *mutant, *gate, *timeouttxt, *attempt, *result;
         Dir *dirs, *st;
         int fd, n, rn, i, j, claimed, jobs, killed, survived, timeouts, setup, pid, timerpid, lfd, exitcode, timedout, childdone, timerdone;
         vlong len, start, elapsed, timeoutms;
@@ -670,6 +844,8 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
         } else {
             snprint(workerpath, sizeof workerpath, "%s/workers/%s.tab", r, w);
             snprint(drainpath, sizeof drainpath, "%s/workers/%s.drain", r, w);
+            snprint(jpath, sizeof jpath, "%s/journal.log", r);
+            o9_append_event(jpath, w, "worker_start", "worker", w, "");
             for(;;){
             fd = create(workerpath, OWRITE, 0644);
             if(fd >= 0){
@@ -677,8 +853,10 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
                 fprint(fd, "%s\t%s\t%d\t%lld\t%lld\tidle\t\n", w, getenv("sysname") != nil ? getenv("sysname") : "", getpid(), (vlong)time(0), (vlong)time(0));
                 close(fd);
             }
-            if(access(drainpath, 0) == 0)
+            if(access(drainpath, 0) == 0){
+                o9_append_event(jpath, w, "worker_drain", "worker", w, "");
                 break;
+            }
             if(maxJobs > 0 && jobs >= maxJobs)
                 break;
             snprint(pdir, sizeof pdir, "%s/tasks/pending", r);
@@ -715,6 +893,7 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
                 }
                 close(fd);
                 claimed = 1;
+                o9_append_event(jpath, w, "task_claim", "task", taskid, "");
                 snprint(claimfile, sizeof claimfile, "%s/claim.tab", lockdir);
                 fd = create(claimfile, OWRITE, 0644);
                 if(fd >= 0){
@@ -784,6 +963,8 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
                         fprint(fd, "%s\t%s\t%s\t%s\tsetup_error\t1\t0\t%s\tmissing gate\t%lld\n", taskid, w, source, mutant, logpath, (vlong)time(0));
                         close(fd);
                     }
+                    snprint(detail, sizeof detail, "result=setup_error\texit_code=1\treason=missing_gate");
+                    o9_append_event(jpath, w, "task_done", "task", taskid, detail);
                     setup++;
                     jobs++;
                     free(taskbuf);
@@ -792,6 +973,8 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
                     continue;
                 }
                 start = nsec();
+                snprint(detail, sizeof detail, "gate=%s\ttimeout_ms=%lld\tattempt=%s", gate, timeoutms, attempt);
+                o9_append_event(jpath, w, "gate_start", "task", taskid, detail);
                 pid = rfork(RFPROC|RFFDG|RFNOTEG);
                 if(pid == 0){
                     lfd = create(logpath, OWRITE, 0644);
@@ -861,27 +1044,35 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
                     }
                 }
                 elapsed = (nsec() - start) / 1000000000LL;
+                result = "infra_fail";
                 fd = create(resultpath, OWRITE, 0644);
                 if(fd >= 0){
                     fprint(fd, "task_id\tworker_id\tsource\tmutant_path\tresult\texit_code\tseconds\tlog_path\treason\tfinished_at\n");
                     if(timedout){
                         fprint(fd, "%s\t%s\t%s\t%s\ttimeout\t1\t%lld\t%s\ttimeout_ms=%lld\t%lld\n", taskid, w, source, mutant, elapsed, logpath, timeoutms, (vlong)time(0));
+                        result = "timeout";
                         timeouts++;
                     } else if(exitcode == 0){
                         fprint(fd, "%s\t%s\t%s\t%s\tsurvived\t0\t%lld\t%s\tgate passed\t%lld\n", taskid, w, source, mutant, elapsed, logpath, (vlong)time(0));
+                        result = "survived";
                         survived++;
                     } else {
                         fprint(fd, "%s\t%s\t%s\t%s\tkilled\t%d\t%lld\t%s\tgate failed\t%lld\n", taskid, w, source, mutant, exitcode, elapsed, logpath, (vlong)time(0));
+                        result = "killed";
                         killed++;
                     }
                     close(fd);
                 }
+                snprint(detail, sizeof detail, "result=%s\texit_code=%d\tseconds=%lld", result, exitcode, elapsed);
+                o9_append_event(jpath, w, "gate_exit", "task", taskid, detail);
                 snprint(donepath, sizeof donepath, "%s/tasks/done/%s.tab", r, taskid);
                 fd = create(donepath, OWRITE, 0644);
                 if(fd >= 0){
                     fprint(fd, "task_id\tworker_id\tfinished_at\n%s\t%s\t%lld\n", taskid, w, (vlong)time(0));
                     close(fd);
                 }
+                snprint(detail, sizeof detail, "result=%s", result);
+                o9_append_event(jpath, w, "task_done", "task", taskid, detail);
                 remove(taskpath);
                 remove(claimfile);
                 remove(lockdir);
@@ -894,9 +1085,11 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
             if(!claimed){
                 if(maxJobs > 0)
                     break;
+                o9_append_event(jpath, w, "worker_heartbeat", "worker", w, "status=idle");
                 sleep(idleMs > 0 ? idleMs : 1000);
             }
             }
+            o9_append_event(jpath, w, "worker_stop", "worker", w, "");
             snprint(buf, sizeof buf, "worker\t%s\njobs\t%d\nkilled\t%d\nsurvived\t%d\ntimeout\t%d\nsetup_error\t%d\n", w, jobs, killed, survived, timeouts, setup);
             out = o9_string_from_c(buf);
         }

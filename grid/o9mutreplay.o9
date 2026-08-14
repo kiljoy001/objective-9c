@@ -1,0 +1,487 @@
+import "stdlib/process.o9";
+import "stdlib/time.o9";
+
+// o9mutreplay — reconstruct a campaign from <root>/journal.log.
+//
+// Read-only: it opens the journal and (for --summary) the results/ directory,
+// never writes to the live grid except its own --output/--export-slice file.
+// It is the Quake-3 demo player for the grid: point it at a journal and walk
+// the timeline to find which worker and task hit what, and when.
+//
+// Modes (mutually exclusive, first wins):
+//   (default)              ordered timeline, filterable
+//   --task ID [--show-lineage]   full lifecycle of one task
+//   --worker ID            full activity of one worker
+//   --integrity            gaps and orphans that reveal lost/stuck work
+//   --summary [--by-source]      aggregate counts (+ per-source score)
+//   --survivors            surviving mutants needing regression tests
+//   --export-slice --output F [--after T1 --before T2]  write a journal slice
+//
+// Timeline filters: --type T --origin O --after T1 --before T2 (ts_ms windows).
+//
+// The C body lives in O9MutReplayRun (a function, not main) because o9 only
+// permits raw c { } blocks inside function bodies, not inside main.
+
+function O9MutReplayRun(string root, string ftype, string forigin, string afters, string befores, string taskid, string workerid, string output, int64 integrity, int64 summary, int64 bysource, int64 survivors, int64 exportslice, int64 showlineage) int64 {
+    c {
+        char *rt, *ft, *fo, *fa, *fb, *tk, *wk, *out;
+        char jpath[1024], tmp[1024];
+        int fd, rn, j, k, m, nlines, nev, ecap, tot, e, e2, first, ofd;
+        int hasexit, hasdone, hasrequeue, hasdrain, hasstop, hasclaim;
+        vlong aft, bft;
+        char *buf, *s, *line, *st;
+        long *ev_seq; vlong *ev_ts;
+        char *ev_origin, *ev_type, *ev_kind, *ev_id, *ev_detail;
+        char **ev_line;
+        int *idx;
+        char fres[64], fworker[64], chunk[128], src[128], mut[1024];
+        vlong elapsed; long fattempt;
+        long killed, survived, timeout, equivalent, infra_fail, setup_error;
+        Dir *rdirs; int rdn, ri, rfd, rrn, rj; char rpath[1024], rbuf[8192], *rrow, *rfields[16], *rs, rsrc[128], rres[64];
+        char *srcs; long sk[256], ss[256], stt[256]; int nsrc, si;
+
+        /* bring the string/int64 params into C locals once */
+        rt = (root != nil) ? o9_string_cstr(root) : nil;
+        ft = (ftype != nil) ? o9_string_cstr(ftype) : nil;
+        fo = (forigin != nil) ? o9_string_cstr(forigin) : nil;
+        fa = (afters != nil) ? o9_string_cstr(afters) : nil;
+        fb = (befores != nil) ? o9_string_cstr(befores) : nil;
+        tk = (taskid != nil) ? o9_string_cstr(taskid) : nil;
+        wk = (workerid != nil) ? o9_string_cstr(workerid) : nil;
+        out = (output != nil) ? o9_string_cstr(output) : nil;
+
+        if(rt == nil || rt[0] == '\0'){
+            char *evn = getenv("O9MUT_ROOT");
+            if(evn != nil && evn[0] != '\0') rt = evn;
+            else { if(evn != nil) free(evn); rt = "/n/babyFileServer.rentonsoftworks.coin/o9mut"; }
+        }
+
+        /* ---- read the whole journal ---- */
+        snprint(jpath, sizeof jpath, "%s/journal.log", rt);
+        fd = open(jpath, OREAD);
+        if(fd < 0){
+            print("replay: cannot open %s\n", jpath);
+            goto rdone;
+        }
+        ecap = 8192; buf = malloc(ecap); tot = 0;
+        while((rn = read(fd, buf + tot, ecap - 1 - tot)) > 0){
+            tot += rn;
+            if(tot >= ecap - 1){ ecap *= 2; buf = realloc(buf, ecap); }
+        }
+        close(fd);
+        buf[tot] = '\0';
+
+        /* ---- count lines, allocate parallel event arrays ---- */
+        nlines = 1;
+        for(s = buf; *s; s++) if(*s == '\n') nlines++;
+        ecap = nlines + 1;
+        ev_seq = malloc(sizeof(long) * ecap);
+        ev_ts = malloc(sizeof(vlong) * ecap);
+        ev_origin = malloc(64 * ecap);
+        ev_type = malloc(40 * ecap);
+        ev_kind = malloc(40 * ecap);
+        ev_id = malloc(128 * ecap);
+        ev_detail = malloc(1024 * ecap);
+        ev_line = malloc(sizeof(char*) * ecap);
+        nev = 0;
+
+        /* ---- parse: each line -> seq ts origin type kind id [detail] ---- */
+        line = buf;
+        for(s = buf; ; s++){
+            if(*s == '\n' || *s == '\0'){
+                int eol = (*s == '\n');
+                *s = '\0';
+                if(line[0] != '\0'){
+                    int f = 0, l;
+                    char *q;
+                    st = line;
+                    ev_seq[nev] = 0; ev_ts[nev] = 0;
+                    ev_origin[nev*64] = '\0'; ev_type[nev*40] = '\0';
+                    ev_kind[nev*40] = '\0'; ev_id[nev*128] = '\0';
+                    ev_detail[nev*1024] = '\0';
+                    for(q = line; *q; q++){
+                        if(*q == '\t'){
+                            l = (int)(q - st);
+                            switch(f){
+                            case 0: ev_seq[nev] = strtol(st, nil, 10); break;
+                            case 1: ev_ts[nev] = strtoll(st, nil, 10); break;
+                            case 2: if(l>63)l=63; memmove(ev_origin+nev*64, st, l); ev_origin[nev*64+l]='\0'; break;
+                            case 3: if(l>39)l=39; memmove(ev_type+nev*40, st, l); ev_type[nev*40+l]='\0'; break;
+                            case 4: if(l>39)l=39; memmove(ev_kind+nev*40, st, l); ev_kind[nev*40+l]='\0'; break;
+                            case 5: if(l>127)l=127; memmove(ev_id+nev*128, st, l); ev_id[nev*128+l]='\0'; break;
+                            case 6: if(l>1023)l=1023; memmove(ev_detail+nev*1024, st, l); ev_detail[nev*1024+l]='\0'; break;
+                            }
+                            f++; st = q + 1;
+                        }
+                    }
+                    l = (int)(q - st);
+                    switch(f){
+                    case 0: ev_seq[nev] = strtol(st, nil, 10); break;
+                    case 1: ev_ts[nev] = strtoll(st, nil, 10); break;
+                    case 2: if(l>63)l=63; memmove(ev_origin+nev*64, st, l); ev_origin[nev*64+l]='\0'; break;
+                    case 3: if(l>39)l=39; memmove(ev_type+nev*40, st, l); ev_type[nev*40+l]='\0'; break;
+                    case 4: if(l>39)l=39; memmove(ev_kind+nev*40, st, l); ev_kind[nev*40+l]='\0'; break;
+                    case 5: if(l>127)l=127; memmove(ev_id+nev*128, st, l); ev_id[nev*128+l]='\0'; break;
+                    case 6: if(l>1023)l=1023; memmove(ev_detail+nev*1024, st, l); ev_detail[nev*1024+l]='\0'; break;
+                    }
+                    ev_line[nev] = line;
+                    nev++;
+                }
+                if(!eol) break;
+                line = s + 1;
+            }
+        }
+
+        /* ---- index sort by (ts, origin, seq) ---- */
+        #define ORIGIN(x) (ev_origin + (x)*64)
+        #define TYPE(x)   (ev_type + (x)*40)
+        #define KIND(x)   (ev_kind + (x)*40)
+        #define ID(x)     (ev_id + (x)*128)
+        #define DETAIL(x) (ev_detail + (x)*1024)
+        #define EVGT(a,b) ( ev_ts[a] > ev_ts[b] || \
+            (ev_ts[a]==ev_ts[b] && (strcmp(ORIGIN(a),ORIGIN(b))>0 || \
+             (strcmp(ORIGIN(a),ORIGIN(b))==0 && ev_seq[a]>ev_seq[b]))) )
+        idx = malloc(sizeof(int) * (nev>0?nev:1));
+        for(j = 0; j < nev; j++) idx[j] = j;
+        for(j = 1; j < nev; j++){
+            int key = idx[j]; int m = j - 1;
+            while(m >= 0 && EVGT(idx[m], key)){ idx[m+1] = idx[m]; m--; }
+            idx[m+1] = key;
+        }
+
+        aft = (fa && fa[0]) ? strtoll(fa, nil, 10) : -1;
+        bft = (fb && fb[0]) ? strtoll(fb, nil, 10) : -1;
+
+        /* ---- detail key=value extractor: DETKEY(detail, key, out, outsz) ---- */
+        #define DETKEY(d, key, o, os) do { \
+            char *_d=(d), *_p, *_q; (o)[0]='\0'; \
+            _p = strstr(_d, (key)); \
+            while(_p != nil){ \
+                if((_p==_d || _p[-1]=='\t') && _p[strlen(key)]=='='){ \
+                    _p += strlen(key)+1; \
+                    _q = strchr(_p, '\t'); \
+                    { int _l = _q ? (int)(_q-_p) : (int)strlen(_p); \
+                      if(_l >= (os)) _l = (os)-1; memmove((o), _p, _l); (o)[_l]='\0'; } \
+                    break; \
+                } \
+                _p = strstr(_p+1, (key)); \
+            } \
+        } while(0)
+
+        /* ---- dispatch ---- */
+        if(exportslice){
+            if(out == nil || out[0] == '\0'){
+                print("replay: --export-slice requires --output\n");
+                goto rdone;
+            }
+            ofd = create(out, OWRITE, 0644);
+            if(ofd < 0){ print("replay: cannot create %s\n", out); goto rdone; }
+            for(j = 0; j < nev; j++){
+                e = idx[j];
+                if(aft >= 0 && ev_ts[e] < aft) continue;
+                if(bft >= 0 && ev_ts[e] > bft) continue;
+                if(ft && ft[0] && strcmp(TYPE(e), ft) != 0) continue;
+                if(fo && fo[0] && strcmp(ORIGIN(e), fo) != 0) continue;
+                fprint(ofd, "%s\n", ev_line[e]);
+            }
+            close(ofd);
+            print("wrote\t%s\n", out);
+        } else if(integrity){
+            print("integrity\n");
+            /* 1. task claimed but never finished (no gate_exit, no task_done) */
+            for(j = 0; j < nev; j++){
+                e = idx[j];
+                if(strcmp(TYPE(e), "task_claim") != 0) continue;
+                { char *tid = ID(e); vlong lts = 0;
+                  first = 1;
+                  for(k = 0; k < j; k++){ e2 = idx[k]; if(strcmp(TYPE(e2),"task_claim")==0 && strcmp(ID(e2),tid)==0){ first=0; break; } }
+                  if(!first) continue;
+                  hasexit = hasdone = 0;
+                  for(k = 0; k < nev; k++){ if(strcmp(KIND(k),"task")!=0||strcmp(ID(k),tid)!=0) continue; if(strcmp(TYPE(k),"gate_exit")==0)hasexit=1; if(strcmp(TYPE(k),"task_done")==0)hasdone=1; if(ev_ts[k]>lts)lts=ev_ts[k]; }
+                  if(!hasdone && !hasexit)
+                    print("  in-flight-without-exit\t%s\tworker=%s\tlast_ts=%lld\n", tid, ORIGIN(e), lts);
+                }
+            }
+            /* 2 & 3. chunk claimed but never done; requeued or lost */
+            for(j = 0; j < nev; j++){
+                e = idx[j];
+                if(strcmp(TYPE(e), "chunk_claim") != 0) continue;
+                { char *cid = ID(e);
+                  first = 1;
+                  for(k = 0; k < j; k++){ e2 = idx[k]; if(strcmp(TYPE(e2),"chunk_claim")==0 && strcmp(ID(e2),cid)==0){ first=0; break; } }
+                  if(!first) continue;
+                  hasdone = hasrequeue = 0;
+                  for(k = 0; k < nev; k++){ if(strcmp(KIND(k),"chunk")!=0||strcmp(ID(k),cid)!=0) continue; if(strcmp(TYPE(k),"chunk_done")==0)hasdone=1; if(strcmp(TYPE(k),"chunk_requeue")==0)hasrequeue=1; }
+                  if(hasdone) continue;
+                  if(hasrequeue){
+                    print("  claimed-without-done\t%s\trequeued\n", cid);
+                  } else {
+                    print("  lost\t%s\n", cid);
+                    for(k = 0; k < nev; k++){
+                      if(strcmp(TYPE(k),"enqueue")!=0) continue;
+                      DETKEY(DETAIL(k),"chunk",tmp,sizeof tmp);
+                      if(strcmp(tmp,cid)==0){
+                        char *tid = ID(k); int td = 0;
+                        for(m = 0; m < nev; m++) if(strcmp(TYPE(m),"task_done")==0 && strcmp(ID(m),tid)==0) td = 1;
+                        if(!td) print("    lost-task\t%s\n", tid);
+                      }
+                    }
+                  }
+                }
+            }
+            /* 4. orphan gate_exit with no task_claim */
+            for(j = 0; j < nev; j++){
+                e = idx[j];
+                if(strcmp(TYPE(e), "gate_exit") != 0 || strcmp(KIND(e), "task") != 0) continue;
+                { char *tid = ID(e); hasclaim = 0;
+                  for(k = 0; k < nev; k++) if(strcmp(TYPE(k),"task_claim")==0 && strcmp(ID(k),tid)==0) hasclaim = 1;
+                  if(!hasclaim) print("  orphan-gate-exit\t%s\n", tid);
+                }
+            }
+            /* 5. worker stopped without a drain request */
+            for(j = 0; j < nev; j++){
+                e = idx[j];
+                if(strcmp(TYPE(e), "worker_stop") != 0) continue;
+                { char *wid = ORIGIN(e); char *lasttask = ""; vlong ltts = 0;
+                  first = 1;
+                  for(k = 0; k < j; k++){ e2 = idx[k]; if(strcmp(TYPE(e2),"worker_stop")==0 && strcmp(ORIGIN(e2),wid)==0){ first=0; break; } }
+                  if(!first) continue;
+                  hasdrain = 0;
+                  for(k = 0; k < nev; k++) if(strcmp(TYPE(k),"drain_requested")==0 && strcmp(ID(k),wid)==0) hasdrain = 1;
+                  if(hasdrain) continue;
+                  for(k = 0; k < nev; k++) if(strcmp(TYPE(k),"task_claim")==0 && strcmp(ORIGIN(k),wid)==0 && ev_ts[k] >= ltts){ ltts = ev_ts[k]; lasttask = ID(k); }
+                  print("  stopped-without-drain\t%s", wid);
+                  if(lasttask[0]) print("\tlast_task=%s", lasttask);
+                  print("\n");
+                }
+            }
+            /* 6. heartbeat gap: heartbeats stopped >10min before journal end, no stop */
+            { vlong maxts = 0, lhb;
+              for(k = 0; k < nev; k++) if(ev_ts[k] > maxts) maxts = ev_ts[k];
+              for(j = 0; j < nev; j++){
+                e = idx[j];
+                if(strcmp(TYPE(e), "worker_heartbeat") != 0) continue;
+                { char *wid = ORIGIN(e); char *utid = "";
+                  first = 1;
+                  for(k = 0; k < j; k++){ e2 = idx[k]; if(strcmp(TYPE(e2),"worker_heartbeat")==0 && strcmp(ORIGIN(e2),wid)==0){ first=0; break; } }
+                  if(!first) continue;
+                  lhb = 0; hasstop = 0;
+                  for(k = 0; k < nev; k++){ if(strcmp(ORIGIN(k),wid)!=0) continue; if(strcmp(TYPE(k),"worker_heartbeat")==0 && ev_ts[k]>lhb) lhb=ev_ts[k]; if(strcmp(TYPE(k),"worker_stop")==0) hasstop=1; }
+                  if(hasstop) continue;
+                  if(maxts - lhb <= 600000LL) continue;
+                  for(k = 0; k < nev; k++){ if(strcmp(TYPE(k),"task_claim")==0 && strcmp(ORIGIN(k),wid)==0){ char *tid = ID(k); int td = 0; for(m=0;m<nev;m++) if(strcmp(TYPE(m),"task_done")==0 && strcmp(ID(m),tid)==0) td=1; if(!td) utid = tid; } }
+                  print("  heartbeat-gap\t%s\tlast_heartbeat=%lld", wid, lhb);
+                  if(utid[0]) print("\tunfinished_task=%s", utid);
+                  print("\n");
+                }
+              }
+            }
+        } else if(summary){
+            killed = survived = timeout = equivalent = infra_fail = setup_error = 0;
+            nsrc = 0;
+            srcs = malloc(128 * 256);
+            for(si = 0; si < 256; si++){ sk[si] = ss[si] = stt[si] = 0; }
+            print("summary\n");
+            snprint(rpath, sizeof rpath, "%s/results", rt);
+            rfd = open(rpath, OREAD);
+            if(rfd < 0){
+                print("  (no results dir)\n");
+            } else {
+                rdirs = nil; rdn = dirreadall(rfd, &rdirs); close(rfd);
+                for(ri = 0; ri < rdn; ri++){
+                    if(strlen(rdirs[ri].name) <= 4) continue;
+                    snprint(rpath, sizeof rpath, "%s/results/%s", rt, rdirs[ri].name);
+                    rfd = open(rpath, OREAD);
+                    if(rfd < 0) continue;
+                    rrn = read(rfd, rbuf, sizeof rbuf - 1); close(rfd);
+                    if(rrn < 0) rrn = 0; rbuf[rrn] = '\0';
+                    rrow = strchr(rbuf, '\n');
+                    if(rrow == nil) continue;
+                    rrow++;
+                    for(rj = 0; rj < 16; rj++) rfields[rj] = "";
+                    rfields[0] = rrow; rj = 1;
+                    for(rs = rrow; *rs && rj < 16; rs++){
+                        if(*rs == '\t'){ *rs = '\0'; rfields[rj++] = rs + 1; }
+                        else if(*rs == '\n' || *rs == '\r'){ *rs = '\0'; break; }
+                    }
+                    rres[0] = '\0';
+                    if(rj > 4) snprint(rres, sizeof rres, "%s", rfields[4]);
+                    if(strcmp(rres,"killed")==0) killed++;
+                    else if(strcmp(rres,"survived")==0) survived++;
+                    else if(strcmp(rres,"timeout")==0) timeout++;
+                    else if(strcmp(rres,"equivalent")==0) equivalent++;
+                    else if(strcmp(rres,"infra_fail")==0) infra_fail++;
+                    else if(strcmp(rres,"setup_error")==0) setup_error++;
+                    if(bysource && rj > 2){
+                        snprint(rsrc, sizeof rsrc, "%s", rfields[2]);
+                        for(si = 0; si < nsrc; si++) if(strcmp(srcs + si*128, rsrc) == 0) break;
+                        if(si == nsrc && nsrc < 256){ snprint(srcs + nsrc*128, 128, "%s", rsrc); nsrc++; }
+                        if(si < 256){
+                            if(strcmp(rres,"killed")==0) sk[si]++;
+                            else if(strcmp(rres,"survived")==0) ss[si]++;
+                            else if(strcmp(rres,"timeout")==0) stt[si]++;
+                        }
+                    }
+                }
+                free(rdirs);
+                print("  killed=%ld\tsurvived=%ld\ttimeout=%ld\tequivalent=%ld\tinfra_fail=%ld\tsetup_error=%ld\n",
+                      killed, survived, timeout, equivalent, infra_fail, setup_error);
+                if(bysource){
+                    print("  by-source\n");
+                    for(si = 0; si < nsrc; si++){
+                        long fin = sk[si] + ss[si];
+                        if(fin > 0){
+                            double score = (double)sk[si] / (double)fin;
+                            print("    %s\tkilled=%ld\tsurvived=%ld\ttimeout=%ld\tscore=%g\n",
+                                  srcs + si*128, sk[si], ss[si], stt[si], score);
+                        }
+                    }
+                    for(si = 0; si < nsrc; si++){
+                        if(sk[si] + ss[si] == 0)
+                            print("    zero-finished\t%s\n", srcs + si*128);
+                    }
+                }
+            }
+            free(srcs);
+        } else if(survivors){
+            print("survivors\n");
+            for(j = 0; j < nev; j++){
+                e = idx[j];
+                if(strcmp(TYPE(e), "gate_exit") != 0 || strcmp(KIND(e), "task") != 0) continue;
+                DETKEY(DETAIL(e), "result", fres, sizeof fres);
+                if(strcmp(fres, "survived") != 0) continue;
+                { char *tid = ID(e);
+                  first = 1;
+                  for(k = 0; k < j; k++){ e2 = idx[k]; if(strcmp(TYPE(e2),"gate_exit")==0 && strcmp(ID(e2),tid)==0){ DETKEY(DETAIL(e2),"result",tmp,sizeof tmp); if(strcmp(tmp,"survived")==0){ first=0; break; } } }
+                  if(!first) continue;
+                  src[0] = mut[0] = '\0';
+                  for(k = 0; k < nev; k++) if(strcmp(TYPE(k),"enqueue")==0 && strcmp(ID(k),tid)==0){ DETKEY(DETAIL(k),"source",src,sizeof src); DETKEY(DETAIL(k),"mutant_path",mut,sizeof mut); break; }
+                  print("  %s\tsource=%s\tmutant_path=%s\tworker=%s\tfirst_survived=%lld\n",
+                        tid, src, mut, ORIGIN(e), ev_ts[e]);
+                }
+            }
+        } else if(tk && tk[0]){
+            /* ---- lifecycle of one task ---- */
+            print("lifecycle\ttask\t%s\n", tk);
+            fres[0] = fworker[0] = '\0'; elapsed = -1; fattempt = -1;
+            for(j = 0; j < nev; j++){
+                e = idx[j];
+                if(strcmp(KIND(e), "task") != 0 || strcmp(ID(e), tk) != 0) continue;
+                print("  %lld\t%s\t%s\t%s\n", ev_ts[e], ORIGIN(e), TYPE(e), DETAIL(e));
+                if(strcmp(TYPE(e), "gate_start") == 0){
+                    DETKEY(DETAIL(e), "attempt", tmp, sizeof tmp);
+                    if(tmp[0]) fattempt = strtol(tmp, nil, 10);
+                }
+                if(strcmp(TYPE(e), "gate_exit") == 0){
+                    DETKEY(DETAIL(e), "result", fres, sizeof fres);
+                    DETKEY(DETAIL(e), "seconds", tmp, sizeof tmp);
+                    if(tmp[0]) elapsed = strtoll(tmp, nil, 10);
+                    strcpy(fworker, ORIGIN(e));
+                }
+                if(strcmp(TYPE(e), "task_done") == 0){
+                    DETKEY(DETAIL(e), "result", fres, sizeof fres);
+                }
+            }
+            if(fres[0])
+                print("  final_result=%s\tworker=%s\tseconds=%lld\tattempt=%ld\n",
+                      fres, fworker, elapsed, fattempt);
+            if(showlineage){
+                chunk[0] = '\0';
+                for(j = 0; j < nev; j++){
+                    e = idx[j];
+                    if(strcmp(TYPE(e), "enqueue") == 0 && strcmp(ID(e), tk) == 0){
+                        DETKEY(DETAIL(e), "chunk", chunk, sizeof chunk);
+                        if(chunk[0]) break;
+                    }
+                }
+                if(chunk[0]){
+                    print("  lineage\tchunk\t%s\n", chunk);
+                    for(j = 0; j < nev; j++){
+                        e = idx[j];
+                        if(strcmp(KIND(e), "chunk") != 0 || strcmp(ID(e), chunk) != 0) continue;
+                        print("    %lld\t%s\t%s\t%s\n", ev_ts[e], ORIGIN(e), TYPE(e), DETAIL(e));
+                    }
+                } else {
+                    print("  lineage\tno chunk recorded for %s\n", tk);
+                }
+            }
+        } else if(wk && wk[0]){
+            /* ---- activity of one worker ---- */
+            int wkilled = 0, wsurv = 0, wto = 0, werr = 0;
+            print("lifecycle\tworker\t%s\n", wk);
+            for(j = 0; j < nev; j++){
+                e = idx[j];
+                if(strcmp(ORIGIN(e), wk) != 0) continue;
+                print("  %lld\t%s\t%s\t%s\n", ev_ts[e], TYPE(e), KIND(e), ID(e));
+                if(strcmp(TYPE(e), "task_done") == 0){
+                    DETKEY(DETAIL(e), "result", fres, sizeof fres);
+                    if(strcmp(fres, "killed") == 0) wkilled++;
+                    else if(strcmp(fres, "survived") == 0) wsurv++;
+                    else if(strcmp(fres, "timeout") == 0) wto++;
+                    else if(strcmp(fres, "infra_fail") == 0 || strcmp(fres, "setup_error") == 0) werr++;
+                }
+            }
+            print("  killed=%d\tsurvived=%d\ttimeout=%d\terrored=%d\n", wkilled, wsurv, wto, werr);
+        } else {
+            /* ---- ordered timeline ---- */
+            for(j = 0; j < nev; j++){
+                e = idx[j];
+                if(ft && ft[0] && strcmp(TYPE(e), ft) != 0) continue;
+                if(fo && fo[0] && strcmp(ORIGIN(e), fo) != 0) continue;
+                if(aft >= 0 && ev_ts[e] < aft) continue;
+                if(bft >= 0 && ev_ts[e] > bft) continue;
+                print("%lld\t%s\t%s\t%s\t%s\t%s\n", ev_ts[e], ORIGIN(e), TYPE(e), KIND(e), ID(e), DETAIL(e));
+            }
+        }
+
+        rdone: ;
+    }
+    return 0;
+}
+
+main {
+    Process p = new Process();
+    string root = "";
+    string ftype = "";
+    string forigin = "";
+    string afters = "";
+    string befores = "";
+    string taskid = "";
+    string workerid = "";
+    string output = "";
+    int64 integrity = 0;
+    int64 summary = 0;
+    int64 bysource = 0;
+    int64 survivors = 0;
+    int64 exportslice = 0;
+    int64 showlineage = 0;
+    int64 nargs = p.argc();
+    int64 i = 1;
+
+    while(i < nargs) {
+        string a = p.arg(i);
+        if(cmp(a, "-r") == 0 && i + 1 < nargs) { root = p.arg(i + 1); i = i + 2; }
+        else if(cmp(a, "--type") == 0 && i + 1 < nargs) { ftype = p.arg(i + 1); i = i + 2; }
+        else if(cmp(a, "--origin") == 0 && i + 1 < nargs) { forigin = p.arg(i + 1); i = i + 2; }
+        else if(cmp(a, "--after") == 0 && i + 1 < nargs) { afters = p.arg(i + 1); i = i + 2; }
+        else if(cmp(a, "--before") == 0 && i + 1 < nargs) { befores = p.arg(i + 1); i = i + 2; }
+        else if(cmp(a, "--task") == 0 && i + 1 < nargs) { taskid = p.arg(i + 1); i = i + 2; }
+        else if(cmp(a, "--worker") == 0 && i + 1 < nargs) { workerid = p.arg(i + 1); i = i + 2; }
+        else if(cmp(a, "--output") == 0 && i + 1 < nargs) { output = p.arg(i + 1); i = i + 2; }
+        else if(cmp(a, "--integrity") == 0) { integrity = 1; i = i + 1; }
+        else if(cmp(a, "--summary") == 0) { summary = 1; i = i + 1; }
+        else if(cmp(a, "--by-source") == 0) { bysource = 1; i = i + 1; }
+        else if(cmp(a, "--survivors") == 0) { survivors = 1; i = i + 1; }
+        else if(cmp(a, "--export-slice") == 0) { exportslice = 1; i = i + 1; }
+        else if(cmp(a, "--show-lineage") == 0) { showlineage = 1; i = i + 1; }
+        else {
+            print("usage: o9mutreplay [-r root] [--type T] [--origin O] [--after T1] [--before T2]\n");
+            print("       [--task id [--show-lineage]] [--worker id] [--integrity]\n");
+            print("       [--summary [--by-source]] [--survivors] [--export-slice --output F]\n");
+            i = nargs;
+        }
+    }
+
+    Task<int64> t = spawn O9MutReplayRun(root, ftype, forigin, afters, befores, taskid, workerid, output, integrity, summary, bysource, survivors, exportslice, showlineage);
+    t.await();
+}

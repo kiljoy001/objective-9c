@@ -102,6 +102,18 @@ extern void  o9_reply_free(O9Reply *r);
 extern vlong o9_double_pack(double d);
 extern double o9_double_unpack(vlong v);
 extern ulong o9_hash(char *s);
+/* Append one structured event line to an append-only log at `path`.
+ * Format: seq\tts_ms\torigin\ttype\tentity_kind\tentity_id[\tdetail]\n
+ * seq is a per-process monotonic counter (one origin per grid process, so
+ * per-process == per-origin); ts_ms is nsec()/1e6. Atomic append via OAPPEND
+ * + a single write, so concurrent workers/nodes never corrupt each other's
+ * lines. If `detail` is nil/empty no detail column is written. */
+extern void  o9_append_event(const char *path, const char *origin,
+                             const char *type, const char *entity_kind,
+                             const char *entity_id, const char *detail);
+/* Read an integer value for `key` from a key\tvalue tab file at `path`.
+ * Returns `def` if the file or key is absent or unparseable. */
+extern long  o9_kv_int(const char *path, const char *key, long def);
 /* Per-proc last-call error for `try` (procdata-backed; each object proc
  * has its own — see o9_runtime.c). NOT a global: parallel actors. */
 extern void  o9_set_call_err(char *e);
