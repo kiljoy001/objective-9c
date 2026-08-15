@@ -97,6 +97,17 @@ Feature: Task worker runs one gate per claimed task and classifies the result
     Then the result file "results/t2.tab" has result=setup_error reason=missing gate
     And the task is moved to done without forking a gate
 
+  @new @race
+  Scenario: A duplicate post-claim worker cannot overwrite a finished result
+    Given task "t4" was already claimed by another worker
+    And "results/t4.tab" already records result=killed
+    And "tasks/done/t4.resultlock" already exists
+    When the duplicate worker reaches result finalization for "t4"
+    Then it does not truncate or replace "results/t4.tab"
+    And it does not acquire "tasks/done/t4.resultlock"
+    And it records task_done with result=duplicate in the journal
+    And the campaign report keeps the original killed result
+
   @existing
   Scenario: A task with a non-positive timeout defaults to 300000 ms
     Given task "t3" with timeout_ms=0

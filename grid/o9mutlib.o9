@@ -1314,7 +1314,7 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
 
     c {
         char *r, *w, *tmpenv, *sysname;
-        char pdir[1024], lockdir[1024], claimfile[1024], taskpath[1024], resultpath[1024], donepath[1024], workerpath[1024], drainpath[1024], cfgpath[1024];
+        char pdir[1024], lockdir[1024], claimfile[1024], taskpath[1024], resultpath[1024], resultlock[1024], donepath[1024], workerpath[1024], drainpath[1024], cfgpath[1024];
         char logpath[1024], scratch[1024], buf[8192], jpath[1024], detail[256], *taskbuf, *row, *fields[8], *s;
         char *taskid, *source, *mutant, *gate, *timeouttxt, *attempt, *result;
         Dir *dirs, *st;
@@ -1452,6 +1452,15 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
 	                    close(fd);
 	                }
 	                if(gate == nil || gate[0] == '\0'){
+	                    snprint(resultlock, sizeof resultlock, "%s/tasks/done/%s.resultlock", r, taskid);
+	                    fd = create(resultlock, OREAD, DMDIR|0755);
+	                    if(fd >= 0)
+	                        close(fd);
+	                    if(fd < 0 || access(resultpath, 0) == 0){
+	                        snprint(detail, sizeof detail, "result=duplicate\treason=result_exists");
+	                        o9_append_event(jpath, w, "gate_exit", "task", taskid, detail);
+	                        o9_append_event(jpath, w, "task_done", "task", taskid, detail);
+	                    } else {
 	                    fd = create(resultpath, OWRITE, 0644);
 	                    if(fd >= 0){
                         fprint(fd, "task_id\tworker_id\tsource\tmutant_path\tresult\texit_code\tseconds\tlog_path\treason\tfinished_at\n");
@@ -1461,6 +1470,8 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
 		                    snprint(detail, sizeof detail, "result=setup_error\texit_code=1\treason=missing_gate");
 		                    o9_append_event(jpath, w, "gate_exit", "task", taskid, detail);
 		                    o9_append_event(jpath, w, "task_done", "task", taskid, detail);
+	                        setup++;
+	                    }
 	                    snprint(donepath, sizeof donepath, "%s/tasks/done/%s.tab", r, taskid);
 	                    fd = create(donepath, OWRITE, 0644);
 	                    if(fd >= 0){
@@ -1471,7 +1482,6 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
 	                    remove(claimfile);
 	                    remove(lockdir);
 	                    remove(scratch);
-	                    setup++;
 	                    jobs++;
 	                    free(taskbuf);
 	                    free(taskid);
@@ -1586,6 +1596,15 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
 	                }
 	                elapsed = (nsec() - start) / 1000000000LL;
 	                result = "infra_fail";
+                snprint(resultlock, sizeof resultlock, "%s/tasks/done/%s.resultlock", r, taskid);
+                fd = create(resultlock, OREAD, DMDIR|0755);
+                if(fd >= 0)
+                    close(fd);
+                if(fd < 0 || access(resultpath, 0) == 0){
+                    result = "duplicate";
+                    snprint(detail, sizeof detail, "result=duplicate\texisting_result=1\tseconds=%lld", elapsed);
+                    o9_append_event(jpath, w, "gate_exit", "task", taskid, detail);
+                } else {
                 fd = create(resultpath, OWRITE, 0644);
                 if(fd >= 0){
                     fprint(fd, "task_id\tworker_id\tsource\tmutant_path\tresult\texit_code\tseconds\tlog_path\treason\tfinished_at\n");
@@ -1609,6 +1628,7 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
 	                else
 	                    snprint(detail, sizeof detail, "result=%s\texit_code=%d\tseconds=%lld", result, exitcode, elapsed);
                 o9_append_event(jpath, w, "gate_exit", "task", taskid, detail);
+                }
                 snprint(donepath, sizeof donepath, "%s/tasks/done/%s.tab", r, taskid);
                 fd = create(donepath, OWRITE, 0644);
                 if(fd >= 0){
