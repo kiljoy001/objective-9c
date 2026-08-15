@@ -174,6 +174,25 @@ ck test -e $root/controller/results/$node/t1.tab
 ck test -e $root/controller/journals/$node.log
 ck test -e $root/controller/progress/$node.tab
 
+donor=$root/donor-shard
+stealroot=$root/steal-shard
+mkdir $donor
+mkdir $donor/results
+cp $localroot/results/t1.tab $donor/results/t1.tab
+echo 'task_id	source	mutant_path	gate	timeout_ms	priority' >$root/manifests/steal.tsv
+echo 't1	sample	mutant	gate	5000	100' >>$root/manifests/steal.tsv
+echo 't2	sample	mutant2	gate	5000	100' >>$root/manifests/steal.tsv
+qcmd16 steal1 steal-shard $stealroot $root/bin $root/repo-src - - - - - - - $root/logs/steal1.out shard-1 $root/manifests/steal.tsv $stealroot $donor
+rc grid/o9mutagent.rc -r $root -n $node -once >$tmpbase/o9mutagent.steal.$pid >[2=1]
+ck test -e $root/agents/$node/done/steal1.tab
+has 'steal-shard	ready' $root/agents/$node/done/steal1.tab
+ck test -e $stealroot/shard/manifest.tsv
+has 't2	sample' $stealroot/shard/manifest.tsv
+if(grep -s '^t1	' $stealroot/shard/manifest.tsv){
+	echo 'o9mutagent: FAIL: steal manifest included completed t1' >[1=2]
+	fail=1
+}
+
 if(~ $fail 0){
 	cleanup
 	rm -f $tmpbase/o9mutagent.*.$pid

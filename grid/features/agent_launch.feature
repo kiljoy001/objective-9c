@@ -24,6 +24,7 @@ Feature: Resident node agents consume tabula launch commands
     start-daemon
     prepare-shard
     collect-shard
+    steal-shard
 
   Background:
     Given a shared grid root mounted at the same path on every node
@@ -91,6 +92,15 @@ Feature: Resident node agents consume tabula launch commands
     And the command has op=collect-shard
     And the command carries local_root and collect_root
 
+  @new @decentralized
+  Scenario: The controller queues shard stealing as a tabula command
+    Given node "dev9p.rentonsoftworks.coin" is idle
+    And node "Authomatic.rentonsoftworks.coin" owns a slower shard
+    When the controller wants dev9p to steal unfinished donor rows
+    Then it writes one command file under "agents/dev9p.rentonsoftworks.coin/pending/"
+    And the command has op=steal-shard
+    And the command carries donor local_root in collect_root, donor manifest in manifest, and thief local_root in local_root
+
   @new
   Scenario: Ping verifies that an agent is consuming commands
     When the controller writes a command with op=ping
@@ -152,6 +162,16 @@ Feature: Resident node agents consume tabula launch commands
     And it copies the local journal under "collect_root/journals/<node>.log"
     And it writes a compact status tabula under "collect_root/progress/<node>.tab"
     And a done status records the shard as collected
+
+  @new @decentralized
+  Scenario: A steal-shard command prepares only unfinished donor work
+    Given a claimed command with op=steal-shard
+    When the node agent executes the command
+    Then it creates a thief-local root
+    And it copies grid binaries and repo-src into that root
+    And it writes a shard manifest that excludes task ids already present in the donor results
+    And it runs o9mutctl init and o9mutctl manifest against the thief-local root
+    And a done status records the steal root as ready
 
   @new
   Scenario: An unsupported op is rejected without executing anything

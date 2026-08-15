@@ -17,6 +17,10 @@ Feature: Decentralized mutation campaigns run node-owned shards
       queues prepare-shard commands, waits for agents to prepare local roots,
       then queues start-queue and start-worker commands against each local root.
 
+    grid/steal_decentralized_shard.rc -r controller-root -f donor-node -t thief-node -s shard-id
+      The script queues a thief-side steal-shard command, then starts queue and
+      task workers on a thief-local root containing only unfinished donor rows.
+
   Controller layout:
     controller/manifest.tsv
     controller/nodes.tab
@@ -197,6 +201,24 @@ Feature: Decentralized mutation campaigns run node-owned shards
     Then the controller writes a new shard assignment for that shard id
     And the replacement node receives the failed node's shard manifest
     And already collected results for that shard are not rerun
+
+  @new
+  Scenario: An idle fast node can steal unfinished work from a slower shard
+    Given node "dev9p.rentonsoftworks.coin" has drained its own shard
+    And node "Authomatic.rentonsoftworks.coin" still has unfinished shard rows
+    When the operator runs "grid/steal_decentralized_shard.rc" from Authomatic to dev9p
+    Then the controller queues op=steal-shard for dev9p
+    And dev9p prepares a thief-local root from Authomatic's shard manifest
+    And the thief-local manifest excludes task ids already present in Authomatic's results
+    And dev9p starts local queue and task workers against the thief-local root
+
+  @new
+  Scenario: Work stealing keeps completed donor rows stable
+    Given a donor shard has already written result file "t1.tab"
+    When another node steals from that donor shard
+    Then the stolen manifest does not contain task id "t1"
+    And merge can later deduplicate any race where donor and thief both finish the same task
+    And no pending or claimed donor files are moved over the controller root
 
   @new
   Scenario: A restarted node resumes from local state
