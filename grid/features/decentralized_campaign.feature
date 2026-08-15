@@ -21,6 +21,12 @@ Feature: Decentralized mutation campaigns run node-owned shards
       The script queues a thief-side steal-shard command, then starts queue and
       task workers on a thief-local root containing only unfinished donor rows.
 
+    grid/merge_decentralized_results.rc -r controller-root result-root ...
+      The script compiles the merge helper, validates result roots against the
+      controller manifest, writes merge artifacts locally, then copies summary,
+      report, duplicate, conflict, missing, unexpected, and malformed tabulae
+      under controller/merge.
+
   Controller layout:
     controller/manifest.tsv
     controller/nodes.tab
