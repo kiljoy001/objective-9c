@@ -49,10 +49,44 @@ fn qcmd {
 	echo $op'	'$root'	'$root/bin'	-	'$worker'	'$jobs'	'$idle'	'$maxpending'	'$interval'	'$stale'	'$cycles'	'$log >>$cmdpath
 }
 
+fn qcmd16 {
+	args=($*)
+	id=$args(1)
+	op=$args(2)
+	cmdroot=$args(3)
+	bindir=$args(4)
+	repo=$args(5)
+	worker=$args(6)
+	jobs=$args(7)
+	idle=$args(8)
+	maxpending=$args(9)
+	interval=$args(10)
+	stale=$args(11)
+	cycles=$args(12)
+	log=$args(13)
+	shardid=$args(14)
+	manifest=$args(15)
+	localroot=$args(16)
+	collectroot=$args(17)
+	cmdpath=$root/agents/$node/pending/$id.tab
+	echo 'op	root	bindir	repo	worker	jobs	idle_ms	max_pending	interval_ms	stale_sec	cycles	log	shard_id	manifest	local_root	collect_root' >$cmdpath
+	echo $op'	'$cmdroot'	'$bindir'	'$repo'	'$worker'	'$jobs'	'$idle'	'$maxpending'	'$interval'	'$stale'	'$cycles'	'$log'	'$shardid'	'$manifest'	'$localroot'	'$collectroot >>$cmdpath
+}
+
 mkdir $root
 mkdir $root/bin
 mkdir $root/logs
 
+{
+	echo '#!/bin/rc'
+	echo 'root='''''
+	echo 'if(~ $1 -r){ root=$2; shift; shift }'
+	echo 'cmd=$1'
+	echo 'echo o9mutctl -r $root $*'
+	echo 'if(~ $cmd init){ mkdir $root/tasks >[2]/dev/null; mkdir $root/results >[2]/dev/null; mkdir $root/logs >[2]/dev/null; echo initialized $root }'
+	echo 'if(~ $cmd manifest){ mkdir $root/queue >[2]/dev/null; echo manifest_enqueued 1 }'
+	echo 'if(~ $cmd status){ echo pending 0; echo claimed 0; echo done 1 }'
+} >$root/bin/o9mutctl
 {
 	echo '#!/bin/rc'
 	echo 'echo o9mutw $*'
@@ -65,7 +99,13 @@ mkdir $root/logs
 	echo '#!/bin/rc'
 	echo 'echo o9mutd $*'
 } >$root/bin/o9mutd
-chmod +x $root/bin/o9mutw $root/bin/o9mutq $root/bin/o9mutd
+chmod +x $root/bin/o9mutctl $root/bin/o9mutw $root/bin/o9mutq $root/bin/o9mutd
+
+mkdir $root/repo-src
+echo repo >$root/repo-src/README
+mkdir $root/manifests
+echo 'task_id	source	mutant_path	gate	timeout_ms	priority' >$root/manifests/shard.tsv
+echo 't1	sample	mutant	gate	5000	100' >>$root/manifests/shard.tsv
 
 rc grid/o9mutagent.rc -r $root -n $node -once >$tmpbase/o9mutagent.init.$pid >[2=1]
 ck test -d $root/agents/$node/pending
@@ -110,6 +150,29 @@ ck test -e $root/agents/$node/done/d1.tab
 has 'start-daemon	accepted' $root/agents/$node/done/d1.tab
 sleep 1
 has 'o9mutd -r '$root' -cycles 0 -interval-ms 30000 -stale-sec 300' $root/logs/d1.out
+
+localroot=$root/local-shard
+qcmd16 prep1 prepare-shard $localroot $root/bin $root/repo-src - - - - - - - $root/logs/prep1.out shard-1 $root/manifests/shard.tsv $localroot $root/controller
+rc grid/o9mutagent.rc -r $root -n $node -once >$tmpbase/o9mutagent.prepare.$pid >[2=1]
+ck test -e $root/agents/$node/done/prep1.tab
+has 'prepare-shard	ready' $root/agents/$node/done/prep1.tab
+ck test -e $localroot/bin/o9mutctl
+ck test -e $localroot/bin/o9mutw
+ck test -e $localroot/shard/manifest.tsv
+ck test -e $localroot/repo-src/README
+has 'manifest_enqueued 1' $localroot/logs/manifest.out
+
+mkdir $localroot/results >[2]/dev/null
+echo 'task_id	worker_id	source	mutant_path	result	exit_code	seconds	log_path	reason	finished_at' >$localroot/results/t1.tab
+echo 't1	testnode-1	sample	mutant	killed	1	1	log	gate failed	0' >>$localroot/results/t1.tab
+echo journal >$localroot/journal.log
+qcmd16 collect1 collect-shard $localroot $localroot/bin $localroot/repo-src - - - - - - - $root/logs/collect1.out shard-1 - $localroot $root/controller
+rc grid/o9mutagent.rc -r $root -n $node -once >$tmpbase/o9mutagent.collect.$pid >[2=1]
+ck test -e $root/agents/$node/done/collect1.tab
+has 'collect-shard	collected' $root/agents/$node/done/collect1.tab
+ck test -e $root/controller/results/$node/t1.tab
+ck test -e $root/controller/journals/$node.log
+ck test -e $root/controller/progress/$node.tab
 
 if(~ $fail 0){
 	cleanup

@@ -10,6 +10,13 @@ Feature: Decentralized mutation campaigns run node-owned shards
   installed code runs locally; data moves as inert tabula files; receivers
   decide what imported data means with their own local code.
 
+  Usage:
+    grid/run_decentralized_campaign.rc [-r controller-root] [-m manifest.tsv]
+      [-n workers-per-node] [-j jobs-per-worker] [-Q queue-max-pending] [-B node-local-base] [node ...]
+      The script builds grid tools, snapshots repo-src, writes controller/shards,
+      queues prepare-shard commands, waits for agents to prepare local roots,
+      then queues start-queue and start-worker commands against each local root.
+
   Controller layout:
     controller/manifest.tsv
     controller/nodes.tab
@@ -54,6 +61,13 @@ Feature: Decentralized mutation campaigns run node-owned shards
     Then it writes one shard manifest per node under "controller/shards/"
     And every task id from the input manifest appears in exactly one shard manifest
     And repeating the plan with the same manifest and node list produces the same task ownership
+
+  @new
+  Scenario: The decentralized campaign launcher writes the shard plan
+    When the operator launches "grid/run_decentralized_campaign.rc"
+    Then the launcher writes "controller/manifest.tsv"
+    And it writes "controller/shards/<node>.manifest.tsv" for every target node
+    And it writes "controller/nodes.tab" with each node's shard id, task count, manifest path, local root, and status
 
   @new
   Scenario: The shard plan is explicit campaign data

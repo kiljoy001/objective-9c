@@ -76,10 +76,10 @@ fn run_command {
 	if(~ $#vals 0){
 		write_status $failfile $id malformed failed - -
 	}
-	if(! ~ $#vals 0 && ! ~ $#vals 12){
+	if(! ~ $#vals 0 && ! ~ $#vals 12 && ! ~ $#vals 16){
 		write_status $failfile $id malformed failed - -
 	}
-	if(~ $#vals 12){
+	if(~ $#vals 12 16){
 
 		op=$vals(1)
 		cmdroot=$vals(2)
@@ -93,8 +93,42 @@ fn run_command {
 		stale=$vals(10)
 		cycles=$vals(11)
 		log=$vals(12)
+		shardid=-
+		manifest=-
+		localroot=-
+		collectroot=-
+		if(~ $#vals 16){
+			shardid=$vals(13)
+			manifest=$vals(14)
+			localroot=$vals(15)
+			collectroot=$vals(16)
+		}
 
 		switch($op){
+		case prepare-shard
+			if(~ $localroot -)
+				localroot=$cmdroot
+			if(~ $manifest -){
+				write_status $failfile $id $op failed - -
+			}
+			if(! ~ $manifest -){
+				rm -rf $localroot >[2]/dev/null
+				mkdir $localroot >[2]/dev/null
+				mkdir $localroot/bin >[2]/dev/null
+				mkdir $localroot/shard >[2]/dev/null
+				mkdir $localroot/logs >[2]/dev/null
+				cp $bindir/o9mutctl $bindir/o9mutq $bindir/o9mutw $localroot/bin
+				if(test -e $bindir/o9mutd)
+					cp $bindir/o9mutd $localroot/bin
+				cp $manifest $localroot/shard/manifest.tsv
+				if(! ~ $repo -){
+					mkdir $localroot/repo-src >[2]/dev/null
+					dircp $repo $localroot/repo-src
+				}
+				$localroot/bin/o9mutctl -r $localroot init >$localroot/logs/init.out >[2=1]
+				$localroot/bin/o9mutctl -r $localroot manifest $localroot/shard/manifest.tsv >$localroot/logs/manifest.out >[2=1]
+				write_status $donefile $id $op ready $localroot/logs/manifest.out -
+			}
 		case start-worker
 			if(~ $idle -)
 				idle=5000
@@ -124,6 +158,28 @@ fn run_command {
 			if(! ~ $repo -)
 				O9MUT_PLAN9_REPO=$repo $bindir/o9mutd -r $cmdroot -cycles $cycles -interval-ms $interval -stale-sec $stale >$log >[2=1] &
 			write_status $donefile $id $op accepted $log $apid
+		case collect-shard
+			if(~ $localroot -)
+				localroot=$cmdroot
+			if(~ $collectroot -){
+				write_status $failfile $id $op failed - -
+			}
+			if(! ~ $collectroot -){
+				mkdir $collectroot >[2]/dev/null
+				mkdir $collectroot/results >[2]/dev/null
+				mkdir $collectroot/results/$node >[2]/dev/null
+				mkdir $collectroot/journals >[2]/dev/null
+				mkdir $collectroot/progress >[2]/dev/null
+				for(f in $localroot/results/*.tab){
+					if(test -e $f)
+						cp $f $collectroot/results/$node
+				}
+				if(test -e $localroot/journal.log)
+					cp $localroot/journal.log $collectroot/journals/$node.log
+				if(test -e $localroot/bin/o9mutctl)
+					$localroot/bin/o9mutctl -r $localroot status >$collectroot/progress/$node.tab >[2=1]
+				write_status $donefile $id $op collected $collectroot/results/$node -
+			}
 		case ping
 			write_status $donefile $id $op ok - -
 		case *

@@ -14,12 +14,16 @@ Feature: Resident node agents consume tabula launch commands
 
   Command schema:
     op root bindir repo worker jobs idle_ms max_pending interval_ms stale_sec cycles log
+    Optional decentralized columns:
+      shard_id manifest local_root collect_root
 
   Supported ops:
     ping
     start-worker
     start-queue
     start-daemon
+    prepare-shard
+    collect-shard
 
   Background:
     Given a shared grid root mounted at the same path on every node
@@ -71,6 +75,22 @@ Feature: Resident node agents consume tabula launch commands
     And the command has op=start-daemon
     And the command carries cycles=0, interval_ms=30000, stale_sec=300, root, bindir, repo, and log
 
+  @new @decentralized
+  Scenario: The controller queues shard preparation as a tabula command
+    When the controller wants node "dev9p.rentonsoftworks.coin" to own shard "shard-1"
+    Then it writes one command file under "agents/dev9p.rentonsoftworks.coin/pending/"
+    And the command has op=prepare-shard
+    And the command carries bindir, repo, manifest, local_root, shard_id, and collect_root
+    And the command contains no shell fragment supplied by the campaign input
+
+  @new @decentralized
+  Scenario: The controller queues shard collection as a tabula command
+    Given node "dev9p.rentonsoftworks.coin" has drained its node-local shard root
+    When the controller wants to collect the shard
+    Then it writes one command file under "agents/dev9p.rentonsoftworks.coin/pending/"
+    And the command has op=collect-shard
+    And the command carries local_root and collect_root
+
   @new
   Scenario: Ping verifies that an agent is consuming commands
     When the controller writes a command with op=ping
@@ -114,6 +134,24 @@ Feature: Resident node agents consume tabula launch commands
     And it passes -r, -cycles, -interval-ms, and -stale-sec from the command row
     And it exports O9MUT_PLAN9_REPO from the repo column when repo is present
     And a done status records the accepted launch and child pid
+
+  @new @decentralized
+  Scenario: A prepare-shard command stages a node-local root
+    Given a claimed command with op=prepare-shard
+    When the node agent executes the command
+    Then it creates the local_root tree
+    And it copies grid binaries, repo-src, and the shard manifest into local_root
+    And it runs o9mutctl init and o9mutctl manifest against local_root
+    And a done status records the shard as ready
+
+  @new @decentralized
+  Scenario: A collect-shard command publishes local results to the controller
+    Given a claimed command with op=collect-shard
+    When the node agent executes the command
+    Then it copies local results under "collect_root/results/<node>/"
+    And it copies the local journal under "collect_root/journals/<node>.log"
+    And it writes a compact status tabula under "collect_root/progress/<node>.tab"
+    And a done status records the shard as collected
 
   @new
   Scenario: An unsupported op is rejected without executing anything
