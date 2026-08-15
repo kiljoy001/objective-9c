@@ -22,6 +22,7 @@ preserved is tagged `@existing`; behaviour added by this pass is tagged
 | `campaign.feature` | multi-node rcpu or tabula-agent launch, auth preflight, daemon launch, wait-for-drain | @unattended, @hygiene |
 | `agent_launch.feature` | resident node agents consuming inert tabula launch commands instead of per-worker rcpu | @agent, @unattended |
 | `throughput.feature` | recommended high-throughput campaign shape: agents, persistent workers, queues, daemon, wait-drain | @throughput, @agent, @unattended |
+| `decentralized_campaign.feature` | node-owned shard campaigns: local roots, local execution, compact progress, final merge | @decentralized, @throughput, @agent, @language |
 | `triage_bridge.feature` | grid results → o9um triage schema → recheck round-trip | @triage |
 | `status_observability.feature` | per-source progress, mutation score, worker liveness, robust parsing | @hygiene, @journal |
 | `gate.feature` | the gate: ramfs worktree, repo copy list, mk-target routing by source, teardown | @gate, @hygiene |
@@ -43,6 +44,10 @@ Bundle (maps to the four requested bundles + the event/replay system):
 - `@hygiene` — worker leaks, scratch cleanup, robust parsing, portability.
 - `@agent` — resident node launcher that consumes tabula command files.
 - `@throughput` — utilization-oriented campaign behavior for large mutation runs.
+- `@decentralized` — node-owned shard campaign behavior where the controller
+  plans and merges but task IO is local to each node.
+- `@language` — scenarios that bind grid behavior back to Objective-9's
+  application model: local code, tabula data, no remote object dispatch.
 
 Component:
 - `@queue` `@worker` `@control` `@gate` `@host_bridge` `@smoke` `@agent` `@throughput` — which part
@@ -97,6 +102,19 @@ Component:
   `run_3node_campaign.rc -L agent -M /mnt/term -D -W -y -j 0 -n 3 -E enqueue.rc`.
   It uses resident agents, persistent workers, queue workers, daemon recovery,
   and wait-drain to keep nodes busy without per-worker rcpu.
+- **decentralized campaign** — the next topology after the shared-root
+  throughput campaign. The controller writes an explicit shard plan, each node
+  runs a complete node-local root for its assigned shard, and the controller
+  reads compact progress plus final result tabulae.
+- **shard** — the unit of decentralized ownership: a deterministic subset of
+  the manifest, a node-local repo snapshot, a node-local queue/task tree, a
+  journal, and result files.
+- **node-local root** — the local filesystem tree used by one node's shard.
+  Task workers and queue workers use it for hot-path IO; the controller root is
+  reserved for commands, progress publication, and final collection.
+- **merge** — the controller-side reduction step that validates complete
+  manifest coverage, deduplicates identical result rows, rejects conflicts, and
+  writes one report for the campaign.
 
 ## The two crash-recovery invariants
 
@@ -137,6 +155,9 @@ event, not from a single-threaded recorder.
 - **Event/replay system** (the requested Quake-3 playback) →
   `event_journal.feature` + `replay.feature` + the `@journal` scenarios
   woven through every other feature.
+- **Decentralized execution** → `decentralized_campaign.feature`: deterministic
+  shard planning, node-local hot paths, progress publication, shard recovery,
+  and final merge.
 
 ## Implementation notes (non-normative)
 

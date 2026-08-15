@@ -6,6 +6,7 @@ repo=`{pwd}
 nodes=(dev9p.rentonsoftworks.coin Authomatic.rentonsoftworks.coin babyFileServer.rentonsoftworks.coin)
 workers=3
 jobs=0
+queuemax=512
 root=''
 enqueue=''
 fail=0
@@ -13,6 +14,7 @@ authcheck=1
 confirm=1
 daemon=0
 waitdrain=0
+snapshotrepo=0
 drain_timeout=3600
 launchmode=rcpu
 agentprefix=''
@@ -20,14 +22,16 @@ agentcmdnodes=()
 agentcmdids=()
 
 fn usage {
-	echo 'usage: grid/run_3node_campaign.rc [-A] [-y] [-W] [-D] [-L rcpu|agent] [-M agent-path-prefix] [-r root]' >[1=2]
-	echo '  [-n workers-per-node] [-j jobs-per-worker] [-T drain-timeout-sec] [-E enqueue.rc] [node ...]' >[1=2]
+	echo 'usage: grid/run_3node_campaign.rc [-A] [-y] [-W] [-D] [-S] [-L rcpu|agent] [-M agent-path-prefix] [-r root]' >[1=2]
+	echo '  [-n workers-per-node] [-j jobs-per-worker] [-Q queue-max-pending] [-T drain-timeout-sec] [-E enqueue.rc] [node ...]' >[1=2]
 	echo '  -j 0 means persistent workers; drain them with o9mutctl drain-worker' >[1=2]
 	echo '  -A skips rcpu auth probes; -y skips the interactive login confirmation' >[1=2]
 	echo '  -D launches one o9mutd recovery daemon (cycles=0) on the first node' >[1=2]
+	echo '  -S snapshots the gate-visible repo subset into root/repo-src and points workers at it' >[1=2]
 	echo '  -W blocks until the grid drains after launching; -T sets the drain timeout (default 3600s)' >[1=2]
 	echo '  -L agent queues tabula launch commands for resident o9mutagent.rc processes' >[1=2]
 	echo '  -M prefixes paths inside agent commands, e.g. /mnt/term for rcpu-bootstrapped agents' >[1=2]
+	echo '  -Q sets o9mutq -max-pending (default 512)' >[1=2]
 	exit usage
 }
 
@@ -44,6 +48,10 @@ while(! ~ $#* 0){
 	case -j
 		if(~ $#* 1) usage
 		jobs=$2
+		shift
+	case -Q
+		if(~ $#* 1) usage
+		queuemax=$2
 		shift
 	case -E
 		if(~ $#* 1) usage
@@ -67,6 +75,8 @@ while(! ~ $#* 0){
 		confirm=0
 	case -D
 		daemon=1
+	case -S
+		snapshotrepo=1
 	case -W
 		waitdrain=1
 	case -h --help
@@ -117,6 +127,7 @@ echo root $root
 echo nodes $nodes
 echo workers_per_node $workers
 echo jobs_per_worker $jobs
+echo queue_max_pending $queuemax
 echo launch_mode $launchmode
 if(! ~ $agentprefix '')
 	echo agent_path_prefix $agentprefix
@@ -124,6 +135,8 @@ if(! ~ $enqueue '')
 	echo enqueue_script $enqueue
 if(~ $daemon 1)
 	echo daemon yes
+if(~ $snapshotrepo 1)
+	echo repo_snapshot yes
 if(~ $waitdrain 1)
 	echo wait_drain yes timeout $drain_timeout
 
@@ -191,6 +204,47 @@ cp $binpaths $bindir
 if(~ $launchmode agent)
 	cp grid/o9mutagent.rc $bindir
 
+repopath=$repo
+if(~ $snapshotrepo 1){
+	snap=$root/repo-src
+	echo snapshot-repo $snap
+	rm -rf $snap >[2]/dev/null
+	mkdir $snap || exit snapshot
+	mkdir $snap/o9c || exit snapshot
+	for(f in $repo/o9c/*){
+		name=`{basename $f}
+		if(! ~ $name test grammar.d){
+			if(! test -d $f)
+				cp $f $snap/o9c/$name || exit snapshot
+		}
+	}
+	mkdir $snap/o9c/grammar.d || exit snapshot
+	dircp $repo/o9c/grammar.d $snap/o9c/grammar.d || exit snapshot
+	mkdir $snap/o9c/test || exit snapshot
+	for(f in $repo/o9c/test/*){
+		name=`{basename $f}
+		if(! ~ $name artifacts){
+			if(test -d $f){
+				mkdir $snap/o9c/test/$name || exit snapshot
+				dircp $f $snap/o9c/test/$name || exit snapshot
+			}
+			if(! test -d $f)
+				cp $f $snap/o9c/test/$name || exit snapshot
+		}
+	}
+	mkdir $snap/o9c/test/artifacts >[2]/dev/null
+	if(test -e $repo/o9c/test/artifacts/.gitignore)
+		cp $repo/o9c/test/artifacts/.gitignore $snap/o9c/test/artifacts/.gitignore >[2]/dev/null
+	for(d in libtab stdlib){
+		mkdir $snap/$d || exit snapshot
+		dircp $repo/$d $snap/$d || exit snapshot
+	}
+	for(f in mkfile o9.h o9_runtime.c o9_crypto.c o9_tab_discard.c o9_dispatch_$objtype.s monocypher.c monocypher.h)
+		cp $repo/$f $snap/$f || exit snapshot
+	repopath=$snap
+	echo snapshot-repo-complete
+}
+
 if(! ~ $enqueue ''){
 	echo enqueue
 	if(! rc $enqueue $root){
@@ -222,14 +276,14 @@ remotebindir=/mnt/term^$bindir
 # launch host's tree, which every node sees under /mnt/term. Exporting it
 # explicitly frees the gate from its hardcoded /mnt/term/mnt/term/home/scott
 # fallback. The worker's gate child inherits this via rfork+execl.
-remoterepo=/mnt/term^$repo
+remoterepo=/mnt/term^$repopath
 agentroot=$root
 agentbindir=$bindir
-agentrepo=$repo
+agentrepo=$repopath
 if(! ~ $agentprefix ''){
 	agentroot=$agentprefix^$root
 	agentbindir=$agentprefix^$bindir
-	agentrepo=$agentprefix^$repo
+	agentrepo=$agentprefix^$repopath
 }
 
 fn agent_dirs {
@@ -275,7 +329,7 @@ fn agent_queue_cmd {
 	id=$worker^'.'^$pid
 	log=$agentroot/logs/launchq.$node.out
 	cyclesv=-
-	agent_common $node $id start-queue $worker - 1000 512 - -
+	agent_common $node $id start-queue $worker - 1000 $queuemax - -
 }
 
 fn agent_daemon_cmd {
@@ -303,7 +357,7 @@ for(node in $nodes){
 	qworker=$node^'-queue'
 	if(~ $launchmode rcpu){
 		echo rcpu-queue $node $qworker
-		rcpu -h $node -c $remotebindir/o9mutq' -r '$remoteroot' -w '$qworker' -idle-ms 1000 -max-pending 512' </dev/null >$root/logs/launchq.$node.out >[2=1] &
+		rcpu -h $node -c $remotebindir/o9mutq' -r '$remoteroot' -w '$qworker' -idle-ms 1000 -max-pending '$queuemax </dev/null >$root/logs/launchq.$node.out >[2=1] &
 	}
 	if(~ $launchmode agent){
 		echo agent-queue $node $qworker
@@ -421,3 +475,5 @@ if(~ $waitdrain 1){
 		echo workers-drained
 	}
 }
+
+exit ''

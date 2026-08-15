@@ -616,6 +616,15 @@ imports/    # inert inbound .tab deposits
 become visible when that fid is closed; imported data never invokes methods by
 itself.
 
+The typical distributed application shape is shard-local code plus tabula
+exchange. A controller or peer may read another node's `exports/` with `near`
+or `far`, and may deposit input under `imports/` with `push()`, but all
+meaningful work happens in the receiver's installed local code. For example,
+a mutation grid node owns a local shard root, runs local workers against that
+root, exports compact progress and final result tabulae, and lets a controller
+merge those tabulae later. The controller combines data; it does not hold a
+remote object handle to the node's workers.
+
 Binary data stays text in tabula. The standard binary payload column is `0x`,
 with bytes encoded as lowercase hex from `Bytes.hex()` and decoded with
 `Bytes.fromHex()`.

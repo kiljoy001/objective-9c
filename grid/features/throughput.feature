@@ -8,6 +8,9 @@ Feature: High-throughput mutation campaigns keep every node busy
   Recommended native command:
     grid/run_3node_campaign.rc -L agent -M /mnt/term -D -W -y -j 0 -n 3 -E enqueue.rc
 
+  Tuned native command:
+    grid/run_3node_campaign.rc -L agent -M /mnt/term -S -Q 512 -D -W -y -j 0 -n 8 -E enqueue.rc
+
   Background:
     Given one o9mutagent.rc process is already resident on each target node
     And each agent can see the controller namespace with the path prefix "/mnt/term"
@@ -78,6 +81,27 @@ Feature: High-throughput mutation campaigns keep every node busy
     When the enqueue script writes manifest chunks
     Then o9mutq expands chunks into tasks near the workers
     And the controller does not run o9mutctl enqueue once per mutant during the hot path
+
+  @new
+  Scenario: Queue refill keeps the hot pending directory small
+    When the campaign is launched with -Q 512
+    Then each queue worker runs with max-pending=512
+    And workers scan a bounded hot set instead of thousands of pending files
+    And queue chunks remain in "queue/chunks/pending" until the hot set needs refill
+
+  @new
+  Scenario: Workers clean stale pending rows while scanning
+    Given "tasks/pending/" contains a task whose result file already exists
+    When a persistent worker scans for work
+    Then it removes the stale pending task
+    And it continues looking for claimable work without re-running the completed task
+
+  @new
+  Scenario: Campaign snapshots the source tree into the grid root
+    When the campaign is launched with -S
+    Then it copies the gate-visible repo subset into "root/repo-src"
+    And worker launch commands set O9MUT_PLAN9_REPO to that snapshot
+    And mutation gates do not copy source files through the controller's drawterm mount for every mutant
 
   # ---- daemon recovery ----
 

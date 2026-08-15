@@ -12,17 +12,19 @@ Feature: Multi-node campaign launch and unattended completion
   Nodes default to: dev9p.rentonsoftworks.coin Authomatic.rentonsoftworks.coin babyFileServer.rentonsoftworks.coin
 
   Usage:
-    grid/run_3node_campaign.rc [-A] [-y] [-W] [-D] [-L rcpu|agent] [-M agent-path-prefix] [-r root]
-      [-n workers-per-node] [-j jobs-per-worker] [-E enqueue.rc] [node ...]
+    grid/run_3node_campaign.rc [-A] [-y] [-W] [-D] [-S] [-L rcpu|agent] [-M agent-path-prefix] [-r root]
+      [-n workers-per-node] [-j jobs-per-worker] [-Q queue-max-pending] [-T drain-timeout-sec] [-E enqueue.rc] [node ...]
       -j 0 means persistent workers; drain them with o9mutctl drain-worker
       -A skips rcpu auth probes; -y skips interactive login confirmation
       -W wait for the grid to drain after launching (unattended)
       -D launch one o9mutd recovery daemon on the first node
       -L agent queues tabula launch commands for resident node agents
       -M prefixes paths inside agent commands, e.g. /mnt/term for rcpu bootstrap
+      -Q sets queue worker max-pending
+      -S snapshots the gate-visible repo subset into root/repo-src
 
   Recommended high-throughput native mode:
-    grid/run_3node_campaign.rc -L agent -M /mnt/term -D -W -y -j 0 -n 3 -E enqueue.rc
+    grid/run_3node_campaign.rc -L agent -M /mnt/term -S -Q 512 -D -W -y -j 0 -n 8 -E enqueue.rc
 
   Background:
     Given a repo checkout reachable from every node at the same 9P path
@@ -107,12 +109,14 @@ Feature: Multi-node campaign launch and unattended completion
     When the campaign launches with 3 nodes
     Then 3 rcpu o9mutq processes are started, one per node
     And each o9mutq uses a worker id of <node>-queue
+    And each o9mutq uses the configured queue max-pending
 
   @new @unattended
   Scenario: Agent mode queues one start-queue command per node
     When the campaign launches with -L agent across 3 nodes
     Then 3 tabula commands with op=start-queue are written under "agents/<node>/pending/"
     And each command uses a worker id of <node>-queue
+    And each command carries the configured queue max-pending
 
   @existing
   Scenario: N task workers are launched per node
@@ -191,3 +195,16 @@ Feature: Multi-node campaign launch and unattended completion
     When the campaign launches workers
     Then the gate env O9MUT_PLAN9_REPO is set to the node-visible repo path
     And o9um_gate.rc uses O9MUT_PLAN9_REPO instead of the hardcoded /mnt/term/mnt/term/home/scott path
+
+  @new @throughput
+  Scenario: -S snapshots the gate-visible repo into the campaign root
+    When the campaign is launched with -S
+    Then root/repo-src contains mkfile, o9c, grammar.d, o9c/test without artifacts, libtab, stdlib, and runtime files
+    And worker and daemon commands set O9MUT_PLAN9_REPO to root/repo-src using the node-visible path
+    And the original checkout remains untouched
+
+  @new @throughput
+  Scenario: -Q bounds queue expansion for hot pending scans
+    When the campaign is launched with -Q 512
+    Then every rcpu or agent queue launch passes -max-pending 512
+    And the campaign does not refill "tasks/pending/" beyond that hot-set cap

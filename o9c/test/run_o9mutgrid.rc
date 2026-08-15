@@ -114,6 +114,23 @@ if(! grep -s '^timeout' $tmp/drain.to.out){
 	cat $tmp/drain.to.out >[1=2]
 	fail=1
 }
+rm -f $root/tasks/pending/stuck.tab
+
+# A stale pending row whose result already exists should be removed while
+# scanning, otherwise persistent workers repeatedly rediscover completed work.
+$tmp/o9mutctl -r $root enqueue stale sample sample 'echo pass' 5000 100 >[2]/dev/null
+cp $root/results/pass.tab $root/results/stale.tab
+$tmp/o9mutw -r $root -w stale-cleaner -n 1 >$tmp/stale-cleaner.out >[2=1]
+if(test -e $root/tasks/pending/stale.tab){
+	echo 'o9mutgrid: stale pending row was not removed' >[1=2]
+	cat $tmp/stale-cleaner.out >[1=2]
+	fail=1
+}
+if(test -d $root/tasks/claimed/stale){
+	echo 'o9mutgrid: stale pending row was claimed' >[1=2]
+	cat $tmp/stale-cleaner.out >[1=2]
+	fail=1
+}
 
 if(~ $fail 0)
 	echo o9mutgrid: OK
