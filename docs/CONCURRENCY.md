@@ -168,6 +168,22 @@ echo close > /mnt/o9/$sid/ctl
 Session state is reached from the current request (`Req *`) and guarded
 by per-session locks. There is no global `o9app_cur_session`.
 
+## Actor and Call Graph Telemetry
+
+In accordance with the Plan 9 ethos (simple line-oriented text files, no Erlang-style supervision trees or visual diagrams):
+- Every application serves `/actors` and `/graph` directly at its 9P root.
+- **/actors** lists live actor instances in line-oriented TSV format:
+  ```
+  # id	class	state	waiting_on	method
+  s	Sensor	running	none	none
+  ```
+- **/graph** lists the live wait-for call graph in line-oriented TSV format:
+  ```
+  # caller	callee	method
+  s	worker	work
+  ```
+- Reading state across nodes or processes is achieved purely by mounting the 9P filesystem and reading the file (`cat /n/remote/actors | awk ...` or `readfile("/n/remote/actors")`), with zero remote code execution.
+
 ## Remaining Work
 
 - Add higher-level task/channel collection helpers if real programs need
