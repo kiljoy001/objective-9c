@@ -1,0 +1,12 @@
+class Ring {
+    method int64 value() { return 7; }
+    method int64 back(Ring original) { return original.value(); }
+    method int64 hop(Ring other, Ring original) { return other.back(original); }
+}
+main {
+    Ring a = new Ring();
+    Ring b = new Ring();
+    print("cycle entered\n");
+    print(a.hop(b, a), "\n");
+    print("cycle returned\n");
+}

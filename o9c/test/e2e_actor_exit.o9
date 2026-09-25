@@ -1,0 +1,14 @@
+function disappear() int64 {
+    int64 x = 1;
+    c {
+        print("actor exited without reply\n");
+        if(x > 0)
+            threadexits(nil);
+    }
+    return x;
+}
+main {
+    Task<int64> task = spawn disappear();
+    print(task.await(), "\n");
+    print("caller returned\n");
+}

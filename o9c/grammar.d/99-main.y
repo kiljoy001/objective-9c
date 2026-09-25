@@ -69,6 +69,7 @@ read_source_into_input(int fd)
             if(input_buf == nil) sysfatal("realloc: input buffer");
         }
     }
+    input_buf[total] = '\0';
     input_len = total;
     if(fd != 0)
         close(fd);
@@ -122,6 +123,8 @@ main(int argc, char **argv)
     opt = parse_compiler_options(argc, argv);
     fd = open_source_and_set_import_base(opt.srcpath);
     read_source_into_input(fd);
+    source_capture(opt.srcpath != nil ? opt.srcpath : "<stdin>", input_buf, input_len);
+    source_init(opt.srcpath != nil ? opt.srcpath : "<stdin>", input_buf);
     load_dependencies_or_exit();
     resolve_imports_or_exit();
     prescan();

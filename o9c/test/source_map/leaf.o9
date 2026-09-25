@@ -1,0 +1,21 @@
+class MappedLeaf {
+    method int64 value() {
+        print("leaf marker\n");
+        return
+            41;
+    }
+    method void mark() {
+        print("defer marker\n");
+    }
+    method int64 branch(int64 v) {
+        defer mark();
+        if(v == 1){
+            v = 11;
+        } else if(v == 2){
+            v = 22;
+        } else {
+            v = 33;
+        }
+        return v;
+    }
+}

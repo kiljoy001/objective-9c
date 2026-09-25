@@ -1,0 +1,58 @@
+#!/bin/rc
+rfork e
+base=/tmp/o9_source_map.$pid
+comments=$base^'*'
+
+fn cleanup {
+	rm -f $comments/comments.o9 $base.comments.c $base.comments.6 $base.comments.bin
+	if(test -d $comments) rm $comments
+	rm -f $base.c $base.6 $base.bin $base.check.6 $base.check $base.acid $base.out $base.err $base.run $base.bad.c $base.bad.6 $base.nomap.c $base.nomap.6 $base.nomap.bin
+}
+fn sigexit { cleanup }
+fn die {
+	echo 'source-map: FAIL:' $* >[1=2]
+	exit fail
+}
+
+./o9c/o9c o9c/test/source_map/root.o9 > $base.c || die transpile
+awk -f o9c/test/check_source_map.awk $base.c || die emitted-map
+6c -FVw -I. -o $base.6 $base.c > $base.err >[2=1] || { cat $base.err; die compile }
+if(grep -s 'warning:' $base.err){ cat $base.err; die warnings }
+6l -o $base.bin $base.6 libo9.a /$objtype/lib/libndb.a || die link
+$base.bin > $base.run || die run
+if(! cmp -s $base.run o9c/test/source_map/root.expected)
+	die output
+
+6c -o $base.check.6 o9c/test/source_map_check.c || die check-compile
+6l -o $base.check $base.check.6 || die check-link
+$base.check $base.bin > $base.acid || die pc-map
+acid $base.bin < $base.acid > $base.out >[2=1]
+for(want in 'source-map root o9c/test/source_map/root.o9:6' 'source-map raw o9c/test/source_map/middle.o9:12' 'source-map return o9c/test/source_map/middle.o9:15' 'source-map nested o9c/test/source_map/leaf.o9:3' 'source-map defer o9c/test/source_map/leaf.o9:11' 'source-map elif o9c/test/source_map/leaf.o9:14'){
+	if(! grep -s $want $base.out){ cat $base.out; die acid-map }
+}
+
+# Negative control: the same executable without directives must fail PC checks.
+sed '/^#line /d' $base.c > $base.nomap.c
+6c -FVw -I. -o $base.nomap.6 $base.nomap.c || die negative-compile
+6l -o $base.nomap.bin $base.nomap.6 libo9.a /$objtype/lib/libndb.a || die negative-link
+if($base.check $base.nomap.bin > $base.out >[2=1])
+	die missing-directives-accepted
+
+# A compiler diagnostic must also name the raw-C line in the original file.
+./o9c/o9c o9c/test/source_map/bad.o9 > $base.bad.c || die bad-transpile
+if(6c -FVw -I. -o $base.bad.6 $base.bad.c > $base.err >[2=1])
+	die bad-accepted
+if(! grep -s 'o9c/test/source_map/bad.o9:3' $base.err){ cat $base.err; die diagnostic }
+
+# Both source text and filenames may contain a C comment terminator.
+mkdir $comments || die comment-directory
+cp o9c/test/source_map/comments.o9 $comments/comments.o9 || die comment-source
+./o9c/o9c $comments/comments.o9 > $base.comments.c || die comment-transpile
+if(! grep -s 'o9: .*[*] /comments.o9:2' $base.comments.c) die comment-path
+if(! grep -s 'café [*]/$' $base.comments.c) die comment-utf8-boundary
+6c -FVw -I. -o $base.comments.6 $base.comments.c > $base.err >[2=1] || { cat $base.err; die comment-compile }
+if(grep -s 'warning:' $base.err){ cat $base.err; die comment-warnings }
+6l -o $base.comments.bin $base.comments.6 libo9.a /$objtype/lib/libndb.a || die comment-link
+$base.comments.bin > $base.run || die comment-run
+if(! cmp -s $base.run o9c/test/source_map/comments.expected){ cat $base.run; die comment-output }
+echo 'source-map: OK'

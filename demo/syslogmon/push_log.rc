@@ -1,0 +1,47 @@
+#!/bin/rc
+# push_log.rc — Push 9front system logs into the syslogmon 9P fileserver
+# Usage: push_log.rc [srvpath] [logname]
+
+srv=/srv/o9.syslogmon.syslogmon.app
+if(~ $#* 1 2)
+	srv=$1
+
+if(! test -e $srv){
+	echo 'push_log: service not found: '$srv >[1=2]
+	echo 'usage: push_log.rc [/srv/o9.syslogmon.syslogmon.app] [logname]' >[1=2]
+	exit nosrv
+}
+
+sysname=`{cat /dev/sysname}
+if(~ $#sysname 0 || ~ $sysname '')
+	sysname=`{cat /dev/user}
+
+mnt=/tmp/mnt_syslogmon.$pid
+mkdir $mnt || exit mkdir
+mount -c $srv $mnt || exit mount
+
+fn cleanup {
+	unmount $mnt >[2]/dev/null
+	rm -rf $mnt >[2]/dev/null
+}
+
+logs=(listen dns timesync cron auth syslog)
+if(~ $#* 2)
+	logs=$2
+
+for(log in $logs){
+	path=/sys/log/$log
+	if(test -f $path){
+		tail -n 10 $path | while(line=`{read}){
+			if(! ~ $#line 0){
+				sid=`{cat $mnt/clone}
+				now=`{date -u}
+				echo 'method SyslogMonitor.m ingest '$sysname' '$log' '''$now''' '''$line'''' > $mnt/$sid/ctl
+				echo close > $mnt/$sid/ctl
+			}
+		}
+	}
+}
+
+cleanup
+echo 'pushed syslogs from '$sysname' to '$srv

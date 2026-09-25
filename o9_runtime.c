@@ -195,25 +195,167 @@ o9_current_user_is(O9String *user)
 	return ok;
 }
 
+int
+o9_proc_dead(int pid)
+{
+	char path[32];
+	int fd;
+
+	if(pid <= 0)
+		return 0;
+	snprint(path, sizeof path, "/proc/%d/status", pid);
+	fd = open(path, OREAD);
+	if(fd < 0)
+		return 1;
+	close(fd);
+	return 0;
+}
+
+#define O9_MAX_CALL_EDGES 1024
+
+typedef struct O9CallEdge O9CallEdge;
+struct O9CallEdge {
+	void *caller;	/* dispatch_chan of caller actor */
+	void *callee;	/* dispatch_chan of callee actor */
+};
+
+static O9CallEdge o9_call_edges[O9_MAX_CALL_EDGES];
+static int o9_ncall_edges = 0;
+static Lock o9_dag_lock;
+
+/* Path reachability check on wait-for graph. Caller must hold o9_dag_lock. */
 static int
-o9_actor_self_send(void *dispatch_chan, char *method)
+o9_path_exists_locked(void *start, void *target)
+{
+	void *curr;
+	int i, hops, found;
+
+	if(start == nil || target == nil)
+		return 0;
+	if(start == target)
+		return 1;
+
+	curr = start;
+	for(hops = 0; hops < o9_ncall_edges; hops++){
+		found = 0;
+		for(i = 0; i < o9_ncall_edges; i++){
+			if(o9_call_edges[i].caller == curr){
+				curr = o9_call_edges[i].callee;
+				if(curr == target)
+					return 1;
+				found = 1;
+				break;
+			}
+		}
+		if(!found)
+			break;
+	}
+	return 0;
+}
+
+/*
+ * Check if caller -> callee creates a cycle in the actor call graph.
+ * If safe, records the edge and returns 0.
+ * If cycle detected, sets werrstr and call error and returns -1.
+ */
+static int
+o9_dag_call_begin(void *callee_chan, char *method)
 {
 	O9ProcCtx *ctx;
+	void *caller_chan;
 	char err[192];
 
-	ctx = o9_proc_ctx();
-	if(dispatch_chan == nil || ctx->actor_chan == nil ||
-	   dispatch_chan != ctx->actor_chan)
+	if(callee_chan == nil)
 		return 0;
-	snprint(err, sizeof err,
-		"sync actor call to self%s%s%s; use a direct method call",
-		method != nil ? " for " : "",
-		method != nil ? method : "",
-		method != nil ? "()" : "");
-	werrstr("%s", err);
-	snprint(ctx->errbuf, sizeof ctx->errbuf, "%s", err);
-	ctx->err = ctx->errbuf;
-	return 1;
+	ctx = o9_proc_ctx();
+	caller_chan = ctx->actor_chan;
+	if(caller_chan == nil)
+		return 0;	/* non-actor callers cannot form actor cycles */
+
+	lock(&o9_dag_lock);
+
+	/* 1-hop: direct self-send */
+	if(caller_chan == callee_chan){
+		unlock(&o9_dag_lock);
+		snprint(err, sizeof err,
+			"sync actor call to self%s%s%s; use a direct method call",
+			method != nil ? " for " : "",
+			method != nil ? method : "",
+			method != nil ? "()" : "");
+		werrstr("%s", err);
+		snprint(ctx->errbuf, sizeof ctx->errbuf, "%s", err);
+		ctx->err = ctx->errbuf;
+		return -1;
+	}
+
+	/* Multi-hop: check if callee already has a path to caller */
+	if(o9_path_exists_locked(callee_chan, caller_chan)){
+		unlock(&o9_dag_lock);
+		snprint(err, sizeof err,
+			"actor call cycle detected%s%s%s",
+			method != nil ? " on " : "",
+			method != nil ? method : "",
+			method != nil ? "()" : "");
+		werrstr("%s", err);
+		snprint(ctx->errbuf, sizeof ctx->errbuf, "%s", err);
+		ctx->err = ctx->errbuf;
+		return -1;
+	}
+
+	/* Record edge */
+	if(o9_ncall_edges < O9_MAX_CALL_EDGES){
+		o9_call_edges[o9_ncall_edges].caller = caller_chan;
+		o9_call_edges[o9_ncall_edges].callee = callee_chan;
+		o9_ncall_edges++;
+	}
+	unlock(&o9_dag_lock);
+	return 0;
+}
+
+static void
+o9_dag_call_end(void *callee_chan)
+{
+	O9ProcCtx *ctx;
+	void *caller_chan;
+	int i;
+
+	if(callee_chan == nil)
+		return;
+	ctx = o9_proc_ctx();
+	caller_chan = ctx->actor_chan;
+	if(caller_chan == nil)
+		return;
+
+	lock(&o9_dag_lock);
+	for(i = 0; i < o9_ncall_edges; i++){
+		if(o9_call_edges[i].caller == caller_chan &&
+		   o9_call_edges[i].callee == callee_chan){
+			o9_call_edges[i] = o9_call_edges[o9_ncall_edges - 1];
+			o9_ncall_edges--;
+			break;
+		}
+	}
+	unlock(&o9_dag_lock);
+}
+
+void
+o9_dag_actor_exit(void *actor_chan)
+{
+	int i;
+
+	if(actor_chan == nil)
+		return;
+	lock(&o9_dag_lock);
+	for(i = 0; i < o9_ncall_edges; ){
+		if(o9_call_edges[i].caller == actor_chan ||
+		   o9_call_edges[i].callee == actor_chan){
+			o9_call_edges[i] = o9_call_edges[o9_ncall_edges - 1];
+			o9_ncall_edges--;
+		} else {
+			i++;
+		}
+	}
+	unlock(&o9_dag_lock);
 }
 
 ulong
@@ -1219,6 +1361,16 @@ o9_registry_unregister(char *oid)
 	strncpy(q.oid, oid, sizeof q.oid - 1);
 	o9_registry_rpc(O9RegUnregister, &q);
 	return 0;
+}
+
+vlong
+o9_registry_get_gen(char *oid)
+{
+	O9Handle h;
+
+	if(oid == nil || o9_registry_lookup(oid, &h) < 0)
+		return 0;
+	return h.gen;
 }
 
 /* lookup(oid) builtin: resolve a handle through the rings — registry
@@ -4243,8 +4395,11 @@ obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int narg
     void *ret;
 
     if(obj->dispatch_chan != nil){
-        if(o9_actor_self_send(obj->dispatch_chan, method))
+        if(chanclosing(obj->dispatch_chan) >= 0){
+            werrstr("stale object handle");
+            o9_set_call_err("stale object handle");
             return nil;
+        }
         if(obj->oid[0] != '\0' && obj->gen != 0){
             if(o9_registry_lookup(obj->oid, &h) < 0 ||
                h.gen != obj->gen || h.chan != obj->dispatch_chan){
@@ -4253,6 +4408,8 @@ obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int narg
                 return nil;
             }
         }
+        if(o9_dag_call_begin(obj->dispatch_chan, method) < 0)
+            return nil;
         m = mallocz(sizeof(O9Msg), 1);
         m->sel = selector;
         m->args = args;
@@ -4260,9 +4417,21 @@ obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int narg
         m->replyc = chancreate(sizeof(void*), 0);
         m->caller = o9_current_user_c();
         m->blessed = o9_current_user_blessed();
-        sendp(obj->dispatch_chan, m);
+        if(sendp(obj->dispatch_chan, m) < 0){
+            o9_dag_call_end(obj->dispatch_chan);
+            chanfree(m->replyc);
+            free(m);
+            werrstr("stale object handle");
+            o9_set_call_err("stale object handle");
+            return nil;
+        }
         r = recvp(m->replyc);
-        if(r->err != nil){
+        o9_dag_call_end(obj->dispatch_chan);
+        if(r == nil){
+            werrstr("object method produced no reply");
+            o9_set_call_err("object method produced no reply");
+            ret = nil;
+        } else if(r->err != nil){
             werrstr("%s", r->err);
             o9_set_call_err(r->err);	/* for try: last-call error signal */
             ret = nil;
@@ -4292,8 +4461,11 @@ obj9_msgSendDoubleN(void *receiver, char *method, ulong selector, void *args, in
 
     ret = 0.0;
     if(obj->dispatch_chan != nil){
-        if(o9_actor_self_send(obj->dispatch_chan, method))
+        if(chanclosing(obj->dispatch_chan) >= 0){
+            werrstr("stale object handle");
+            o9_set_call_err("stale object handle");
             return 0.0;
+        }
         if(obj->oid[0] != '\0' && obj->gen != 0){
             if(o9_registry_lookup(obj->oid, &h) < 0 ||
                h.gen != obj->gen || h.chan != obj->dispatch_chan){
@@ -4302,6 +4474,8 @@ obj9_msgSendDoubleN(void *receiver, char *method, ulong selector, void *args, in
                 return 0.0;
             }
         }
+        if(o9_dag_call_begin(obj->dispatch_chan, method) < 0)
+            return 0.0;
         m = mallocz(sizeof(O9Msg), 1);
         m->sel = selector;
         m->args = args;
@@ -4309,9 +4483,20 @@ obj9_msgSendDoubleN(void *receiver, char *method, ulong selector, void *args, in
         m->replyc = chancreate(sizeof(void*), 0);
         m->caller = o9_current_user_c();
         m->blessed = o9_current_user_blessed();
-        sendp(obj->dispatch_chan, m);
+        if(sendp(obj->dispatch_chan, m) < 0){
+            o9_dag_call_end(obj->dispatch_chan);
+            chanfree(m->replyc);
+            free(m);
+            werrstr("stale object handle");
+            o9_set_call_err("stale object handle");
+            return 0.0;
+        }
         r = recvp(m->replyc);
-        if(r->err != nil){
+        o9_dag_call_end(obj->dispatch_chan);
+        if(r == nil){
+            werrstr("object method produced no reply");
+            o9_set_call_err("object method produced no reply");
+        } else if(r->err != nil){
             werrstr("%s", r->err);
             o9_set_call_err(r->err);
         } else {
@@ -4347,8 +4532,9 @@ obj9_msgSendObjectN(void *receiver, char *method, ulong selector, void *args,
     memset(out, 0, outsiz);
 
     if(obj->dispatch_chan != nil){
-        if(o9_actor_self_send(obj->dispatch_chan, method)){
-            o9_set_call_err("self-send would deadlock");
+        if(chanclosing(obj->dispatch_chan) >= 0){
+            werrstr("stale object handle");
+            o9_set_call_err("stale object handle");
             return -1;
         }
         if(obj->oid[0] != '\0' && obj->gen != 0){
@@ -4359,6 +4545,8 @@ obj9_msgSendObjectN(void *receiver, char *method, ulong selector, void *args,
                 return -1;
             }
         }
+        if(o9_dag_call_begin(obj->dispatch_chan, method) < 0)
+            return -1;
         m = mallocz(sizeof(O9Msg), 1);
         m->sel = selector;
         m->args = args;
@@ -4366,8 +4554,16 @@ obj9_msgSendObjectN(void *receiver, char *method, ulong selector, void *args,
         m->replyc = chancreate(sizeof(void*), 0);
         m->caller = o9_current_user_c();
         m->blessed = o9_current_user_blessed();
-        sendp(obj->dispatch_chan, m);
+        if(sendp(obj->dispatch_chan, m) < 0){
+            o9_dag_call_end(obj->dispatch_chan);
+            chanfree(m->replyc);
+            free(m);
+            werrstr("stale object handle");
+            o9_set_call_err("stale object handle");
+            return -1;
+        }
         r = recvp(m->replyc);
+        o9_dag_call_end(obj->dispatch_chan);
         ret = -1;
         if(r == nil){
             werrstr("object method produced no reply");

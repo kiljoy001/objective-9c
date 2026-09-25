@@ -60,6 +60,8 @@ O9_CRAP_OUT=$root^/$counts
 
 if(! mk ast-test)
 	fail=1
+if(~ $fail 0 && ! mk source-map-test)
+	fail=1
 if(~ $fail 0 && ! mk run-test)
 	fail=1
 if(~ $fail 0 && ! mk prop-test)

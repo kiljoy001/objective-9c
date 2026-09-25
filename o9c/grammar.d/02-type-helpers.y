@@ -307,7 +307,7 @@ gen_dict_init_expr(char *expr, Type *dict)
 
     kt = type_list_at(dict->args, 0);
     vt = type_list_at(dict->args, 1);
-    print("\to9_dict_init_typed(&%s, sizeof(%s), sizeof(%s), %s, %s);\n",
+    cprint("\to9_dict_init_typed(&%s, sizeof(%s), sizeof(%s), %s, %s);\n",
         expr,
         type_storage_for_codegen(kt),
         type_storage_for_codegen(vt),

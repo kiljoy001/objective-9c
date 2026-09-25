@@ -130,6 +130,9 @@ extern int   o9_equiv_candidate_reason(const char *source_path, const char *muta
 extern void  o9_set_call_err(char *e);
 extern char* o9_get_call_err(void);
 extern void  o9_actor_enter(void *dispatch_chan, char *oid);
+extern void  o9_dag_actor_exit(void *actor_chan);
+extern int   o9_proc_dead(int pid);
+extern vlong o9_registry_get_gen(char *oid);
 extern void  o9_set_current_user(char *user);
 extern void  o9_set_current_request(char *user, int blessed);
 extern char* o9_current_user_c(void);

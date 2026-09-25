@@ -1,0 +1,19 @@
+#!/bin/rc
+# Inspect representative generated output, then compile/link/run it natively.
+rfork e
+cases=(e2e_tuple e2e_generic e2e_widths e2e_rawc_ctypes spawn_task e2e_alt e2e_chan e2e_typed_chan e2e_object_chan e2e_csp_values e2e_state)
+cfile=/tmp/o9_plan9c.$pid.c
+for(name in $cases){
+	if(! ./o9c/o9c < o9c/test/$name.o9 > $cfile){
+		rm -f $cfile
+		exit transpile
+	}
+	if(! awk -f o9c/test/check_plan9_c.awk $cfile){
+		rm -f $cfile
+		exit plan9-style
+	}
+}
+rm -f $cfile
+if(! rc o9c/test/run_e2e.rc $cases)
+	exit plan9-runtime
+echo 'plan9-c: OK'

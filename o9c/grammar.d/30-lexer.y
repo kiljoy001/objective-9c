@@ -221,6 +221,7 @@ try_raw_c_block(char **out)
         return 0;
     }
 
+    raw_body_line = cur_line;
     raw_init(&buf, &len, &cap);
     depth = 1;
     mode = RawNormal;
@@ -257,6 +258,7 @@ yylex(void)
     while((c = lex_getc()) != Beof){
         if(isspace(c))
             continue;
+        token_line = cur_line;
         /* Inside for(...): convert the header's ';' separators to
          * TFORSEMI so for_init/cond/step can be exprs.  for_paren_depth:
          * 0 after `for` (awaiting the header '('), 1 inside the header,
@@ -472,7 +474,8 @@ yylex(void)
             if(strcmp(buf, "c") == 0){
                 char *raw;
                 if(try_raw_c_block(&raw)){
-                    yylval.name = raw;
+                    yylval.node = mk(NRawC, raw, nil, nil, nil);
+                    yylval.node->rawline = source_at(raw_body_line).line;
                     return TRAWC;
                 }
             }

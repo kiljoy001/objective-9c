@@ -1,0 +1,170 @@
+import "stdlib/string.o9";
+import "stdlib/time.o9";
+
+function SyslogReadTailRaw(string path, int64 maxbytes) string {
+    string out;
+    c {
+        char *cpath, *buf;
+        int fd;
+        vlong len;
+        long n;
+
+        out = o9_string_new("", 0);
+        cpath = o9_string_cstr(path);
+        if(cpath != nil){
+            fd = open(cpath, OREAD);
+            if(fd >= 0){
+                len = seek(fd, 0, 2);
+                if(len > 0){
+                    if(maxbytes <= 0 || maxbytes > 65536)
+                        maxbytes = 4096;
+                    if(len > maxbytes)
+                        seek(fd, len - maxbytes, 0);
+                    else
+                        seek(fd, 0, 0);
+                    buf = malloc(maxbytes + 1);
+                    if(buf != nil){
+                        n = read(fd, buf, maxbytes);
+                        if(n > 0){
+                            buf[n] = '\0';
+                            out = o9_string_new(buf, n);
+                        }
+                        free(buf);
+                    }
+                }
+                close(fd);
+            }
+            free(cpath);
+        }
+    }
+    return out;
+}
+
+function SyslogIntToStrRaw(int64 val) string {
+    string out;
+    c {
+        char buf[32];
+        snprint(buf, sizeof buf, "%lld", val);
+        out = o9_string_from_c(buf);
+    }
+    return out;
+}
+
+class SyslogMonitor {
+    tabula syslogs;
+    tabula machines;
+    int64 totalLogs;
+    string lastMessage;
+
+    method SyslogMonitor() {
+        syslogs = new tabula("syslogs", "machine,logname,timestamp,message");
+        machines = new tabula("machines", "status,lastseen,logcount");
+        totalLogs = 0;
+        lastMessage = "initialized";
+
+        registerMachine("dev9p");
+        registerMachine("babyFileServer");
+        registerMachine("Authomatic");
+    }
+
+    method void registerMachine(string machine) {
+        machines.write(machine, "status", "configured");
+        machines.write(machine, "lastseen", "none");
+        machines.write(machine, "logcount", "0");
+    }
+
+    method int64 ingest(string machine, string logname, string timestamp, string message) {
+        totalLogs = totalLogs + 1;
+        Task<string> ts = spawn SyslogIntToStrRaw(totalLogs);
+        string id = cat(machine, cat("-", cat(logname, cat("-", ts.await()))));
+
+        syslogs.write(id, "machine", machine);
+        syslogs.write(id, "logname", logname);
+        syslogs.write(id, "timestamp", timestamp);
+        syslogs.write(id, "message", message);
+
+        machines.write(machine, "status", "active");
+        machines.write(machine, "lastseen", timestamp);
+        Task<string> tc = spawn SyslogIntToStrRaw(totalLogs);
+        machines.write(machine, "logcount", tc.await());
+
+        lastMessage = cat(machine, cat(": ", message));
+        return totalLogs;
+    }
+
+    method int64 scanLogFile(string machine, string logname, string filepath) {
+        Task<string> tr = spawn SyslogReadTailRaw(filepath, 2048);
+        string raw = tr.await();
+        int64 count = 0;
+        if(len(raw) > 0) {
+            String s = new String(raw);
+            int64 i = 0;
+            while(i < 5) {
+                string l = s.line(i);
+                if(len(l) > 0) {
+                    Time t = new Time();
+                    string now = t.format(t.now());
+                    ingest(machine, logname, now, l);
+                    count = count + 1;
+                }
+                i = i + 1;
+            }
+        }
+        return count;
+    }
+
+    method int64 scanMachineLogs(string machine, string dirpath) {
+        int64 n = 0;
+        n = n + scanLogFile(machine, "dns", cat(dirpath, "/dns"));
+        n = n + scanLogFile(machine, "listen", cat(dirpath, "/listen"));
+        n = n + scanLogFile(machine, "timesync", cat(dirpath, "/timesync"));
+        n = n + scanLogFile(machine, "cron", cat(dirpath, "/cron"));
+        n = n + scanLogFile(machine, "auth", cat(dirpath, "/auth"));
+        n = n + scanLogFile(machine, "syslog", cat(dirpath, "/syslog"));
+        return n;
+    }
+
+    method int64 scanAll() {
+        int64 total = 0;
+        total = total + scanMachineLogs("dev9p", "/sys/log");
+        total = total + scanMachineLogs("babyFileServer", "/n/babyFileServer.rentonsoftworks.coin/sys/log");
+        total = total + scanMachineLogs("Authomatic", "/n/Authomatic.rentonsoftworks.coin/sys/log");
+        return total;
+    }
+
+    method int64 count() {
+        return totalLogs;
+    }
+
+    method string latest() {
+        return lastMessage;
+    }
+
+    method string status() {
+        Task<string> tc = spawn SyslogIntToStrRaw(totalLogs);
+        return cat("SyslogMonitor: ", cat(tc.await(), cat(" logs recorded; last: ", lastMessage)));
+    }
+
+    method tabula getSyslogs() {
+        return syslogs;
+    }
+
+    method tabula getMachines() {
+        return machines;
+    }
+}
+
+main {
+    SyslogMonitor monitor = new SyslogMonitor();
+    monitor.scanAll();
+
+    tabula syslogs = monitor.getSyslogs();
+    tabula machines = monitor.getMachines();
+
+    export("syslogs.tab", syslogs);
+    export("machines.tab", machines);
+
+    print("syslogmon 9P fileserver listening\n");
+    print("exported exports/syslogs.tab and exports/machines.tab\n");
+    serve();
+}

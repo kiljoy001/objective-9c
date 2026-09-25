@@ -1,0 +1,11 @@
+class Queue {
+    chan<int64> values;
+    method void put(int64 v) { values ->? v; }
+    method int64 take() { int64 v; v = <- values; return v; }
+}
+main {
+    Queue q = new Queue();
+    q.put(9);
+    print("received ", q.take(), "\n");
+    delete q;
+}

@@ -26,6 +26,7 @@ mk(int type, char *name, char *typename, Node *l, Node *r)
     memset(n, 0, sizeof(Node));
     n->type = type;
     n->line = cur_line;
+    node_source(n, cur_line);
     if(name){
         n->name = strdup(name);
         n->qname = strdup(name);

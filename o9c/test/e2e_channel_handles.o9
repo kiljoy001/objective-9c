@@ -1,0 +1,22 @@
+class Item {
+    method int64 value() { return 37; }
+}
+class Inbox {
+    chan<Item> items;
+    method void put(Item item) { items -> item; }
+    method int64 takeValue() {
+        Item item;
+        item = <- items;
+        return try item.value();
+    }
+}
+main {
+    Item item = new Item();
+    Inbox inbox = new Inbox();
+    inbox.put(item);
+    print("live ", inbox.takeValue(), "\n");
+    inbox.put(item);
+    delete item;
+    print("deleted ", inbox.takeValue(), "\n");
+    delete inbox;
+}

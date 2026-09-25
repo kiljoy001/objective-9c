@@ -40,6 +40,7 @@ GRAMMAR_PARTS=\
 	o9c/grammar.d/03-yacc-decls.y\
 	o9c/grammar.d/10-grammar-rules.y\
 	o9c/grammar.d/20-ast-construction.y\
+	o9c/grammar.d/21-source-map.y\
 	o9c/grammar.d/30-lexer.y\
 	o9c/grammar.d/40-codegen.y\
 	o9c/grammar.d/50-app-facade.y\
@@ -72,6 +73,12 @@ ast-test:V:	o9c type-test
 
 run-test:V:	o9c libo9.a
 	rc ./o9c/test/run_e2e.rc
+
+plan9-c-test:V:	o9c libo9.a
+	rc ./o9c/test/run_plan9_c.rc
+
+source-map-test:V:	o9c libo9.a
+	rc ./o9c/test/run_source_map.rc
 
 ext-test:V:	o9c libo9.a
 	rc ./o9c/test/run_ext.rc
@@ -132,6 +139,48 @@ type-test:V:	o9c/o9_type.$O
 	$LD -o o9c/test/o9_type_test o9_type_test.$O o9c/o9_type.$O
 	o9c/test/o9_type_test
 
+# === native unit tests (o9test harness) ===
+# o9test is the unit-test library: checks keep running after a failure and
+# the run reports every broken check at once, instead of sysfatal stopping
+# at the first one. See o9c/test/o9test.h.
+O9TESTDIR=o9c/test
+
+o9test.$O:	$O9TESTDIR/o9test.c $O9TESTDIR/o9test.h
+	$CC -I. -I$O9TESTDIR -o o9test.$O $O9TESTDIR/o9test.c
+
+# The harness proves itself before anything trusts it: both the passing
+# and the failing arm of every check. Expected failure noise from its
+# internal scratch runs goes to stderr and is discarded here.
+o9test-selftest:V:	o9test.$O
+	$CC -I. -I$O9TESTDIR $O9TESTDIR/o9test_selftest.c
+	$LD -o $O9TESTDIR/o9test_selftest o9test_selftest.$O o9test.$O
+	$O9TESTDIR/o9test_selftest >[2]/dev/null
+
+runtime-helpers-test:V:	libo9.a o9test.$O
+	$CC -I. -I$O9TESTDIR $O9TESTDIR/runtime_helpers_test.c
+	$LD -o $O9TESTDIR/runtime_helpers_test runtime_helpers_test.$O o9test.$O libo9.a
+	$O9TESTDIR/runtime_helpers_test
+
+# These two existed as source but were wired to no target, so nothing ran
+# them.
+runtime-registry-test:V:	libo9.a
+	$CC -I. $O9TESTDIR/runtime_registry_test.c
+	$LD -o $O9TESTDIR/runtime_registry_test runtime_registry_test.$O libo9.a
+	$O9TESTDIR/runtime_registry_test
+
+runtime-9p-rpc-test:V:	libo9.a
+	$CC -I. $O9TESTDIR/runtime_9p_rpc_test.c
+	$LD -o $O9TESTDIR/runtime_9p_rpc_test runtime_9p_rpc_test.$O libo9.a
+	$O9TESTDIR/runtime_9p_rpc_test
+
+# Every native unit suite in one target.
+unit-test:V:
+	mk o9test-selftest
+	mk type-test
+	mk runtime-helpers-test
+	mk runtime-registry-test
+	mk runtime-9p-rpc-test
+
 invariant-test:V:
 	python3 tools/o9invariant.py run --keep-going
 
@@ -156,7 +205,10 @@ prop-test:V:	o9c libo9.a
 	rc ./o9c/test/run_prop_scalar.rc o9c/test/prop/stdlib prop-stdlib
 
 verify:V:	o9c libo9.a
+	mk unit-test
 	mk ast-test
+	mk plan9-c-test
+	mk source-map-test
 	mk run-test
 	mk prop-test
 	mk export-test
@@ -410,4 +462,7 @@ clean:V:
 	rm -f o9c/grammar.y o9c/y.tab.* o9c/type.tab.* o9c/o9c o9c/o9type o9c/*.[$O]
 	rm -f *.[$O] *.9 libo9.a
 	rm -f o9c/test/*.[$O] o9c/test/crypto_test o9c/test/tab_test
+	rm -f o9c/test/o9test_selftest o9c/test/runtime_helpers_test
+	rm -f o9c/test/runtime_registry_test o9c/test/runtime_9p_rpc_test
+	rm -f o9c/test/o9_type_test
 	rm -f o9c/test/artifacts/o9_draw_*.img o9c/test/artifacts/o9_draw_*.png
