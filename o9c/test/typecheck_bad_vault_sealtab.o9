@@ -1,0 +1,4 @@
+main {
+    Vault v = new Vault();
+    v.sealTab("/tmp/t.enc", "not_a_tabula");
+}

@@ -128,6 +128,9 @@ auth-test:V:	o9c libo9.a
 debug-test:V:	o9c libo9.a
 	rc ./o9c/test/run_debug.rc
 
+vault-server-test:V:	o9c libo9.a
+	rc ./o9c/test/run_vault_server.rc
+
 issue-test:V:	o9c libo9.a
 	rc ./o9c/test/run_issue_regressions.rc
 
@@ -218,6 +221,7 @@ verify:V:	o9c libo9.a
 	mk ctlquote-test
 	mk auth-test
 	mk debug-test
+	mk vault-server-test
 	mk issue-test
 	mk crypto-test
 	mk tab-test

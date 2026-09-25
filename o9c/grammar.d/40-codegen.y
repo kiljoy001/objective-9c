@@ -346,12 +346,38 @@ gen_mounttable_new_expr(Node *e)
     return 1;
 }
 
+static int
+gen_vault_new_expr(Node *e)
+{
+    int got;
+
+    if(!type_named(e->typeinfo, "Vault"))
+        return 0;
+    got = node_list_len(e->right);
+    if(got == 0){
+        cprint("o9_vault_new()");
+    }else if(got == 1){
+        cprint("o9_vault_new_key(");
+        gen_expr(e->right);
+        cprint(")");
+    }else if(got == 2){
+        cprint("o9_vault_new_pass(");
+        gen_expr(e->right);
+        cprint(", ");
+        gen_expr(e->right->next);
+        cprint(")");
+    }
+    return 1;
+}
+
 static void
 gen_class_expr(Node *e)
 {
     if(gen_tabula_new_expr(e))
         return;
     if(gen_mounttable_new_expr(e))
+        return;
+    if(gen_vault_new_expr(e))
         return;
     cprint("0 /* unsupported new expression: %s */", e->name != nil ? e->name : "?");
 }
@@ -623,6 +649,28 @@ gen_mounttable_msg(Node *e, Type *lt)
     };
 
     return gen_mapped_handle_msg(e, lt, "MountTable", map, nelem(map));
+}
+
+static int
+gen_vault_msg(Node *e, Type *lt)
+{
+    static CMethod map[] = {
+        {"valid", "o9_vault_valid"},
+        {"seal", "o9_vault_seal"},
+        {"open", "o9_vault_open"},
+        {"sealFile", "o9_vault_seal_file"},
+        {"openFile", "o9_vault_open_file"},
+        {"sealTab", "o9_vault_seal_tab"},
+        {"openTab", "o9_vault_open_tab"},
+        {"put", "o9_vault_put"},
+        {"get", "o9_vault_get"},
+        {"has", "o9_vault_has"},
+        {"drop", "o9_vault_drop"},
+        {"wipe", "o9_vault_wipe"},
+        {"close", "o9_vault_close"},
+    };
+
+    return gen_mapped_handle_msg(e, lt, "Vault", map, nelem(map));
 }
 
 static int
@@ -1002,6 +1050,7 @@ static GenMsgFn gen_msg_handlers[] = {
     gen_tabula_typed_msg,
     gen_tabula_msg,
     gen_mounttable_msg,
+    gen_vault_msg,
     gen_list_msg,
     gen_dict_msg,
     nil,
@@ -1466,7 +1515,8 @@ discard_msgsend_is_cvoid(Node *ve)
      * o9 void methods. Builtin handle methods can lower directly to C
      * void helpers. */
     return lt != nil && lt->kind == TyName && lt->name != nil &&
-        (o9_type_name_is_tabula(lt->name) || strcmp(lt->name, "MountTable") == 0);
+        (o9_type_name_is_tabula(lt->name) || strcmp(lt->name, "MountTable") == 0 ||
+         strcmp(lt->name, "Vault") == 0);
 }
 
 static int

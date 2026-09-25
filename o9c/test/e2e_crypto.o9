@@ -4,9 +4,9 @@
 
 // Secret safety: an object holds only the sealed blob; the plaintext
 // exists nowhere but inside a method call armed with the right key.
-class Vault {
+class SecretVault {
     string blob;
-    method Vault(string b) { blob = b; }
+    method SecretVault(string b) { blob = b; }
     method string open(string key) { return decrypt(key, blob); }
 }
 
@@ -43,7 +43,7 @@ main {
 
     // secret safety: sealed text lives in an object; only the
     // passphrase-derived key opens it, the wrong one gets nil
-    Vault v = new Vault(encrypt(pk, "the crown jewels"));
+    SecretVault v = new SecretVault(encrypt(pk, "the crown jewels"));
     print("open ", cmp(v.open(pk), "the crown jewels"), "\n");
     print("wrongpass ", len(v.open(passkey("hunter3", "e2e.vault.salt"))), "\n");
 }

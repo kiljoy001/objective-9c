@@ -54,8 +54,8 @@ mk(int type, char *name, char *typename, Node *l, Node *r)
 static Node*
 mk_secret_field(Node *tn, char *name)
 {
-    char blob[192], seal[200], open[200];
-    Node *fld, *sealm, *openm, *params, *args, *body;
+    char blob[192], seal[200], open[200], vseal[200], vopen[200];
+    Node *fld, *sealm, *openm, *vsealm, *vopenm, *params, *args, *body;
 
     if(tn == nil || tn->name == nil || strcmp(tn->name, "string") != 0)
         return mk_typed(NSecret, name, tn, nil, nil);
@@ -63,6 +63,8 @@ mk_secret_field(Node *tn, char *name)
     snprint(blob, sizeof blob, "%s__blob", name);
     snprint(seal, sizeof seal, "seal_%s", name);
     snprint(open, sizeof open, "open_%s", name);
+    snprint(vseal, sizeof vseal, "seal_vault_%s", name);
+    snprint(vopen, sizeof vopen, "open_vault_%s", name);
 
     fld = mk_typed(NProp, blob, typed_node_from_name("string"), nil, nil);
 
@@ -82,8 +84,26 @@ mk_secret_field(Node *tn, char *name)
         mk(NSelfCall, "decrypt", nil, nil, args), nil);
     openm = mk_typed(NMethod, open, typed_node_from_name("string"), body, params);
 
+    /* Vault integration: seal_vault_<name>(Vault v, string val) */
+    params = mk_typed(NProp, "v", typed_node_from_name("Vault"), nil, nil);
+    params->next = mk_typed(NProp, "val", typed_node_from_name("string"), nil, nil);
+    args = mk(NIdent, "val", nil, nil, nil);
+    body = mk(NAssign, nil, nil,
+        mk(NIdent, blob, nil, nil, nil),
+        mk(NMsgSend, "seal", nil, mk(NIdent, "v", nil, nil, nil), args));
+    vsealm = mk_typed(NMethod, vseal, typed_node_from_name("void"), body, params);
+
+    /* Vault integration: open_vault_<name>(Vault v) string */
+    params = mk_typed(NProp, "v", typed_node_from_name("Vault"), nil, nil);
+    args = mk(NIdent, blob, nil, nil, nil);
+    body = mk(NReturn, nil, nil,
+        mk(NMsgSend, "open", nil, mk(NIdent, "v", nil, nil, nil), args), nil);
+    vopenm = mk_typed(NMethod, vopen, typed_node_from_name("string"), body, params);
+
     fld->next = sealm;
     sealm->next = openm;
+    openm->next = vsealm;
+    vsealm->next = vopenm;
     return fld;
 }
 

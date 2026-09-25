@@ -489,3 +489,467 @@ o9_exchange(O9String *sec, O9String *pub)
 	tohex(h, 32, out);
 	return o9_string_take(out);
 }
+
+/*
+ * Vault & O9KeyArena: isolated memory arena for encryption keys and
+ * defense-in-depth storage of sensitive data.
+ */
+
+O9Vault*
+o9_vault_new(void)
+{
+	O9Vault *v;
+
+	v = mallocz(sizeof *v, 1);
+	if(v == nil)
+		return nil;
+	v->arena = mallocz(sizeof *v->arena, 1);
+	if(v->arena == nil){
+		free(v);
+		return nil;
+	}
+	if(o9_randbytes(v->arena->key, sizeof v->arena->key) < 0){
+		free(v->arena);
+		free(v);
+		return nil;
+	}
+	v->arena->valid = 1;
+	return v;
+}
+
+O9Vault*
+o9_vault_new_key(O9String *keyhex)
+{
+	char *ckey;
+	O9Vault *v;
+
+	if(keyhex == nil)
+		return nil;
+	ckey = o9_string_cstr(keyhex);
+	if(ckey == nil)
+		return nil;
+	v = mallocz(sizeof *v, 1);
+	if(v == nil){
+		crypto_wipe(ckey, strlen(ckey));
+		free(ckey);
+		return nil;
+	}
+	v->arena = mallocz(sizeof *v->arena, 1);
+	if(v->arena == nil){
+		free(v);
+		crypto_wipe(ckey, strlen(ckey));
+		free(ckey);
+		return nil;
+	}
+	if(fromhex(ckey, v->arena->key, 32) != 32){
+		crypto_wipe(v->arena, sizeof *v->arena);
+		free(v->arena);
+		free(v);
+		crypto_wipe(ckey, strlen(ckey));
+		free(ckey);
+		return nil;
+	}
+	crypto_wipe(ckey, strlen(ckey));
+	free(ckey);
+	v->arena->valid = 1;
+	return v;
+}
+
+O9Vault*
+o9_vault_new_pass(O9String *pass, O9String *salt)
+{
+	crypto_argon2_config cfg;
+	crypto_argon2_inputs in;
+	void *work;
+	char *cpass, *csalt;
+	O9Vault *v;
+
+	if(pass == nil || salt == nil || o9_string_len(salt) < 8)
+		return nil;
+	cpass = o9_string_cstr(pass);
+	csalt = o9_string_cstr(salt);
+	if(cpass == nil || csalt == nil){
+		free(cpass);
+		free(csalt);
+		return nil;
+	}
+	v = mallocz(sizeof *v, 1);
+	if(v == nil){
+		crypto_wipe(cpass, strlen(cpass));
+		free(cpass);
+		free(csalt);
+		return nil;
+	}
+	v->arena = mallocz(sizeof *v->arena, 1);
+	if(v->arena == nil){
+		free(v);
+		crypto_wipe(cpass, strlen(cpass));
+		free(cpass);
+		free(csalt);
+		return nil;
+	}
+	cfg.algorithm = CRYPTO_ARGON2_ID;
+	cfg.nb_blocks = 65536;	/* 64 MiB */
+	cfg.nb_passes = 3;
+	cfg.nb_lanes = 1;
+	in.pass = (uchar*)cpass;
+	in.pass_size = strlen(cpass);
+	in.salt = (uchar*)csalt;
+	in.salt_size = strlen(csalt);
+	work = malloc((ulong)cfg.nb_blocks * 1024);
+	if(work == nil){
+		free(v->arena);
+		free(v);
+		crypto_wipe(cpass, strlen(cpass));
+		free(cpass);
+		free(csalt);
+		return nil;
+	}
+	crypto_argon2(v->arena->key, sizeof v->arena->key, work, cfg, in, crypto_argon2_no_extras);
+	free(work);
+	crypto_wipe(cpass, strlen(cpass));
+	free(cpass);
+	free(csalt);
+	v->arena->valid = 1;
+	return v;
+}
+
+vlong
+o9_vault_valid(O9Vault *v)
+{
+	return (v != nil && v->arena != nil && v->arena->valid) ? 1 : 0;
+}
+
+O9String*
+o9_vault_seal(O9Vault *v, O9String *msg)
+{
+	uchar nonce[24], mac[16], *ct;
+	char *out, *cmsg;
+	long n;
+
+	if(v == nil || v->arena == nil || !v->arena->valid || msg == nil)
+		return nil;
+	cmsg = o9_string_data(msg);
+	n = (long)o9_string_len(msg);
+	ct = malloc(n == 0 ? 1 : n);
+	out = malloc(2*(24 + 16 + n) + 1);
+	if(ct == nil || out == nil || o9_randbytes(nonce, sizeof nonce) < 0){
+		free(ct);
+		free(out);
+		return nil;
+	}
+	crypto_aead_lock(ct, mac, v->arena->key, nonce, nil, 0, (uchar*)cmsg, (size_t)n);
+	tohex(nonce, 24, out);
+	tohex(mac, 16, out + 48);
+	tohex(ct, n, out + 80);
+	free(ct);
+	return o9_string_take(out);
+}
+
+O9String*
+o9_vault_open(O9Vault *v, O9String *blob)
+{
+	uchar nonce[24], mac[16], *buf;
+	char *pt, *cblob;
+	long nb, n;
+
+	if(v == nil || v->arena == nil || !v->arena->valid || blob == nil)
+		return nil;
+	cblob = o9_string_data(blob);
+	nb = (long)o9_string_len(blob);
+	if(nb % 2 != 0 || nb/2 < 40)
+		return nil;
+	n = nb/2;
+	buf = malloc(n);
+	pt = malloc(n - 40 + 1);
+	if(buf == nil || pt == nil || fromhex(cblob, buf, n) != n){
+		free(buf);
+		free(pt);
+		return nil;
+	}
+	memmove(nonce, buf, 24);
+	memmove(mac, buf + 24, 16);
+	if(crypto_aead_unlock((uchar*)pt, mac, v->arena->key, nonce, nil, 0, buf + 40, (size_t)(n - 40)) != 0){
+		free(buf);
+		free(pt);
+		return nil;
+	}
+	free(buf);
+	pt[n - 40] = '\0';
+	return o9_string_take(pt);
+}
+
+vlong
+o9_vault_seal_file(O9Vault *v, O9String *path, O9String *data)
+{
+	O9String *blob;
+	vlong r;
+
+	if(v == nil || path == nil || data == nil)
+		return -1;
+	blob = o9_vault_seal(v, data);
+	if(blob == nil)
+		return -1;
+	r = o9_writefile(path, blob);
+	o9_string_release(blob);
+	return r;
+}
+
+O9String*
+o9_vault_open_file(O9Vault *v, O9String *path)
+{
+	O9String *blob, *pt;
+
+	if(v == nil || path == nil)
+		return nil;
+	blob = o9_readfile(path);
+	if(blob == nil)
+		return nil;
+	pt = o9_vault_open(v, blob);
+	o9_string_release(blob);
+	return pt;
+}
+
+vlong
+o9_vault_seal_tab(O9Vault *v, O9String *path, O9Tabula *t)
+{
+	O9String *serialized;
+	vlong r;
+
+	if(v == nil || path == nil || t == nil)
+		return -1;
+	serialized = o9_tab_serialize(t);
+	if(serialized == nil)
+		return -1;
+	r = o9_vault_seal_file(v, path, serialized);
+	o9_string_release(serialized);
+	return r;
+}
+
+O9Tabula*
+o9_vault_open_tab(O9Vault *v, O9String *path)
+{
+	static int seq;
+	char temppath[128];
+	int fd;
+	vlong n;
+	O9String *pt, *temppath_str;
+	O9Tabula *t;
+
+	if(v == nil || path == nil)
+		return nil;
+	pt = o9_vault_open_file(v, path);
+	if(pt == nil)
+		return nil;
+	snprint(temppath, sizeof temppath, "/tmp/o9vtab.%d.%d", getpid(), seq++);
+	fd = create(temppath, OWRITE, 0600);
+	if(fd < 0){
+		o9_string_release(pt);
+		return nil;
+	}
+	n = o9_string_len(pt);
+	if(write(fd, o9_string_data(pt), (long)n) != (long)n){
+		close(fd);
+		remove(temppath);
+		o9_string_release(pt);
+		return nil;
+	}
+	close(fd);
+	o9_string_release(pt);
+	temppath_str = o9_string_from_c(temppath);
+	t = o9_tab_open(temppath_str);
+	o9_string_release(temppath_str);
+	remove(temppath);
+	return t;
+}
+
+vlong
+o9_vault_put(O9Vault *v, O9String *name, O9String *plaintext)
+{
+	char *cname, *cpt;
+	long n;
+	int i, idx;
+	O9KeySlot *slot;
+
+	if(v == nil || v->arena == nil || !v->arena->valid || name == nil || plaintext == nil)
+		return -1;
+	cname = o9_string_cstr(name);
+	cpt = o9_string_cstr(plaintext);
+	if(cname == nil || cpt == nil){
+		free(cname);
+		free(cpt);
+		return -1;
+	}
+	idx = -1;
+	for(i = 0; i < O9ArenaMaxSlots; i++){
+		if(v->arena->slots[i].used && strcmp(v->arena->slots[i].name, cname) == 0){
+			idx = i;
+			break;
+		}
+	}
+	if(idx < 0){
+		for(i = 0; i < O9ArenaMaxSlots; i++){
+			if(!v->arena->slots[i].used){
+				idx = i;
+				break;
+			}
+		}
+	}
+	if(idx < 0){
+		crypto_wipe(cpt, strlen(cpt));
+		free(cpt);
+		free(cname);
+		return -1;
+	}
+	slot = &v->arena->slots[idx];
+	if(slot->used && slot->ct != nil){
+		crypto_wipe(slot->ct, (size_t)slot->nct);
+		free(slot->ct);
+		slot->ct = nil;
+	}
+	if(!slot->used)
+		v->arena->nslots++;
+	n = (long)strlen(cpt);
+	slot->ct = malloc(n == 0 ? 1 : n);
+	if(slot->ct == nil || o9_randbytes(slot->nonce, sizeof slot->nonce) < 0){
+		free(slot->ct);
+		slot->ct = nil;
+		slot->used = 0;
+		v->arena->nslots--;
+		crypto_wipe(cpt, (size_t)n);
+		free(cpt);
+		free(cname);
+		return -1;
+	}
+	slot->nct = n;
+	crypto_aead_lock(slot->ct, slot->mac, v->arena->key, slot->nonce, nil, 0, (uchar*)cpt, (size_t)n);
+	crypto_wipe(cpt, (size_t)n);
+	free(cpt);
+	strncpy(slot->name, cname, sizeof(slot->name) - 1);
+	slot->name[sizeof(slot->name) - 1] = '\0';
+	slot->used = 1;
+	free(cname);
+	return 0;
+}
+
+O9String*
+o9_vault_get(O9Vault *v, O9String *name)
+{
+	char *cname, *pt;
+	int i;
+	O9KeySlot *slot;
+
+	if(v == nil || v->arena == nil || !v->arena->valid || name == nil)
+		return nil;
+	cname = o9_string_cstr(name);
+	if(cname == nil)
+		return nil;
+	slot = nil;
+	for(i = 0; i < O9ArenaMaxSlots; i++){
+		if(v->arena->slots[i].used && strcmp(v->arena->slots[i].name, cname) == 0){
+			slot = &v->arena->slots[i];
+			break;
+		}
+	}
+	free(cname);
+	if(slot == nil || slot->ct == nil)
+		return nil;
+	pt = malloc(slot->nct + 1);
+	if(pt == nil)
+		return nil;
+	if(crypto_aead_unlock((uchar*)pt, slot->mac, v->arena->key, slot->nonce, nil, 0, slot->ct, (size_t)slot->nct) != 0){
+		free(pt);
+		return nil;
+	}
+	pt[slot->nct] = '\0';
+	return o9_string_take(pt);
+}
+
+vlong
+o9_vault_has(O9Vault *v, O9String *name)
+{
+	char *cname;
+	int i, found;
+
+	if(v == nil || v->arena == nil || !v->arena->valid || name == nil)
+		return 0;
+	cname = o9_string_cstr(name);
+	if(cname == nil)
+		return 0;
+	found = 0;
+	for(i = 0; i < O9ArenaMaxSlots; i++){
+		if(v->arena->slots[i].used && strcmp(v->arena->slots[i].name, cname) == 0){
+			found = 1;
+			break;
+		}
+	}
+	free(cname);
+	return found;
+}
+
+vlong
+o9_vault_drop(O9Vault *v, O9String *name)
+{
+	char *cname;
+	int i;
+	O9KeySlot *slot;
+
+	if(v == nil || v->arena == nil || !v->arena->valid || name == nil)
+		return 0;
+	cname = o9_string_cstr(name);
+	if(cname == nil)
+		return 0;
+	slot = nil;
+	for(i = 0; i < O9ArenaMaxSlots; i++){
+		if(v->arena->slots[i].used && strcmp(v->arena->slots[i].name, cname) == 0){
+			slot = &v->arena->slots[i];
+			break;
+		}
+	}
+	free(cname);
+	if(slot == nil)
+		return 0;
+	if(slot->ct != nil){
+		crypto_wipe(slot->ct, (size_t)slot->nct);
+		free(slot->ct);
+		slot->ct = nil;
+	}
+	crypto_wipe(slot, sizeof *slot);
+	slot->used = 0;
+	v->arena->nslots--;
+	return 1;
+}
+
+void
+o9_vault_wipe(O9Vault *v)
+{
+	int i;
+
+	if(v == nil || v->arena == nil)
+		return;
+	for(i = 0; i < O9ArenaMaxSlots; i++){
+		if(v->arena->slots[i].used && v->arena->slots[i].ct != nil){
+			crypto_wipe(v->arena->slots[i].ct, (size_t)v->arena->slots[i].nct);
+			free(v->arena->slots[i].ct);
+			v->arena->slots[i].ct = nil;
+		}
+	}
+	crypto_wipe(v->arena->key, sizeof v->arena->key);
+	crypto_wipe(v->arena->slots, sizeof v->arena->slots);
+	v->arena->valid = 0;
+	v->arena->nslots = 0;
+}
+
+void
+o9_vault_close(O9Vault *v)
+{
+	if(v == nil)
+		return;
+	if(v->arena != nil){
+		o9_vault_wipe(v);
+		free(v->arena);
+		v->arena = nil;
+	}
+	free(v);
+}
+

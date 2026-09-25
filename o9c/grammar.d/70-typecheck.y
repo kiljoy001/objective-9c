@@ -1218,6 +1218,16 @@ annotate_handle_msg_type(Node *e, Type *lt)
             return type_name("void");
         return type_name("int64");
     }
+    if(type_named(lt, "Vault")){
+        if(expr_name_is(e, "seal") || expr_name_is(e, "open") ||
+           expr_name_is(e, "openFile") || expr_name_is(e, "get"))
+            return type_name("string");
+        if(expr_name_is(e, "openTab"))
+            return type_name("tabula");
+        if(expr_name_is(e, "wipe") || expr_name_is(e, "close"))
+            return type_name("void");
+        return type_name("int64");
+    }
     return nil;
 }
 
@@ -1821,6 +1831,14 @@ is_mount_table_new(Node *e)
         e->typeinfo->name != nil && strcmp(e->typeinfo->name, "MountTable") == 0;
 }
 
+static int
+is_vault_new(Node *e)
+{
+    return e != nil && e->type == NClass &&
+        e->typeinfo != nil && e->typeinfo->kind == TyName &&
+        e->typeinfo->name != nil && strcmp(e->typeinfo->name, "Vault") == 0;
+}
+
 static void
 typecheck_tabula_new(Node *e, Node *scope_class, int *errs)
 {
@@ -1877,6 +1895,36 @@ typecheck_mount_table_new(Node *e, Node *scope_class, int *errs)
         typecheck_expr(e->right, scope_class, errs);
         if(!type_assignable_semantic(type_name("string"), e->right->typeinfo)){
             fprint(2, "o9c: error: line %d: MountTable constructor path must be string\n",
+                sem_line);
+            (*errs)++;
+        }
+    }
+}
+
+static void
+typecheck_vault_new(Node *e, Node *scope_class, int *errs)
+{
+    int got;
+    Node *a;
+
+    if(!is_vault_new(e))
+        return;
+    got = node_list_len(e->right);
+    if(e->typename != nil && strcmp(e->typename, "same") != 0){
+        fprint(2, "o9c: error: line %d: Vault does not support near/far construction\n",
+            sem_line);
+        (*errs)++;
+    }
+    if(got != 0 && got != 1 && got != 2){
+        fprint(2, "o9c: error: line %d: Vault constructor takes 0 arguments for random key, 1 key argument, or 2 arguments for passphrase and salt, got %d\n",
+            sem_line, got);
+        (*errs)++;
+        return;
+    }
+    for(a = e->right; a != nil; a = a->next){
+        typecheck_expr(a, scope_class, errs);
+        if(!type_assignable_semantic(type_name("string"), a->typeinfo)){
+            fprint(2, "o9c: error: line %d: Vault constructor arguments must be string\n",
                 sem_line);
             (*errs)++;
         }
@@ -1963,6 +2011,10 @@ typecheck_class_new(Node *e, Node *scope_class, int *errs)
     }
     if(is_mount_table_new(e)){
         typecheck_mount_table_new(e, scope_class, errs);
+        return;
+    }
+    if(is_vault_new(e)){
+        typecheck_vault_new(e, scope_class, errs);
         return;
     }
     if(o9_locality_kind(e->typename) >= 0){
@@ -2441,6 +2493,67 @@ typecheck_mounttable_msg(Node *e, Node *scope_class, Type *lt, int *errs)
 }
 
 static int
+typecheck_vault_msg(Node *e, Node *scope_class, Type *lt, int *errs)
+{
+    static MsgRule rules[] = {
+        {"valid", 0, 0, 0, -1, 0},
+        {"seal", 1, 1, 0, -1, 0},
+        {"open", 1, 1, 0, -1, 0},
+        {"sealFile", 2, 1, 0, -1, 0},
+        {"openFile", 1, 1, 0, -1, 0},
+        {"openTab", 1, 1, 0, -1, 0},
+        {"put", 2, 1, 0, -1, 0},
+        {"get", 1, 1, 0, -1, 0},
+        {"has", 1, 1, 0, -1, 0},
+        {"drop", 1, 1, 0, -1, 0},
+        {"wipe", 0, 0, 0, -1, 0},
+        {"close", 0, 0, 0, -1, 0},
+    };
+    MsgRule *r;
+    int got;
+    Node *a;
+
+    if(!type_named(lt, "Vault"))
+        return 0;
+
+    if(expr_name_is(e, "sealTab")){
+        got = node_list_len(e->right);
+        if(got != 2){
+            msg_arity_error("Vault", e, 2, got, errs);
+            typecheck_arg_values(e->right, scope_class, errs);
+            return 1;
+        }
+        a = e->right;
+        typecheck_expr(a, scope_class, errs);
+        if(!type_assignable_semantic(type_name("string"), a->typeinfo)){
+            fprint(2, "o9c: error: line %d: Vault.sealTab argument 1 must be string\n",
+                sem_line);
+            (*errs)++;
+        }
+        a = a->next;
+        typecheck_expr(a, scope_class, errs);
+        if(!o9_type_is_tabula(a->typeinfo)){
+            fprint(2, "o9c: error: line %d: Vault.sealTab argument 2 must be tabula\n",
+                sem_line);
+            (*errs)++;
+        }
+        return 1;
+    }
+
+    r = lookup_msg_rule(rules, nelem(rules), e->name);
+    if(r == nil){
+        fprint(2, "o9c: error: line %d: Vault has no method '%s' "
+            "(valid/seal/open/sealFile/openFile/sealTab/openTab/put/get/has/drop/wipe/close)\n",
+            sem_line, e->name);
+        (*errs)++;
+        typecheck_arg_values(e->right, scope_class, errs);
+        return 1;
+    }
+    typecheck_rule_args("Vault", e, scope_class, r, errs);
+    return 1;
+}
+
+static int
 typecheck_list_msg(Node *e, Node *scope_class, Type *lt, int *errs)
 {
     (void)scope_class;
@@ -2542,6 +2655,7 @@ static TypecheckMsgFn typecheck_msg_handlers[] = {
     typecheck_task_msg,
     typecheck_tabula_msg,
     typecheck_mounttable_msg,
+    typecheck_vault_msg,
     typecheck_list_msg,
     typecheck_dict_msg,
     nil,
