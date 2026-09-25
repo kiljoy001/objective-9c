@@ -217,6 +217,7 @@ verify:V:	o9c libo9.a
 	mk ctlargs-test
 	mk ctlquote-test
 	mk auth-test
+	mk debug-test
 	mk issue-test
 	mk crypto-test
 	mk tab-test

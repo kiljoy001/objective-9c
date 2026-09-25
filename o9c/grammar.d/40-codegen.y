@@ -4132,6 +4132,24 @@ gen_class_listinstances(Node *c)
 }
 
 static void
+gen_class_listactors(Node *c)
+{
+    cprint("static int\n%s_listactors(char *out, int nout)\n{\n", c->name);
+    cprint("\tchar *p, *ep;\n\tint i;\n\tchar callee[64], meth[64];\n\n");
+    cprint("\tif(out == nil || nout <= 0) return 0;\n");
+    cprint("\tp = out;\n\tep = out + nout;\n");
+    cprint("\tfor(i = 0; i < %s_ninstances && p < ep; i++){\n", c->name);
+    cprint("\t\tif(%s_instances[i].inst == nil) continue;\n", c->name);
+    cprint("\t\tif(o9_dag_waiting_for(%s_instances[i].inst->dispatch_chan, callee, sizeof callee, meth, sizeof meth)){\n", c->name);
+    cprint("\t\t\tp = seprint(p, ep, \"%%s\\t%s\\tblocked\\t%%s\\t%%s\\n\", %s_instances[i].name, callee, meth);\n", c->name, c->name);
+    cprint("\t\t}else{\n");
+    cprint("\t\t\tp = seprint(p, ep, \"%%s\\t%s\\trunning\\tnone\\tnone\\n\", %s_instances[i].name);\n", c->name, c->name);
+    cprint("\t\t}\n");
+    cprint("\t}\n");
+    cprint("\treturn (int)(p - out);\n}\n\n");
+}
+
+static void
 gen_class_record_instance(Node *c)
 {
     cprint("static void fsread_%s(Req *r, void *instv);\n", c->name);
@@ -4186,6 +4204,7 @@ gen_class_instance_helpers(Node *c)
     gen_class_instance_lookup(c);
     gen_class_dumpstate(c);
     gen_class_listinstances(c);
+    gen_class_listactors(c);
     gen_class_record_instance(c);
     gen_class_forget_instance(c);
 }
@@ -4680,7 +4699,7 @@ gen_class_register(Node *c)
 {
     o9_note_registered(c->name);
     cprint("void\no9_register_class_%s(void)\n{\n", c->name);
-    cprint("\to9app_register_handler(\"%s\", fsread_%s, fswrite_%s, (void*(*)(char*))%s_find_instance, %s_dumpstate, %s_listinstances);\n", c->name, c->name, c->name, c->name, c->name, c->name);
+    cprint("\to9app_register_handler(\"%s\", fsread_%s, fswrite_%s, (void*(*)(char*))%s_find_instance, %s_dumpstate, %s_listinstances, %s_listactors);\n", c->name, c->name, c->name, c->name, c->name, c->name, c->name);
     cprint("\to9_objects_%s = o9_object_store_create_path(o9app_root, o9app_name);\n", c->name);
     cprint("\to9_method_store_init(o9app_root, o9app_name);\n");
     gen_method_registrations(c, c);

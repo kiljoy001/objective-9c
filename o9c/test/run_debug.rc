@@ -11,13 +11,16 @@ fail=0
 app=Sensor
 srv=/srv/o9.^$app^.^$app^.app
 
+bin=/tmp/ds.$pid
+cfile=/tmp/ds.$pid.c
+ofile=/tmp/ds.$pid.6
+
 rm -f /tmp/debug_result
 
 fn cleanup {
-	if(! ~ $spid '')
-		kill $spid >[2]/dev/null
 	unmount /n/dbg >[2]/dev/null
-	rm -f $srv /tmp/ds.c /tmp/ds.6 /tmp/ds >[2]/dev/null
+	slay ds.$pid | rc >[2]/dev/null
+	rm -f $srv $cfile $ofile $bin /tmp/actors_dump /tmp/graph_dump >[2]/dev/null
 }
 
 fn fail_msg {
@@ -29,14 +32,13 @@ fn ok_msg {
 }
 
 # build once
-if(! $tool < o9c/test/debug_server.o9 > /tmp/ds.c){ fail_msg 'debug: transpile failed'; exit fail }
-if(! 6c -FVw -I. -o /tmp/ds.6 /tmp/ds.c){ fail_msg 'debug: compile failed'; exit fail }
-if(! 6l -o /tmp/ds /tmp/ds.6 libo9.a /$objtype/lib/libndb.a){ fail_msg 'debug: link failed'; exit fail }
+if(! $tool < o9c/test/debug_server.o9 > $cfile){ fail_msg 'debug: transpile failed'; exit fail }
+if(! 6c -FVw -I. -o $ofile $cfile){ fail_msg 'debug: compile failed'; exit fail }
+if(! 6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a){ fail_msg 'debug: link failed'; exit fail }
 
 # --- Phase 1: O9DEBUG OFF -> state gated ---
 rm -f $srv
-O9DEBUG=() /tmp/ds &
-spid=$apid
+O9DEBUG=() $bin &
 n=0
 while(! test -e $srv){
 	if(~ $n 50){ fail_msg 'debug: server (off) never posted'; cleanup; exit fail }
@@ -49,13 +51,25 @@ if(~ $s1 *disabled*)
 	ok_msg 'debug off: gated OK'
 if not
 	fail_msg 'debug: state not gated when O9DEBUG off: '$s1
-kill $spid; spid=''
+
+cat /n/dbg/actors > /tmp/actors_dump
+if(grep -s '^# id' /tmp/actors_dump && grep -s 's	Sensor	running	none	none' /tmp/actors_dump)
+	ok_msg 'actors: telemetry OK'
+if not
+	fail_msg 'actors: telemetry missing or invalid'
+
+cat /n/dbg/graph > /tmp/graph_dump
+if(grep -s '^# caller' /tmp/graph_dump)
+	ok_msg 'graph: telemetry OK'
+if not
+	fail_msg 'graph: telemetry missing or invalid'
+
 unmount /n/dbg
-rm -f $srv
+slay ds.$pid | rc >[2]/dev/null
+rm -f $srv /tmp/actors_dump /tmp/graph_dump
 
 # --- Phase 2: O9DEBUG ON -> state dumped ---
-O9DEBUG=1 /tmp/ds &
-spid=$apid
+O9DEBUG=1 $bin &
 n=0
 while(! test -e $srv){
 	if(~ $n 50){ fail_msg 'debug: server (on) never posted'; cleanup; exit fail }

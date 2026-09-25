@@ -131,6 +131,8 @@ extern void  o9_set_call_err(char *e);
 extern char* o9_get_call_err(void);
 extern void  o9_actor_enter(void *dispatch_chan, char *oid);
 extern void  o9_dag_actor_exit(void *actor_chan);
+extern int   o9_dag_dump(char *buf, int nbuf);
+extern int   o9_dag_waiting_for(void *caller_chan, char *callee_out, int ncallee, char *method_out, int nmeth);
 extern int   o9_proc_dead(int pid);
 extern vlong o9_registry_get_gen(char *oid);
 extern void  o9_set_current_user(char *user);

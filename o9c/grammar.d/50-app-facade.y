@@ -43,6 +43,7 @@ codegen(Node *root)
     cprint("\tvoid *(*find)(char*);\t/* <C>_find_instance */\n");
     cprint("\tint (*dumpstate)(char*, int);\t/* <C>_dumpstate: debug */\n");
     cprint("\tint (*listinst)(char*, int);\t/* <C>_listinstances: append \" name\" per live instance */\n");
+    cprint("\tint (*listactors)(char*, int);\t/* <C>_listactors: list actors for /actors */\n");
     cprint("};\n");
     cprint("extern O9ClassH o9app_classes[64];\n");
     cprint("extern int o9app_nclasses;\n");
@@ -54,7 +55,7 @@ codegen(Node *root)
     cprint("extern char o9app_name[64];\n");
     cprint("extern File *o9app_exports_dir;\t/* served-tree exports/ dir */\n");
     cprint("extern File *o9app_imports_dir;\t/* served-tree imports/ dir */\n");
-    cprint("static void\no9app_register_handler(char *name, void (*rd)(Req*,void*), void (*wr)(Req*,void*), void *(*find)(char*), int (*dump)(char*,int), int (*listinst)(char*,int))\n{\n");
+    cprint("static void\no9app_register_handler(char *name, void (*rd)(Req*,void*), void (*wr)(Req*,void*), void *(*find)(char*), int (*dump)(char*,int), int (*listinst)(char*,int), int (*listactors)(char*,int))\n{\n");
     cprint("\tif(o9app_nclasses >= nelem(o9app_classes)) return;\n");
     cprint("\to9app_classes[o9app_nclasses].name = name;\n");
     cprint("\to9app_classes[o9app_nclasses].read = rd;\n");
@@ -62,6 +63,7 @@ codegen(Node *root)
     cprint("\to9app_classes[o9app_nclasses].find = find;\n");
     cprint("\to9app_classes[o9app_nclasses].dumpstate = dump;\n");
     cprint("\to9app_classes[o9app_nclasses].listinst = listinst;\n");
+    cprint("\to9app_classes[o9app_nclasses].listactors = listactors;\n");
     cprint("\to9app_nclasses++;\n}\n");
     /* Debug gate: O9DEBUG env var exposes live object state via the
      * `state` file.  Off by default — encapsulation preserved. */
@@ -455,6 +457,24 @@ codegen(Node *root)
     cprint("\t\t\tp += snprint(p, sizeof buf-(p-buf), \"%%s\", mb);\n");
     cprint("\t\t}\n");
     cprint("\t\treadstr(r, buf); respond(r, nil); return;\n\t}\n");
+    cprint("\tif(strcmp(name, \"graph\") == 0){\n");
+    cprint("\t\tchar *__gbuf; int __n;\n");
+    cprint("\t\t__gbuf = mallocz(16384, 1);\n");
+    cprint("\t\tif(__gbuf == nil){ respond(r, \"no memory\"); return; }\n");
+    cprint("\t\t__n = o9_dag_dump(__gbuf, 16384);\n");
+    cprint("\t\treadbuf(r, __gbuf, __n); free(__gbuf); respond(r, nil); return;\n\t}\n");
+    cprint("\tif(strcmp(name, \"actors\") == 0){\n");
+    cprint("\t\tchar *__abuf, *__ap, *__aep; int __ai, __an;\n");
+    cprint("\t\t__abuf = mallocz(32768, 1);\n");
+    cprint("\t\tif(__abuf == nil){ respond(r, \"no memory\"); return; }\n");
+    cprint("\t\t__ap = __abuf; __aep = __abuf + 32768;\n");
+    cprint("\t\t__ap = seprint(__ap, __aep, \"# id\\tclass\\tstate\\twaiting_on\\tmethod\\n\");\n");
+    cprint("\t\tfor(__ai = 0; __ai < o9app_nclasses && __ap < __aep; __ai++){\n");
+    cprint("\t\t\tif(o9app_classes[__ai].listactors != nil)\n");
+    cprint("\t\t\t\t__ap += o9app_classes[__ai].listactors(__ap, (int)(__aep - __ap));\n");
+    cprint("\t\t}\n");
+    cprint("\t\t__an = (int)(__ap - __abuf);\n");
+    cprint("\t\treadbuf(r, __abuf, __an); free(__abuf); respond(r, nil); return;\n\t}\n");
     /* state: DEBUG-only inspector.  Off by default (encapsulation);
      * O9DEBUG dumps read-only metadata snapshots plus live state tabs. */
     cprint("\tif(strcmp(name, \"state\") == 0){\n");
@@ -618,6 +638,8 @@ codegen(Node *root)
     cprint("\tcreatefile(o9app_tree->root, \"data\", \"o9\", 0444, nil);\n");
     cprint("\tcreatefile(o9app_tree->root, \"status\", \"o9\", 0444, nil);\n");
     cprint("\tcreatefile(o9app_tree->root, \"methods\", \"o9\", 0444, nil);\n");
+    cprint("\tcreatefile(o9app_tree->root, \"actors\", \"o9\", 0444, nil);\n");
+    cprint("\tcreatefile(o9app_tree->root, \"graph\", \"o9\", 0444, nil);\n");
     cprint("\tcreatefile(o9app_tree->root, \"state\", \"o9\", 0444, nil);\t/* debug inspector */\n");
     /* clone: reading it allocates a session <id>/ with session-local
      * ctl/data/status (docs/SESSIONS.md) — the /net/tcp/clone pattern that

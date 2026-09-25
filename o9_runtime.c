@@ -217,6 +217,9 @@ typedef struct O9CallEdge O9CallEdge;
 struct O9CallEdge {
 	void *caller;	/* dispatch_chan of caller actor */
 	void *callee;	/* dispatch_chan of callee actor */
+	char caller_oid[64];
+	char callee_oid[64];
+	char method[64];
 };
 
 static O9CallEdge o9_call_edges[O9_MAX_CALL_EDGES];
@@ -259,7 +262,7 @@ o9_path_exists_locked(void *start, void *target)
  * If cycle detected, sets werrstr and call error and returns -1.
  */
 static int
-o9_dag_call_begin(void *callee_chan, char *method)
+o9_dag_call_begin(void *callee_chan, char *callee_oid, char *method)
 {
 	O9ProcCtx *ctx;
 	void *caller_chan;
@@ -306,6 +309,18 @@ o9_dag_call_begin(void *callee_chan, char *method)
 	if(o9_ncall_edges < O9_MAX_CALL_EDGES){
 		o9_call_edges[o9_ncall_edges].caller = caller_chan;
 		o9_call_edges[o9_ncall_edges].callee = callee_chan;
+		if(ctx->actor_oid[0] != '\0')
+			snprint(o9_call_edges[o9_ncall_edges].caller_oid, sizeof o9_call_edges[o9_ncall_edges].caller_oid, "%s", ctx->actor_oid);
+		else
+			snprint(o9_call_edges[o9_ncall_edges].caller_oid, sizeof o9_call_edges[o9_ncall_edges].caller_oid, "%p", caller_chan);
+		if(callee_oid != nil && callee_oid[0] != '\0')
+			snprint(o9_call_edges[o9_ncall_edges].callee_oid, sizeof o9_call_edges[o9_ncall_edges].callee_oid, "%s", callee_oid);
+		else
+			snprint(o9_call_edges[o9_ncall_edges].callee_oid, sizeof o9_call_edges[o9_ncall_edges].callee_oid, "%p", callee_chan);
+		if(method != nil)
+			snprint(o9_call_edges[o9_ncall_edges].method, sizeof o9_call_edges[o9_ncall_edges].method, "%s", method);
+		else
+			o9_call_edges[o9_ncall_edges].method[0] = '\0';
 		o9_ncall_edges++;
 	}
 	unlock(&o9_dag_lock);
@@ -356,6 +371,51 @@ o9_dag_actor_exit(void *actor_chan)
 		}
 	}
 	unlock(&o9_dag_lock);
+}
+
+int
+o9_dag_dump(char *buf, int nbuf)
+{
+	char *p, *ep;
+	int i;
+
+	if(buf == nil || nbuf <= 0)
+		return 0;
+	p = buf;
+	ep = buf + nbuf;
+	lock(&o9_dag_lock);
+	p = seprint(p, ep, "# caller\tcallee\tmethod\n");
+	for(i = 0; i < o9_ncall_edges && p < ep; i++){
+		p = seprint(p, ep, "%s\t%s\t%s\n",
+			o9_call_edges[i].caller_oid,
+			o9_call_edges[i].callee_oid,
+			o9_call_edges[i].method);
+	}
+	unlock(&o9_dag_lock);
+	return (int)(p - buf);
+}
+
+int
+o9_dag_waiting_for(void *caller_chan, char *callee_out, int ncallee, char *method_out, int nmeth)
+{
+	int i, found;
+
+	if(caller_chan == nil)
+		return 0;
+	found = 0;
+	lock(&o9_dag_lock);
+	for(i = 0; i < o9_ncall_edges; i++){
+		if(o9_call_edges[i].caller == caller_chan){
+			if(callee_out != nil && ncallee > 0)
+				snprint(callee_out, ncallee, "%s", o9_call_edges[i].callee_oid);
+			if(method_out != nil && nmeth > 0)
+				snprint(method_out, nmeth, "%s", o9_call_edges[i].method);
+			found = 1;
+			break;
+		}
+	}
+	unlock(&o9_dag_lock);
+	return found;
 }
 
 ulong
@@ -4408,7 +4468,7 @@ obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int narg
                 return nil;
             }
         }
-        if(o9_dag_call_begin(obj->dispatch_chan, method) < 0)
+        if(o9_dag_call_begin(obj->dispatch_chan, obj->oid, method) < 0)
             return nil;
         m = mallocz(sizeof(O9Msg), 1);
         m->sel = selector;
@@ -4474,7 +4534,7 @@ obj9_msgSendDoubleN(void *receiver, char *method, ulong selector, void *args, in
                 return 0.0;
             }
         }
-        if(o9_dag_call_begin(obj->dispatch_chan, method) < 0)
+        if(o9_dag_call_begin(obj->dispatch_chan, obj->oid, method) < 0)
             return 0.0;
         m = mallocz(sizeof(O9Msg), 1);
         m->sel = selector;
@@ -4545,7 +4605,7 @@ obj9_msgSendObjectN(void *receiver, char *method, ulong selector, void *args,
                 return -1;
             }
         }
-        if(o9_dag_call_begin(obj->dispatch_chan, method) < 0)
+        if(o9_dag_call_begin(obj->dispatch_chan, obj->oid, method) < 0)
             return -1;
         m = mallocz(sizeof(O9Msg), 1);
         m->sel = selector;
