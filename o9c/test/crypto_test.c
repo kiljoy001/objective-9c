@@ -122,6 +122,59 @@ threadmain(int, char**)
 		o9_vault_close(v);
 	}
 
+	/* Automatic RNG salt test */
+	{
+		O9Vault *va, *vb;
+		O9String *rand_salt, *p, *s_auto, *m2, *sealed2, *opened2;
+		char *crand, *cauto, *sopened2;
+
+		rand_salt = o9_salt();
+		if(rand_salt == nil)
+			sysfatal("o9_salt returned nil");
+		crand = o9_string_cstr(rand_salt);
+		if(crand == nil || strlen(crand) != 32)
+			sysfatal("o9_salt length mismatch");
+		free(crand);
+		o9_string_release(rand_salt);
+
+		p = o9_string_from_c("hunter2");
+		va = o9_vault_new_key(p);
+		if(va == nil || o9_vault_valid(va) != 1)
+			sysfatal("vault_new_key auto-salt failed");
+		s_auto = o9_vault_salt(va);
+		if(s_auto == nil)
+			sysfatal("vault_salt returned nil");
+		cauto = o9_string_cstr(s_auto);
+		if(cauto == nil || strlen(cauto) != 32)
+			sysfatal("vault_salt length mismatch: %s", cauto != nil ? cauto : "<nil>");
+
+		m2 = o9_string_from_c("auto-salted payload");
+		sealed2 = o9_vault_seal(va, m2);
+		if(sealed2 == nil)
+			sysfatal("vault_seal with auto-salt failed");
+
+		/* Reopen vault with the auto-generated salt */
+		vb = o9_vault_new_pass(p, s_auto);
+		if(vb == nil || o9_vault_valid(vb) != 1)
+			sysfatal("vault_new_pass with auto_salt failed");
+		opened2 = o9_vault_open(vb, sealed2);
+		if(opened2 == nil)
+			sysfatal("vault_open with reopened auto_salt failed");
+		sopened2 = o9_string_cstr(opened2);
+		if(sopened2 == nil || strcmp(sopened2, "auto-salted payload") != 0)
+			sysfatal("auto-salt round-trip mismatch");
+		free(sopened2);
+		o9_string_release(opened2);
+
+		free(cauto);
+		o9_string_release(s_auto);
+		o9_string_release(sealed2);
+		o9_string_release(m2);
+		o9_string_release(p);
+		o9_vault_close(va);
+		o9_vault_close(vb);
+	}
+
 	print("crypto_test: OK\n");
 	threadexitsall(nil);
 }

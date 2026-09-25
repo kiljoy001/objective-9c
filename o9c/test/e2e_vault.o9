@@ -68,6 +68,24 @@ main {
         print("wipe: failed (bug)\n");
     }
 
+    // Automatic RNG salt generation
+    string standalone_salt = salt();
+    print("salt len: ", len(standalone_salt), "\n");
+
+    Vault v3 = new Vault("hunter2");
+    print("v3 valid: ", v3.valid(), "\n");
+    string auto_salt = v3.salt();
+    print("v3 salt len: ", len(auto_salt), "\n");
+    string v3_blob = v3.seal("passphrase payload");
+
+    // Reopen using the auto-generated salt
+    Vault v4 = new Vault("hunter2", auto_salt);
+    print("v4 valid: ", v4.valid(), "\n");
+    string v4_opened = v4.open(v3_blob);
+    print("v4 opened: ", v4_opened, "\n");
+    v3.close();
+    v4.close();
+
     v1.close();
     v2.close();
 }

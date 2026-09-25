@@ -113,6 +113,7 @@ static Builtin builtins[] = {
     {"hash",      "o9_digest",    1, "string", {"string", nil}},
     {"mac",       "o9_mac",       2, "string", {"string", "string"}},
     {"passkey",   "o9_passkey",   2, "string", {"string", "string"}},
+    {"salt",      "o9_salt",      0, "string", {nil, nil}},
     {"encrypt",   "o9_encrypt",   2, "string", {"string", "string"}},
     {"decrypt",   "o9_decrypt",   2, "string", {"string", "string"}},
     {"xpubkey",   "o9_xpubkey",   1, "string", {"string", nil}},

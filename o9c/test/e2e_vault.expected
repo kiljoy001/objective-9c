@@ -13,3 +13,8 @@ tabula pass: shhh
 box open: classified actor data
 v2 valid after wipe: 0
 wipe: safe
+salt len: 32
+v3 valid: 1
+v3 salt len: 32
+v4 valid: 1
+v4 opened: passphrase payload

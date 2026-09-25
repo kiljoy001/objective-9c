@@ -666,6 +666,7 @@ gen_vault_msg(Node *e, Type *lt)
         {"get", "o9_vault_get"},
         {"has", "o9_vault_has"},
         {"drop", "o9_vault_drop"},
+        {"salt", "o9_vault_salt"},
         {"wipe", "o9_vault_wipe"},
         {"close", "o9_vault_close"},
     };

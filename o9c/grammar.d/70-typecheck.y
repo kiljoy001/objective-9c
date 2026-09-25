@@ -1220,7 +1220,8 @@ annotate_handle_msg_type(Node *e, Type *lt)
     }
     if(type_named(lt, "Vault")){
         if(expr_name_is(e, "seal") || expr_name_is(e, "open") ||
-           expr_name_is(e, "openFile") || expr_name_is(e, "get"))
+           expr_name_is(e, "openFile") || expr_name_is(e, "get") ||
+           expr_name_is(e, "salt"))
             return type_name("string");
         if(expr_name_is(e, "openTab"))
             return type_name("tabula");
@@ -1916,7 +1917,7 @@ typecheck_vault_new(Node *e, Node *scope_class, int *errs)
         (*errs)++;
     }
     if(got != 0 && got != 1 && got != 2){
-        fprint(2, "o9c: error: line %d: Vault constructor takes 0 arguments for random key, 1 key argument, or 2 arguments for passphrase and salt, got %d\n",
+        fprint(2, "o9c: error: line %d: Vault constructor takes 0 arguments for random key, 1 argument for key/passphrase, or 2 arguments for passphrase and salt, got %d\n",
             sem_line, got);
         (*errs)++;
         return;
@@ -2506,6 +2507,7 @@ typecheck_vault_msg(Node *e, Node *scope_class, Type *lt, int *errs)
         {"get", 1, 1, 0, -1, 0},
         {"has", 1, 1, 0, -1, 0},
         {"drop", 1, 1, 0, -1, 0},
+        {"salt", 0, 0, 0, -1, 0},
         {"wipe", 0, 0, 0, -1, 0},
         {"close", 0, 0, 0, -1, 0},
     };
@@ -2543,7 +2545,7 @@ typecheck_vault_msg(Node *e, Node *scope_class, Type *lt, int *errs)
     r = lookup_msg_rule(rules, nelem(rules), e->name);
     if(r == nil){
         fprint(2, "o9c: error: line %d: Vault has no method '%s' "
-            "(valid/seal/open/sealFile/openFile/sealTab/openTab/put/get/has/drop/wipe/close)\n",
+            "(valid/seal/open/sealFile/openFile/sealTab/openTab/put/get/has/drop/salt/wipe/close)\n",
             sem_line, e->name);
         (*errs)++;
         typecheck_arg_values(e->right, scope_class, errs);

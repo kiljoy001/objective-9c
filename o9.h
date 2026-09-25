@@ -443,6 +443,8 @@ enum {
 typedef struct O9KeyArena O9KeyArena;
 struct O9KeyArena {
 	uchar		key[32];
+	char		salt[128];
+	int		has_salt;
 	int		valid;
 	O9KeySlot	slots[O9ArenaMaxSlots];
 	int		nslots;
@@ -453,10 +455,12 @@ struct O9Vault {
 	O9KeyArena	*arena;
 };
 
+extern O9String*  o9_salt(void);
 extern O9Vault*   o9_vault_new(void);
 extern O9Vault*   o9_vault_new_key(O9String *keyhex);
 extern O9Vault*   o9_vault_new_pass(O9String *pass, O9String *salt);
 extern vlong      o9_vault_valid(O9Vault *v);
+extern O9String*  o9_vault_salt(O9Vault *v);
 extern O9String*  o9_vault_seal(O9Vault *v, O9String *msg);
 extern O9String*  o9_vault_open(O9Vault *v, O9String *blob);
 extern vlong      o9_vault_seal_file(O9Vault *v, O9String *path, O9String *data);

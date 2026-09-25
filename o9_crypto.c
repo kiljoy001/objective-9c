@@ -495,6 +495,44 @@ o9_exchange(O9String *sec, O9String *pub)
  * defense-in-depth storage of sensitive data.
  */
 
+O9String*
+o9_salt(void)
+{
+	uchar buf[16];
+	char *hex;
+
+	if(o9_randbytes(buf, sizeof buf) < 0)
+		return nil;
+	hex = malloc(33);
+	if(hex == nil)
+		return nil;
+	tohex(buf, sizeof buf, hex);
+	return o9_string_take(hex);
+}
+
+static int
+derive_vault_key(O9Vault *v, char *pass, char *salt)
+{
+	crypto_argon2_config cfg;
+	crypto_argon2_inputs in;
+	void *work;
+
+	cfg.algorithm = CRYPTO_ARGON2_ID;
+	cfg.nb_blocks = 65536;	/* 64 MiB */
+	cfg.nb_passes = 3;
+	cfg.nb_lanes = 1;
+	in.pass = (uchar*)pass;
+	in.pass_size = strlen(pass);
+	in.salt = (uchar*)salt;
+	in.salt_size = strlen(salt);
+	work = malloc((ulong)cfg.nb_blocks * 1024);
+	if(work == nil)
+		return -1;
+	crypto_argon2(v->arena->key, sizeof v->arena->key, work, cfg, in, crypto_argon2_no_extras);
+	free(work);
+	return 0;
+}
+
 O9Vault*
 o9_vault_new(void)
 {
@@ -513,6 +551,8 @@ o9_vault_new(void)
 		free(v);
 		return nil;
 	}
+	v->arena->has_salt = 0;
+	v->arena->salt[0] = '\0';
 	v->arena->valid = 1;
 	return v;
 }
@@ -522,8 +562,10 @@ o9_vault_new_key(O9String *keyhex)
 {
 	char *ckey;
 	O9Vault *v;
+	uchar rawsalt[16];
+	int i, israwhex;
 
-	if(keyhex == nil)
+	if(keyhex == nil || o9_string_len(keyhex) == 0)
 		return nil;
 	ckey = o9_string_cstr(keyhex);
 	if(ckey == nil)
@@ -541,14 +583,49 @@ o9_vault_new_key(O9String *keyhex)
 		free(ckey);
 		return nil;
 	}
-	if(fromhex(ckey, v->arena->key, 32) != 32){
-		crypto_wipe(v->arena, sizeof *v->arena);
-		free(v->arena);
-		free(v);
-		crypto_wipe(ckey, strlen(ckey));
-		free(ckey);
-		return nil;
+
+	israwhex = (strlen(ckey) == 64);
+	if(israwhex){
+		for(i = 0; i < 64; i++){
+			if(hexval(ckey[i]) < 0){
+				israwhex = 0;
+				break;
+			}
+		}
 	}
+
+	if(israwhex){
+		if(fromhex(ckey, v->arena->key, 32) != 32){
+			crypto_wipe(v->arena, sizeof *v->arena);
+			free(v->arena);
+			free(v);
+			crypto_wipe(ckey, strlen(ckey));
+			free(ckey);
+			return nil;
+		}
+		v->arena->has_salt = 0;
+		v->arena->salt[0] = '\0';
+	}else{
+		if(o9_randbytes(rawsalt, sizeof rawsalt) < 0){
+			crypto_wipe(v->arena, sizeof *v->arena);
+			free(v->arena);
+			free(v);
+			crypto_wipe(ckey, strlen(ckey));
+			free(ckey);
+			return nil;
+		}
+		tohex(rawsalt, sizeof rawsalt, v->arena->salt);
+		v->arena->has_salt = 1;
+		if(derive_vault_key(v, ckey, v->arena->salt) < 0){
+			crypto_wipe(v->arena, sizeof *v->arena);
+			free(v->arena);
+			free(v);
+			crypto_wipe(ckey, strlen(ckey));
+			free(ckey);
+			return nil;
+		}
+	}
+
 	crypto_wipe(ckey, strlen(ckey));
 	free(ckey);
 	v->arena->valid = 1;
@@ -558,9 +635,6 @@ o9_vault_new_key(O9String *keyhex)
 O9Vault*
 o9_vault_new_pass(O9String *pass, O9String *salt)
 {
-	crypto_argon2_config cfg;
-	crypto_argon2_inputs in;
-	void *work;
 	char *cpass, *csalt;
 	O9Vault *v;
 
@@ -588,16 +662,11 @@ o9_vault_new_pass(O9String *pass, O9String *salt)
 		free(csalt);
 		return nil;
 	}
-	cfg.algorithm = CRYPTO_ARGON2_ID;
-	cfg.nb_blocks = 65536;	/* 64 MiB */
-	cfg.nb_passes = 3;
-	cfg.nb_lanes = 1;
-	in.pass = (uchar*)cpass;
-	in.pass_size = strlen(cpass);
-	in.salt = (uchar*)csalt;
-	in.salt_size = strlen(csalt);
-	work = malloc((ulong)cfg.nb_blocks * 1024);
-	if(work == nil){
+	strncpy(v->arena->salt, csalt, sizeof(v->arena->salt) - 1);
+	v->arena->salt[sizeof(v->arena->salt) - 1] = '\0';
+	v->arena->has_salt = 1;
+	if(derive_vault_key(v, cpass, csalt) < 0){
+		crypto_wipe(v->arena, sizeof *v->arena);
 		free(v->arena);
 		free(v);
 		crypto_wipe(cpass, strlen(cpass));
@@ -605,13 +674,19 @@ o9_vault_new_pass(O9String *pass, O9String *salt)
 		free(csalt);
 		return nil;
 	}
-	crypto_argon2(v->arena->key, sizeof v->arena->key, work, cfg, in, crypto_argon2_no_extras);
-	free(work);
 	crypto_wipe(cpass, strlen(cpass));
 	free(cpass);
 	free(csalt);
 	v->arena->valid = 1;
 	return v;
+}
+
+O9String*
+o9_vault_salt(O9Vault *v)
+{
+	if(v == nil || v->arena == nil || !v->arena->valid || !v->arena->has_salt)
+		return o9_string_from_c("");
+	return o9_string_from_c(v->arena->salt);
 }
 
 vlong
@@ -935,6 +1010,8 @@ o9_vault_wipe(O9Vault *v)
 		}
 	}
 	crypto_wipe(v->arena->key, sizeof v->arena->key);
+	crypto_wipe(v->arena->salt, sizeof v->arena->salt);
+	v->arena->has_salt = 0;
 	crypto_wipe(v->arena->slots, sizeof v->arena->slots);
 	v->arena->valid = 0;
 	v->arena->nslots = 0;
