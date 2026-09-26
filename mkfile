@@ -3,7 +3,6 @@
 #   mk            — build o9c compiler + libo9.a
 #   mk install    — install o9c, o9.h, libo9.a, stdlib, o9build, and o9proj
 #   mk uninstall  — remove files installed by mk install
-#   mk release-tarball — build a pac9-compatible amd64 tarball
 #   mk clean      — clean build artifacts
 
 </$objtype/mkfile
@@ -459,9 +458,6 @@ uninstall:V:
 	if(test -d /sys/lib/o9) if(! rm /sys/lib/o9 >[2]/dev/null) echo 'warning: leaving /sys/lib/o9' >[1=2]
 	if(test -d $home/lib/o9) if(! rm $home/lib/o9 >[2]/dev/null) echo 'warning: leaving '$home'/lib/o9' >[1=2]
 	@ echo '=== o9 toolchain uninstalled ==='
-
-release-tarball:V: o9c libo9.a
-	rc release/make-tarball.rc $VERSION
 
 clean:V:
 	rm -f o9c/grammar.y o9c/y.tab.* o9c/type.tab.* o9c/o9c o9c/o9type o9c/*.[$O]
