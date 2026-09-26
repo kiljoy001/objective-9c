@@ -11,7 +11,7 @@ app=o9sesstest
 src=o9c/test/sess_app.o9
 bin=/tmp/o9sess.$pid
 mtpt=/n/o9sess.$pid
-srv=/srv/o9.$app.$app.app
+srv=/srv/$app
 fail=0
 
 fn cleanup {

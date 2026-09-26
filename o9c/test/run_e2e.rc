@@ -96,7 +96,7 @@ fn importcase {
 	if(! $tool $src > $cfile){
 		echo $name': transpile failed' >[1=2]
 		fail=1
-		rm -f $cfile $ofile $bin $out /srv/o9.*.app
+		rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name
 		broke | rc
 		return
 	}
@@ -114,7 +114,7 @@ fn importcase {
 		echo $name': build failed' >[1=2]
 		fail=1
 	}
-	rm -f $cfile $ofile $bin $out /srv/o9.*.app
+	rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name
 	broke | rc
 }
 
@@ -130,7 +130,7 @@ fn stdlibcase {
 	if(! $tool $src > $cfile){
 		echo $name': transpile failed' >[1=2]
 		fail=1
-		rm -f $cfile $ofile $bin $out /srv/o9.*.app
+		rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name
 		broke | rc
 		return
 	}
@@ -148,7 +148,7 @@ fn stdlibcase {
 		echo $name': build failed' >[1=2]
 		fail=1
 	}
-	rm -f $cfile $ofile $bin $out /srv/o9.*.app
+	rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name
 	broke | rc
 }
 

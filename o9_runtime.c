@@ -918,11 +918,11 @@ o9_ns_app_root(char *buf, int nbuf, char *app)
 int
 o9_ns_service_name(char *buf, int nbuf, char *app, char *type, char *inst)
 {
-	if(buf == nil || nbuf <= 0 || app == nil || type == nil || inst == nil)
+	USED(type);
+	USED(inst);
+	if(buf == nil || nbuf <= 0 || app == nil || app[0] == '\0')
 		return -1;
-	if(app[0] == '\0' || type[0] == '\0' || inst[0] == '\0')
-		return -1;
-	snprint(buf, nbuf, "o9.%s.%s.%s", app, type, inst);
+	snprint(buf, nbuf, "%s", app);
 	return 0;
 }
 

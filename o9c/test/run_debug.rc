@@ -9,7 +9,7 @@ rfork e
 tool=./o9c/o9c
 fail=0
 app=Sensor
-srv=/srv/o9.^$app^.^$app^.app
+srv=/srv/^$app
 
 bin=/tmp/ds.$pid
 cfile=/tmp/ds.$pid.c

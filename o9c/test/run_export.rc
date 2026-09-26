@@ -23,7 +23,7 @@ cons_out=/tmp/o9exp_cons.$pid.out
 race_out=/tmp/o9exp_race.$pid.out
 big=/tmp/o9exp_big.$pid
 mtpt=/n/o9exp.$pid
-srvglob=/srv/o9.$app.$app.app
+srvglob=/srv/$app
 
 fn cleanup {
 	unmount $mtpt >[2]/dev/null

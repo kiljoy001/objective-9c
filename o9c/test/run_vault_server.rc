@@ -8,7 +8,7 @@ rfork e
 tool=./o9c/o9c
 fail=0
 app=VaultServer
-srv=/srv/o9.^$app^.^$app^.app
+srv=/srv/^$app
 mtpt=/n/vault.$pid
 bin=/tmp/vs.$pid
 cfile=/tmp/vs.$pid.c

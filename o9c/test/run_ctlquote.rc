@@ -7,7 +7,7 @@ app=o9ctlq
 src=o9c/test/qstr_app.o9
 bin=/tmp/o9ctlq.$pid
 mtpt=/n/o9ctlq.$pid
-srv=/srv/o9.$app.$app.app
+srv=/srv/$app
 fail=0
 fn cleanup { unmount $mtpt >[2]/dev/null; kill o9ctlq.$pid >[2]/dev/null; rm -f $srv $bin /tmp/o9ctlq.$pid.^* }
 if(! $tool $src > /tmp/o9ctlq.$pid.c){ echo 'ctlquote: FAIL transpile' >[1=2]; exit fail }
