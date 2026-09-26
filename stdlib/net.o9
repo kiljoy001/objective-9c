@@ -369,12 +369,6 @@ class NetConn {
         address = addr;
         token = tok;
     }
-
-    ~NetConn() {
-        if(isOpen()) {
-            close();
-        }
-    }
 }
 
 class NetListener {
@@ -440,15 +434,6 @@ class NetListener {
         Task<int64> t = spawn NetCloseRaw(token);
         token = "";
         return t.await() == 0;
-    }
-
-    ~NetListener() {
-        if(len(accepted) > 0) {
-            closeAccepted();
-        }
-        if(len(token) > 0) {
-            close();
-        }
     }
 }
 
