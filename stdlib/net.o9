@@ -364,6 +364,17 @@ class NetConn {
         token = "";
         return t.await() == 0;
     }
+
+    method void init(string addr, string tok) {
+        address = addr;
+        token = tok;
+    }
+
+    ~NetConn() {
+        if(isOpen()) {
+            close();
+        }
+    }
 }
 
 class NetListener {
@@ -399,6 +410,16 @@ class NetListener {
         return len(accepted) > 0;
     }
 
+    method NetConn acceptConn() {
+        Task<string> t = spawn NetAcceptRaw(token);
+        string connToken = t.await();
+        NetConn c = new NetConn(address);
+        if(len(connToken) > 0) {
+            c.init(address, connToken);
+        }
+        return c;
+    }
+
     method string read(int64 max) {
         Task<string> t = spawn NetReadRaw(accepted, max);
         return t.await();
@@ -419,6 +440,15 @@ class NetListener {
         Task<int64> t = spawn NetCloseRaw(token);
         token = "";
         return t.await() == 0;
+    }
+
+    ~NetListener() {
+        if(len(accepted) > 0) {
+            closeAccepted();
+        }
+        if(len(token) > 0) {
+            close();
+        }
     }
 }
 
