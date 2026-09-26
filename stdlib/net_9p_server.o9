@@ -20,7 +20,8 @@ class Counter {
 main {
     Counter c = new Counter(100);
 
-    tabula orders = new tabula("orders", "item,qty,status");
+    // 'listener' keyword: serves 9P tree and publishes exports
+    listener tabula orders = new tabula("orders", "item,qty,status") @ "tcp!127.0.0.1!19996";
     orders.write("row1", "item", "gadget");
     orders.write("row1", "qty", "5");
     orders.write("row1", "status", "paid");
@@ -29,7 +30,6 @@ main {
     orders.write("row2", "status", "pending");
     export("orders.tab", orders);
 
-    listen("tcp!127.0.0.1!19996");
     print("server ready\n");
     serve();
 }

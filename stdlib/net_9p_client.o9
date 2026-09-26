@@ -87,18 +87,24 @@ main {
     }
 
     // -----------------------------------------------------------
-    // STAGE 3: Tabula synchronization over TCP 9P
+    // STAGE 3: Tabula Locality (near and far keywords)
     // -----------------------------------------------------------
-    far tabula orders = new tabula("orders", "item,qty,status") @ addr;
-    print("tabula_first ", orders.first(), "\n");
-    print("tabula_row ", orders.get("item"), " ", orders.get("qty"), "\n");
+    // 1. 'near' keyword: access local/IL tabula export via /srv
+    near tabula near_orders = new tabula("orders", "item,qty,status") @ "/srv/net9psrv";
+    print("near_first ", near_orders.first(), "\n");
+    print("near_row ", near_orders.get("item"), " ", near_orders.get("qty"), "\n");
 
-    tabula paid = orders.query("status", "paid");
+    // 2. 'far' keyword: access remote tabula export over TCP 9P
+    far tabula far_orders = new tabula("orders", "item,qty,status") @ addr;
+    print("far_first ", far_orders.first(), "\n");
+    print("far_row ", far_orders.get("item"), " ", far_orders.get("qty"), "\n");
+
+    tabula paid = far_orders.query("status", "paid");
     print("tabula_paid ", paid.first(), " ", paid.get("item"), "\n");
 
-    orders.write("client_push", "item", "turbo_widget");
-    orders.write("client_push", "qty", "42");
-    orders.write("client_push", "status", "delivered");
-    int64 pushed = orders.push();
+    far_orders.write("client_push", "item", "turbo_widget");
+    far_orders.write("client_push", "qty", "42");
+    far_orders.write("client_push", "status", "delivered");
+    int64 pushed = far_orders.push();
     print("tabula_pushed ", pushed, "\n");
 }
