@@ -95,6 +95,7 @@ static Builtin builtins[] = {
     {"writefile", "o9_writefile", 2, "int64",  {"string", "string"}},
     {"readline",  "o9_readline",  0, "string", {nil, nil}},
     {"serve",     "o9_serve",     0, "void",   {nil, nil}},
+    {"listen",    "o9_app_listen", 1, "void",  {"string", nil}},
     /* export(name, tab): publish a tabula into the served-tree exports/
      * dir (mutable app file tree) — reachable through the mount. */
     {"export",    "o9_export_tab",2, "void",   {"string", "tabula"}},

@@ -1,3 +1,17 @@
+function NamespaceUnmountRaw(string dest) int64 {
+    int64 out;
+    c {
+        char *cdest;
+        out = -1;
+        cdest = o9_string_cstr(dest);
+        if(cdest != nil){
+            out = unmount(nil, cdest);
+            free(cdest);
+        }
+    }
+    return out;
+}
+
 class Namespace {
     prop MountTable table;
 
@@ -90,6 +104,27 @@ class Namespace {
 
     method bool mountsrvAfter(string srv, string dest, string aname) {
         return mountsrv(srv, dest, afterFlag(), aname);
+    }
+
+    method bool mountnet(string addr, string dest, int64 flag, string aname) {
+        return table.mountnet(addr, dest, flag, aname) == 0;
+    }
+
+    method bool mountnetReplace(string addr, string dest, string aname) {
+        return mountnet(addr, dest, replaceFlag(), aname);
+    }
+
+    method bool mountnetBefore(string addr, string dest, string aname) {
+        return mountnet(addr, dest, beforeFlag(), aname);
+    }
+
+    method bool mountnetAfter(string addr, string dest, string aname) {
+        return mountnet(addr, dest, afterFlag(), aname);
+    }
+
+    method bool unmount(string dest) {
+        Task<int64> t = spawn NamespaceUnmountRaw(dest);
+        return t.await() == 0;
     }
 
     method bool validate() {

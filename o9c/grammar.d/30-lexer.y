@@ -2,6 +2,10 @@
  * LEXER
  * ======================================================================== */
 
+static char *input_buf;
+static int input_pos;
+static int input_len;
+
 void
 yyerror(char *s)
 {
@@ -9,12 +13,8 @@ yyerror(char *s)
         fprint(2, "o9c: error: line %d: %s near '%s' ('%s' is not a declared type)\n",
             cur_line, s, last_caps_ident, last_caps_ident);
     else
-        fprint(2, "o9c: error: line %d: %s\n", cur_line, s);
+        fprint(2, "o9c: error: line %d: %s (near: '%.40s')\n", cur_line, s, input_buf != nil ? input_buf + input_pos : "");
 }
-
-static char *input_buf;
-static int input_pos;
-static int input_len;
 char *import_base_dir;	/* dir of the source file, for relative imports */
 
 static int for_paren_depth = -1;	/* >=0 when inside for(...) — ';' returns TFORSEMI */

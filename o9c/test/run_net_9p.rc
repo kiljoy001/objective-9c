@@ -1,0 +1,151 @@
+#!/bin/rc
+# Real-world 9P Network Integration Test:
+# 1. Server starts 9P listener on TCP via listen("tcp!127.0.0.1!19996")
+# 2. Client mounts 9P server over TCP via NetConn.mount()
+# 3. Client drives methods & sessions through 9P mount
+# 4. Client unmounts via NetConn.unmount()
+# 5. Client mounts 9P server over TCP via Namespace.mountnet()
+# 6. Client drives methods through Namespace mount
+# 7. Client unmounts via Namespace.unmount()
+# 8. Client connects via far tabula @ tcp, reads, queries, and pushes data
+# 9. Server receives pushed data in imports/orders.tab
+
+rfork e
+
+tool=./o9c/o9c
+app=net9psrv
+srv=/srv/$app
+port=19996
+
+srv_src=stdlib/net_9p_server.o9
+srv_c=/tmp/net9psrv.$pid.c
+srv_o=/tmp/net9psrv.$pid.6
+srv_bin=/tmp/net9psrv.$pid
+srv_log=/tmp/net9psrv.$pid.log
+
+cli_src=stdlib/net_9p_client.o9
+cli_c=/tmp/net9pcli.$pid.c
+cli_o=/tmp/net9pcli.$pid.6
+cli_bin=/tmp/net9pcli.$pid
+cli_out=/tmp/net9pcli.$pid.out
+
+verif_mtpt=/n/net9p_verif.$pid
+
+spid=()
+fail=0
+
+fn cleanup {
+	unmount /n/testconn >[2]/dev/null
+	unmount /n/testns >[2]/dev/null
+	unmount $verif_mtpt >[2]/dev/null
+	kill net9psrv.$pid | rc >[2]/dev/null
+	if(! ~ $#spid 0 && test -d /proc/$spid)
+		@{ echo kill > /proc/$spid/note >[2]/dev/null } >[2]/dev/null
+	rm -f $srv $srv_c $srv_o $srv_bin $srv_log $cli_c $cli_o $cli_bin $cli_out
+}
+
+fn failmsg {
+	echo 'net-9p: FAIL:' $* >[1=2]
+	fail=1
+}
+
+fn check {
+	if(! ~ $1 '')
+		failmsg $2
+}
+
+cleanup
+
+# 1. Transpile & build server
+if(! $tool $srv_src > $srv_c){
+	failmsg 'server transpile'
+	cleanup
+	exit fail
+}
+if(! 6c -FVw -I. -o $srv_o $srv_c){
+	failmsg 'server 6c'
+	cleanup
+	exit fail
+}
+if(! 6l -o $srv_bin $srv_o libo9.a /$objtype/lib/libndb.a){
+	failmsg 'server 6l'
+	cleanup
+	exit fail
+}
+
+# 2. Transpile & build client
+if(! $tool $cli_src > $cli_c){
+	failmsg 'client transpile'
+	cleanup
+	exit fail
+}
+if(! 6c -FVw -I. -o $cli_o $cli_c){
+	failmsg 'client 6c'
+	cleanup
+	exit fail
+}
+if(! 6l -o $cli_bin $cli_o libo9.a /$objtype/lib/libndb.a){
+	failmsg 'client 6l'
+	cleanup
+	exit fail
+}
+
+# 3. Launch server in background
+$srv_bin $app > $srv_log >[2=1] &
+spid=$apid
+
+# 4. Wait for server ready (up to 10 seconds)
+i=0
+while(! grep -s 'server ready' $srv_log >[2]/dev/null && test $i -lt 10){
+	sleep 1
+	i=`{echo $i+1|bc}
+}
+if(! grep -s 'server ready' $srv_log >[2]/dev/null){
+	failmsg 'server never became ready'
+	cat $srv_log >[1=2]
+	cleanup
+	exit fail
+}
+
+# 5. Run client
+$cli_bin > $cli_out >[2=1]
+if(! ~ $status ''){
+	failmsg 'client run failed'
+	cat $cli_out >[1=2]
+}
+
+cat $cli_out
+
+# 6. Assert client outputs
+grep -s 'res1 120' $cli_out; check $status 'expected res1 120'
+grep -s 'sres 135' $cli_out; check $status 'expected sres 135'
+grep -s 'netconn_mount: OK' $cli_out; check $status 'NetConn mount failed'
+grep -s 'res2 140' $cli_out; check $status 'expected res2 140'
+grep -s 'namespace_mount: OK' $cli_out; check $status 'Namespace mount failed'
+grep -s 'tabula_first 1' $cli_out; check $status 'tabula_first failed'
+grep -s 'tabula_row gadget 5' $cli_out; check $status 'tabula_row failed'
+grep -s 'tabula_paid 1 gadget' $cli_out; check $status 'tabula_paid failed'
+grep -s 'tabula_pushed 0' $cli_out; check $status 'tabula_pushed failed'
+
+# 7. Verify pushed data landed in server's imports/
+if(~ $fail 0){
+	mount -c $srv $verif_mtpt >[2]/dev/null
+	if(! test -e $verif_mtpt/imports/orders.tab){
+		failmsg 'server missing imports/orders.tab'
+	}
+	if not{
+		got=`{cat $verif_mtpt/imports/orders.tab}
+		echo $"got | grep -s turbo_widget ; check $status 'import missing turbo_widget'
+		echo $"got | grep -s '42' ; check $status 'import missing qty 42'
+		echo $"got | grep -s delivered ; check $status 'import missing delivered status'
+	}
+}
+
+cleanup
+
+if(~ $fail 0){
+	echo 'net-9p: OK'
+}
+if not{
+	exit fail
+}

@@ -55,6 +55,7 @@ codegen(Node *root)
     cprint("extern char o9app_name[64];\n");
     cprint("extern File *o9app_exports_dir;\t/* served-tree exports/ dir */\n");
     cprint("extern File *o9app_imports_dir;\t/* served-tree imports/ dir */\n");
+    cprint("static void o9_app_listen(O9String *addr);\n");
     cprint("static void\no9app_register_handler(char *name, void (*rd)(Req*,void*), void (*wr)(Req*,void*), void *(*find)(char*), int (*dump)(char*,int), int (*listinst)(char*,int), int (*listactors)(char*,int))\n{\n");
     cprint("\tif(o9app_nclasses >= nelem(o9app_classes)) return;\n");
     cprint("\to9app_classes[o9app_nclasses].name = name;\n");

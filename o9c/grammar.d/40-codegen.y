@@ -634,6 +634,7 @@ gen_mounttable_msg(Node *e, Type *lt)
         {"dir", "o9_mount_table_dir"},
         {"bind", "o9_mount_table_bind"},
         {"mountsrv", "o9_mount_table_mountsrv"},
+        {"mountnet", "o9_mount_table_mountnet"},
         {"schema", "o9_mount_table_schema"},
         {"has", "o9_mount_table_has"},
         {"get", "o9_mount_table_get"},
