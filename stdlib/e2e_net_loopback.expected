@@ -24,4 +24,9 @@ clA_reply replyA:msgA
 clB_reply replyB:msgB
 clA_close 1
 clB_close 1
+clEof_dial 1
+clEof_write 1
+clEof_close 1
+bad_dial 0
+bad_is_open 0
 srv_res 0

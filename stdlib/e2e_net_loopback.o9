@@ -59,6 +59,22 @@ function RunServer(string addr) int64 {
     connA.close();
     connB.close();
 
+    // Stage 6: EOF Detection on peer close
+    NetConn connEof = ln.acceptConn();
+    if(!connEof.isOpen()) {
+        return -7;
+    }
+    string msgBeforeClose = connEof.read(128);
+    if(len(msgBeforeClose) == 0) {
+        return -9;
+    }
+    string msgAfterClose = connEof.read(128);
+    bool isEof = len(msgAfterClose) == 0;
+    connEof.close();
+    if(!isEof) {
+        return -8;
+    }
+
     // Clean shutdown of listener
     ln.close();
     return 0;
@@ -120,6 +136,21 @@ main {
     print("clB_reply ", clB.read(128), "\n");
     print("clA_close ", clA.close(), "\n");
     print("clB_close ", clB.close(), "\n");
+
+    tm.sleep(20);
+
+    // Stage 6: EOF Detection
+    NetConn clEof = new NetConn(addr);
+    print("clEof_dial ", clEof.dial(), "\n");
+    print("clEof_write ", clEof.write("bye") > 0, "\n");
+    print("clEof_close ", clEof.close(), "\n");
+
+    tm.sleep(20);
+
+    // Stage 7: Refused connection on unused port
+    NetConn badTcp = new NetConn("tcp!127.0.0.1!19998");
+    print("bad_dial ", badTcp.dial(), "\n");
+    print("bad_is_open ", badTcp.isOpen(), "\n");
 
     int64 srvRes = srvTask.await();
     print("srv_res ", srvRes, "\n");
