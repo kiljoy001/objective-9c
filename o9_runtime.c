@@ -790,11 +790,43 @@ o9_equiv_ledger_lookup(const char *path, const char *source, const char *mutant,
 	return found;
 }
 
+static int
+o9_c_word_char(int c)
+{
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+	       (c >= '0' && c <= '9') || c == '_';
+}
+
+static int
+o9_c_token_join(int a, int b)
+{
+	if(o9_c_word_char(a) && o9_c_word_char(b))
+		return 1;
+	if((a == '.' && (b == '.' || (b >= '0' && b <= '9'))) ||
+	   ((a >= '0' && a <= '9') && b == '.'))
+		return 1;
+	if((a == '+' && (b == '+' || b == '=')) ||
+	   (a == '-' && (b == '-' || b == '=' || b == '>')) ||
+	   (a == '<' && (b == '<' || b == '=' || b == ':' || b == '%')) ||
+	   (a == '>' && (b == '>' || b == '=')) ||
+	   (a == '=' && b == '=') || (a == '!' && b == '=') ||
+	   (a == '&' && (b == '&' || b == '=')) ||
+	   (a == '|' && (b == '|' || b == '=')) ||
+	   (a == '*' && b == '=') || (a == '/' && (b == '=' || b == '*')) ||
+	   (a == '%' && (b == '=' || b == '>' || b == ':')) ||
+	   (a == '^' && b == '=') || (a == '#' && b == '#') ||
+	   (a == ':' && b == '>'))
+		return 1;
+	if(o9_c_word_char(a) && (b == '"' || b == '\''))
+		return 1;
+	return 0;
+}
+
 static char*
 o9_c_without_ws_comments(const char *in)
 {
 	char *out;
-	int i, o, inquote, quote, esc;
+	int i, o, inquote, quote, esc, gap;
 
 	if(in == nil)
 		return nil;
@@ -805,6 +837,7 @@ o9_c_without_ws_comments(const char *in)
 	inquote = 0;
 	quote = 0;
 	esc = 0;
+	gap = 0;
 	for(i = 0; in[i] != '\0'; i++){
 		if(inquote){
 			out[o++] = in[i];
@@ -817,12 +850,16 @@ o9_c_without_ws_comments(const char *in)
 			continue;
 		}
 		if(in[i] == '"' || in[i] == '\''){
+		if(gap && o > 0 && o9_c_token_join(out[o-1], in[i]))
+			out[o++] = ' ';
+		gap = 0;
 			inquote = 1;
 			quote = in[i];
 			out[o++] = in[i];
 			continue;
 		}
 		if(in[i] == '/' && in[i+1] == '*'){
+			gap = 1;
 			i += 2;
 			while(in[i] != '\0' && !(in[i] == '*' && in[i+1] == '/'))
 				i++;
@@ -831,6 +868,7 @@ o9_c_without_ws_comments(const char *in)
 			continue;
 		}
 		if(in[i] == '/' && in[i+1] == '/'){
+			gap = 1;
 			i += 2;
 			while(in[i] != '\0' && in[i] != '\n')
 				i++;
@@ -838,7 +876,13 @@ o9_c_without_ws_comments(const char *in)
 		}
 		if(in[i] == ' ' || in[i] == '\t' || in[i] == '\n' ||
 		   in[i] == '\r' || in[i] == '\v' || in[i] == '\f')
+		{
+			gap = 1;
 			continue;
+		}
+		if(gap && o > 0 && o9_c_token_join(out[o-1], in[i]))
+			out[o++] = ' ';
+		gap = 0;
 		out[o++] = in[i];
 	}
 	out[o] = '\0';

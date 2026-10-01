@@ -54,16 +54,23 @@ threadmain(int, char**)
 	/* Vault tests: arena derivation, slot AEAD encryption, seal/open, wipe */
 	{
 		O9Vault *v;
-		O9String *p, *s, *m, *sealed, *opened, *kname, *pval, *gval;
+		O9String *p, *s, *m, *sealed, *opened, *kname, *pval, *gval, *longstr;
 		char *sopened, *sgval;
+		char longsalt[129], longname[65];
 
 		p = o9_string_from_c("hunter2");
 		s = o9_string_from_c("e2e.vault.salt");
 		v = o9_vault_new_pass(p, s);
-		o9_string_release(p);
-		o9_string_release(s);
 		if(v == nil || o9_vault_valid(v) != 1)
 			sysfatal("vault_new_pass failed");
+		memset(longsalt, 's', 128);
+		longsalt[128] = 0;
+		longstr = o9_string_from_c(longsalt);
+		if(o9_vault_new_pass(p, longstr) != nil)
+			sysfatal("oversized salt accepted");
+		o9_string_release(longstr);
+		o9_string_release(p);
+		o9_string_release(s);
 
 		m = o9_string_from_c("super secret message");
 		sealed = o9_vault_seal(v, m);
@@ -81,6 +88,12 @@ threadmain(int, char**)
 		/* Slot storage (layered defense: data in arena is encrypted) */
 		kname = o9_string_from_c("api_key");
 		pval = o9_string_from_c("secret-api-token-99");
+		memset(longname, 'n', 64);
+		longname[64] = 0;
+		longstr = o9_string_from_c(longname);
+		if(o9_vault_put(v, longstr, pval) != -1 || o9_vault_has(v, longstr) != 0)
+			sysfatal("oversized slot name accepted");
+		o9_string_release(longstr);
 		if(o9_vault_put(v, kname, pval) != 0)
 			sysfatal("vault_put failed");
 		if(o9_vault_has(v, kname) != 1)

@@ -300,7 +300,7 @@ function O9MutStatusRaw(string root, int64 bySource, int64 workers, int64 fromJo
         char *p, *srcs, *jbuf, *line, *next, *fields[6], *evtype, *evkind, *evdetail;
         char *outs[2]; const char *names[2]; int sizes[2];
         Dir *dirs;
-        int fd, n, rn, i, pending, claimed, done, killed, survived, timeout, equivalent, infra, setup, chunkPending, chunkClaimed, chunkDone;
+        int fd, n, i, pending, claimed, done, killed, survived, timeout, equivalent, infra, setup, chunkPending, chunkClaimed, chunkDone;
         int nsrc, si, heartbeatSec, buflen;
         long manifestTotal, now, lastSeen, age;
         long *spending, *sclaimed, *skilled, *ssurvived, *stimeout, *sequiv, *sinfra, *ssetup;
@@ -379,11 +379,8 @@ function O9MutStatusRaw(string root, int64 bySource, int64 workers, int64 fromJo
                 snprint(path, sizeof path, "%s/journal.log", r);
                 fd = open(path, OREAD);
                 if(fd >= 0){
-                    jbuf = malloc(65536);
+                    jbuf = o9_read_file_c(path, nil, 0);
                     if(jbuf != nil){
-                        rn = read(fd, jbuf, 65535);
-                        if(rn < 0) rn = 0;
-                        jbuf[rn] = '\0';
                         for(line = jbuf; line != nil && *line != '\0'; line = next){
                             next = strchr(line, '\n');
                             if(next != nil)
@@ -575,11 +572,8 @@ function O9MutStatusRaw(string root, int64 bySource, int64 workers, int64 fromJo
                     snprint(path, sizeof path, "%s/journal.log", r);
                     fd = open(path, OREAD);
                     if(fd >= 0){
-                        jbuf = malloc(65536);
+                        jbuf = o9_read_file_c(path, nil, 0);
                         if(jbuf != nil){
-                            rn = read(fd, jbuf, 65535);
-                            if(rn < 0) rn = 0;
-                            jbuf[rn] = '\0';
                             for(line = jbuf; line != nil && *line != '\0'; line = next){
                                 next = strchr(line, '\n');
                                 if(next != nil)
@@ -688,7 +682,7 @@ function O9MutRequeueStaleRaw(string root, int64 staleSec) string {
         char *r;
         char path[1024], child[1024], claim[1024], buf[2048], jpath[1024], detail[256];
         char cfg[1024], pending[1024], resultpath[1024], donepath[1024], *taskbuf, *row, *fields[8], *s;
-        Dir *dirs;
+        Dir *dirs, *claimstat;
         int fd, n, i, j, rn, requeued_chunks, requeued_tasks, retired, finalized, gotrow;
         long now, maxattempts, attempt;
 
@@ -746,13 +740,21 @@ function O9MutRequeueStaleRaw(string root, int64 staleSec) string {
                 for(i = 0; i < n; i++){
                     if((dirs[i].mode & DMDIR) == 0)
                         continue;
-                    if(now - dirs[i].mtime < staleSec)
-                        continue;
                     snprint(resultpath, sizeof resultpath, "%s/results/%s.tab", r, dirs[i].name);
                     snprint(pending, sizeof pending, "%s/tasks/pending/%s.tab", r, dirs[i].name);
                     snprint(donepath, sizeof donepath, "%s/tasks/done/%s.tab", r, dirs[i].name);
                     snprint(claim, sizeof claim, "%s/tasks/claimed/%s/claim.tab", r, dirs[i].name);
                     snprint(child, sizeof child, "%s/tasks/claimed/%s", r, dirs[i].name);
+                    /* Heartbeats refresh claim.tab while the gate is running. */
+                    claimstat = dirstat(claim);
+                    if(claimstat != nil){
+                        if(now - claimstat->mtime < staleSec){
+                            free(claimstat);
+                            continue;
+                        }
+                        free(claimstat);
+                    } else if(now - dirs[i].mtime < staleSec)
+                        continue;
 
                     if(access(resultpath, 0) == 0){
                         /* worker wrote the result but crashed before finalize */
@@ -909,7 +911,7 @@ function O9MutTriageRaw(string root, string output, int64 fromJournal, string re
         char taskid[128], worker[128], source[512], mutant[1024], result[64], klass[64], confidence[64], suggested[256], reason[256], ledgerReason[256], candidateReason[256], diff[512];
         char *outs[5], *douts[4]; const char *names[5], *dnames[4]; int sizes[5], dsizes[4];
         Dir *dirs;
-        int ofd, fd, n, rn, i, rows, selected;
+        int ofd, fd, n, i, rows, selected;
 
         r = o9_string_cstr(root);
         op = o9_string_cstr(output);
@@ -1012,11 +1014,8 @@ function O9MutTriageRaw(string root, string output, int64 fromJournal, string re
             snprint(path, sizeof path, "%s/journal.log", r);
             fd = open(path, OREAD);
             if(fd >= 0){
-                jbuf = malloc(262144);
+                jbuf = o9_read_file_c(path, nil, 0);
                 if(jbuf != nil){
-                    rn = read(fd, jbuf, 262143);
-                    if(rn < 0) rn = 0;
-                    jbuf[rn] = '\0';
                     for(line = jbuf; line != nil && *line != '\0'; line = next){
                         next = strchr(line, '\n');
                         if(next != nil)
@@ -1530,6 +1529,11 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
 	                        if(fd >= 0){
 	                            fprint(fd, "worker_id\tnode\tpid\tstarted_at\tlast_seen\tstatus\tcurrent_task\n");
 	                            fprint(fd, "%s\t%s\t%d\t%lld\t%lld\trunning\t%s\n", w, sysname != nil ? sysname : "", getpid(), (vlong)time(0), (vlong)time(0), taskid);
+	                            close(fd);
+	                        }
+	                        fd = create(claimfile, OWRITE, 0644);
+	                        if(fd >= 0){
+	                            fprint(fd, "task_id\tworker_id\tclaimed_at\n%s\t%s\t%lld\n", taskid, w, (vlong)time(0));
 	                            close(fd);
 	                        }
 	                        snprint(detail, sizeof detail, "status=running\ttask=%s", taskid);
