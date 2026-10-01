@@ -4599,7 +4599,7 @@ gen_spawn_forward_proc(Node *c)
     cprint("static void\no9_spawn_forward_%s(void *v)\n{\n", c->name);
     cprint("\tO9SpawnCtx_%s *ctx;\n\tctx = v;\n", c->name);
     cprint("\tO9Reply *__r;\n");
-    cprint("\tint __abnormal = 0;\n");
+    cprint("\tint __abnormal;\n\t__abnormal = 0;\n");
     cprint("\twhile((__r = nbrecvp(ctx->replyc)) == nil){\n");
     cprint("\t\tif(ctx->tid > 0 && threadpid(ctx->tid) < 0){\n");
     cprint("\t\t\t__r = mallocz(sizeof(O9Reply), 1);\n");
