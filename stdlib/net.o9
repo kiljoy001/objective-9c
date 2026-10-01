@@ -199,6 +199,7 @@ function NetMountRaw(string token, string dest, int64 flag, string aname) int64 
             fd = atoi(tok);
             if(fd >= 0){
                 rv = mount(fd, -1, cdest, (int)flag, caname != nil ? caname : "");
+                close(fd);
                 if(rv >= 0)
                     out = 0;
             }
@@ -410,8 +411,8 @@ class NetConn {
         }
         Task<int64> t = spawn NetMountRaw(token, dest, flag, aname);
         int64 res = t.await();
+        token = "";
         if(res == 0) {
-            token = "";
             return true;
         }
         return false;

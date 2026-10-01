@@ -3593,8 +3593,8 @@ o9_mount_table_apply(O9MountTable *m)
 			if(fd < 0)
 				goto bad;
 			rv = mount(fd, -1, dst, f, aname != nil ? (char*)aname : "");
+			close(fd);
 			if(rv < 0){
-				close(fd);
 				goto bad;
 			}
 			continue;
@@ -3610,8 +3610,8 @@ o9_mount_table_apply(O9MountTable *m)
 			if(fd < 0)
 				goto bad;
 			rv = mount(fd, -1, dst, f, aname != nil ? (char*)aname : "");
+			close(fd);
 			if(rv < 0){
-				close(fd);
 				goto bad;
 			}
 			continue;
