@@ -1,0 +1,8 @@
+import "stdlib/net.o9";
+
+function make() NetConn {
+    return dial udp 127.0.0.1:9000;
+}
+
+main {
+}

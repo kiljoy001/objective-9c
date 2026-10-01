@@ -134,6 +134,9 @@ compile o9c/test/e2e_text.o9 e2e_text
 compile o9c/test/e2e_delete.o9 e2e_delete
 compile o9c/test/e2e_plan9ctypes.o9 e2e_plan9ctypes
 compile o9c/test/tabula_locality.o9 tabula_locality
+compile o9c/test/dial_keyword.o9 dial_keyword
+require_file 'udp!127.0.0.1!9000' /tmp/dial_keyword.c
+require_file 'il!192.168.2.1!9999' /tmp/dial_keyword.c
 compile_project o9c/test/dep_project good.o9 dep_project
 compile_project o9c/test/dep_chain good.o9 dep_chain
 
@@ -435,6 +438,10 @@ require_error o9c/test/typecheck_bad_listener_object.o9 'remote objects are not 
 require_error o9c/test/typecheck_bad_new_near_object.o9 'remote objects are not supported'
 require_error o9c/test/typecheck_bad_new_far_object.o9 'remote objects are not supported'
 require_error o9c/test/typecheck_bad_tabula_locality_shape.o9 'near tabula declaration requires new tabula'
+require_error o9c/test/typecheck_bad_dial_endpoint.o9 'dial address must be host:port'
+require_error o9c/test/typecheck_bad_dial_return.o9 'dial must initialize or assign a NetConn variable'
+require_error o9c/test/typecheck_bad_dial_statement.o9 'dial must initialize or assign a NetConn variable'
+require_error o9c/test/typecheck_bad_dial_argument.o9 'dial must initialize or assign a NetConn variable'
 require_error_project o9c/test/dep_bad bad.o9 'escapes the project root'
 require_error_project o9c/test/dep_bad_abs bad.o9 'is not project-relative'
 require_error_project o9c/test/dep_bad_name bad.o9 'is not a simple identifier'

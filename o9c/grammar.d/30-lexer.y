@@ -18,6 +18,7 @@ yyerror(char *s)
 char *import_base_dir;	/* dir of the source file, for relative imports */
 
 static int for_paren_depth = -1;	/* >=0 when inside for(...) — ';' returns TFORSEMI */
+static int dial_phase;	/* 1=protocol, 2=host:port after a dial expression */
 static int pushback[8];		/* multi-char pushback buffer */
 static int npush = 0;
 
@@ -78,6 +79,33 @@ lex_ungetc(int c)
         pushback[npush++] = c;
     if(c == '\n')
         cur_line--;
+}
+
+static int
+lex_dial_form(void)
+{
+    LexMark mark;
+    int c, spaces;
+
+    lex_save(&mark);
+    spaces = 0;
+    while(isspace(c = lex_getc()))
+        spaces++;
+    if(spaces == 0 || !isalpha(c))
+        goto no;
+    while(isalnum(c = lex_getc()) || c == '_' || c == '-');
+    spaces = 0;
+    while(isspace(c)){
+        spaces++;
+        c = lex_getc();
+    }
+    if(spaces == 0 || c == Beof || c == ';' || c == '(' || c == ')')
+        goto no;
+    lex_restore(&mark);
+    return 1;
+no:
+    lex_restore(&mark);
+    return 0;
 }
 
 static void
@@ -259,6 +287,34 @@ yylex(void)
         if(isspace(c))
             continue;
         token_line = cur_line;
+        if(dial_phase != 0){
+            char buf[512];
+            int i;
+
+            i = 0;
+            if(dial_phase == 1){
+                while(isalnum(c) || c == '_' || c == '-'){
+                    if(i < sizeof buf - 1)
+                        buf[i++] = c;
+                    c = lex_getc();
+                }
+                lex_ungetc(c);
+                dial_phase = 2;
+                buf[i] = '\0';
+                yylval.name = strdup(buf);
+                return TDIALPROTO;
+            }
+            while(c != Beof && !isspace(c) && c != ';' && c != ')' && c != ','){
+                if(i < sizeof buf - 1)
+                    buf[i++] = c;
+                c = lex_getc();
+            }
+            lex_ungetc(c);
+            dial_phase = 0;
+            buf[i] = '\0';
+            yylval.name = strdup(buf);
+            return TDIALENDPOINT;
+        }
         /* Inside for(...): convert the header's ';' separators to
          * TFORSEMI so for_init/cond/step can be exprs.  for_paren_depth:
          * 0 after `for` (awaiting the header '('), 1 inside the header,
@@ -506,6 +562,10 @@ yylex(void)
             if(strcmp(buf, "cast") == 0) return TCAST;
             if(strcmp(buf, "use") == 0) return TUSE;
             if(strcmp(buf, "new") == 0) return TNEW;
+            if(strcmp(buf, "dial") == 0 && lex_dial_form()){
+                dial_phase = 1;
+                return TDIAL;
+            }
             if(strcmp(buf, "near") == 0) return TNEAR;
             if(strcmp(buf, "listener") == 0) return TLISTENER;
             if(strcmp(buf, "delete") == 0) return TDELETE;

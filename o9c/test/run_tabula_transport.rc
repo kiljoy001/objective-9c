@@ -26,10 +26,23 @@ fail=0
 
 fn cleanup {
 	unmount $mtpt >[2]/dev/null
-	if(! ~ $#p 0)
-		kill $p >[2]/dev/null
 	if(! ~ $#guard 0)
-		kill $guard >[2]/dev/null
+		for(g in $guard)
+			if(test -f /proc/$g/note)
+				@{ echo kill > /proc/$g/note } >[2]/dev/null
+	if(! ~ $#p 0)
+		for(pp in $p)
+			if(test -f /proc/$pp/note)
+				@{ echo kill > /proc/$pp/note } >[2]/dev/null
+	for(d in /proc/[0-9]*){
+		if(test -f $d/status){
+			st=`{cat $d/status >[2]/dev/null}
+			if(~ $st(1) o9tab* $app*){
+				if(test -f $d/note)
+					echo kill > $d/note >[2]/dev/null
+			}
+		}
+	}
 	rm -f $srv $prov_c $prov_o $prov_bin $prov_log $cons_src $cons_c $cons_o $cons_bin $cons_out
 }
 

@@ -94,6 +94,12 @@ session-test:V:	o9c libo9.a
 session-stress-test:V:	o9c libo9.a
 	rc ./o9c/test/run_session_stress.rc
 
+session-concurrent-test:V:	o9c libo9.a
+	mk session-test session-stress-test
+
+queue-saturation-test:V:	o9c libo9.a
+	rc ./o9c/test/run_queue_saturation.rc
+
 draw-window-demo:V:	o9c libo9.a
 	rc ./o9c/test/run_draw_window.rc
 
@@ -178,6 +184,11 @@ runtime-9p-rpc-test:V:	libo9.a
 	$LD -o $O9TESTDIR/runtime_9p_rpc_test runtime_9p_rpc_test.$O libo9.a
 	$O9TESTDIR/runtime_9p_rpc_test
 
+runtime-router-test:V:	libo9.a
+	$CC -I. $O9TESTDIR/runtime_router_test.c
+	$LD -o $O9TESTDIR/runtime_router_test runtime_router_test.$O libo9.a
+	$O9TESTDIR/runtime_router_test
+
 # Every native unit suite in one target.
 unit-test:V:
 	mk o9test-selftest
@@ -185,6 +196,7 @@ unit-test:V:
 	mk runtime-helpers-test
 	mk runtime-registry-test
 	mk runtime-9p-rpc-test
+	mk runtime-router-test
 
 invariant-test:V:
 	python3 tools/o9invariant.py run --keep-going
@@ -218,7 +230,8 @@ verify:V:	o9c libo9.a
 	mk prop-test
 	mk export-test
 	mk tabula-transport-test
-	mk session-test
+	mk session-concurrent-test
+	mk queue-saturation-test
 	mk ctlargs-test
 	mk ctlquote-test
 	mk auth-test

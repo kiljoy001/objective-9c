@@ -693,6 +693,9 @@ test_tsv_get_col(void)
 void
 threadmain(int, char**)
 {
+	O9MountTable *mounts;
+	O9String *good, *bad, *dest, *aname, *root;
+
 	o9t_begin("runtime_helpers_test");
 
 	test_basename();
@@ -705,6 +708,24 @@ threadmain(int, char**)
 	test_read_file();
 	test_kv_int();
 	test_tsv_get_col();
+
+	O9T_CASE("mountnear IL address validation");
+	mounts = o9_mount_table_new(nil);
+	good = o9_string_from_c("il!host!9fs");
+	bad = o9_string_from_c("il!host!9fs\nctl");
+	dest = o9_string_from_c("mnt");
+	aname = o9_string_from_c("");
+	root = o9_string_from_c("/tmp");
+	o9t_eqint("root accepted", o9_mount_table_allow_root(mounts, root), 0);
+	o9t_eqint("valid IL source", o9_mount_table_mountnear(mounts, good, dest, 0, aname), 0);
+	o9t_eqint("control character rejected", o9_mount_table_mountnear(mounts, bad, dest, 0, aname), -1);
+	o9t_eqint("stored near source validates", o9_mount_table_validate(mounts), 0);
+	o9_string_release(good);
+	o9_string_release(bad);
+	o9_string_release(dest);
+	o9_string_release(aname);
+	o9_string_release(root);
+	o9_mount_table_close(mounts);
 
 	threadexitsall(o9t_report());
 }

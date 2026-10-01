@@ -37,7 +37,9 @@ copy.apply();
 The stored cells are syscall-shaped:
 
 - `call=bind`, `old=<source>`, `new=<target>`, `flag=<int>`
-- `call=mountsrv`, `fd=/srv/name`, `old=<target>`, `flag=<int>`,
+- `call=mountnear` (or `call=mountsrv`), `fd=/srv/name` or `il!addr`, `old=<target>`, `flag=<int>`,
+  `aname=<string>`
+- `call=mountfar` (or `call=mountnet`), `fd=tcp!addr` or `net!addr`, `old=<target>`, `flag=<int>`,
   `aname=<string>`
 - `call=dir`, `new=<target>`, `mode=<int>`
 
@@ -49,19 +51,20 @@ That keeps the tab useful to another program or another machine: it can
 read ordinary data, inspect/query it, then replay it under its own
 `allowRoot()` mapping.
 
-The first implementation supports local namespace assembly through:
+The implementation supports namespace assembly through distance tiers:
 
 - `dir(new, mode)` creates a directory under the allowed root.
 - `bind(old, new, flag)` calls Plan 9 `bind(old, root/new, flag)`.
-- `mountsrv(fd, old, flag, aname)` opens a local `/srv/name` file and
-  calls `mount(fd, -1, root/old, flag, aname)`.
+- `mountnear(fd, old, flag, aname)` mounts a local `/srv/name` or `il!`
+  service and calls `mount(fd, -1, root/old, flag, aname)` (`mountsrv` is an alias).
+- `mountfar(addr, old, flag, aname)` dials a remote network address (`tcp!`)
+  and mounts the 9P service into `root/old` (`mountnet` is an alias).
 
 Targets are always relative to the allowed root.  Absolute targets,
 `..`, empty paths, and control bytes are rejected before they enter the
 table and checked again during `validate()`. Bind sources must be
-absolute paths or `#` device paths. `mountsrv` fd sources must live under
-`/srv/`. Remote `dial()` mounts are intentionally not part of the first
-cut; they need explicit network policy.
+absolute paths or `#` device paths. `mountnear` sources live under `/srv/`
+or use `il!`. `mountfar` sources dial network transports (`tcp!`, `net!`).
 
 This complements the existing app facade:
 

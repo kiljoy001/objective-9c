@@ -1,0 +1,27 @@
+function doSleep(int64 ms) int64 {
+    int64 out;
+    c {
+        sleep(ms);
+        out = ms;
+    }
+    return out;
+}
+
+class BusyActor {
+    method int64 slowWork(int64 ms) {
+        Task<int64> t = spawn doSleep(ms);
+        return t.await();
+    }
+}
+
+class FastActor {
+    method int64 ping() {
+        return 42;
+    }
+}
+
+main {
+    BusyActor a = new BusyActor();
+    FastActor b = new FastActor();
+    serve();
+}

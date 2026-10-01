@@ -2464,6 +2464,8 @@ typecheck_mounttable_msg(Node *e, Node *scope_class, Type *lt, int *errs)
         {"bind", 3, 0, 2, 2, 0},
         {"mountsrv", 4, 0, 2, 2, 1},
         {"mountnet", 4, 0, 2, 2, 1},
+        {"mountnear", 4, 0, 2, 2, 1},
+        {"mountfar", 4, 0, 2, 2, 1},
         {"schema", 0, 0, 0, -1, 0},
         {"has", 1, 1, 0, -1, 0},
         {"get", 1, 1, 0, -1, 0},
@@ -2484,7 +2486,7 @@ typecheck_mounttable_msg(Node *e, Node *scope_class, Type *lt, int *errs)
     r = lookup_msg_rule(rules, nelem(rules), e->name);
     if(r == nil){
         fprint(2, "o9c: error: line %d: MountTable has no method '%s' "
-            "(dir/bind/mountsrv/mountnet/allowRoot/read/query/flush/validate/apply/close)\n",
+            "(dir/bind/mountnear/mountfar/mountsrv/mountnet/allowRoot/read/query/flush/validate/apply/close)\n",
             sem_line, e->name);
         (*errs)++;
         typecheck_arg_values(e->right, scope_class, errs);
@@ -3477,6 +3479,27 @@ check_node(Node *n, Node *scope_class, int *errs)
         check_one_node(c, scope_class, errs);
 }
 
+/* Dial creates a NetConn through the named-object allocation path.  That
+ * path currently has storage only for a declaration or direct assignment. */
+static void
+check_dial_context(Node *n, Node *parent, int *errs)
+{
+    Node *c;
+
+    for(c = n; c != nil; c = c->next){
+        if((c->flags & NFDial) &&
+           !(parent != nil &&
+             ((parent->type == NLocalVar && parent->left == c) ||
+              (parent->type == NAssign && parent->right == c)))){
+            fprint(2, "o9c: error: line %d: dial must initialize or assign a NetConn variable\n",
+                c->line > 0 ? c->line : sem_line);
+            (*errs)++;
+        }
+        check_dial_context(c->left, c, errs);
+        check_dial_context(c->right, c, errs);
+    }
+}
+
 static int
 typecheck(Node *root)
 {
@@ -3491,6 +3514,7 @@ typecheck(Node *root)
 
     check_node(function_expr_classes, nil, &errors);
     check_node(root, nil, &errors);
+    check_dial_context(root, nil, &errors);
 
     return errors;
 }

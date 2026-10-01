@@ -1,7 +1,7 @@
 #!/bin/rc
 # Real-world 9P Network Integration Test:
 # 1. Server starts 9P listener on TCP via listen("tcp!127.0.0.1!19996")
-# 2. Client mounts 9P server over TCP via NetConn.mount()
+# 2. Client dials TCP with the dial keyword and mounts via NetConn.mount()
 # 3. Client drives methods & sessions through 9P mount
 # 4. Client unmounts via NetConn.unmount()
 # 5. Client mounts 9P server over TCP via Namespace.mountnet()
@@ -117,11 +117,15 @@ if(! ~ $status ''){
 cat $cli_out
 
 # 6. Assert client outputs
+grep -s 'conn_far: OK' $cli_out; check $status 'expected conn_far: OK'
+grep -s 'dial_tabula: OK' $cli_out; check $status 'dialed mount could not read tabula'
 grep -s 'res1 120' $cli_out; check $status 'expected res1 120'
 grep -s 'sres 135' $cli_out; check $status 'expected sres 135'
 grep -s 'netconn_mount: OK' $cli_out; check $status 'NetConn mount failed'
+grep -s 'conn_near: OK' $cli_out; check $status 'expected conn_near: OK'
 grep -s 'res2 140' $cli_out; check $status 'expected res2 140'
 grep -s 'namespace_mount: OK' $cli_out; check $status 'Namespace mount failed'
+grep -s 'namespace_near_mount: OK' $cli_out; check $status 'Namespace near mount failed'
 grep -s 'near_first 1' $cli_out; check $status 'near_first failed'
 grep -s 'near_row gadget 5' $cli_out; check $status 'near_row failed'
 grep -s 'far_first 1' $cli_out; check $status 'far_first failed'

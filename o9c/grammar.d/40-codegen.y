@@ -635,6 +635,8 @@ gen_mounttable_msg(Node *e, Type *lt)
         {"bind", "o9_mount_table_bind"},
         {"mountsrv", "o9_mount_table_mountsrv"},
         {"mountnet", "o9_mount_table_mountnet"},
+        {"mountnear", "o9_mount_table_mountnear"},
+        {"mountfar", "o9_mount_table_mountfar"},
         {"schema", "o9_mount_table_schema"},
         {"has", "o9_mount_table_has"},
         {"get", "o9_mount_table_get"},
@@ -1670,6 +1672,9 @@ gen_assign_new_to(char *varname, char *target, int is_field, char *lhs_type, Nod
     if(is_field)
         cprint("\to9_AsmTable %s;\n", tbl);
     gen_assign_alloc_local(varname, target, lhs_type, cn, tbl, dval, n->right, nctor);
+    if(n->flags & NFDial)
+        cprint("\t(void)obj9_msgSendN(&%s, \"dial\", 0x%lux, nil, 0);\n",
+            target, o9_hash("dial"));
 }
 
 void
@@ -1719,6 +1724,9 @@ gen_local_new(Node *s, char *cn, int distance)
     } else {
         cprint("\t(void)obj9_msgSendN(&%s, \"%s\", 0x%lux, nil, 0);\n", s->name, cn, o9_hash(cn));
     }
+    if(s->left->flags & NFDial)
+        cprint("\t(void)obj9_msgSendN(&%s, \"dial\", 0x%lux, nil, 0);\n",
+            s->name, o9_hash("dial"));
 }
 
 /* Emit the try error-propagation check for a statement whose RHS was a
@@ -4241,6 +4249,8 @@ gen_class_forget_instance(Node *c)
     cprint("\tint i;\n");
     cprint("\tif(inst == nil) return;\n");
     cprint("\tif(inst->oid[0] != '\\0'){\n");
+    cprint("\t\to9_router_unregister_actor(\"%s\", inst->oid);\n",
+        c->qname != nil ? c->qname : c->name);
     cprint("\t\to9_registry_unregister(inst->oid);\n");
     cprint("\t\tif(o9_objects_%s != nil) o9_object_set_state(o9_objects_%s, inst->oid, \"reaped\");\n", c->name, c->name);
     cprint("\t\tfor(i = 0; i < %s_ninstances; i++)\n", c->name);
@@ -5007,70 +5017,102 @@ gen_class_ctl_arg_parsing(Node *m, int np)
 }
 
 static void
-gen_class_ctl_send_and_recv(Node *m, int np)
-{
-    cprint("\t\t\t\t{ O9Msg __wm;\n\tmemset(&__wm, 0, sizeof __wm);\n\t__wm.sel = 0x%lux;\n\t__wm.args = %s;\n\t__wm.nargs = %d;\n\t__wm.replyc = chancreate(sizeof(void*), 0);\n", o9_hash(m->name), np > 0 ? "__wargs" : "nil", np);
-    cprint("\t\t\t\tchar __caller[64]; o9app_req_user(r, __caller, sizeof __caller); __wm.caller = __caller;\n");
-    cprint("\t\t\t\t__wm.blessed = o9app_req_blessed(r);\n");
-    cprint("\t\t\t\tsendp(target->dispatch_chan, &__wm);\n");
-    /* REQUEST CONCURRENCY: drop srv->slock while blocked on the actor's
-     * reply so other client requests can run meanwhile. Safe now that
-     * the session follows r instead of a global current session. */
-    cprint("\t\t\t\tsrvrelease(r->srv);\n");
-    cprint("\t\t\t\tO9Reply *__o9rep;\n\t\t\t\t__o9rep = recvp(__wm.replyc);\n");
-    cprint("\t\t\t\tsrvacquire(r->srv);\n");
-}
-
-static void
 gen_class_ctl_result_value(Node *m)
 {
     char *fmt, *cast;
 
     if(type_is_void(m->typeinfo)){
-        cprint("\t\t\t\t\to9app_put_result(r, \"\");\n");
+        cprint("\t\t\to9app_put_result(r, \"\");\n");
         return;
     }
     fmt = type_fmt_for_codegen(m->typeinfo);
     cast = type_cast_for_codegen(m->typeinfo);
-    cprint("\t\t\t\t\t{ char __rb[4096];\n");
+    cprint("\t\t\t{\n\t\t\t\tchar __rb[4096];\n");
     if(type_is_string(m->typeinfo))
-        cprint("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%s\\n\", o9_string_data((O9String*)__o9rep->ret));\n");
+        cprint("\t\t\t\tsnprint(__rb, sizeof __rb, \"%%s\\n\", o9_string_data((O9String*)__o9rep->ret));\n");
     else if(type_is_double(m->typeinfo))
-        cprint("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%g\\n\", __o9rep->dret);\n");
+        cprint("\t\t\t\tsnprint(__rb, sizeof __rb, \"%%g\\n\", __o9rep->dret);\n");
     else if(strcmp(fmt, "%s") == 0)
-        cprint("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%s\\n\", (char*)__o9rep->ret);\n");
+        cprint("\t\t\t\tsnprint(__rb, sizeof __rb, \"%%s\\n\", (char*)__o9rep->ret);\n");
     else if(strcmp(fmt, "%p") == 0)
-        cprint("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%%p\\n\", (void*)__o9rep->ret);\n");
+        cprint("\t\t\t\tsnprint(__rb, sizeof __rb, \"%%p\\n\", (void*)__o9rep->ret);\n");
     else
-        cprint("\t\t\t\t\tsnprint(__rb, sizeof __rb, \"%s\\n\", (%s)__o9rep->ret);\n", fmt, cast);
-    cprint("\t\t\t\t\to9app_put_result(r, __rb); }\n");
+        cprint("\t\t\t\tsnprint(__rb, sizeof __rb, \"%s\\n\", (%s)__o9rep->ret);\n", fmt, cast);
+    cprint("\t\t\t\to9app_put_result(r, __rb);\n\t\t\t}\n");
 }
 
 static void
-gen_class_ctl_reply_handling(Node *m)
+gen_class_router_callbacks(Node *c)
 {
-    /* Roles (docs/SESSIONS.md): success/error -> STATUS, return value ->
-     * DATA. o9app_put_* route to the current session or root fallback. */
-    cprint("\t\t\t\tif(__o9rep->err != nil){\n");
-    cprint("\t\t\t\t\tchar __eb[256]; snprint(__eb, sizeof __eb, \"error: %%s\\n\", __o9rep->err);\n");
-    cprint("\t\t\t\t\to9app_put_status(r, __eb); o9app_put_result(r, \"\");\n");
-    cprint("\t\t\t\t}else{\n");
-    cprint("\t\t\t\t\to9app_put_status(r, \"ok\\n\");\n");
-    gen_class_ctl_result_value(m);
-    cprint("\t\t\t\t}\n");
+    Node *m;
+
+    for(m = c->left; m; m = m->next){
+        if(!ctl_method_exported(c, m))
+            continue;
+        if(ctl_method_supported(m)){
+            cprint("static void\ncomplete_ctl_%s_%s(O9RouterOp *op, O9Reply *__o9rep)\n{\n", c->name, m->name);
+            cprint("\tReq *r;\n\tr = op != nil ? op->r : nil;\n");
+            cprint("\tif(r != nil){\n");
+            cprint("\t\tif(__o9rep != nil && __o9rep->err != nil){\n");
+            cprint("\t\t\tchar __eb[256];\n");
+            cprint("\t\t\tsnprint(__eb, sizeof __eb, \"error: %%s\\n\", __o9rep->err);\n");
+            cprint("\t\t\to9app_put_status(r, __eb);\n");
+            cprint("\t\t\to9app_put_result(r, \"\");\n");
+            cprint("\t\t}else if(__o9rep != nil){\n");
+            cprint("\t\t\to9app_put_status(r, \"ok\\n\");\n");
+            gen_class_ctl_result_value(m);
+            cprint("\t\t}else{\n");
+            cprint("\t\t\to9app_put_status(r, \"error: router unavailable\\n\");\n");
+            cprint("\t\t\to9app_put_result(r, \"\");\n");
+            cprint("\t\t}\n");
+            cprint("\t\tr->ofcall.count = r->ifcall.count;\n");
+            cprint("\t\trespond(r, nil);\n");
+            cprint("\t}\n");
+            cprint("\to9_reply_free(__o9rep);\n");
+            cprint("}\n\n");
+        }
+        cprint("static void\ncomplete_file_%s_%s(O9RouterOp *op, O9Reply *__o9rep)\n{\n", c->name, m->name);
+        cprint("\tReq *r;\n\tr = op != nil ? op->r : nil;\n");
+        cprint("\tif(r != nil){\n");
+        if(!type_is_void(m->typeinfo)){
+            cprint("\t\tif(__o9rep == nil){\n");
+            cprint("\t\t\trespond(r, \"router unavailable\");\n");
+            cprint("\t\t}else{\n");
+            cprint("\t\t\tr->fid->aux = __o9rep;\n");
+            cprint("\t\t\tr->ofcall.count = r->ifcall.count;\n");
+            cprint("\t\t\trespond(r, nil);\n");
+            cprint("\t\t}\n");
+        }else{
+            cprint("\t\tif(__o9rep == nil){\n");
+            cprint("\t\t\trespond(r, \"router unavailable\");\n");
+            cprint("\t\t}else if(__o9rep->err != nil){\n");
+            cprint("\t\t\trespond(r, __o9rep->err);\n");
+            cprint("\t\t}else{\n");
+            cprint("\t\t\tr->ofcall.count = r->ifcall.count;\n");
+            cprint("\t\t\trespond(r, nil);\n");
+            cprint("\t\t}\n");
+            cprint("\to9_reply_free(__o9rep);\n");
+        }
+        cprint("\t}else{\n");
+        cprint("\t\to9_reply_free(__o9rep);\n");
+        cprint("\t}\n");
+        cprint("}\n\n");
+    }
 }
 
 static void
 gen_class_ctl_unsupported_method(Node *m)
 {
-    cprint("\t\t\t\to9app_put_status(r, \"error: %s: object arguments are not callable over ctl\\n\"); o9app_put_result(r, \"\"); respond(r, nil); return;\n", m->name);
+    cprint("\t\t\to9app_put_status(r, \"error: %s: object arguments are not callable over ctl\\n\"); o9app_put_result(r, \"\"); respond(r, nil); return;\n", m->name);
     cprint("\t\t\t}\n");
 }
 
 static void
-gen_class_ctl_method_case(Node *m)
+gen_class_ctl_method_case(Node *c, Node *m)
 {
     int np;
+    Node *p;
+    int pi;
 
     np = ctl_method_arg_count(m);
     cprint("\t\t\tif(strcmp(f[2], \"%s\") == 0){\n", m->name);
@@ -5079,11 +5121,26 @@ gen_class_ctl_method_case(Node *m)
         gen_class_ctl_unsupported_method(m);
         return;
     }
-    gen_class_ctl_arg_parsing(m, np);
-    gen_class_ctl_send_and_recv(m, np);
-    gen_class_ctl_reply_handling(m);
-    cprint("\t\t\t\to9_reply_free(__o9rep); chanfree(__wm.replyc); }\n");
-    cprint("\t\t\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t\t\t}\n");
+    cprint("\t\t\t\t{\n");
+    cprint("\t\t\t\t\tchar __caller[64];\n");
+    cprint("\t\t\t\t\tint __blessed;\n");
+    cprint("\t\t\t\t\tChannel *__tchan;\n");
+    cprint("\t\t\t\t\tchar *__toid;\n");
+    if(np > 0){
+        cprint("\t\t\t\t\tvlong __wargs[%d];\n", np);
+        cprint("\t\t\t\t\tmemset(__wargs, 0, sizeof __wargs);\n");
+        for(p = m->right, pi = 0; p; p = p->next, pi++)
+            gen_class_ctl_arg_parse(p, pi);
+    }
+    cprint("\t\t\t\t\to9app_req_user(r, __caller, sizeof __caller);\n");
+    cprint("\t\t\t\t\t__blessed = o9app_req_blessed(r);\n");
+    cprint("\t\t\t\t\t__tchan = target != nil ? target->dispatch_chan : nil;\n");
+    cprint("\t\t\t\t\t__toid = target != nil ? target->oid : \"\";\n");
+    cprint("\t\t\t\t\to9_router_submit(r, \"%s\", __toid, target, __tchan, 0x%lux, %s, %d, __caller, __blessed, complete_ctl_%s_%s, nil);\n",
+        c->qname != nil ? c->qname : c->name, o9_hash(m->name), np > 0 ? "__wargs" : "nil", np, c->name, m->name);
+    cprint("\t\t\t\t\treturn;\n");
+    cprint("\t\t\t\t}\n");
+    cprint("\t\t\t}\n");
 }
 
 static void
@@ -5093,7 +5150,7 @@ gen_class_ctl_method_cases(Node *c)
 
     for(m = c->left; m; m = m->next)
         if(ctl_method_exported(c, m))
-            gen_class_ctl_method_case(m);
+            gen_class_ctl_method_case(c, m);
 }
 
 static void
@@ -5125,8 +5182,13 @@ gen_class_method_file_writes(Node *c)
                 continue;
             for(p = m->right; p; p = p->next) np++;
             cprint("\tif(strcmp(name, \"%s\") == 0){\n", m->name);
+            cprint("\t\tchar __caller[64];\n");
+            cprint("\t\tint __blessed;\n");
+            cprint("\t\tChannel *__tchan;\n");
+            cprint("\t\tchar *__toid;\n");
             if(np > 0){
-                cprint("\t\tvlong __wargs[%d];\n\t\tmemset(__wargs, 0, sizeof __wargs);\n", np);
+                cprint("\t\tvlong __wargs[%d];\n", np);
+                cprint("\t\tmemset(__wargs, 0, sizeof __wargs);\n");
                 if(m->right != nil && type_is_string(m->right->typeinfo))
                     cprint("\t\t__wargs[0] = (vlong)(uintptr)o9_string_new(r->ifcall.data, r->ifcall.count);\n");
                 else if(m->right != nil && type_is_double(m->right->typeinfo))
@@ -5134,24 +5196,13 @@ gen_class_method_file_writes(Node *c)
                 else
                     cprint("\t\t__wargs[0] = strtoll(r->ifcall.data, nil, 0);\n");
             }
-            /* Direct channel send — inst is the Internal struct with dispatch_chan */
-            {
-                char *a = np > 0 ? "__wargs" : "nil";
-                cprint("\t\t{ O9Msg __wm;\n\tmemset(&__wm, 0, sizeof __wm);\n\t__wm.sel = 0x%lux;\n\t__wm.args = %s;\n\t__wm.nargs = %d;\n\t__wm.replyc = chancreate(sizeof(void*), 0);\n", o9_hash(m->name), a, np);
-                cprint("\t\tchar __caller[64]; o9app_req_user(r, __caller, sizeof __caller); __wm.caller = __caller;\n");
-                cprint("\t\t__wm.blessed = o9app_req_blessed(r);\n");
-                cprint("\t\tsendp(inst->dispatch_chan, &__wm);\n");
-                if(!type_is_void(m->typeinfo)){
-                    /* Return-value method: store O9Reply in fid aux for readback */
-                    cprint("\t\tO9Reply *__o9rep;\n\t\t__o9rep = recvp(__wm.replyc);\n");
-                    cprint("\t\tr->fid->aux = __o9rep;\n");
-                } else {
-                    /* Void method: discard reply */
-                    cprint("\t\t{ O9Reply *__o9rep;\n\t__o9rep = recvp(__wm.replyc); o9_reply_free(__o9rep); }\n");
-                }
-                cprint("\t\tchanfree(__wm.replyc); }\n");
-            }
-            cprint("\t\tr->ofcall.count = r->ifcall.count;\n\t\trespond(r, nil);\n\t\treturn;\n\t}\n");
+            cprint("\t\to9app_req_user(r, __caller, sizeof __caller);\n");
+            cprint("\t\t__blessed = o9app_req_blessed(r);\n");
+            cprint("\t\t__tchan = inst != nil ? inst->dispatch_chan : nil;\n");
+            cprint("\t\t__toid = inst != nil ? inst->oid : \"\";\n");
+            cprint("\t\to9_router_submit(r, \"%s\", __toid, inst, __tchan, 0x%lux, %s, %d, __caller, __blessed, complete_file_%s_%s, nil);\n",
+                c->qname != nil ? c->qname : c->name, o9_hash(m->name), np > 0 ? "__wargs" : "nil", np, c->name, m->name);
+            cprint("\t\treturn;\n\t}\n");
         }
     }
 }
@@ -5266,6 +5317,7 @@ gen_class_server(Node *c)
 
     /* 4. 9P Fileserver Facade — clone pattern */
     gen_class_fsread(c);
+    gen_class_router_callbacks(c);
     gen_class_fswrite(c);
     cprint("int\n%s_create_instance(%s_Internal *inst, char *name)\n{\n", c->name, c->name);
     cprint("\treturn %s_record_instance(name, inst);\n}\n", c->name);

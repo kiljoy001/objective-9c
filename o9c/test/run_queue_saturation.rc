@@ -1,0 +1,125 @@
+#!/bin/rc
+# Async 9P Router / Queue Saturation regression test
+# Verifies that saturating one actor's mailbox (15 requests > 10 channel slots)
+# does NOT block the 9P server or starve concurrent calls to other actors or /status.
+
+tool=./o9c/o9c
+app=o9sattest
+src=o9c/test/sendp_queue_saturation_app.o9
+bin=/tmp/o9sat.$pid
+mtpt=/n/o9sat.$pid
+srv=/srv/$app
+fail=0
+
+fn cleanup {
+	unmount $mtpt >[2]/dev/null
+	if(! ~ $server_pid ''){
+		if(test -f /proc/$server_pid/note)
+			@{ echo kill > /proc/$server_pid/note } >[2]/dev/null
+	}
+	for(d in /proc/[0-9]*){
+		if(test -f $d/status){
+			st=`{cat $d/status >[2]/dev/null}
+			if(~ $st(1) o9sat* $app*){
+				if(test -f $d/note)
+					echo kill > $d/note >[2]/dev/null
+			}
+		}
+	}
+	rm -f $srv $bin /tmp/o9sat.$pid.^*
+}
+
+if(! test -e $tool){ echo missing $tool >[1=2]; exit missing }
+if(! test -e libo9.a){ echo missing libo9.a >[1=2]; exit missing }
+
+rm -f $srv
+if(! $tool $src > /tmp/o9sat.$pid.c){ echo 'saturation: FAIL: transpile' >[1=2]; exit fail }
+if(! 6c -FVw -I. -o /tmp/o9sat.$pid.6 /tmp/o9sat.$pid.c){ echo 'saturation: FAIL: 6c' >[1=2]; exit fail }
+if(! 6l -o $bin /tmp/o9sat.$pid.6 libo9.a /$objtype/lib/libndb.a){ echo 'saturation: FAIL: 6l' >[1=2]; exit fail }
+
+$bin $app &
+server_pid=$apid
+
+i=0
+while(! test -e $srv && test $i -lt 12){ sleep 1; i=`{hoc -e $i+1} }
+if(! test -e $srv){ echo 'saturation: FAIL: no /srv post' >[1=2]; cleanup; exit fail }
+
+if(! mount -c $srv $mtpt){ echo 'saturation: FAIL: mount' >[1=2]; cleanup; exit fail }
+
+# 1. Verify status is readable initially
+stat0=`{cat $mtpt/status}
+if(! echo $stat0 | grep -s 'state running'){
+	echo 'saturation: FAIL: initial status ='^$stat0 >[1=2]
+	fail=1
+}
+
+# 2. Launch 15 concurrent slow requests to BusyActor.a (each taking 80ms)
+# Channel depth is 10, so requests beyond 10 are buffered in the async router mailbox.
+for(k in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15){
+	s=`{cat $mtpt/clone}
+	@{ echo 'method BusyActor.a slowWork arg0=80' > $mtpt/$s/ctl } &
+}
+
+# 3. Read router diagnostics while requests are in flight
+rstat=`{cat $mtpt/router}
+echo 'Router diagnostic snapshot:'
+echo $rstat
+if(! echo $rstat | grep -s 'in_flight=10'){
+	echo 'saturation: FAIL: router should have 10 in-flight requests' >[1=2]
+	fail=1
+}
+
+# 4. Concurrently invoke FastActor.b ping while BusyActor.a is saturated
+fast_sess=`{cat $mtpt/clone}
+if(~ $fast_sess ''){
+	echo 'saturation: FAIL: cannot clone session during saturation' >[1=2]
+	cleanup
+	exit fail
+}
+
+echo 'method FastActor.b ping' > $mtpt/$fast_sess/ctl
+fast_res=`{cat $mtpt/$fast_sess/data}
+fast_stat=`{cat $mtpt/$fast_sess/status}
+
+if(! ~ $fast_res 42){
+	echo 'saturation: FAIL: FastActor ping result ='^$fast_res^' want 42' >[1=2]
+	fail=1
+}
+if(! ~ $fast_stat ok){
+	echo 'saturation: FAIL: FastActor ping status ='^$fast_stat^' want ok' >[1=2]
+	fail=1
+}
+
+# 5. Concurrently read /status while BusyActor.a is saturated
+stat_during=`{cat $mtpt/status}
+if(! echo $stat_during | grep -s 'state running'){
+	echo 'saturation: FAIL: status during saturation ='^$stat_during >[1=2]
+	fail=1
+}
+
+# 6. Wait for remaining queued requests to complete and verify mailbox drained
+rstat_drained=''
+iter=0
+drained=no
+while(~ $drained no && test $iter -lt 10){
+	rstat_drained=`{cat $mtpt/router}
+	if(echo $rstat_drained | grep -s 'a.*in_flight=0.*queued=0')
+		drained=yes
+	if not {
+		sleep 1
+		iter=`{hoc -e $iter+1}
+	}
+}
+echo 'Router diagnostic snapshot after drain:'
+echo $rstat_drained
+if(! echo $rstat_drained | grep -s 'a.*in_flight=0.*queued=0'){
+	echo 'saturation: FAIL: router queue did not drain' >[1=2]
+	fail=1
+}
+
+cleanup
+
+if(~ $fail 0)
+	echo saturation: OK
+if not
+	exit fail
