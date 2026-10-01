@@ -86,6 +86,7 @@ mkdir $root/logs
 	echo 'if(~ $cmd init){ mkdir $root/tasks >[2]/dev/null; mkdir $root/results >[2]/dev/null; mkdir $root/logs >[2]/dev/null; echo initialized $root }'
 	echo 'if(~ $cmd manifest){ mkdir $root/queue >[2]/dev/null; echo manifest_enqueued 1 }'
 	echo 'if(~ $cmd status){ echo pending 0; echo claimed 0; echo done 1 }'
+	echo 'echo done'
 } >$root/bin/o9mutctl
 {
 	echo '#!/bin/rc'
@@ -161,6 +162,11 @@ ck test -e $localroot/bin/o9mutw
 ck test -e $localroot/shard/manifest.tsv
 ck test -e $localroot/repo-src/README
 has 'manifest_enqueued 1' $localroot/logs/manifest.out
+
+qcmd16 prepfail prepare-shard $root/bad-shard $root/bin $root/repo-src - - - - - - - $root/logs/prepfail.out shard-bad $root/manifests/missing.tsv $root/bad-shard $root/controller
+rc grid/o9mutagent.rc -r $root -n $node -once >$tmpbase/o9mutagent.prepfail.$pid >[2=1]
+ck test -e $root/agents/$node/failed/prepfail.tab
+ck test ! -e $root/agents/$node/done/prepfail.tab
 
 mkdir $localroot/results >[2]/dev/null
 echo 'task_id	worker_id	source	mutant_path	result	exit_code	seconds	log_path	reason	finished_at' >$localroot/results/t1.tab

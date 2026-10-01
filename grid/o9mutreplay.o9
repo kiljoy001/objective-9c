@@ -33,7 +33,7 @@ function O9MutReplayRun(string root, string ftype, string forigin, string afters
         long *ev_seq; vlong *ev_ts;
         char *ev_origin, *ev_type, *ev_kind, *ev_id, *ev_detail;
         char **ev_line;
-        int *idx;
+        int *idx, *sorttmp, width, left, mid, right, a, b, dest;
         char fres[64], fworker[64], chunk[128], src[128], mut[1024];
         vlong elapsed; long fattempt;
         long killed, survived, timeout, equivalent, infra_fail, setup_error;
@@ -125,12 +125,25 @@ function O9MutReplayRun(string root, string ftype, string forigin, string afters
             (ev_ts[a]==ev_ts[b] && (strcmp(ORIGIN(a),ORIGIN(b))>0 || \
              (strcmp(ORIGIN(a),ORIGIN(b))==0 && ev_seq[a]>ev_seq[b]))) )
         idx = malloc(sizeof(int) * (nev>0?nev:1));
+        sorttmp = malloc(sizeof(int) * (nev>0?nev:1));
         for(j = 0; j < nev; j++) idx[j] = j;
-        for(j = 1; j < nev; j++){
-            int key = idx[j]; int m = j - 1;
-            while(m >= 0 && EVGT(idx[m], key)){ idx[m+1] = idx[m]; m--; }
-            idx[m+1] = key;
+        for(width = 1; width < nev; width *= 2){
+            for(left = 0; left < nev; left += 2*width){
+                mid = left + width;
+                right = left + 2*width;
+                if(mid > nev) mid = nev;
+                if(right > nev) right = nev;
+                a = left; b = mid;
+                for(dest = left; dest < right; dest++){
+                    if(a < mid && (b >= right || !EVGT(idx[a], idx[b])))
+                        sorttmp[dest] = idx[a++];
+                    else
+                        sorttmp[dest] = idx[b++];
+                }
+            }
+            memmove(idx, sorttmp, sizeof(int) * nev);
         }
+        free(sorttmp);
 
         aft = (fa && fa[0]) ? strtoll(fa, nil, 10) : -1;
         bft = (fb && fb[0]) ? strtoll(fb, nil, 10) : -1;
