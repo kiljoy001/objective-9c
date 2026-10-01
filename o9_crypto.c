@@ -638,7 +638,8 @@ o9_vault_new_pass(O9String *pass, O9String *salt)
 	char *cpass, *csalt;
 	O9Vault *v;
 
-	if(pass == nil || salt == nil || o9_string_len(salt) < 8)
+	if(pass == nil || salt == nil || o9_string_len(salt) < 8 ||
+	   o9_string_len(salt) >= sizeof(((O9KeyArena*)0)->salt))
 		return nil;
 	cpass = o9_string_cstr(pass);
 	csalt = o9_string_cstr(salt);
@@ -855,6 +856,12 @@ o9_vault_put(O9Vault *v, O9String *name, O9String *plaintext)
 		free(cpt);
 		return -1;
 	}
+	if(strlen(cname) >= sizeof(v->arena->slots[0].name)){
+		crypto_wipe(cpt, strlen(cpt));
+		free(cpt);
+		free(cname);
+		return -1;
+	}
 	idx = -1;
 	for(i = 0; i < O9ArenaMaxSlots; i++){
 		if(v->arena->slots[i].used && strcmp(v->arena->slots[i].name, cname) == 0){
@@ -1029,4 +1036,3 @@ o9_vault_close(O9Vault *v)
 	}
 	free(v);
 }
-
