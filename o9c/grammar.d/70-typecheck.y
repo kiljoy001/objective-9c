@@ -3479,6 +3479,27 @@ check_node(Node *n, Node *scope_class, int *errs)
         check_one_node(c, scope_class, errs);
 }
 
+/* Dial creates a NetConn through the named-object allocation path.  That
+ * path currently has storage only for a declaration or direct assignment. */
+static void
+check_dial_context(Node *n, Node *parent, int *errs)
+{
+    Node *c;
+
+    for(c = n; c != nil; c = c->next){
+        if((c->flags & NFDial) &&
+           !(parent != nil &&
+             ((parent->type == NLocalVar && parent->left == c) ||
+              (parent->type == NAssign && parent->right == c)))){
+            fprint(2, "o9c: error: line %d: dial must initialize or assign a NetConn variable\n",
+                c->line > 0 ? c->line : sem_line);
+            (*errs)++;
+        }
+        check_dial_context(c->left, c, errs);
+        check_dial_context(c->right, c, errs);
+    }
+}
+
 static int
 typecheck(Node *root)
 {
@@ -3493,6 +3514,7 @@ typecheck(Node *root)
 
     check_node(function_expr_classes, nil, &errors);
     check_node(root, nil, &errors);
+    check_dial_context(root, nil, &errors);
 
     return errors;
 }

@@ -3066,6 +3066,14 @@ o9_mt_net_source_ok(char *source)
 }
 
 static int
+o9_mt_near_source_ok(char *source)
+{
+	return o9_mt_srv_source_ok(source) ||
+	       (source != nil && strncmp(source, "il!", 3) == 0 &&
+	        o9_mt_net_source_ok(source));
+}
+
+static int
 o9_mt_flag_ok(vlong flag)
 {
 	vlong place;
@@ -3437,7 +3445,7 @@ o9_mount_table_mountnear(O9MountTable *m, O9String *fdsrc, O9String *old,
 		free(caname);
 		return -1;
 	}
-	if((!o9_mt_srv_source_ok(cfd) && strncmp(cfd, "il!", 3) != 0) ||
+	if(!o9_mt_near_source_ok(cfd) ||
 	   !o9_mt_target_ok(cold) ||
 	   o9_mt_bad_text0(caname, 1)){
 		free(cfd);
@@ -3580,7 +3588,7 @@ o9_mount_table_validate(O9MountTable *m)
 			continue;
 		}
 		if(strcmp(call, "mountsrv") == 0 || strcmp(call, "mountnear") == 0){
-			if((!o9_mt_srv_source_ok((char*)fdsrc) && strncmp((char*)fdsrc, "il!", 3) != 0) ||
+			if(!o9_mt_near_source_ok((char*)fdsrc) ||
 			   !o9_mt_target_ok((char*)old) ||
 			   o9_mt_parse_flag((char*)flag, &f) < 0 ||
 			   (aname != nil && o9_mt_bad_text0((char*)aname, 1)))
@@ -5931,6 +5939,7 @@ o9_dict_free(O9Dict *d)
 
 typedef struct O9Mailbox O9Mailbox;
 struct O9Mailbox {
+	char target_class[64];
 	char oid[64];
 	Channel *dispatch_chan;
 	int in_flight;
@@ -5946,12 +5955,12 @@ static struct {
 } o9_router;
 
 static O9Mailbox*
-o9_router_get_mailbox_locked(char *oid, Channel *dispatch_chan)
+o9_router_get_mailbox_locked(char *target_class, char *oid, Channel *dispatch_chan)
 {
 	O9Mailbox *mb;
 
 	for(mb = o9_router.mailboxes; mb != nil; mb = mb->next){
-		if(strcmp(mb->oid, oid) == 0){
+		if(strcmp(mb->target_class, target_class) == 0 && strcmp(mb->oid, oid) == 0){
 			if(dispatch_chan != nil)
 				mb->dispatch_chan = dispatch_chan;
 			return mb;
@@ -5960,6 +5969,7 @@ o9_router_get_mailbox_locked(char *oid, Channel *dispatch_chan)
 	mb = mallocz(sizeof(O9Mailbox), 1);
 	if(mb == nil)
 		return nil;
+	strncpy(mb->target_class, target_class != nil ? target_class : "", sizeof mb->target_class - 1);
 	strncpy(mb->oid, oid != nil ? oid : "", sizeof mb->oid - 1);
 	mb->dispatch_chan = dispatch_chan;
 	mb->next = o9_router.mailboxes;
@@ -6054,7 +6064,7 @@ o9_router_worker(void *v)
 	 * complete every affected queued request instead of leaving it stuck. */
 	failed = nil;
 	qlock(&o9_router.lk);
-	mb = o9_router_get_mailbox_locked(op->target_oid, nil);
+	mb = o9_router_get_mailbox_locked(op->target_class, op->target_oid, nil);
 	if(mb != nil){
 		mb->in_flight--;
 		while(mb->qhead != nil && mb->in_flight < 10){
@@ -6084,7 +6094,7 @@ o9_router_worker(void *v)
 }
 
 int
-o9_router_submit(void *r, char *target_oid, void *target_inst,
+o9_router_submit(void *r, char *target_class, char *target_oid, void *target_inst,
 	void *dispatch_chan, ulong sel, vlong *args, int nargs,
 	char *caller, int blessed, O9RouterCompleteFn complete, void *aux)
 {
@@ -6104,6 +6114,7 @@ o9_router_submit(void *r, char *target_oid, void *target_inst,
 	}
 	op->r = r;
 	op->complete = complete;
+	strncpy(op->target_class, target_class != nil ? target_class : "", sizeof op->target_class - 1);
 	strncpy(op->target_oid, target_oid != nil ? target_oid : "", sizeof op->target_oid - 1);
 	op->target_inst = target_inst;
 	op->sel = sel;
@@ -6128,7 +6139,7 @@ o9_router_submit(void *r, char *target_oid, void *target_inst,
 	op->aux = aux;
 
 	qlock(&o9_router.lk);
-	mb = o9_router_get_mailbox_locked(op->target_oid, dc);
+	mb = o9_router_get_mailbox_locked(op->target_class, op->target_oid, dc);
 	if(mb == nil){
 		qunlock(&o9_router.lk);
 		o9_router_fail_op(op);
@@ -6159,17 +6170,17 @@ o9_router_submit(void *r, char *target_oid, void *target_inst,
 }
 
 void
-o9_router_unregister_actor(char *oid)
+o9_router_unregister_actor(char *target_class, char *oid)
 {
 	O9Mailbox *mb;
 	O9RouterOp *pending, *next;
 
-	if(oid == nil)
+	if(target_class == nil || oid == nil)
 		return;
 	pending = nil;
 	qlock(&o9_router.lk);
 	for(mb = o9_router.mailboxes; mb != nil; mb = mb->next){
-		if(strcmp(mb->oid, oid) == 0){
+		if(strcmp(mb->target_class, target_class) == 0 && strcmp(mb->oid, oid) == 0){
 			mb->dispatch_chan = nil;
 			pending = mb->qhead;
 			mb->qhead = nil;
@@ -6199,8 +6210,8 @@ o9_router_dump(char *buf, int nbuf)
 	ep = buf + nbuf;
 	qlock(&o9_router.lk);
 	for(mb = o9_router.mailboxes; mb != nil && p < ep; mb = mb->next){
-		p = seprint(p, ep, "%s\tin_flight=%d\tqueued=%d\n",
-			mb->oid, mb->in_flight, mb->qlen);
+		p = seprint(p, ep, "%s.%s\tin_flight=%d\tqueued=%d\n",
+			mb->target_class, mb->oid, mb->in_flight, mb->qlen);
 	}
 	qunlock(&o9_router.lk);
 	n = (int)(p - buf);

@@ -4249,7 +4249,8 @@ gen_class_forget_instance(Node *c)
     cprint("\tint i;\n");
     cprint("\tif(inst == nil) return;\n");
     cprint("\tif(inst->oid[0] != '\\0'){\n");
-    cprint("\t\to9_router_unregister_actor(inst->oid);\n");
+    cprint("\t\to9_router_unregister_actor(\"%s\", inst->oid);\n",
+        c->qname != nil ? c->qname : c->name);
     cprint("\t\to9_registry_unregister(inst->oid);\n");
     cprint("\t\tif(o9_objects_%s != nil) o9_object_set_state(o9_objects_%s, inst->oid, \"reaped\");\n", c->name, c->name);
     cprint("\t\tfor(i = 0; i < %s_ninstances; i++)\n", c->name);
@@ -5135,8 +5136,8 @@ gen_class_ctl_method_case(Node *c, Node *m)
     cprint("\t\t\t\t\t__blessed = o9app_req_blessed(r);\n");
     cprint("\t\t\t\t\t__tchan = target != nil ? target->dispatch_chan : nil;\n");
     cprint("\t\t\t\t\t__toid = target != nil ? target->oid : \"\";\n");
-    cprint("\t\t\t\t\to9_router_submit(r, __toid, target, __tchan, 0x%lux, %s, %d, __caller, __blessed, complete_ctl_%s_%s, nil);\n",
-        o9_hash(m->name), np > 0 ? "__wargs" : "nil", np, c->name, m->name);
+    cprint("\t\t\t\t\to9_router_submit(r, \"%s\", __toid, target, __tchan, 0x%lux, %s, %d, __caller, __blessed, complete_ctl_%s_%s, nil);\n",
+        c->qname != nil ? c->qname : c->name, o9_hash(m->name), np > 0 ? "__wargs" : "nil", np, c->name, m->name);
     cprint("\t\t\t\t\treturn;\n");
     cprint("\t\t\t\t}\n");
     cprint("\t\t\t}\n");
@@ -5199,8 +5200,8 @@ gen_class_method_file_writes(Node *c)
             cprint("\t\t__blessed = o9app_req_blessed(r);\n");
             cprint("\t\t__tchan = inst != nil ? inst->dispatch_chan : nil;\n");
             cprint("\t\t__toid = inst != nil ? inst->oid : \"\";\n");
-            cprint("\t\to9_router_submit(r, __toid, inst, __tchan, 0x%lux, %s, %d, __caller, __blessed, complete_file_%s_%s, nil);\n",
-                o9_hash(m->name), np > 0 ? "__wargs" : "nil", np, c->name, m->name);
+            cprint("\t\to9_router_submit(r, \"%s\", __toid, inst, __tchan, 0x%lux, %s, %d, __caller, __blessed, complete_file_%s_%s, nil);\n",
+                c->qname != nil ? c->qname : c->name, o9_hash(m->name), np > 0 ? "__wargs" : "nil", np, c->name, m->name);
             cprint("\t\treturn;\n\t}\n");
         }
     }
