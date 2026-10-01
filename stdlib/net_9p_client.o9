@@ -9,11 +9,18 @@ main {
     string ns_mtpt = "/n/testns";
 
     // -----------------------------------------------------------
-    // STAGE 1: Mount 9P over TCP via NetConn
+    // STAGE 1: Mount 9P over TCP via NetConn (far distance)
     // -----------------------------------------------------------
-    NetConn conn = new NetConn(addr);
-    if(conn.dial()) {
-        if(conn.mountReplace(conn_mtpt)) {
+    NetConn conn = dial tcp 127.0.0.1:19996;
+    if(conn.isFar()) {
+        print("conn_far: OK\n");
+    }
+    if(conn.isOpen()) {
+        if(conn.mountFarReplace(conn_mtpt)) {
+            tabula mounted_orders = new tabula(cat(conn_mtpt, "/exports/orders.tab"));
+            if(mounted_orders.first() > 0) {
+                print("dial_tabula: OK\n");
+            }
             File st1 = new File(cat(conn_mtpt, "/status"));
             string s1 = st1.read();
             if(len(s1) > 0) {
@@ -63,12 +70,17 @@ main {
         }
     }
 
+    NetConn near_conn = new NetConn("/srv/net9psrv");
+    if(near_conn.isNear()) {
+        print("conn_near: OK\n");
+    }
+
     // -----------------------------------------------------------
-    // STAGE 2: Mount 9P over TCP via Namespace
+    // STAGE 2: Mount 9P via Namespace (mountfar and mountnear)
     // -----------------------------------------------------------
     Namespace ns = new Namespace();
     ns.root(ns_mtpt);
-    if(ns.mountnetReplace(addr, ".", "")) {
+    if(ns.mountfarReplace(addr, ".", "")) {
         if(ns.apply()) {
             File ctl2 = new File(cat(ns_mtpt, "/ctl"));
             ctl2.write("method Counter.c add arg0=5\n");
@@ -82,6 +94,18 @@ main {
 
             if(ns.unmount(ns_mtpt)) {
                 print("namespace_mount: OK\n");
+            }
+        }
+    }
+
+    string near_ns_mtpt = "/n/testnearns";
+    Namespace near_ns = new Namespace();
+    near_ns.root(near_ns_mtpt);
+    if(near_ns.mountnearReplace("/srv/net9psrv", ".", "")) {
+        if(near_ns.validate()) {
+            tabula qn = near_ns.query("call", "mountnear");
+            if(qn.first() > 0) {
+                print("namespace_near_mount: OK\n");
             }
         }
     }

@@ -404,6 +404,8 @@ extern int           o9_mount_table_dir(O9MountTable *m, O9String *new, vlong mo
 extern int           o9_mount_table_bind(O9MountTable *m, O9String *old, O9String *new, vlong flag);
 extern int           o9_mount_table_mountsrv(O9MountTable *m, O9String *fdsrc, O9String *old, vlong flag, O9String *aname);
 extern int           o9_mount_table_mountnet(O9MountTable *m, O9String *addr, O9String *old, vlong flag, O9String *aname);
+extern int           o9_mount_table_mountnear(O9MountTable *m, O9String *fdsrc, O9String *old, vlong flag, O9String *aname);
+extern int           o9_mount_table_mountfar(O9MountTable *m, O9String *addr, O9String *old, vlong flag, O9String *aname);
 extern O9String*     o9_mount_table_schema(O9MountTable *m);
 extern int           o9_mount_table_has(O9MountTable *m, O9String *col);
 extern O9String*     o9_mount_table_get(O9MountTable *m, O9String *col);
@@ -474,5 +476,31 @@ extern vlong      o9_vault_has(O9Vault *v, O9String *name);
 extern vlong      o9_vault_drop(O9Vault *v, O9String *name);
 extern void       o9_vault_wipe(O9Vault *v);
 extern void       o9_vault_close(O9Vault *v);
+
+/* Async 9P Router / Mini CSP Backplane */
+typedef struct O9RouterOp O9RouterOp;
+typedef void (*O9RouterCompleteFn)(O9RouterOp *op, O9Reply *reply);
+
+struct O9RouterOp {
+	void			*r;		/* Req *r from lib9p */
+	char			target_oid[64];	/* Target actor instance name */
+	void			*target_inst;	/* Target actor Internal struct */
+	ulong			sel;		/* Method selector */
+	vlong			*args;		/* Packed argument array (heap copy) */
+	int			nargs;		/* Number of arguments */
+	char			caller[64];	/* Authenticated caller user */
+	int			blessed;	/* Privilege bit */
+	void			*replyc;	/* Channel *replyc */
+	void			*dispatch_chan;	/* Channel *dispatch_chan */
+	O9RouterCompleteFn	complete;	/* Completion callback */
+	void			*aux;		/* Context info */
+	O9RouterOp		*next;		/* Mailbox queue link */
+};
+
+extern int  o9_router_submit(void *r, char *target_oid, void *target_inst,
+	void *dispatch_chan, ulong sel, vlong *args, int nargs,
+	char *caller, int blessed, O9RouterCompleteFn complete, void *aux);
+extern void o9_router_unregister_actor(char *oid);
+extern int  o9_router_dump(char *buf, int nbuf);
 
 #endif

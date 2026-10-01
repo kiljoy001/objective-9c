@@ -27,7 +27,21 @@ srvglob=/srv/$app
 
 fn cleanup {
 	unmount $mtpt >[2]/dev/null
-	kill o9exp.$pid >[2]/dev/null
+	if(! ~ $guard '')
+		if(test -f /proc/$guard/note)
+			@{ echo kill > /proc/$guard/note } >[2]/dev/null
+	if(! ~ $p '')
+		if(test -f /proc/$p/note)
+			@{ echo kill > /proc/$p/note } >[2]/dev/null
+	for(d in /proc/[0-9]*){
+		if(test -f $d/status){
+			st=`{cat $d/status >[2]/dev/null}
+			if(~ $st(1) o9exp* $app*){
+				if(test -f $d/note)
+					echo kill > $d/note >[2]/dev/null
+			}
+		}
+	}
 	# only our own post — never a blanket /srv/o9.*.app wipe
 	rm -f $srvglob $cfile $ofile $bin $log $cons_src $cons_c $cons_o $cons_bin $cons_out $race_out $big
 }

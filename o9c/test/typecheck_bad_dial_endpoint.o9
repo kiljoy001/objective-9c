@@ -1,0 +1,6 @@
+import "stdlib/net.o9";
+
+main {
+    NetConn conn = dial udp 127.0.0.1;
+    print(conn.isOpen(), "\n");
+}

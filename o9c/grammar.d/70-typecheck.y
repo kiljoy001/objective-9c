@@ -2464,6 +2464,8 @@ typecheck_mounttable_msg(Node *e, Node *scope_class, Type *lt, int *errs)
         {"bind", 3, 0, 2, 2, 0},
         {"mountsrv", 4, 0, 2, 2, 1},
         {"mountnet", 4, 0, 2, 2, 1},
+        {"mountnear", 4, 0, 2, 2, 1},
+        {"mountfar", 4, 0, 2, 2, 1},
         {"schema", 0, 0, 0, -1, 0},
         {"has", 1, 1, 0, -1, 0},
         {"get", 1, 1, 0, -1, 0},
@@ -2484,7 +2486,7 @@ typecheck_mounttable_msg(Node *e, Node *scope_class, Type *lt, int *errs)
     r = lookup_msg_rule(rules, nelem(rules), e->name);
     if(r == nil){
         fprint(2, "o9c: error: line %d: MountTable has no method '%s' "
-            "(dir/bind/mountsrv/mountnet/allowRoot/read/query/flush/validate/apply/close)\n",
+            "(dir/bind/mountnear/mountfar/mountsrv/mountnet/allowRoot/read/query/flush/validate/apply/close)\n",
             sem_line, e->name);
         (*errs)++;
         typecheck_arg_values(e->right, scope_class, errs);

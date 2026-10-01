@@ -1,0 +1,9 @@
+import "stdlib/net.o9";
+
+main {
+    NetConn udp = dial udp 127.0.0.1:9000;
+    NetConn il = dial il 192.168.2.1:9999;
+    print(udp.endpoint(), " ", il.endpoint(), "\n");
+    udp.close();
+    il.close();
+}

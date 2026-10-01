@@ -9,14 +9,29 @@ bin=/tmp/o9ctlq.$pid
 mtpt=/n/o9ctlq.$pid
 srv=/srv/$app
 fail=0
-fn cleanup { unmount $mtpt >[2]/dev/null; kill o9ctlq.$pid >[2]/dev/null; rm -f $srv $bin /tmp/o9ctlq.$pid.^* }
+fn cleanup {
+	unmount $mtpt >[2]/dev/null
+	if(! ~ $p ''){
+		if(test -f /proc/$p/note)
+			@{ echo kill > /proc/$p/note } >[2]/dev/null
+	}
+	for(d in /proc/[0-9]*){
+		if(test -f $d/status){
+			st=`{cat $d/status >[2]/dev/null}
+			if(~ $st(1) o9ctlq* $app*){
+				if(test -f $d/note)
+					echo kill > $d/note >[2]/dev/null
+			}
+		}
+	}
+	rm -f $srv $bin /tmp/o9ctlq.$pid.^*
+}
 if(! $tool $src > /tmp/o9ctlq.$pid.c){ echo 'ctlquote: FAIL transpile' >[1=2]; exit fail }
 if(! 6c -FVw -I. -o /tmp/o9ctlq.$pid.6 /tmp/o9ctlq.$pid.c){ echo 'ctlquote: FAIL 6c' >[1=2]; exit fail }
 if(! 6l -o $bin /tmp/o9ctlq.$pid.6 libo9.a /$objtype/lib/libndb.a){ echo 'ctlquote: FAIL 6l' >[1=2]; exit fail }
 rm -f $srv
 $bin $app &
 p=$apid
-@{ sleep 15; kill $p >[2]/dev/null } &
 i=0
 while(! test -e $srv && test $i -lt 12){ sleep 1; i=`{hoc -e $i+1} }
 if(! test -e $srv){ echo 'ctlquote: FAIL no /srv' >[1=2]; cleanup; exit fail }

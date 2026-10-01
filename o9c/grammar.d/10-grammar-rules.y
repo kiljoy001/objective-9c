@@ -796,6 +796,21 @@ expr:
         n->right = $4;
         $$ = n;
     }
+    | TDIAL TDIALPROTO TDIALENDPOINT {
+        char *sep, *address;
+        Node *tn, *arg, *n;
+
+        sep = strrchr($3, ':');
+        if(sep == nil || sep == $3 || sep[1] == '\0')
+            sysfatal("o9c: error: line %d: dial address must be host:port", token_line);
+        address = smprint("%s!%.*s!%s", $2, (int)(sep - $3), $3, sep + 1);
+        tn = typed_node_from_name("NetConn");
+        arg = mk(NStringLit, address, nil, nil, nil);
+        n = mk(NClass, tn->name, "same", tn, arg);
+        n->typeinfo = tn->typeinfo;
+        n->flags |= NFDial;
+        $$ = n;
+    }
     /* spawn f(args): run a function object concurrently; evaluates to a
      * Task<T> (join handle).  The argument is parsed as an ordinary call,
      * then rewritten into a spawn target so direct calls stay illegal. */

@@ -224,6 +224,36 @@ function NetUnmountRaw(string dest) int64 {
     return out;
 }
 
+function NetIsNearRaw(string address) int64 {
+    int64 out;
+    c {
+        char *addr;
+        out = 0;
+        addr = o9_string_cstr(address);
+        if(addr != nil){
+            if(addr[0] == '/' || strncmp(addr, "il!", 3) == 0)
+                out = 1;
+            free(addr);
+        }
+    }
+    return out;
+}
+
+function NetIsFarRaw(string address) int64 {
+    int64 out;
+    c {
+        char *addr;
+        out = 0;
+        addr = o9_string_cstr(address);
+        if(addr != nil){
+            if(strncmp(addr, "tcp!", 4) == 0 || strncmp(addr, "net!", 4) == 0)
+                out = 1;
+            free(addr);
+        }
+    }
+    return out;
+}
+
 function FactotumUserRaw() string {
     string out;
     c {
@@ -404,6 +434,16 @@ class NetConn {
         return t.await() == 0;
     }
 
+    method bool isNear() {
+        Task<int64> t = spawn NetIsNearRaw(address);
+        return t.await() == 1;
+    }
+
+    method bool isFar() {
+        Task<int64> t = spawn NetIsFarRaw(address);
+        return t.await() == 1;
+    }
+
     method bool mount(string dest, int64 flag, string aname) {
         if(!isOpen()) {
             return false;
@@ -419,6 +459,22 @@ class NetConn {
 
     method bool mountReplace(string dest) {
         return mount(dest, 0, "");
+    }
+
+    method bool mountNear(string dest) {
+        return mountReplace(dest);
+    }
+
+    method bool mountFar(string dest) {
+        return mountReplace(dest);
+    }
+
+    method bool mountNearReplace(string dest) {
+        return mountReplace(dest);
+    }
+
+    method bool mountFarReplace(string dest) {
+        return mountReplace(dest);
     }
 
     method bool unmount(string dest) {

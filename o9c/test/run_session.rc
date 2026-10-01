@@ -14,9 +14,25 @@ mtpt=/n/o9sess.$pid
 srv=/srv/$app
 fail=0
 
+watcher=''
+p=''
+
 fn cleanup {
 	unmount $mtpt >[2]/dev/null
-	kill o9sess.$pid >[2]/dev/null
+	if(! ~ $p ''){
+		if(test -f /proc/$p/note)
+			@{ echo kill > /proc/$p/note } >[2]/dev/null
+	}
+	for(d in /proc/[0-9]*){
+		if(test -f $d/status){
+			st=`{cat $d/status >[2]/dev/null}
+			# The stress test's o9sessstress server may run alongside this one.
+			if(~ $st(1) o9sess.* $app){
+				if(test -f $d/note)
+					echo kill > $d/note >[2]/dev/null
+			}
+		}
+	}
 	rm -f $srv $bin /tmp/o9sess.$pid.^*
 }
 
@@ -30,7 +46,6 @@ if(! 6l -o $bin /tmp/o9sess.$pid.6 libo9.a /$objtype/lib/libndb.a){ echo 'sessio
 
 $bin $app &
 p=$apid
-@{ sleep 15; kill $p >[2]/dev/null } &
 
 i=0
 while(! test -e $srv && test $i -lt 12){ sleep 1; i=`{hoc -e $i+1} }

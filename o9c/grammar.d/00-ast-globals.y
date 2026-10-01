@@ -101,7 +101,8 @@ enum {
     NFFunction = 1<<4,	/* a synthesized function-class (fixed spawn template) */
     NFMain = 1<<5,	/* reserved top-level program bootstrap block */
     NFChanSendOnly = 1<<6,	/* public endpoint may send, not receive */
-    NFChanRecvOnly = 1<<7	/* public endpoint may receive, not send */
+    NFChanRecvOnly = 1<<7,	/* public endpoint may receive, not send */
+    NFDial = 1<<8		/* construct and open a NetConn */
 };
 
 struct Node {

@@ -90,36 +90,68 @@ class Namespace {
         return bind(old, dest, afterFlag() + createFlag());
     }
 
+    method bool mountnear(string srv, string dest, int64 flag, string aname) {
+        return table.mountnear(srv, dest, flag, aname) == 0;
+    }
+
+    method bool mountnearReplace(string srv, string dest, string aname) {
+        return mountnear(srv, dest, replaceFlag(), aname);
+    }
+
+    method bool mountnearBefore(string srv, string dest, string aname) {
+        return mountnear(srv, dest, beforeFlag(), aname);
+    }
+
+    method bool mountnearAfter(string srv, string dest, string aname) {
+        return mountnear(srv, dest, afterFlag(), aname);
+    }
+
+    method bool mountfar(string addr, string dest, int64 flag, string aname) {
+        return table.mountfar(addr, dest, flag, aname) == 0;
+    }
+
+    method bool mountfarReplace(string addr, string dest, string aname) {
+        return mountfar(addr, dest, replaceFlag(), aname);
+    }
+
+    method bool mountfarBefore(string addr, string dest, string aname) {
+        return mountfar(addr, dest, beforeFlag(), aname);
+    }
+
+    method bool mountfarAfter(string addr, string dest, string aname) {
+        return mountfar(addr, dest, afterFlag(), aname);
+    }
+
     method bool mountsrv(string srv, string dest, int64 flag, string aname) {
-        return table.mountsrv(srv, dest, flag, aname) == 0;
+        return mountnear(srv, dest, flag, aname);
     }
 
     method bool mountsrvReplace(string srv, string dest, string aname) {
-        return mountsrv(srv, dest, replaceFlag(), aname);
+        return mountnearReplace(srv, dest, aname);
     }
 
     method bool mountsrvBefore(string srv, string dest, string aname) {
-        return mountsrv(srv, dest, beforeFlag(), aname);
+        return mountnearBefore(srv, dest, aname);
     }
 
     method bool mountsrvAfter(string srv, string dest, string aname) {
-        return mountsrv(srv, dest, afterFlag(), aname);
+        return mountnearAfter(srv, dest, aname);
     }
 
     method bool mountnet(string addr, string dest, int64 flag, string aname) {
-        return table.mountnet(addr, dest, flag, aname) == 0;
+        return mountfar(addr, dest, flag, aname);
     }
 
     method bool mountnetReplace(string addr, string dest, string aname) {
-        return mountnet(addr, dest, replaceFlag(), aname);
+        return mountfarReplace(addr, dest, aname);
     }
 
     method bool mountnetBefore(string addr, string dest, string aname) {
-        return mountnet(addr, dest, beforeFlag(), aname);
+        return mountfarBefore(addr, dest, aname);
     }
 
     method bool mountnetAfter(string addr, string dest, string aname) {
-        return mountnet(addr, dest, afterFlag(), aname);
+        return mountfarAfter(addr, dest, aname);
     }
 
     method bool unmount(string dest) {

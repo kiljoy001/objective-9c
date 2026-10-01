@@ -100,9 +100,12 @@ The facade WOULD serialize all clients: lib9p runs every request handler
 under srv->slock, and our ctl handler blocks inline on recvp (the actor's
 reply). One slow call blocked the whole app. Two coupled fixes:
 
-1. srvrelease(r->srv) before the blocking recvp, srvacquire after — drops
-   slock while waiting so OTHER requests run (the lib9p idiom). Now N
-   clients' calls are in flight to N parallel object-procs at once.
+1. srvrelease(r->srv) before BOTH the potentially blocking sendp and recvp,
+   srvacquire after — drops slock while waiting for queue room in the actor's
+   dispatch channel (sendp) as well as for the actor's reply (recvp).
+   Now N clients' calls are in flight to N parallel object-procs at once, and
+   an actor with a saturated dispatch queue does not stall unrelated 9P
+   requests to other actors or diagnostic reads.
 2. The session is DYNAMIC REQUEST STATE derived from r
    (o9app_req_session(r) via r->fid->file->aux), NOT a process-global.
    A global cur_session would be clobbered by a concurrent request once

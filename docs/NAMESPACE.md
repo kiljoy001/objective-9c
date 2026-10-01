@@ -70,12 +70,12 @@ MBEFORE.
 
 BUILT SURFACE: `Namespace` is the object normal code should use for
 programmatic namespace setup. It wraps a `MountTable`, exposes named flag
-helpers (`bindBefore`, `bindAfter`, `mountsrvReplace`, etc.), and applies
+helpers (`bindBefore`, `bindAfter`, `mountnearReplace`, `mountfarReplace`, etc.), and applies
 the table to the current process namespace.
 
 LOWER-LEVEL DATA SURFACE: `MountTable` is the authority-bearing,
 tabula-backed object for `schema=mounts` data. Users do not hand-write
-mount cells; typed methods (`dir`, `bind`, `mountsrv`) store
+mount cells; typed methods (`dir`, `bind`, `mountnear`, `mountfar`, `mountsrv`, `mountnet`) store
 syscall-shaped parameters, and `MountTable` validates policy
 (`allowRoot`) before applying them. Use it directly when the `.tab`
 transport representation matters.

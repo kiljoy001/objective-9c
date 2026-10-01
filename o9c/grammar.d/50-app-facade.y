@@ -476,6 +476,12 @@ codegen(Node *root)
     cprint("\t\t}\n");
     cprint("\t\t__an = (int)(__ap - __abuf);\n");
     cprint("\t\treadbuf(r, __abuf, __an); free(__abuf); respond(r, nil); return;\n\t}\n");
+    cprint("\tif(strcmp(name, \"router\") == 0){\n");
+    cprint("\t\tchar *__rbuf; int __rn;\n");
+    cprint("\t\t__rbuf = mallocz(16384, 1);\n");
+    cprint("\t\tif(__rbuf == nil){ respond(r, \"no memory\"); return; }\n");
+    cprint("\t\t__rn = o9_router_dump(__rbuf, 16384);\n");
+    cprint("\t\treadbuf(r, __rbuf, __rn); free(__rbuf); respond(r, nil); return;\n\t}\n");
     /* state: DEBUG-only inspector.  Off by default (encapsulation);
      * O9DEBUG dumps read-only metadata snapshots plus live state tabs. */
     cprint("\tif(strcmp(name, \"state\") == 0){\n");
@@ -642,6 +648,7 @@ codegen(Node *root)
     cprint("\tcreatefile(o9app_tree->root, \"actors\", \"o9\", 0444, nil);\n");
     cprint("\tcreatefile(o9app_tree->root, \"graph\", \"o9\", 0444, nil);\n");
     cprint("\tcreatefile(o9app_tree->root, \"state\", \"o9\", 0444, nil);\t/* debug inspector */\n");
+    cprint("\tcreatefile(o9app_tree->root, \"router\", \"o9\", 0444, nil);\t/* async router stats */\n");
     /* clone: reading it allocates a session <id>/ with session-local
      * ctl/data/status (docs/SESSIONS.md) — the /net/tcp/clone pattern that
      * gives concurrent callers a private, path-addressable conversation. */

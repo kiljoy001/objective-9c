@@ -1039,14 +1039,19 @@ and `close`.
 import "net.o9";
 
 main {
-    NetConn c = new NetConn("tcp!example.com!80");
-    if(c.dial()) {
+    NetConn c = dial tcp example.com:80;
+    if(c.isOpen()) {
         c.write("GET / HTTP/1.0\r\n\r\n");
         print(c.read(512));
         c.close();
     }
 }
 ```
+
+`dial protocol host:port` constructs a `NetConn` and attempts to open it. The compiler
+translates the colon to Plan 9's `protocol!host!service` address form. For
+example, `dial udp 127.0.0.1:9000` produces a UDP connection. `NetConn.dial()`
+also remains available when the address is computed at run time.
 
 `NetConn` methods:
 

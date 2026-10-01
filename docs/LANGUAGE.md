@@ -579,7 +579,31 @@ serialization. `value` reads one attached value by entry id and value name
 without changing the current cursor. `set` and `get` operate on the current
 entry after `add`, `first`, or `next`.
 
-### tabula Locality
+### Dial and remote tabulae
+
+Use `dial protocol host:port` for an explicit network connection. It creates
+a `NetConn`, attempts to open it, and translates the address to Plan 9's
+`protocol!host!service` form. Import `net.o9` to use `NetConn`:
+
+```o9
+import "stdlib/net.o9";
+
+main {
+    NetConn conn = dial tcp fileserver.example:9999;
+    if(conn.isOpen() && conn.mountReplace("/n/orders")) {
+        tabula orders = new tabula("/n/orders/exports/orders.tab");
+        print(orders.read());
+        conn.unmount("/n/orders");
+    }
+}
+```
+
+`dial udp 127.0.0.1:9000` is valid for raw UDP I/O. The tabula 9P client
+needs a transport that carries its 9P conversation; the protocol name alone
+does not make every connection a 9P service. For a computed address, construct
+`NetConn` with a Plan 9 address string and call its `dial()` method.
+
+The older `near` and `far` tabula declarations remain for compatibility:
 
 `near`, `far`, and `listener` are data-locality forms for `tabula` only.
 They do not construct remote objects.
