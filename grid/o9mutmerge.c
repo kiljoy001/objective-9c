@@ -90,6 +90,22 @@ field(char *row, int n, char *buf, int nbuf)
 	return buf;
 }
 
+/* Worker identity, duration, log location and finish time may differ when a
+ * stolen task is executed twice. Compare the outcome and its explanation. */
+static int
+same_result(char *a, char *b)
+{
+	int i;
+	char av[Maxrow], bv[Maxrow];
+	static int stable[] = {1, 3, 4, 5, 6, 9};
+
+	for(i = 0; i < nelem(stable); i++)
+		if(strcmp(field(a, stable[i], av, sizeof av),
+		          field(b, stable[i], bv, sizeof bv)) != 0)
+			return 0;
+	return 1;
+}
+
 static void
 count_result(char *row)
 {
@@ -163,31 +179,34 @@ second_line(char *file, char *buf, int nbuf)
 }
 
 static void
-merge_root(char *root, Biobuf *reportb, Biobuf *dupb, Biobuf *confb, Biobuf *unexpb, Biobuf *badb)
+merge_results(char *dir, char *root, Biobuf *reportb, Biobuf *dupb, Biobuf *confb, Biobuf *unexpb, Biobuf *badb)
 {
-	char *dir, *file, *row;
+	char *file, *row;
 	char buf[Maxrow], idbuf[512];
 	int fd, n, i;
 	Dir *ds;
 	Entry *e;
 
-	dir = smprint("%s/results", root);
-	if(dir == nil)
-		sysfatal("smprint: %r");
 	fd = open(dir, OREAD);
 	if(fd < 0){
 		Bprint(badb, "%s\tmissing_results_dir\n", root);
 		malformed_total++;
-		free(dir);
 		return;
 	}
 	while((n = dirread(fd, &ds)) > 0){
 		for(i = 0; i < n; i++){
-			if(ds[i].mode & DMDIR)
-				continue;
 			file = smprint("%s/%s", dir, ds[i].name);
 			if(file == nil)
 				sysfatal("smprint: %r");
+			if(ds[i].mode & DMDIR){
+				merge_results(file, root, reportb, dupb, confb, unexpb, badb);
+				free(file);
+				continue;
+			}
+			if(strlen(ds[i].name) < 4 || strcmp(ds[i].name + strlen(ds[i].name) - 4, ".tab") != 0){
+				free(file);
+				continue;
+			}
 			row = second_line(file, buf, sizeof buf);
 			if(row == nil || row[0] == 0){
 				Bprint(badb, "%s\tempty_or_missing_result_row\n", file);
@@ -210,7 +229,7 @@ merge_root(char *root, Biobuf *reportb, Biobuf *dupb, Biobuf *confb, Biobuf *une
 				continue;
 			}
 			if(e->seen){
-				if(strcmp(e->row, row) == 0){
+				if(same_result(e->row, row)){
 					Bprint(dupb, "%s\t%s\t%s\n", idbuf, e->file, file);
 					duplicate_total++;
 				}else{
@@ -231,6 +250,23 @@ merge_root(char *root, Biobuf *reportb, Biobuf *dupb, Biobuf *confb, Biobuf *une
 		free(ds);
 	}
 	close(fd);
+}
+
+static void
+merge_root(char *root, Biobuf *reportb, Biobuf *dupb, Biobuf *confb, Biobuf *unexpb, Biobuf *badb)
+{
+	char *dir;
+	Dir *d;
+
+	dir = smprint("%s/results", root);
+	if(dir == nil)
+		sysfatal("smprint: %r");
+	d = dirstat(dir);
+	if(d != nil && (d->mode & DMDIR))
+		merge_results(dir, root, reportb, dupb, confb, unexpb, badb);
+	else
+		merge_results(root, root, reportb, dupb, confb, unexpb, badb);
+	free(d);
 	free(dir);
 }
 

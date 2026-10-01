@@ -2107,10 +2107,11 @@ o9_tab_query(O9Tabula *t, O9String *col, O9String *val)
 	if(t == nil || t->tab == nil || col == nil)
 		return nil;
 	ccol = o9_string_cstr(col);
-	cval = o9_tab_store_value(val);
-	if(cval == nil)
-		cval = strdup("nil");
-	if(ccol == nil || cval == nil){
+	if(val == nil)
+		cval = nil;
+	else
+		cval = o9_tab_store_value(val);
+	if(ccol == nil || (val != nil && cval == nil)){
 		free(ccol);
 		free(cval);
 		return nil;
