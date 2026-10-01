@@ -36,6 +36,7 @@ main {
     }
 
     while(cycles == 0 || done < cycles) {
+        grid.daemonCycle(root, done + 1);
         print(grid.requeueStale(root, staleSec));
         print(grid.report(root));
         done = done + 1;

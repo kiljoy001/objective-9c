@@ -1,0 +1,168 @@
+function PathCleanRaw(string path) string {
+    string out;
+
+    c {
+        char *p;
+
+        out = o9_string_new("", 0);
+        p = o9_string_cstr(path);
+        if(p != nil){
+            cleanname(p);
+            out = o9_string_from_c(p);
+            free(p);
+        }
+    }
+    return out;
+}
+
+function PathBaseRaw(string path) string {
+    string out;
+
+    c {
+        char *p, *b;
+
+        out = o9_string_new("", 0);
+        p = o9_string_cstr(path);
+        if(p != nil){
+            cleanname(p);
+            b = strrchr(p, '/');
+            if(b == nil)
+                b = p;
+            else if(b[1] != '\0')
+                b++;
+            out = o9_string_from_c(b);
+            free(p);
+        }
+    }
+    return out;
+}
+
+function PathDirRaw(string path) string {
+    string out;
+
+    c {
+        char *p, *b;
+
+        out = o9_string_new(".", 1);
+        p = o9_string_cstr(path);
+        if(p != nil){
+            cleanname(p);
+            b = strrchr(p, '/');
+            if(b == nil)
+                out = o9_string_new(".", 1);
+            else if(b == p)
+                out = o9_string_new("/", 1);
+            else
+                out = o9_string_new(p, b - p);
+            free(p);
+        }
+    }
+    return out;
+}
+
+function PathExtRaw(string path) string {
+    string out;
+
+    c {
+        char *p, *b, *dot;
+
+        out = o9_string_new("", 0);
+        p = o9_string_cstr(path);
+        if(p != nil){
+            cleanname(p);
+            b = strrchr(p, '/');
+            if(b == nil)
+                b = p;
+            else
+                b++;
+            dot = strrchr(b, '.');
+            if(dot != nil && dot != b)
+                out = o9_string_from_c(dot);
+            free(p);
+        }
+    }
+    return out;
+}
+
+function PathJoinRaw(string left, string right) string {
+    string out;
+
+    c {
+        char *l, *r, *buf;
+        vlong n;
+
+        out = o9_string_new("", 0);
+        l = o9_string_cstr(left);
+        r = o9_string_cstr(right);
+        if(l != nil && r != nil){
+            if(r[0] == '/'){
+                cleanname(r);
+                out = o9_string_from_c(r);
+            } else {
+                n = strlen(l) + strlen(r) + 2;
+                buf = malloc(n);
+                if(buf != nil){
+                    if(l[0] == '\0')
+                        snprint(buf, n, "%s", r);
+                    else
+                        snprint(buf, n, "%s/%s", l, r);
+                    cleanname(buf);
+                    out = o9_string_from_c(buf);
+                    free(buf);
+                }
+            }
+        }
+        free(l);
+        free(r);
+    }
+    return out;
+}
+
+class Path {
+    prop string value;
+
+    method Path(string path) {
+        value = path;
+    }
+
+    method void set(string path) {
+        value = path;
+    }
+
+    method string text() {
+        return value;
+    }
+
+    method string clean() {
+        Task<string> t = spawn PathCleanRaw(value);
+        return t.await();
+    }
+
+    method void normalize() {
+        value = clean();
+    }
+
+    method string base() {
+        Task<string> t = spawn PathBaseRaw(value);
+        return t.await();
+    }
+
+    method string dir() {
+        Task<string> t = spawn PathDirRaw(value);
+        return t.await();
+    }
+
+    method string ext() {
+        Task<string> t = spawn PathExtRaw(value);
+        return t.await();
+    }
+
+    method string join(string child) {
+        Task<string> t = spawn PathJoinRaw(value, child);
+        return t.await();
+    }
+
+    method void append(string child) {
+        value = join(child);
+    }
+}

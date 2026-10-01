@@ -1,0 +1,170 @@
+#!/bin/rc
+
+rfork e
+
+root=''
+from=''
+to=''
+shard=''
+workers=4
+jobs=0
+queuemax=512
+localbase=/tmp
+
+fn usage {
+	echo 'usage: grid/steal_decentralized_shard.rc -r controller-root -f donor-node -t thief-node -s shard-id [-n workers] [-j jobs] [-Q max-pending] [-B local-base]' >[1=2]
+	exit usage
+}
+
+while(! ~ $#* 0){
+	switch($1){
+	case -r
+		if(~ $#* 1) usage
+		root=$2
+		shift
+	case -f
+		if(~ $#* 1) usage
+		from=$2
+		shift
+	case -t
+		if(~ $#* 1) usage
+		to=$2
+		shift
+	case -s
+		if(~ $#* 1) usage
+		shard=$2
+		shift
+	case -n
+		if(~ $#* 1) usage
+		workers=$2
+		shift
+	case -j
+		if(~ $#* 1) usage
+		jobs=$2
+		shift
+	case -Q
+		if(~ $#* 1) usage
+		queuemax=$2
+		shift
+	case -B
+		if(~ $#* 1) usage
+		localbase=$2
+		shift
+	case -h --help
+		usage
+	case *
+		usage
+	}
+	shift
+}
+
+if(~ $root '' || ~ $from '' || ~ $to '' || ~ $shard '')
+	usage
+
+collectroot=$root/controller
+manifest=$collectroot/shards/$from.manifest.tsv
+bindir=$root/bin
+repo=$root/repo-src
+donorroot=`{awk '
+BEGIN {
+	n = ARGV[1]
+	ARGV[1] = ""
+}
+$1 == n {
+	print $5
+}' $from $collectroot/nodes.tab}
+if(~ $#donorroot 0 || ~ $donorroot '')
+	donorroot=/tmp/o9mut.$shard.$from
+
+stealroot=$localbase/o9mut.steal.$shard.from.$from.to.$to
+
+fn agent_dirs {
+	node=$1
+	mkdir $root/agents >[2]/dev/null
+	mkdir $root/agents/$node >[2]/dev/null
+	mkdir $root/agents/$node/pending >[2]/dev/null
+	mkdir $root/agents/$node/claimed >[2]/dev/null
+	mkdir $root/agents/$node/done >[2]/dev/null
+	mkdir $root/agents/$node/failed >[2]/dev/null
+}
+
+fn qcmd {
+	args=($*)
+	node=$args(1)
+	id=$args(2)
+	op=$args(3)
+	cmdroot=$args(4)
+	cbindir=$args(5)
+	crepo=$args(6)
+	worker=$args(7)
+	jobsv=$args(8)
+	idlev=$args(9)
+	maxpendingv=$args(10)
+	intervalv=$args(11)
+	stalev=$args(12)
+	cyclesv=$args(13)
+	log=$args(14)
+	shardid=$args(15)
+	manifestpath=$args(16)
+	localroot=$args(17)
+	agent_dirs $node
+	cmdpath=$root/agents/$node/pending/$id.tab
+	echo 'op	root	bindir	repo	worker	jobs	idle_ms	max_pending	interval_ms	stale_sec	cycles	log	shard_id	manifest	local_root	collect_root' >$cmdpath
+	echo $op'	'$cmdroot'	'$cbindir'	'$crepo'	'$worker'	'$jobsv'	'$idlev'	'$maxpendingv'	'$intervalv'	'$stalev'	'$cyclesv'	'$log'	'$shardid'	'$manifestpath'	'$localroot'	'$donorroot >>$cmdpath
+	echo $node/$id
+}
+
+if(! test -e $manifest){
+	echo missing manifest $manifest >[1=2]
+	exit missing
+}
+if(! test -e $bindir/o9mutctl){
+	echo missing bindir $bindir >[1=2]
+	exit missing
+}
+
+echo steal_from $from
+echo steal_to $to
+echo shard $shard
+echo donor_root $donorroot
+echo steal_root $stealroot
+
+ids=()
+id=steal.$shard.$pid
+ids=($ids `{qcmd $to $id steal-shard $stealroot $bindir $repo - - - - - - - $root/logs/$id.out $shard $manifest $stealroot})
+
+echo 'queued steal-shard; ensure the thief agent is running:'
+echo '  9fs babyFileServer.rentonsoftworks.coin; '$root'/bin/o9mutagent.rc -r '$root' -n '$to
+
+ready=0
+for(i in `{seq 1 120}){
+	if(~ $ready 0){
+		if(test -e $root/agents/$to/failed/$id.tab){
+			echo steal failed >[1=2]
+			cat $root/agents/$to/failed/$id.tab >[1=2]
+			exit agent
+		}
+		if(test -e $root/agents/$to/done/$id.tab)
+			ready=1
+		if(~ $ready 0)
+			sleep 1
+	}
+}
+if(~ $ready 0){
+	echo steal timeout >[1=2]
+	exit agent
+}
+
+startids=()
+qid=startq.steal.$shard.$pid
+qworker=$to^'-steal-'^$shard^'-queue'
+startids=($startids `{qcmd $to $qid start-queue $stealroot $stealroot/bin $stealroot/repo-src $qworker - 1000 $queuemax - - - $stealroot/logs/$qid.out $shard - $stealroot})
+for(w in `{seq 1 $workers}){
+	worker=$to^'-steal-'^$shard^'-'^$w
+	wid=startw.steal.$shard.$w.$pid
+	startids=($startids `{qcmd $to $wid start-worker $stealroot $stealroot/bin $stealroot/repo-src $worker $jobs 5000 - - - - $stealroot/logs/$wid.out $shard - $stealroot})
+}
+
+echo queued_start $startids
+echo steal_root $stealroot
+exit ''

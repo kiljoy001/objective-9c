@@ -1,0 +1,4 @@
+[submodule "libtab"]
+	path = libtab
+	url = https://github.com/kiljoy001/libtab.git
+	branch = main

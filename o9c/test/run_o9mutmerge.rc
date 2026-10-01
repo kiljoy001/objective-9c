@@ -1,0 +1,31 @@
+#!/bin/rc
+
+tmp=/tmp/o9mutmerge-test.$pid
+if(test -d /mnt/term/tmp)
+	tmp=/mnt/term/tmp/o9mutmerge-test.$pid
+mkdir $tmp
+mkdir $tmp/controller
+mkdir $tmp/controller/results
+mkdir $tmp/controller/results/a
+mkdir $tmp/controller/results/b
+echo 'task_id	source' >$tmp/manifest.tsv
+echo 't1	sample' >>$tmp/manifest.tsv
+echo 'task_id	worker_id	source	mutant_path	result	exit_code	seconds	log_path	reason	finished_at' >$tmp/controller/results/a/t1.tab
+echo 't1	worker-a	sample	mutant	killed	1	1	a.log	gate failed	100' >>$tmp/controller/results/a/t1.tab
+echo 'task_id	worker_id	source	mutant_path	result	exit_code	seconds	log_path	reason	finished_at' >$tmp/controller/results/b/t1.tab
+echo 't1	worker-b	sample	mutant	killed	1	8	b.log	gate failed	200' >>$tmp/controller/results/b/t1.tab
+if(! 6c -FVw -I. -o $tmp/merge.6 grid/o9mutmerge.c)
+	exit compile
+if(! 6l -o $tmp/merge $tmp/merge.6)
+	exit link
+if(! $tmp/merge $tmp/manifest.tsv $tmp/out $tmp/controller)
+	exit merge
+if(! grep -s 'duplicates	1' $tmp/out/summary.tab)
+	exit duplicate
+if(! grep -s 'conflicts	0' $tmp/out/summary.tab)
+	exit conflict
+if(! $tmp/merge $tmp/manifest.tsv $tmp/out2 $tmp/controller/results)
+	exit results_dir
+rm -rf $tmp
+echo o9mutmerge: OK
+exit ''

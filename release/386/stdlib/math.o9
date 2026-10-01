@@ -1,0 +1,249 @@
+class Math {
+function MathSqrtRaw(double x) double {
+    double out;
+
+    c {
+        out = sqrt(x);
+    }
+    return out;
+}
+
+function MathSinRaw(double x) double {
+    double out;
+
+    c {
+        out = sin(x);
+    }
+    return out;
+}
+
+function MathCosRaw(double x) double {
+    double out;
+
+    c {
+        out = cos(x);
+    }
+    return out;
+}
+
+function MathTanRaw(double x) double {
+    double out;
+
+    c {
+        out = tan(x);
+    }
+    return out;
+}
+
+function MathAsinRaw(double x) double {
+    double out;
+
+    c {
+        out = asin(x);
+    }
+    return out;
+}
+
+function MathAtanRaw(double x) double {
+    double out;
+
+    c {
+        out = atan(x);
+    }
+    return out;
+}
+
+function MathAtan2Raw(double y, double x) double {
+    double out;
+
+    c {
+        out = atan2(y, x);
+    }
+    return out;
+}
+
+function MathSinhRaw(double x) double {
+    double out;
+
+    c {
+        out = sinh(x);
+    }
+    return out;
+}
+
+function MathLogRaw(double x) double {
+    double out;
+
+    c {
+        out = log(x);
+    }
+    return out;
+}
+
+function MathLog10Raw(double x) double {
+    double out;
+
+    c {
+        out = log10(x);
+    }
+    return out;
+}
+
+function MathExpRaw(double x) double {
+    double out;
+
+    c {
+        out = exp(x);
+    }
+    return out;
+}
+
+function MathPowRaw(double x, double y) double {
+    double out;
+
+    c {
+        out = pow(x, y);
+    }
+    return out;
+}
+
+function MathPow10Raw(double x) double {
+    double out;
+
+    c {
+        out = pow10(x);
+    }
+    return out;
+}
+
+function MathFloorRaw(double x) double {
+    double out;
+
+    c {
+        out = floor(x);
+    }
+    return out;
+}
+
+function MathCeilRaw(double x) double {
+    double out;
+
+    c {
+        out = ceil(x);
+    }
+    return out;
+}
+
+function MathFmodRaw(double x, double y) double {
+    double out;
+
+    c {
+        out = fmod(x, y);
+    }
+    return out;
+}
+
+function MathFabsRaw(double x) double {
+    double out;
+
+    c {
+        out = fabs(x);
+    }
+    return out;
+}
+
+    method Math() {
+    }
+
+    method double sqrt(double x) {
+        Task<double> t = spawn MathSqrtRaw(x);
+        return t.await();
+    }
+
+    method double sin(double x) {
+        Task<double> t = spawn MathSinRaw(x);
+        return t.await();
+    }
+
+    method double cos(double x) {
+        Task<double> t = spawn MathCosRaw(x);
+        return t.await();
+    }
+
+    method double tan(double x) {
+        Task<double> t = spawn MathTanRaw(x);
+        return t.await();
+    }
+
+    method double asin(double x) {
+        Task<double> t = spawn MathAsinRaw(x);
+        return t.await();
+    }
+
+    method double atan(double x) {
+        Task<double> t = spawn MathAtanRaw(x);
+        return t.await();
+    }
+
+    method double atan2(double y, double x) {
+        Task<double> t = spawn MathAtan2Raw(y, x);
+        return t.await();
+    }
+
+    method double sinh(double x) {
+        Task<double> t = spawn MathSinhRaw(x);
+        return t.await();
+    }
+
+    method double log(double x) {
+        Task<double> t = spawn MathLogRaw(x);
+        return t.await();
+    }
+
+    method double log10(double x) {
+        Task<double> t = spawn MathLog10Raw(x);
+        return t.await();
+    }
+
+    method double exp(double x) {
+        Task<double> t = spawn MathExpRaw(x);
+        return t.await();
+    }
+
+    method double pow(double x, double y) {
+        Task<double> t = spawn MathPowRaw(x, y);
+        return t.await();
+    }
+
+    method double pow10(double x) {
+        Task<double> t = spawn MathPow10Raw(x);
+        return t.await();
+    }
+
+    method double floor(double x) {
+        Task<double> t = spawn MathFloorRaw(x);
+        return t.await();
+    }
+
+    method double ceil(double x) {
+        Task<double> t = spawn MathCeilRaw(x);
+        return t.await();
+    }
+
+    method double fmod(double x, double y) {
+        Task<double> t = spawn MathFmodRaw(x, y);
+        return t.await();
+    }
+
+    method double fabs(double x) {
+        Task<double> t = spawn MathFabsRaw(x);
+        return t.await();
+    }
+
+    method int64 abs(int64 n) {
+        if(n < 0) {
+            return 0 - n;
+        }
+        return n;
+    }
+}

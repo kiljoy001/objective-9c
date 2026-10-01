@@ -37,6 +37,23 @@ Feature: Task worker runs one gate per claimed task and classifies the result
     Then the worker does not create "tasks/claimed/t1/"
     And the worker does not re-run the gate for "t1"
 
+  @new @throughput
+  Scenario: A worker removes stale pending files whose result already exists
+    Given a pending task "t1"
+    And a result file "results/t1.tab" already exists
+    When the worker scans pending
+    Then "tasks/pending/t1.tab" is removed
+    And no claim directory is created for "t1"
+    And later worker scans do not repeatedly rediscover the stale file
+
+  @new @throughput
+  Scenario: A worker streams pending directory reads instead of reading the whole hot set
+    Given thousands of pending task files
+    When the worker looks for a task to claim
+    Then it reads directory entries in batches until one claim succeeds
+    And it does not require a full dirreadall of "tasks/pending/"
+    And adding workers does not multiply whole-directory scans across the grid
+
   @existing
   Scenario: Two workers racing for one task: only one wins the lock
     Given one pending task "t1"
@@ -79,6 +96,17 @@ Feature: Task worker runs one gate per claimed task and classifies the result
     When the worker claims "t2"
     Then the result file "results/t2.tab" has result=setup_error reason=missing gate
     And the task is moved to done without forking a gate
+
+  @new @race
+  Scenario: A duplicate post-claim worker cannot overwrite a finished result
+    Given task "t4" was already claimed by another worker
+    And "results/t4.tab" already records result=killed
+    And "tasks/done/t4.resultlock" already exists
+    When the duplicate worker reaches result finalization for "t4"
+    Then it does not truncate or replace "results/t4.tab"
+    And it does not acquire "tasks/done/t4.resultlock"
+    And it records task_done with result=duplicate in the journal
+    And the campaign report keeps the original killed result
 
   @existing
   Scenario: A task with a non-positive timeout defaults to 300000 ms

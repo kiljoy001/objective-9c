@@ -1,0 +1,60 @@
+import "net.o9";
+
+class Gate {
+    private Factotum fact;
+    private FactotumAdmin admin;
+
+    method Gate() {
+        fact = new Factotum();
+        admin = new FactotumAdmin("/tmp/o9auth_admin.tab", fact.user());
+    }
+
+    method string caller() {
+        return fact.caller();
+    }
+
+    method bool callerIs(string name) {
+        return fact.isCaller(name);
+    }
+
+    method bool blessed() {
+        return fact.blessed();
+    }
+
+    method bool verify(string name) {
+        return fact.verify(name);
+    }
+
+    method string user() {
+        return fact.user();
+    }
+
+    method bool adminConfigured() {
+        return admin.configured();
+    }
+
+    method string adminUser() {
+        return admin.admin();
+    }
+
+    method bool adminCaller() {
+        return admin.isAdmin();
+    }
+
+    method bool adminBlessed() {
+        return admin.blessed();
+    }
+
+    method bool adminIs(string name) {
+        return admin.is(name);
+    }
+
+    method bool setAdmin(string name) {
+        return admin.setAdmin(name);
+    }
+}
+
+main {
+    Gate g = new Gate();
+    serve();
+}

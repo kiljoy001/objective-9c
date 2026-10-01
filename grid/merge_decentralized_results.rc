@@ -1,0 +1,70 @@
+#!/bin/rc
+
+rfork e
+
+root=''
+manifest=''
+out=''
+roots=()
+
+fn usage {
+	echo 'usage: grid/merge_decentralized_results.rc -r controller-root [-m manifest.tsv] [-o merge-dir] result-root ...' >[1=2]
+	exit usage
+}
+
+while(! ~ $#* 0){
+	switch($1){
+	case -r
+		if(~ $#* 1) usage
+		root=$2
+		shift
+	case -m
+		if(~ $#* 1) usage
+		manifest=$2
+		shift
+	case -o
+		if(~ $#* 1) usage
+		out=$2
+		shift
+	case -h --help
+		usage
+	case *
+		roots=($roots $1)
+	}
+	shift
+}
+
+if(~ $root '' || ~ $#roots 0)
+	usage
+if(~ $manifest '')
+	manifest=$root/controller/manifest.tsv
+if(~ $out '')
+	out=$root/controller/merge
+if(! test -e $manifest){
+	echo missing manifest $manifest >[1=2]
+	exit missing
+}
+
+tmpbase=/tmp
+if(test -d /mnt/term/tmp)
+	tmpbase=/mnt/term/tmp
+if(! ~ $#O9MUT_TMP 0)
+	tmpbase=$O9MUT_TMP
+bin=$tmpbase/o9mutmerge.$pid
+localout=$tmpbase/o9mutmerge.out.$pid
+
+if(! 6c -FVw -I. -o $bin.6 grid/o9mutmerge.c)
+	exit compile
+if(! 6l -o $bin $bin.6)
+	exit link
+
+rm -rf $localout >[2]/dev/null
+if(! $bin $manifest $localout $roots)
+	exit merge
+
+mkdir $out >[2]/dev/null
+cp $localout/summary.tab $localout/report.tab $localout/duplicates.tab $localout/conflicts.tab $localout/missing.tab $localout/unexpected.tab $localout/malformed.tab $out
+
+echo merge_copied $out
+cat $out/summary.tab
+exit ''

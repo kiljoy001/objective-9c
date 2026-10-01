@@ -1,0 +1,53 @@
+#!/bin/rc
+
+rule=/sys/lib/plumb/o9
+if(! test -f $rule)
+	rule=$home/lib/plumb/o9
+if(! test -f $rule){
+	echo 'o9plumb: missing o9 plumbing rule; run mk install from objective-9c first' >[1=2]
+	exit missing
+}
+
+if(! test -d $home/lib)
+	mkdir $home/lib
+
+plumbing=$home/lib/plumbing
+if(! test -f $plumbing){
+	{
+		echo 'editor = sam'
+		echo 'browser = mothra'
+		echo ''
+		if(~ $rule /sys/lib/plumb/o9)
+			echo 'include o9'
+		if not
+			echo 'include '^$rule
+		echo ''
+		echo 'include basic'
+	} >$plumbing
+}
+
+if(~ $rule /sys/lib/plumb/o9){
+	inc='include o9'
+}
+if not {
+	inc='include '^$rule
+}
+
+tmp=/tmp/o9plumbing.$pid
+{
+	echo '# to update: cp $home/lib/plumbing /mnt/plumb/rules'
+	echo ''
+	echo $inc
+	echo ''
+	grep -v '^# to update:' $plumbing |
+		grep -v '^include o9$' |
+		grep -v '^include .*\/lib\/plumb\/o9$'
+} >$tmp
+mv $tmp $plumbing
+
+if(test -e /mnt/plumb/rules){
+	cat $plumbing >/mnt/plumb/rules
+	echo 'loaded o9 plumbing rules'
+}
+if not
+	echo 'updated '^$plumbing^'; start plumber or reload /mnt/plumb/rules'

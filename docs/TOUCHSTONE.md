@@ -100,6 +100,10 @@ the test that the architecture is coherent:
   app's 9P tree.  Remote objects are rejected, and the old runtime object-RPC
   fallback is removed; data crosses as `.tab` text and the receiver's local
   code decides what to do.
+- **distributed application shape** = local ownership plus tabula reduction.
+  Each node runs installed code against its own local state, publishes compact
+  tabulae, and imports inert tabulae from peers or controllers. A coordinator
+  may plan and reduce, but it does not sit on every hot-path state change.
 - **object relationships** = names, registry lookup, namespace reachability,
   and explicit handles passed through local CSP. A stored reference graph
   was cut; relationships are enacted at call time.
@@ -187,6 +191,33 @@ So the split is:
 - **Invoke behavior** — write a method command to a session `ctl`, or use
   direct in-process dispatch. Required for side effects, arguments, and
   computed return values.
+
+## Distributed Shape
+
+The default multi-node o9 design is not "one shared application object spread
+across machines." It is many local applications with explicit ownership,
+exchanging tabulae through `exports/` and `imports/`.
+
+The mutation grid is the reference example. The first working grid used a
+shared 9P root for queue, claims, results, and logs. That is correct but it
+makes the fileserver part of every hot-path operation. The decentralized shape
+is better: a controller publishes a shard plan, each node copies its shard and
+repo snapshot into a node-local root, local workers process local tasks, and
+the controller later reads progress and result tabulae and merges them.
+
+That pattern is the language lesson:
+
+- code is installed and runs where the state is owned;
+- shard ownership is explicit tabula data;
+- `listener` publishes local progress or results;
+- `near` and `far` read remote tabula exports;
+- `push()` deposits proposed input into imports;
+- the receiver's local code validates and acts;
+- merge/reduce is local code over received tabulae, not remote method dispatch.
+
+This keeps the useful part of distribution, moving structured state between
+machines, without reintroducing remote object spawn, rehydration, or a hidden
+global coordinator.
 
 ## What was cut, permanently
 

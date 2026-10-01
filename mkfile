@@ -138,6 +138,15 @@ invariant-test:V:
 o9mutgrid-test:V:	o9c libo9.a
 	rc ./o9c/test/run_o9mutgrid.rc
 
+o9mutjournal-test:V:	o9c libo9.a
+	rc ./o9c/test/run_o9mutjournal.rc
+
+o9mutreplay-test:V:	o9c libo9.a
+	rc ./o9c/test/run_o9mutreplay.rc
+
+o9mutagent-test:V:
+	rc ./o9c/test/run_o9mutagent.rc
+
 crap-test:V:	libo9.a
 	rc ./o9c/test/run_crap.rc
 
@@ -167,7 +176,7 @@ crypto-test:V:	libo9.a
 	o9c/test/crypto_test
 
 tab-test:V:	libo9.a
-	$CC -I. -Ilibtab o9c/test/tab_test.c
+	$CC -I. -I$LIBTABDIR o9c/test/tab_test.c
 	$LD -o o9c/test/tab_test tab_test.$O libo9.a
 	o9c/test/tab_test
 
@@ -179,6 +188,15 @@ RUNTIME_OBJ=\
 	o9_crypto.$O\
 	monocypher.$O\
 
+# libtab is a git submodule at ./libtab (see .gitmodules), pinned to a
+# commit on its main branch. One library, one set of sources; this used
+# to carry a stale vendored snapshot that drifted behind upstream's
+# text-encoding fix and the three files it grew (tab_emit, tab_text,
+# tab_writer), so a build here was a build against bugs already fixed.
+# Capture upstream updates and fixes with:
+#   git submodule update --remote libtab      # advance to latest main
+#   git add libtab                            # record the new pointer
+# A fresh clone needs: git submodule update --init
 LIBTABDIR=libtab
 LIBTAB_OBJ=\
 	libtab_tab_error.$O\
@@ -190,6 +208,9 @@ LIBTAB_OBJ=\
 	libtab_tab_open.$O\
 	libtab_tab_serialize.$O\
 	libtab_tab_persist.$O\
+	libtab_tab_emit.$O\
+	libtab_tab_text.$O\
+	libtab_tab_writer.$O\
 
 # Arch switch: dispatch offsets are pointer-width dependent, so each
 # supported platform ships its own o9_dispatch_$objtype.s. Add a new
@@ -236,6 +257,22 @@ libtab_tab_serialize.$O:	$LIBTABDIR/tab_serialize.c $LIBTABDIR/libtab.h $LIBTABD
 
 libtab_tab_persist.$O:	$LIBTABDIR/tab_persist.c $LIBTABDIR/libtab.h $LIBTABDIR/tab_internal.h
 	$CC -I$LIBTABDIR -o $target $LIBTABDIR/tab_persist.c
+
+# The three files that arrived with the text-encoding fix and the
+# streaming writer. tab_open and tab_serialize call into the first two,
+# so they are not optional; tab_writer needs nothing beyond what
+# tab_persist already required (rename, fsync, getpid), and its BLAKE2b
+# comes from the monocypher.$O already in RUNTIME_OBJ -- the two
+# monocypher.h copies differ only in stdint typedef spellings, same
+# widths, so the ctx layout matches.
+libtab_tab_emit.$O:	$LIBTABDIR/tab_emit.c $LIBTABDIR/libtab.h $LIBTABDIR/tab_internal.h
+	$CC -I$LIBTABDIR -o $target $LIBTABDIR/tab_emit.c
+
+libtab_tab_text.$O:	$LIBTABDIR/tab_text.c $LIBTABDIR/libtab.h $LIBTABDIR/tab_internal.h
+	$CC -I$LIBTABDIR -o $target $LIBTABDIR/tab_text.c
+
+libtab_tab_writer.$O:	$LIBTABDIR/tab_writer.c $LIBTABDIR/libtab.h $LIBTABDIR/tab_internal.h $LIBTABDIR/monocypher.h
+	$CC -DMONO_PLAN9 -I$LIBTABDIR -o $target $LIBTABDIR/tab_writer.c
 
 libo9.a:	$RUNTIME_OBJ $LIBTAB_OBJ
 	ar r libo9.a $RUNTIME_OBJ $LIBTAB_OBJ

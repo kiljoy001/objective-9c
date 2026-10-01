@@ -51,11 +51,7 @@ typedef struct o9_AsmTable {
 
 /* Root Object Template
  *
- * WARNING: The asm dispatch references fixed, pointer-width-dependent
- * offsets into o9_Object and o9_AsmTable, so each supported platform
- * ships its own source: o9_dispatch_<objtype>.s (e.g. o9_dispatch_amd64.s,
- * o9_dispatch_386.s). The mkfile assembles the one matching $objtype.
- * The offsets below are the amd64 layout; the 386 file uses +8/+12/768.
+ * WARNING: The asm dispatch (o9_dispatch.s) references fixed offsets:
  *   +0:  int fd
  *   +8:  void *shm_base
  *   +16: o9_AsmTable *table
@@ -102,29 +98,6 @@ extern void  o9_reply_free(O9Reply *r);
 extern vlong o9_double_pack(double d);
 extern double o9_double_unpack(vlong v);
 extern ulong o9_hash(char *s);
-/* Append one structured event line to an append-only log at `path`.
- * Format: seq\tts_ms\torigin\ttype\tentity_kind\tentity_id[\tdetail]\n
- * seq is a per-process monotonic counter (one origin per grid process, so
- * per-process == per-origin); ts_ms is nsec()/1e6. Atomic append via OAPPEND
- * + a single write, so concurrent workers/nodes never corrupt each other's
- * lines. If `detail` is nil/empty no detail column is written. */
-extern void  o9_append_event(const char *path, const char *origin,
-                             const char *type, const char *entity_kind,
-                             const char *entity_id, const char *detail);
-/* Read an integer value for `key` from a key\tvalue tab file at `path`.
- * Returns `def` if the file or key is absent or unparseable. */
-extern long  o9_kv_int(const char *path, const char *key, long def);
-extern int   o9_has_suffix(const char *name, const char *suffix);
-extern long  o9_count_dir(const char *path, int dirs_only, const char *suffix);
-extern char* o9_read_file_c(const char *path, vlong *outlen, long max);
-extern const char* o9_basename_c(const char *path);
-extern void  o9_strip_repo_prefix(char *path, const char *repo);
-extern int   o9_journal_split(char *line, char **fields, int nfields, char **detail);
-extern int   o9_tsv_get_cols(const char *path, const char **names, char **outs, int *outsz, int nout);
-extern int   o9_tsv_get_col(const char *path, const char *name, char *out, int outsz);
-extern int   o9_equiv_ledger_lookup(const char *path, const char *source, const char *mutant, char *reason, int rsz);
-extern int   o9_c_lexical_whitespace_equiv(const char *source_path, const char *mutant_path);
-extern int   o9_equiv_candidate_reason(const char *source_path, const char *mutant_path, char *reason, int rsz);
 /* Per-proc last-call error for `try` (procdata-backed; each object proc
  * has its own — see o9_runtime.c). NOT a global: parallel actors. */
 extern void  o9_set_call_err(char *e);
