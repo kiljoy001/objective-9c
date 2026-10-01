@@ -3056,6 +3056,16 @@ o9_mt_srv_source_ok(char *source)
 }
 
 static int
+o9_mt_net_source_ok(char *source)
+{
+	if(o9_mt_bad_text(source))
+		return 0;
+	return strncmp(source, "tcp!", 4) == 0 ||
+	       strncmp(source, "il!", 3) == 0 ||
+	       strncmp(source, "net!", 4) == 0;
+}
+
+static int
 o9_mt_flag_ok(vlong flag)
 {
 	vlong place;
@@ -3375,6 +3385,39 @@ o9_mount_table_mountsrv(O9MountTable *m, O9String *fdsrc, O9String *old,
 	return rv;
 }
 
+int
+o9_mount_table_mountnet(O9MountTable *m, O9String *addr, O9String *old,
+	vlong flag, O9String *aname)
+{
+	char *caddr, *cold, *caname;
+	int rv;
+
+	if(m == nil || addr == nil || old == nil || aname == nil ||
+	   !o9_mt_flag_ok(flag))
+		return -1;
+	caddr = o9_string_cstr(addr);
+	cold = o9_string_cstr(old);
+	caname = o9_string_cstr(aname);
+	if(caddr == nil || cold == nil || caname == nil){
+		free(caddr);
+		free(cold);
+		free(caname);
+		return -1;
+	}
+	if(!o9_mt_net_source_ok(caddr) || !o9_mt_target_ok(cold) ||
+	   o9_mt_bad_text0(caname, 1)){
+		free(caddr);
+		free(cold);
+		free(caname);
+		return -1;
+	}
+	rv = o9_mt_add_entry(m, "mountnet", caddr, cold, nil, flag, caname, -1);
+	free(caddr);
+	free(cold);
+	free(caname);
+	return rv;
+}
+
 O9String*
 o9_mount_table_schema(O9MountTable *m)
 {
@@ -3477,6 +3520,14 @@ o9_mount_table_validate(O9MountTable *m)
 				goto bad;
 			continue;
 		}
+		if(strcmp(call, "mountnet") == 0){
+			if(!o9_mt_net_source_ok((char*)fdsrc) ||
+			   !o9_mt_target_ok((char*)old) ||
+			   o9_mt_parse_flag((char*)flag, &f) < 0 ||
+			   (aname != nil && o9_mt_bad_text0((char*)aname, 1)))
+				goto bad;
+			continue;
+		}
 		goto bad;
 	}
 	tab_iter_close(it);
@@ -3543,8 +3594,26 @@ o9_mount_table_apply(O9MountTable *m)
 				goto bad;
 			rv = mount(fd, -1, dst, f, aname != nil ? (char*)aname : "");
 			close(fd);
-			if(rv < 0)
+			if(rv < 0){
 				goto bad;
+			}
+			continue;
+		}
+		if(strcmp(call, "mountnet") == 0){
+			if(o9_mt_join(dst, sizeof dst, m->root, (char*)old) < 0)
+				goto bad;
+			if(o9_mt_parse_flag((char*)flag, &f) < 0)
+				goto bad;
+			if(o9_mt_ensure_dir_p(dst) < 0)
+				goto bad;
+			fd = dial((char*)fdsrc, nil, nil, nil);
+			if(fd < 0)
+				goto bad;
+			rv = mount(fd, -1, dst, f, aname != nil ? (char*)aname : "");
+			close(fd);
+			if(rv < 0){
+				goto bad;
+			}
 			continue;
 		}
 		goto bad;

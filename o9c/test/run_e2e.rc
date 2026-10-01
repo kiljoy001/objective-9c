@@ -250,6 +250,7 @@ stdlibcase e2e_io
 stdlibcase e2e_bio_stream
 stdlibcase e2e_process
 stdlibcase e2e_net
+stdlibcase e2e_net_loopback
 stdlibcase e2e_namespace
 stdlibcase e2e_draw
 stdlibcase e2e_draw_probe

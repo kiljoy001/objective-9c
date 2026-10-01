@@ -1,0 +1,157 @@
+import "net.o9";
+import "time.o9";
+
+function RunServer(string addr) int64 {
+    NetListener ln = new NetListener(addr);
+    if(!ln.listen()) {
+        return -1;
+    }
+
+    // Stage 1: Single request/reply (legacy accept)
+    if(!ln.accept()) {
+        return -2;
+    }
+    string s1 = ln.read(128);
+    ln.write(cat("echo:", s1));
+    ln.closeAccepted();
+
+    // Stage 2: Multi-turn on new connection
+    if(!ln.accept()) {
+        return -3;
+    }
+    string m1 = ln.read(128);
+    if(cmp(m1, "ping") == 0) {
+        ln.write("pong");
+    } else {
+        ln.write("err");
+    }
+    string m2 = ln.read(128);
+    ln.write(cat("ack:", m2));
+    ln.closeAccepted();
+
+    // Stage 3: Third client connection
+    if(!ln.accept()) {
+        return -4;
+    }
+    string s3 = ln.read(128);
+    ln.write(cat("echo2:", s3));
+    ln.closeAccepted();
+
+    // Stage 4: acceptConn() returning NetConn
+    NetConn srvConn = ln.acceptConn();
+    if(!srvConn.isOpen()) {
+        return -5;
+    }
+    string s4 = srvConn.read(128);
+    srvConn.write(cat("conn_echo:", s4));
+    srvConn.close();
+
+    // Stage 5: Concurrent client connections
+    NetConn connA = ln.acceptConn();
+    NetConn connB = ln.acceptConn();
+    if(!connA.isOpen() || !connB.isOpen()) {
+        return -6;
+    }
+    string msgA = connA.read(128);
+    string msgB = connB.read(128);
+    connA.write(cat("replyA:", msgA));
+    connB.write(cat("replyB:", msgB));
+    connA.close();
+    connB.close();
+
+    // Stage 6: EOF Detection on peer close
+    NetConn connEof = ln.acceptConn();
+    if(!connEof.isOpen()) {
+        return -7;
+    }
+    string msgBeforeClose = connEof.read(128);
+    if(len(msgBeforeClose) == 0) {
+        return -9;
+    }
+    string msgAfterClose = connEof.read(128);
+    bool isEof = len(msgAfterClose) == 0;
+    connEof.close();
+    if(!isEof) {
+        return -8;
+    }
+
+    // Clean shutdown of listener
+    ln.close();
+    return 0;
+}
+
+main {
+    string addr = "tcp!127.0.0.1!19993";
+    Time tm = new Time();
+
+    Task<int64> srvTask = spawn RunServer(addr);
+    tm.sleep(50);
+
+    // Stage 1: Single client
+    NetConn c1 = new NetConn(addr);
+    print("c1_dial ", c1.dial(), "\n");
+    print("c1_write ", c1.write("first_msg") > 0, "\n");
+    print("c1_reply ", c1.read(128), "\n");
+    print("c1_close ", c1.close(), "\n");
+
+    tm.sleep(20);
+
+    // Stage 2: Multi-turn client
+    NetConn c2 = new NetConn(addr);
+    print("c2_dial ", c2.dial(), "\n");
+    print("c2_ping ", c2.write("ping") > 0, "\n");
+    print("c2_pong ", c2.read(128), "\n");
+    print("c2_data ", c2.write("round2") > 0, "\n");
+    print("c2_ack ", c2.read(128), "\n");
+    print("c2_close ", c2.close(), "\n");
+
+    tm.sleep(20);
+
+    // Stage 3: Third client connection
+    NetConn c3 = new NetConn(addr);
+    print("c3_dial ", c3.dial(), "\n");
+    print("c3_write ", c3.write("seq_client") > 0, "\n");
+    print("c3_reply ", c3.read(128), "\n");
+    print("c3_close ", c3.close(), "\n");
+
+    tm.sleep(20);
+
+    // Stage 4: acceptConn() returning NetConn
+    NetConn c4 = new NetConn(addr);
+    print("c4_dial ", c4.dial(), "\n");
+    print("c4_write ", c4.write("conn_test") > 0, "\n");
+    print("c4_reply ", c4.read(128), "\n");
+    print("c4_close ", c4.close(), "\n");
+
+    tm.sleep(20);
+
+    // Stage 5: Concurrent clients A and B
+    NetConn clA = new NetConn(addr);
+    NetConn clB = new NetConn(addr);
+    print("clA_dial ", clA.dial(), "\n");
+    print("clB_dial ", clB.dial(), "\n");
+    print("clA_write ", clA.write("msgA") > 0, "\n");
+    print("clB_write ", clB.write("msgB") > 0, "\n");
+    print("clA_reply ", clA.read(128), "\n");
+    print("clB_reply ", clB.read(128), "\n");
+    print("clA_close ", clA.close(), "\n");
+    print("clB_close ", clB.close(), "\n");
+
+    tm.sleep(20);
+
+    // Stage 6: EOF Detection
+    NetConn clEof = new NetConn(addr);
+    print("clEof_dial ", clEof.dial(), "\n");
+    print("clEof_write ", clEof.write("bye") > 0, "\n");
+    print("clEof_close ", clEof.close(), "\n");
+
+    tm.sleep(20);
+
+    // Stage 7: Refused connection on unused port
+    NetConn badTcp = new NetConn("tcp!127.0.0.1!19998");
+    print("bad_dial ", badTcp.dial(), "\n");
+    print("bad_is_open ", badTcp.isOpen(), "\n");
+
+    int64 srvRes = srvTask.await();
+    print("srv_res ", srvRes, "\n");
+}

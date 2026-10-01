@@ -136,6 +136,9 @@ issue-test:V:	o9c libo9.a
 function-object-contract-test:V:	o9c libo9.a
 	rc ./o9c/test/run_function_object_contract.rc
 
+net-9p-test:V:	o9c libo9.a
+	rc ./o9c/test/run_net_9p.rc
+
 type-test:V:	o9c/o9_type.$O
 	$CC -I. -Io9c o9c/test/o9_type_test.c
 	$LD -o o9c/test/o9_type_test o9_type_test.$O o9c/o9_type.$O
@@ -222,6 +225,7 @@ verify:V:	o9c libo9.a
 	mk debug-test
 	mk vault-server-test
 	mk issue-test
+	mk net-9p-test
 	mk crypto-test
 	mk tab-test
 	mk crap-test

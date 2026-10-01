@@ -18,6 +18,26 @@ bakbin=/tmp/o9_crap_o9c.$pid
 hadbin=0
 fail=0
 
+if(~ $#O 0){
+	O=6; CC=6c; LD=6l
+	switch($objtype){
+	case 386
+		O=8; CC=8c; LD=8l
+	case amd64
+		O=6; CC=6c; LD=6l
+	case arm
+		O=5; CC=5c; LD=5l
+	case arm64
+		O=7; CC=7c; LD=7l
+	case mips
+		O=v; CC=vc; LD=vl
+	case power
+		O=q; CC=qc; LD=ql
+	case sparc
+		O=k; CC=kc; LD=kl
+	}
+}
+
 fn cleanup {
 	if(test -e $bakc)
 		cp $bakc o9c/y.tab.c

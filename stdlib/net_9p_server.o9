@@ -1,0 +1,35 @@
+// 9P Server for network integration tests
+import "file.o9";
+
+class Counter {
+    int64 val;
+
+    method Counter(int64 n) {
+        val = n;
+    }
+
+    method void add(int64 n) {
+        val = val + n;
+    }
+
+    method int64 get() {
+        return val;
+    }
+}
+
+main {
+    Counter c = new Counter(100);
+
+    // 'listener' keyword: serves 9P tree and publishes exports
+    listener tabula orders = new tabula("orders", "item,qty,status") @ "tcp!127.0.0.1!19996";
+    orders.write("row1", "item", "gadget");
+    orders.write("row1", "qty", "5");
+    orders.write("row1", "status", "paid");
+    orders.write("row2", "item", "widget");
+    orders.write("row2", "qty", "12");
+    orders.write("row2", "status", "pending");
+    export("orders.tab", orders);
+
+    print("server ready\n");
+    serve();
+}

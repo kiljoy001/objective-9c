@@ -403,6 +403,7 @@ extern int           o9_mount_table_allow_root(O9MountTable *m, O9String *root);
 extern int           o9_mount_table_dir(O9MountTable *m, O9String *new, vlong mode);
 extern int           o9_mount_table_bind(O9MountTable *m, O9String *old, O9String *new, vlong flag);
 extern int           o9_mount_table_mountsrv(O9MountTable *m, O9String *fdsrc, O9String *old, vlong flag, O9String *aname);
+extern int           o9_mount_table_mountnet(O9MountTable *m, O9String *addr, O9String *old, vlong flag, O9String *aname);
 extern O9String*     o9_mount_table_schema(O9MountTable *m);
 extern int           o9_mount_table_has(O9MountTable *m, O9String *col);
 extern O9String*     o9_mount_table_get(O9MountTable *m, O9String *col);

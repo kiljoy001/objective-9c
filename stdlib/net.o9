@@ -185,6 +185,46 @@ function NetCloseRaw(string token) int64 {
     return out;
 }
 
+function NetMountRaw(string token, string dest, int64 flag, string aname) int64 {
+    int64 out;
+    c {
+        char *tok, *cdest, *caname;
+        int fd, rv;
+
+        out = -1;
+        tok = o9_string_cstr(token);
+        cdest = o9_string_cstr(dest);
+        caname = o9_string_cstr(aname);
+        if(tok != nil && cdest != nil){
+            fd = atoi(tok);
+            if(fd >= 0){
+                rv = mount(fd, -1, cdest, (int)flag, caname != nil ? caname : "");
+                close(fd);
+                if(rv >= 0)
+                    out = 0;
+            }
+        }
+        if(tok != nil) free(tok);
+        if(cdest != nil) free(cdest);
+        if(caname != nil) free(caname);
+    }
+    return out;
+}
+
+function NetUnmountRaw(string dest) int64 {
+    int64 out;
+    c {
+        char *cdest;
+        out = -1;
+        cdest = o9_string_cstr(dest);
+        if(cdest != nil){
+            out = unmount(nil, cdest);
+            free(cdest);
+        }
+    }
+    return out;
+}
+
 function FactotumUserRaw() string {
     string out;
     c {
@@ -364,6 +404,33 @@ class NetConn {
         token = "";
         return t.await() == 0;
     }
+
+    method bool mount(string dest, int64 flag, string aname) {
+        if(!isOpen()) {
+            return false;
+        }
+        Task<int64> t = spawn NetMountRaw(token, dest, flag, aname);
+        int64 res = t.await();
+        token = "";
+        if(res == 0) {
+            return true;
+        }
+        return false;
+    }
+
+    method bool mountReplace(string dest) {
+        return mount(dest, 0, "");
+    }
+
+    method bool unmount(string dest) {
+        Task<int64> t = spawn NetUnmountRaw(dest);
+        return t.await() == 0;
+    }
+
+    method void init(string addr, string tok) {
+        address = addr;
+        token = tok;
+    }
 }
 
 class NetListener {
@@ -397,6 +464,16 @@ class NetListener {
         Task<string> t = spawn NetAcceptRaw(token);
         accepted = t.await();
         return len(accepted) > 0;
+    }
+
+    method NetConn acceptConn() {
+        Task<string> t = spawn NetAcceptRaw(token);
+        string connToken = t.await();
+        NetConn c = new NetConn(address);
+        if(len(connToken) > 0) {
+            c.init(address, connToken);
+        }
+        return c;
     }
 
     method string read(int64 max) {

@@ -634,6 +634,7 @@ gen_mounttable_msg(Node *e, Type *lt)
         {"dir", "o9_mount_table_dir"},
         {"bind", "o9_mount_table_bind"},
         {"mountsrv", "o9_mount_table_mountsrv"},
+        {"mountnet", "o9_mount_table_mountnet"},
         {"schema", "o9_mount_table_schema"},
         {"has", "o9_mount_table_has"},
         {"get", "o9_mount_table_get"},
@@ -2455,6 +2456,7 @@ gen_local_new_class_stmt(Node *s, char *cname, int is_new)
     if(!is_new || cname == nil)
         return 0;
     gen_local_new(s, cname, -1);
+    add_var_class(s->name, cname);
     return 1;
 }
 
@@ -2467,6 +2469,7 @@ gen_local_init_client_stmt(Node *s, char *cname)
     cprint("\tmemset(&%s_tbl, 0, sizeof(o9_AsmTable));\n", s->name);
     cprint("\t%s.table = &%s_tbl;\n", s->name, s->name);
     cprint("\to9_init_client(&%s, \"%s\", 4096);\n", s->name, cname);
+    add_var_class(s->name, cname);
 }
 
 static void
@@ -2483,7 +2486,7 @@ gen_local_object_stmt(Node *s)
         return;
     if(gen_local_object_return_stmt(s, cdecl, cname, is_new))
         return;
-    if(in_class_context || cname == nil){
+    if(cname == nil){
         gen_local_plain_decl_stmt(s, is_new);
         return;
     }

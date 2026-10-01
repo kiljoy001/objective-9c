@@ -1,0 +1,110 @@
+import "file.o9";
+import "net.o9";
+import "namespace.o9";
+import "string.o9";
+
+main {
+    string addr = "tcp!127.0.0.1!19996";
+    string conn_mtpt = "/n/testconn";
+    string ns_mtpt = "/n/testns";
+
+    // -----------------------------------------------------------
+    // STAGE 1: Mount 9P over TCP via NetConn
+    // -----------------------------------------------------------
+    NetConn conn = new NetConn(addr);
+    if(conn.dial()) {
+        if(conn.mountReplace(conn_mtpt)) {
+            File st1 = new File(cat(conn_mtpt, "/status"));
+            string s1 = st1.read();
+            if(len(s1) > 0) {
+                print("conn_status: OK\n");
+            }
+
+            File m1 = new File(cat(conn_mtpt, "/methods"));
+            string meth1 = m1.read();
+            if(len(meth1) > 0) {
+                print("conn_methods: OK\n");
+            }
+
+            // Drive method invocation via root ctl & data
+            File ctl1 = new File(cat(conn_mtpt, "/ctl"));
+            ctl1.write("method Counter.c add arg0=20\n");
+            ctl1.write("method Counter.c get\n");
+
+            File data1 = new File(cat(conn_mtpt, "/data"));
+            string raw1 = data1.read();
+            String str1 = new String(raw1);
+            string res1 = str1.trim();
+            print("res1 ", res1, "\n");
+
+            // Also test clone session
+            File cloneFile = new File(cat(conn_mtpt, "/clone"));
+            string rawSid = cloneFile.read();
+            String strSid = new String(rawSid);
+            string sid = strSid.trim();
+            if(len(sid) > 0) {
+                string sctl_path = cat(cat(cat(conn_mtpt, "/"), sid), "/ctl");
+                string sdata_path = cat(cat(cat(conn_mtpt, "/"), sid), "/data");
+                File sctl = new File(sctl_path);
+                File sdata = new File(sdata_path);
+                sctl.write("method Counter.c add arg0=15\n");
+                sctl.write("method Counter.c get\n");
+                string rawS = sdata.read();
+                String strS = new String(rawS);
+                string sres = strS.trim();
+                print("sres ", sres, "\n");
+                sctl.write("close\n");
+            }
+
+            // Unmount NetConn
+            if(conn.unmount(conn_mtpt)) {
+                print("netconn_mount: OK\n");
+            }
+        }
+    }
+
+    // -----------------------------------------------------------
+    // STAGE 2: Mount 9P over TCP via Namespace
+    // -----------------------------------------------------------
+    Namespace ns = new Namespace();
+    ns.root(ns_mtpt);
+    if(ns.mountnetReplace(addr, ".", "")) {
+        if(ns.apply()) {
+            File ctl2 = new File(cat(ns_mtpt, "/ctl"));
+            ctl2.write("method Counter.c add arg0=5\n");
+            ctl2.write("method Counter.c get\n");
+
+            File data2 = new File(cat(ns_mtpt, "/data"));
+            string raw2 = data2.read();
+            String str2 = new String(raw2);
+            string res2 = str2.trim();
+            print("res2 ", res2, "\n");
+
+            if(ns.unmount(ns_mtpt)) {
+                print("namespace_mount: OK\n");
+            }
+        }
+    }
+
+    // -----------------------------------------------------------
+    // STAGE 3: Tabula Locality (near and far keywords)
+    // -----------------------------------------------------------
+    // 1. 'near' keyword: access local/IL tabula export via /srv
+    near tabula near_orders = new tabula("orders", "item,qty,status") @ "/srv/net9psrv";
+    print("near_first ", near_orders.first(), "\n");
+    print("near_row ", near_orders.get("item"), " ", near_orders.get("qty"), "\n");
+
+    // 2. 'far' keyword: access remote tabula export over TCP 9P
+    far tabula far_orders = new tabula("orders", "item,qty,status") @ addr;
+    print("far_first ", far_orders.first(), "\n");
+    print("far_row ", far_orders.get("item"), " ", far_orders.get("qty"), "\n");
+
+    tabula paid = far_orders.query("status", "paid");
+    print("tabula_paid ", paid.first(), " ", paid.get("item"), "\n");
+
+    far_orders.write("client_push", "item", "turbo_widget");
+    far_orders.write("client_push", "qty", "42");
+    far_orders.write("client_push", "status", "delivered");
+    int64 pushed = far_orders.push();
+    print("tabula_pushed ", pushed, "\n");
+}
