@@ -112,22 +112,26 @@ fn run_command {
 				write_status $failfile $id $op failed - -
 			}
 			if(! ~ $manifest -){
-				rm -rf $localroot >[2]/dev/null
-				mkdir $localroot >[2]/dev/null
-				mkdir $localroot/bin >[2]/dev/null
-				mkdir $localroot/shard >[2]/dev/null
-				mkdir $localroot/logs >[2]/dev/null
-				cp $bindir/o9mutctl $bindir/o9mutq $bindir/o9mutw $localroot/bin
-				if(test -e $bindir/o9mutd)
-					cp $bindir/o9mutd $localroot/bin
-				cp $manifest $localroot/shard/manifest.tsv
-				if(! ~ $repo -){
-					mkdir $localroot/repo-src >[2]/dev/null
-					dircp $repo $localroot/repo-src
+				ok=1
+				if(! rm -rf $localroot >[2]/dev/null) ok=0
+				if(~ $ok 1) if(! mkdir $localroot >[2]/dev/null) ok=0
+				if(~ $ok 1) if(! mkdir $localroot/bin >[2]/dev/null) ok=0
+				if(~ $ok 1) if(! mkdir $localroot/shard >[2]/dev/null) ok=0
+				if(~ $ok 1) if(! mkdir $localroot/logs >[2]/dev/null) ok=0
+				if(~ $ok 1) if(! cp $bindir/o9mutctl $bindir/o9mutq $bindir/o9mutw $localroot/bin) ok=0
+				if(~ $ok 1 && test -e $bindir/o9mutd)
+					if(! cp $bindir/o9mutd $localroot/bin) ok=0
+				if(~ $ok 1) if(! cp $manifest $localroot/shard/manifest.tsv) ok=0
+				if(~ $ok 1 && ! ~ $repo -){
+					if(! mkdir $localroot/repo-src >[2]/dev/null) ok=0
+					if(~ $ok 1) if(! dircp $repo $localroot/repo-src) ok=0
 				}
-				$localroot/bin/o9mutctl -r $localroot init >$localroot/logs/init.out >[2=1]
-				$localroot/bin/o9mutctl -r $localroot manifest $localroot/shard/manifest.tsv >$localroot/logs/manifest.out >[2=1]
-				write_status $donefile $id $op ready $localroot/logs/manifest.out -
+				if(~ $ok 1) if(! $localroot/bin/o9mutctl -r $localroot init >$localroot/logs/init.out >[2=1]) ok=0
+				if(~ $ok 1) if(! $localroot/bin/o9mutctl -r $localroot manifest $localroot/shard/manifest.tsv >$localroot/logs/manifest.out >[2=1]) ok=0
+				if(~ $ok 1)
+					write_status $donefile $id $op ready $localroot/logs/manifest.out -
+				if(! ~ $ok 1)
+					write_status $failfile $id $op failed $localroot/logs/manifest.out -
 			}
 		case start-worker
 			if(~ $idle -)

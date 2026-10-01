@@ -2,13 +2,13 @@
 # push_log.rc — Push 9front system logs into the syslogmon 9P fileserver
 # Usage: push_log.rc [srvpath] [logname]
 
-srv=/srv/o9.syslogmon.syslogmon.app
+srv=/srv/syslogmon
 if(~ $#* 1 2)
 	srv=$1
 
 if(! test -e $srv){
 	echo 'push_log: service not found: '$srv >[1=2]
-	echo 'usage: push_log.rc [/srv/o9.syslogmon.syslogmon.app] [logname]' >[1=2]
+	echo 'usage: push_log.rc [/srv/syslogmon] [logname]' >[1=2]
 	exit nosrv
 }
 

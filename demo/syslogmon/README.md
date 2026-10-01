@@ -12,7 +12,7 @@ Because it is built with **o9c**, the compiled binary is **automatically a 9P fi
   * `exports/syslogs.tab`: Real-time structured log entries with schema `(id, machine, logname, timestamp, message)`.
   * `exports/machines.tab`: Machine inventory with schema `(id, status, lastseen, logcount)`.
 * **Automatic 9P Fileserver:**
-  * Runs as a daemon and registers under `/srv/o9.syslogmon.syslogmon.app`.
+  * Runs as a daemon and registers under `/srv/syslogmon`.
   * Exposes standard o9 facade: `clone`, `ctl`, `data`, `methods`, `status`, `exports/`, and `imports/`.
 * **Grid Ingestion:**
   * Can scan local and mounted remote log paths (`/sys/log`, `/n/babyFileServer.../sys/log`, `/n/Authomatic.../sys/log`).
@@ -49,7 +49,7 @@ Start the monitor as a background service:
 The application initializes the log tables, scans known 9front log paths, and posts its 9P service to:
 
 ```text
-/srv/o9.syslogmon.syslogmon.app
+/srv/syslogmon
 ```
 
 ---
@@ -60,7 +60,7 @@ The application initializes the log tables, scans known 9front log paths, and po
 
 ```rc
 mkdir /n/syslogmon
-mount -c /srv/o9.syslogmon.syslogmon.app /n/syslogmon
+mount -c /srv/syslogmon /n/syslogmon
 ```
 
 ### 2. Read the Tabula Exports
@@ -107,5 +107,5 @@ cat /n/syslogmon/exports/syslogs.tab
 Or run the provided `push_log.rc` script to forward local logs automatically:
 
 ```rc
-./push_log.rc /n/devsrv/o9.syslogmon.syslogmon.app
+./push_log.rc /srv/syslogmon
 ```
