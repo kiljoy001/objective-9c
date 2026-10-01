@@ -6,7 +6,7 @@ rfork e
 tool=./o9c/o9c
 fail=0
 app=Counter
-srv=/srv/o9.^$app^.^$app^.app
+srv=/srv/^$app
 result=/tmp/ext_result
 
 rm -f $result

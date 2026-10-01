@@ -31,22 +31,7 @@ transpiles the `.o9` file, compiles the generated C, links `libo9.a`, and
 writes an executable next to the source. Use `o9c` directly only when debugging
 the compiler.
 
-## Install With Pac9
-
-On a 9front system with pac9 installed:
-
-```rc
-pac9 install https://github.com/kiljoy001/objective-9c
-```
-
-Pac9 clones the repo, runs `mk install`, and records the package as
-`objective-9c`. Remove it with:
-
-```rc
-pac9 uninstall objective-9c
-```
-
-After installation, `o9c`, `o9build`, `o9plumb`, and `o9proj` should be on the
+After installation, `o9c`, `o9build`, `o9plumb`, and `o9proj` are on the
 command path. Start a small project with:
 
 ```rc
@@ -63,23 +48,6 @@ o9plumb
 
 That installs an `include` line in `$home/lib/plumbing` and reloads plumber
 when `/mnt/plumb/rules` is available.
-
-For a pac9 registry tarball package, build the amd64 release archive on 9front:
-
-```rc
-mk
-mk release-tarball
-```
-
-Upload `release/objective-9c-amd64.tar.gz` to a GitHub release tag such as
-`objective-9c-v0.1.0`, then use this registry row:
-
-```text
-objective-9c	-	.	tarball https://github.com/kiljoy001/objective-9c/releases/download/objective-9c-v0.1.0/objective-9c-amd64.tar.gz	-	0.1.0
-```
-
-Pac9 currently uses tarball downloads through registry recipes; direct unknown
-URLs are treated as git repositories.
 
 ## A Small Program
 

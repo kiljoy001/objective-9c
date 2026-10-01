@@ -40,6 +40,7 @@ static BuiltinExpect builtins[] = {
 	{ "uchar", "uchar", "scalar", "%ud", "0" },
 	{ "tabula", "O9Tabula*", "pointer", "%p", "nil" },
 	{ "MountTable", "O9MountTable*", "pointer", "%p", "nil" },
+	{ "Vault", "O9Vault*", "pointer", "%p", "nil" },
 	{ nil, nil, nil, nil, nil },
 };
 

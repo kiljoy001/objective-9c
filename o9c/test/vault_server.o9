@@ -1,0 +1,60 @@
+// Encrypted Fileserver: 9P-mounted actor holding a Vault with isolated arena
+// and layered defense for secret properties and files.
+class SecretRecord {
+    secret string classified;
+}
+
+class VaultServer {
+    Vault v;
+    SecretRecord record;
+
+    method VaultServer() {
+        v = new Vault("hunter2", "e2e.vault.salt");
+        record = new SecretRecord();
+    }
+
+    method int64 store(string name, string val) {
+        return v.put(name, val);
+    }
+
+    method string retrieve(string name) {
+        return v.get(name);
+    }
+
+    method int64 has(string name) {
+        return v.has(name);
+    }
+
+    method int64 drop(string name) {
+        return v.drop(name);
+    }
+
+    method string seal(string data) {
+        return v.seal(data);
+    }
+
+    method string open(string blob) {
+        return v.open(blob);
+    }
+
+    method void seal_record(string payload) {
+        record.seal_vault_classified(v, payload);
+    }
+
+    method string open_record() {
+        return record.open_vault_classified(v);
+    }
+
+    method void wipe() {
+        v.wipe();
+    }
+
+    method int64 valid() {
+        return v.valid();
+    }
+}
+
+main {
+    VaultServer s = new VaultServer();
+    serve();
+}

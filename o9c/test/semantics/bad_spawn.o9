@@ -1,0 +1,2 @@
+class Box {}
+main { Task<int64> t = spawn (); }

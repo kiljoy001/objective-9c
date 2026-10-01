@@ -47,18 +47,23 @@ strip_imported_main(char *src)
         p++;
     } while(depth > 0 && *p != '\0');
     /* blank out main..closing brace */
-    while(m < p){ *m++ = ' '; }
+    while(m < p){
+        if(*m != '\n')
+            *m = ' ';
+        m++;
+    }
 }
 
 /* Append imported source (main stripped, import lines are handled by the
  * outer scan) to the growing combined buffer. */
 static char*
-splice_append(char *dst, long *dlen, long *dcap, char *add, long addlen)
+splice_append(char *dst, long *dlen, long *dcap, char *add, long addlen, SourceLoc loc)
 {
     if(*dlen + addlen + 2 >= *dcap){
         while(*dlen + addlen + 2 >= *dcap) *dcap *= 2;
         dst = realloc(dst, *dcap);
     }
+    source_append(loc, add, addlen);
     dst[(*dlen)++] = '\n';
     memmove(dst + *dlen, add, addlen);
     *dlen += addlen;
@@ -126,6 +131,7 @@ append_import_file(char **combined, long *clen, long *ccap,
 {
     char *fsrc;
     long flen;
+    SourceLoc loc;
 
     if(import_already_loaded(full))
         return;
@@ -138,8 +144,11 @@ append_import_file(char **combined, long *clen, long *ccap,
         semantic_errors++;
         return;
     }
+    source_capture(full, fsrc, flen);
     strip_imported_main(fsrc);
-    *combined = splice_append(*combined, clen, ccap, fsrc, strlen(fsrc));
+    loc.file = full;
+    loc.line = 1;
+    *combined = splice_append(*combined, clen, ccap, fsrc, strlen(fsrc), loc);
     free(fsrc);
 }
 
@@ -177,9 +186,9 @@ handle_import_line(char *ls, int line, char **combined, long *clen, long *ccap, 
 }
 
 static void
-copy_source_line(char **combined, long *clen, long *ccap, char *linebuf, int llen)
+copy_source_line(char **combined, long *clen, long *ccap, char *linebuf, int llen, int line)
 {
-    *combined = splice_append(*combined, clen, ccap, linebuf, llen);
+    *combined = splice_append(*combined, clen, ccap, linebuf, llen, source_at(line));
 }
 
 /* Pull imported files' declarations into input_buf. Returns non-zero when
@@ -196,37 +205,47 @@ resolve_imports(void)
     combined = malloc(ccap);
     clen = 0;
     combined[0] = '\0';
+    source_begin();
 
     /* Walk input line by line; import lines are resolved+spliced,
      * every other line is copied through. */
     for(p = input_buf; p != nil && *p != '\0'; p = (nl != nil ? nl + 1 : nil)){
-        char *ls, *le, linebuf[1024];
+        char *ls, *le, *linebuf;
         int llen;
         nl = strchr(p, '\n');
         le = nl != nil ? nl : p + strlen(p);
         llen = le - p;
         line++;
-        if(llen >= (int)sizeof linebuf) llen = sizeof linebuf - 1;
+        linebuf = malloc(llen + 1);
+        if(linebuf == nil)
+            sysfatal("malloc: import line");
         memmove(linebuf, p, llen);
         linebuf[llen] = '\0';
 
         ls = import_line_start(linebuf);
         /* `from "..." import ...` would splice the whole file identically
          * to `import`, so the name list would be a lie. One honest verb. */
-        if(handle_from_import_line(ls, line))
+        if(handle_from_import_line(ls, line)){
+            free(linebuf);
             continue;
-        if(handle_import_line(ls, line, &combined, &clen, &ccap, &any))
-            continue;	/* drop the import line itself */
+        }
+        if(handle_import_line(ls, line, &combined, &clen, &ccap, &any)){
+            free(linebuf);
+            continue;
+        }	/* drop the import line itself */
         /* ordinary line: copy through */
-        copy_source_line(&combined, &clen, &ccap, linebuf, llen);
+        copy_source_line(&combined, &clen, &ccap, linebuf, llen, line);
+        free(linebuf);
     }
 
     if(any){
+        source_commit();
         free(input_buf);
         input_buf = combined;
         input_len = clen;
         return 1;
     } else {
+        source_discard();
         free(combined);
         return 0;
     }

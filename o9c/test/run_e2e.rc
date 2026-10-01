@@ -96,7 +96,7 @@ fn importcase {
 	if(! $tool $src > $cfile){
 		echo $name': transpile failed' >[1=2]
 		fail=1
-		rm -f $cfile $ofile $bin $out /srv/o9.*.app
+		rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name
 		broke | rc
 		return
 	}
@@ -114,7 +114,7 @@ fn importcase {
 		echo $name': build failed' >[1=2]
 		fail=1
 	}
-	rm -f $cfile $ofile $bin $out /srv/o9.*.app
+	rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name
 	broke | rc
 }
 
@@ -130,7 +130,7 @@ fn stdlibcase {
 	if(! $tool $src > $cfile){
 		echo $name': transpile failed' >[1=2]
 		fail=1
-		rm -f $cfile $ofile $bin $out /srv/o9.*.app
+		rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name
 		broke | rc
 		return
 	}
@@ -148,7 +148,7 @@ fn stdlibcase {
 		echo $name': build failed' >[1=2]
 		fail=1
 	}
-	rm -f $cfile $ofile $bin $out /srv/o9.*.app
+	rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name
 	broke | rc
 }
 
@@ -197,18 +197,21 @@ runcase e2e_error
 runcase e2e_try_precedence
 runcase e2e_task_error
 runcase e2e_self_send_guard
+runcase e2e_actor_cycle
 runcase e2e_tabula
 runcase e2e_tabula_alias
 runcase e2e_tabula_methods
 runcase e2e_tabula_hex
 runcase e2e_tabula_struct
 runcase e2e_mounttable
+runcase e2e_vault
 runcase e2e_for
 runcase e2e_chan
 runcase e2e_stream
 runcase e2e_alt
 runcase e2e_directional_chan
 runcase e2e_channel_cleanup
+runcase e2e_channel_handles
 runcase e2e_tuple
 runcase e2e_typed_chan
 runcase e2e_object_chan
@@ -226,6 +229,7 @@ runcase e2e_dict_typed
 runcase e2e_hash_collision
 runcase e2e_plan9ctypes
 runcase spawn_task
+runcase e2e_actor_exit
 runcase e2e_nested_function
 runcase e2e_rawc_function
 runcase e2e_rawc_bio

@@ -607,6 +607,25 @@ stmt_list:
     ;
 
 stmt:
+    stmtmark stmtbody {
+        $$ = $2;
+        if($$ != nil){
+            $$->sourcefile = $1->sourcefile;
+            $$->sourceline = $1->sourceline;
+        }
+    }
+    ;
+
+stmtmark:
+    /* The parser has looked ahead to distinguish a statement from the
+     * closing brace/case. Capture that token before reducing its body. */
+    /* empty */ {
+        $$ = mk(NIdent, nil, nil, nil, nil);
+        node_source($$, token_line);
+    }
+    ;
+
+stmtbody:
     typename member_name ';' { $$ = mk_typed(NLocalVar, $2->name, $1, nil, nil); note_var_class_type($2->name, $1->typeinfo); }
     | typename member_name TEQ expr ';' { $$ = mk_typed(NLocalVar, $2->name, $1, $4, nil); note_var_class_type($2->name, $1->typeinfo); }
     | TFUNCTION function_var_name ';' {
@@ -646,17 +665,19 @@ stmt:
     | TIF '(' expr ')' '{' stmt_list '}' TELSE '{' stmt_list '}' {
         $$ = mk(NIfElse, nil, nil, $3, $6);
         $$->next = mk(NElse, nil, nil, $10, nil);
+        copy_source($$->next, $8);
     }
     | TIF '(' expr ')' '{' stmt_list '}' TELIF '(' expr ')' '{' stmt_list '}' else_clause {
         $$ = mk(NIfElse, nil, nil, $3, $6);
         $$->next = mk(NElseIf, nil, nil, $10, $13);
+        copy_source($$->next, $8);
         if($15) $$->next->next = $15;
     }
     | TWHILE '(' expr ')' '{' stmt_list '}' { $$ = mk(NWhile, nil, nil, $3, $6); }
     | TFOR '(' for_init TFORSEMI for_cond TFORSEMI for_step ')' '{' stmt_list '}' { $$ = mk(NFor, nil, nil, $3, mk(NFor, nil, nil, $5, $7)); $$->right->next = $10; }
     | alt_stmt { $$ = $1; }
     | TUSE '{' dep_list '}' { $$ = mk(NUse, nil, nil, $3, nil); }
-    | TRAWC { $$ = mk(NRawC, $1, nil, nil, nil); }
+    | TRAWC { $$ = $1; }
     ;
 
 alt_stmt:
@@ -699,9 +720,10 @@ for_step:
 
 else_clause:
     /* empty */ { $$ = nil; }
-    | TELSE '{' stmt_list '}' { $$ = mk(NElse, nil, nil, $3, nil); }
+    | TELSE '{' stmt_list '}' { $$ = mk(NElse, nil, nil, $3, nil); copy_source($$, $1); }
     | TELIF '(' expr ')' '{' stmt_list '}' else_clause {
         $$ = mk(NElseIf, nil, nil, $3, $6);
+        copy_source($$, $1);
         $$->next = $8;
     }
     ;

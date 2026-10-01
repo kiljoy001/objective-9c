@@ -1,0 +1,4 @@
+main {
+    Vault v = new Vault();
+    v.corrupt();
+}

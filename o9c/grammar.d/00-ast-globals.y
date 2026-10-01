@@ -108,6 +108,9 @@ struct Node {
     int type;
     int flags;
     int line;
+    char *sourcefile;
+    int sourceline;
+    int rawline;
     char *name;
     char *typename;
     char *qname;
@@ -146,6 +149,10 @@ ClassDef *classes;
 static int semantic_errors;
 static int in_prescan;              /* 1 during prescan phase, 0 during parse */
 static int cur_line = 1;            /* current source line for diagnostics */
+static int token_line = 1;
+static int raw_body_line;
+static void node_source(Node*, int);
+static void cprint(char*, ...);
 static int sem_line;                /* line of the node being semantically checked */
 static Node *gen_class;             /* class whose method body is being generated */
 static Type *gen_return_type;        /* method return type while emitting body */
@@ -215,6 +222,8 @@ Node*
 find_class(char *name)
 {
     ClassDef *c;
+    if(name == nil)
+        return nil;
     for(c = classes; c; c = c->next)
         if(strcmp(c->name, name) == 0) return c->node;
     return nil;

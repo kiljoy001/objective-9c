@@ -1,0 +1,258 @@
+function ReadZabbixKey() string {
+    string out;
+    c {
+        uchar hdr[13];
+        char key[256];
+        vlong klen;
+        int i, n;
+
+        out = o9_string_new("", 0);
+        if(readn(0, hdr, 13) == 13 && memcmp(hdr, "ZBXD\x01", 5) == 0){
+            klen = 0;
+            for(i = 0; i < 8; i++)
+                klen |= ((vlong)hdr[5 + i]) << (i * 8);
+            if(klen >= sizeof(key))
+                klen = sizeof(key) - 1;
+            if(klen > 0){
+                n = readn(0, key, (long)klen);
+                if(n > 0){
+                    while(n > 0 && (key[n-1] == '\n' || key[n-1] == '\r'))
+                        n--;
+                    key[n] = 0;
+                    out = o9_string_from_c(key);
+                }
+            }
+        }
+    }
+    return out;
+}
+
+function WriteZabbixReply(string val) int64 {
+    c {
+        uchar hdr[13];
+        char *cval;
+        vlong len;
+        int i;
+
+        memcpy(hdr, "ZBXD\x01", 5);
+        cval = o9_string_cstr(val);
+        if(cval != nil){
+            len = strlen(cval);
+            for(i = 0; i < 8; i++)
+                hdr[5 + i] = (len >> (i * 8)) & 0xFF;
+            write(1, hdr, 13);
+            write(1, cval, len);
+            free(cval);
+        }
+    }
+    return 0;
+}
+
+function Sysname() string {
+    string out;
+    c {
+        char buf[128];
+        int fd, n;
+
+        out = o9_string_new("", 0);
+        fd = open("/dev/sysname", OREAD);
+        if(fd >= 0){
+            n = read(fd, buf, sizeof(buf)-1);
+            close(fd);
+            if(n > 0){
+                while(n > 0 && (buf[n-1] == '\n' || buf[n-1] == ' ' || buf[n-1] == '\r'))
+                    n--;
+                buf[n] = 0;
+                out = o9_string_from_c(buf);
+            }
+        }
+    }
+    return out;
+}
+
+function Uname() string {
+    string out;
+    c {
+        char sname[64];
+        char buf[128];
+        int fd, n;
+
+        strcpy(sname, "9front");
+        fd = open("/dev/sysname", OREAD);
+        if(fd >= 0){
+            n = read(fd, sname, sizeof(sname)-1);
+            close(fd);
+            if(n > 0){
+                while(n > 0 && (sname[n-1] == '\n' || sname[n-1] == ' '))
+                    n--;
+                sname[n] = 0;
+            }
+        }
+        snprint(buf, sizeof(buf), "Plan9 %s 9front amd64 (objective-9c)", sname);
+        out = o9_string_from_c(buf);
+    }
+    return out;
+}
+
+function UptimeSec() string {
+    string out;
+    c {
+        char buf[128];
+        int fd, n;
+
+        out = o9_string_from_c("0");
+        fd = open("/dev/time", OREAD);
+        if(fd >= 0){
+            n = read(fd, buf, sizeof(buf)-1);
+            close(fd);
+            if(n > 0){
+                char *p = buf;
+                char *end;
+                buf[n] = 0;
+                while(*p == ' ' || *p == '\t') p++;
+                end = p;
+                while(*end >= '0' && *end <= '9') end++;
+                *end = 0;
+                out = o9_string_from_c(p);
+            }
+        }
+    }
+    return out;
+}
+
+function MemTotal() string {
+    string out;
+    c {
+        char buf[512];
+        int fd, n;
+
+        out = o9_string_from_c("0");
+        fd = open("/dev/swap", OREAD);
+        if(fd >= 0){
+            n = read(fd, buf, sizeof(buf)-1);
+            close(fd);
+            if(n > 0){
+                char *p;
+                char *start;
+                buf[n] = 0;
+                p = strstr(buf, " memory");
+                if(p != nil){
+                    *p = 0;
+                    start = buf;
+                    while(*start == ' ' || *start == '\t') start++;
+                    out = o9_string_from_c(start);
+                }
+            }
+        }
+    }
+    return out;
+}
+
+function MemUsed() string {
+    string out;
+    c {
+        char buf[512];
+        int fd, n;
+
+        out = o9_string_from_c("0");
+        fd = open("/dev/swap", OREAD);
+        if(fd >= 0){
+            n = read(fd, buf, sizeof(buf)-1);
+            close(fd);
+            if(n > 0){
+                char *p;
+                char *slash;
+                char *start;
+                char *sl;
+                buf[n] = 0;
+                p = strstr(buf, " user");
+                if(p != nil){
+                    *p = 0;
+                    slash = strrchr(buf, '\n');
+                    start = slash ? slash + 1 : buf;
+                    sl = strchr(start, '/');
+                    if(sl != nil){
+                        vlong pages;
+                        vlong bytes;
+                        char numbuf[32];
+                        *sl = 0;
+                        pages = atoll(start);
+                        bytes = pages * 4096;
+                        snprint(numbuf, sizeof(numbuf), "%lld", bytes);
+                        out = o9_string_from_c(numbuf);
+                    }
+                }
+            }
+        }
+    }
+    return out;
+}
+
+function ProcCount() string {
+    string out;
+    c {
+        char buf[32];
+        int fd, n, cnt;
+        Dir *dirs;
+
+        cnt = 0;
+        fd = open("/proc", OREAD);
+        if(fd >= 0){
+            while((n = dirread(fd, &dirs)) > 0){
+                cnt += n;
+                free(dirs);
+            }
+            close(fd);
+        }
+        snprint(buf, sizeof(buf), "%d", cnt);
+        out = o9_string_from_c(buf);
+    }
+    return out;
+}
+
+class ZabbixAgent {
+    method string dispatch(string key) {
+        if(cmp(key, "agent.ping") == 0) {
+            return "1";
+        }
+        if(cmp(key, "agent.version") == 0) {
+            return "objective-9c-zabbix-1.0";
+        }
+        if(cmp(key, "system.hostname") == 0) {
+            Task<string> t = spawn Sysname();
+            return t.await();
+        }
+        if(cmp(key, "system.uname") == 0) {
+            Task<string> t = spawn Uname();
+            return t.await();
+        }
+        if(cmp(key, "system.uptime") == 0) {
+            Task<string> t = spawn UptimeSec();
+            return t.await();
+        }
+        if(cmp(key, "vm.memory.size[total]") == 0) {
+            Task<string> t = spawn MemTotal();
+            return t.await();
+        }
+        if(cmp(key, "vm.memory.size[used]") == 0) {
+            Task<string> t = spawn MemUsed();
+            return t.await();
+        }
+        if(cmp(key, "proc.num[]") == 0) {
+            Task<string> t = spawn ProcCount();
+            return t.await();
+        }
+        return "ZBX_NOTSUPPORTED";
+    }
+}
+
+main {
+    Task<string> tk = spawn ReadZabbixKey();
+    string key = tk.await();
+    if(len(key) > 0) {
+        ZabbixAgent agent = new ZabbixAgent();
+        string reply = agent.dispatch(key);
+        Task<int64> tr = spawn WriteZabbixReply(reply);
+        int64 dummy = tr.await();
+    }
+}

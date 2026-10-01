@@ -130,6 +130,11 @@ extern int   o9_equiv_candidate_reason(const char *source_path, const char *muta
 extern void  o9_set_call_err(char *e);
 extern char* o9_get_call_err(void);
 extern void  o9_actor_enter(void *dispatch_chan, char *oid);
+extern void  o9_dag_actor_exit(void *actor_chan);
+extern int   o9_dag_dump(char *buf, int nbuf);
+extern int   o9_dag_waiting_for(void *caller_chan, char *callee_out, int ncallee, char *method_out, int nmeth);
+extern int   o9_proc_dead(int pid);
+extern vlong o9_registry_get_gen(char *oid);
 extern void  o9_set_current_user(char *user);
 extern void  o9_set_current_request(char *user, int blessed);
 extern char* o9_current_user_c(void);
@@ -419,5 +424,54 @@ extern void*     o9_task_chan(O9Task *t);	/* internal: the done Channel* (as voi
 extern vlong     o9_task_await(O9Task *t);	/* block; value, or per-proc err + 0 */
 extern double    o9_task_await_double(O9Task *t);
 extern void      o9_task_close(O9Task *t);
+
+/* Vault - encrypted storage and isolated memory arena. */
+typedef struct O9KeySlot O9KeySlot;
+struct O9KeySlot {
+	char	name[64];
+	uchar	nonce[24];
+	uchar	mac[16];
+	uchar	*ct;
+	long	nct;
+	int	used;
+};
+
+enum {
+	O9ArenaMaxSlots = 64,
+};
+
+typedef struct O9KeyArena O9KeyArena;
+struct O9KeyArena {
+	uchar		key[32];
+	char		salt[128];
+	int		has_salt;
+	int		valid;
+	O9KeySlot	slots[O9ArenaMaxSlots];
+	int		nslots;
+};
+
+typedef struct O9Vault O9Vault;
+struct O9Vault {
+	O9KeyArena	*arena;
+};
+
+extern O9String*  o9_salt(void);
+extern O9Vault*   o9_vault_new(void);
+extern O9Vault*   o9_vault_new_key(O9String *keyhex);
+extern O9Vault*   o9_vault_new_pass(O9String *pass, O9String *salt);
+extern vlong      o9_vault_valid(O9Vault *v);
+extern O9String*  o9_vault_salt(O9Vault *v);
+extern O9String*  o9_vault_seal(O9Vault *v, O9String *msg);
+extern O9String*  o9_vault_open(O9Vault *v, O9String *blob);
+extern vlong      o9_vault_seal_file(O9Vault *v, O9String *path, O9String *data);
+extern O9String*  o9_vault_open_file(O9Vault *v, O9String *path);
+extern vlong      o9_vault_seal_tab(O9Vault *v, O9String *path, O9Tabula *t);
+extern O9Tabula*  o9_vault_open_tab(O9Vault *v, O9String *path);
+extern vlong      o9_vault_put(O9Vault *v, O9String *name, O9String *plaintext);
+extern O9String*  o9_vault_get(O9Vault *v, O9String *name);
+extern vlong      o9_vault_has(O9Vault *v, O9String *name);
+extern vlong      o9_vault_drop(O9Vault *v, O9String *name);
+extern void       o9_vault_wipe(O9Vault *v);
+extern void       o9_vault_close(O9Vault *v);
 
 #endif

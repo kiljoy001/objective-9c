@@ -1,0 +1,3 @@
+main {
+    print("*/ comments */\n"); // café
+} // A trailing backslash in original text: \

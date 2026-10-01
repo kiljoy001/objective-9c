@@ -1,0 +1,167 @@
+#!/bin/rc
+# Encrypted Fileserver 9P integration test:
+# Mounts the VaultServer actor's 9P facade, stores and retrieves data,
+# seals/opens secret keyword records, verifies zero-leakage in state dump,
+# wipes key arena, and asserts zeroization.
+rfork e
+
+tool=./o9c/o9c
+fail=0
+app=VaultServer
+srv=/srv/^$app
+mtpt=/n/vault.$pid
+bin=/tmp/vs.$pid
+cfile=/tmp/vs.$pid.c
+ofile=/tmp/vs.$pid.6
+result=/tmp/vs_result.$pid
+
+rm -f $result
+
+fn cleanup {
+	unmount $mtpt >[2]/dev/null
+	slay vs.$pid | rc >[2]/dev/null
+	rm -rf $mtpt >[2]/dev/null
+	rm -f $srv $cfile $ofile $bin $result >[2]/dev/null
+}
+
+fn fail_msg {
+	echo 'vault_server: FAIL: '$* >[1=2]
+	echo $* >> $result
+	fail=1
+}
+
+fn ok_msg {
+	echo $* >> $result
+}
+
+if(! test -d $mtpt)
+	mkdir $mtpt
+
+# Build server
+if(! $tool < o9c/test/vault_server.o9 > $cfile){
+	fail_msg 'transpile failed'
+	cleanup
+	exit fail
+}
+if(! 6c -FVw -I. -o $ofile $cfile){
+	fail_msg 'compile failed'
+	cleanup
+	exit fail
+}
+if(! 6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a){
+	fail_msg 'link failed'
+	cleanup
+	exit fail
+}
+
+# Start with O9DEBUG=1 so state and actors can be inspected
+rm -f $srv
+O9DEBUG=1 $bin &
+spid=$apid
+
+# Wait for /srv post
+n=0
+while(! test -e $srv){
+	if(~ $n 50){
+		fail_msg 'server never posted '$srv
+		cleanup
+		exit fail
+	}
+	sleep 0.1
+	n=`{hoc -e $n+1}
+}
+ok_msg 'server posted '$srv
+
+# Mount 9P tree
+mount $srv $mtpt
+if(! test -e $mtpt/ctl){
+	fail_msg 'missing ctl file after mount'
+	cleanup
+	exit fail
+}
+
+# Check actors telemetry
+actors=`{cat $mtpt/actors}
+if(! ~ $actors *VaultServer*){
+	fail_msg 'actors missing VaultServer'
+}
+
+# Initial validity
+echo 'method VaultServer.s valid' > $mtpt/ctl
+v0=`{cat $mtpt/data}
+if(! ~ $v0 1 *1*){
+	fail_msg 'expected valid=1, got: '$v0
+}
+
+# Store into encrypted arena slot
+echo 'method VaultServer.s store arg0=key1 arg1=classified_token_99' > $mtpt/ctl
+echo 'method VaultServer.s has arg0=key1' > $mtpt/ctl
+h1=`{cat $mtpt/data}
+if(! ~ $h1 1 *1*){
+	fail_msg 'expected has=1, got: '$h1
+}
+
+# Retrieve from encrypted arena slot
+echo 'method VaultServer.s retrieve arg0=key1' > $mtpt/ctl
+r1=`{cat $mtpt/data}
+if(! ~ $r1 classified_token_99 *classified_token_99*){
+	fail_msg 'expected classified_token_99, got: '$r1
+}
+
+# Seal and open secret record using Vault bridge
+echo 'method VaultServer.s seal_record arg0=top_secret_intel' > $mtpt/ctl
+echo 'method VaultServer.s open_record' > $mtpt/ctl
+rec1=`{cat $mtpt/data}
+if(! ~ $rec1 top_secret_intel *top_secret_intel*){
+	fail_msg 'expected top_secret_intel, got: '$rec1
+}
+
+# Inspect state dump over 9P: assert NO plaintext leakage
+state=`{cat $mtpt/state}
+if(~ $state *top_secret_intel*){
+	fail_msg 'SECURITY LEAK: plaintext top_secret_intel appeared in state dump!'
+}
+if(~ $state *classified_token_99*){
+	fail_msg 'SECURITY LEAK: plaintext arena token appeared in state dump!'
+}
+if(~ $state *hunter2*){
+	fail_msg 'SECURITY LEAK: passphrase appeared in state dump!'
+}
+if(~ $state *81aee1a7dc10473b68f7593ac3ab9bee7e12e08290f886fa23faf4c6d66de95b*){
+	fail_msg 'SECURITY LEAK: raw AEAD key appeared in state dump!'
+}
+if(! ~ $state *'classified__blob'*){
+	fail_msg 'expected classified__blob in state dump'
+}
+
+# Wipe key arena
+echo 'method VaultServer.s wipe' > $mtpt/ctl
+echo 'method VaultServer.s valid' > $mtpt/ctl
+v_post=`{cat $mtpt/data}
+if(! ~ $v_post 0 *0*){
+	fail_msg 'expected valid=0 after wipe, got: '$v_post
+}
+
+# Operations must fail after wipe
+echo 'method VaultServer.s retrieve arg0=key1' > $mtpt/ctl
+r_wiped=`{cat $mtpt/data}
+if(~ $r_wiped *classified_token_99*){
+	fail_msg 'retrieve should fail after wipe'
+}
+
+echo 'method VaultServer.s open_record' > $mtpt/ctl
+rec_wiped=`{cat $mtpt/data}
+if(~ $rec_wiped *top_secret_intel*){
+	fail_msg 'open_record should fail after wipe'
+}
+
+cleanup
+
+if(~ $fail 0){
+	echo 'vault_server: OK'
+	exit 0
+}
+if not{
+	echo 'vault_server: FAIL'
+	exit fail
+}

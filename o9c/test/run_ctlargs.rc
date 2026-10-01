@@ -7,7 +7,7 @@ app=o9ctlargs
 src=o9c/test/args_app.o9
 bin=/tmp/o9args.$pid
 mtpt=/n/o9args.$pid
-srv=/srv/o9.$app.$app.app
+srv=/srv/$app
 fail=0
 fn cleanup { unmount $mtpt >[2]/dev/null; kill o9args.$pid >[2]/dev/null; rm -f $srv $bin /tmp/o9args.$pid.^* }
 fn ck { if(! ~ $1 $2){ echo 'ctlargs: FAIL: '$3' got=['$1'] want=['$2']' >[1=2]; fail=1 } }

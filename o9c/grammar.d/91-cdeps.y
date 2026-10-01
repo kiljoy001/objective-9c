@@ -451,14 +451,14 @@ emit_cdeps(void)
     for(d = used_cdeps; d != nil; d = d->usednext){
         if(strcmp(d->name, "event") == 0)
             hasevent = 1;
-        print("/* o9: dep %s %s */\n", d->system ? "system" : "project", d->name);
+        cprint("/* o9: dep %s %s */\n", d->system ? "system" : "project", d->name);
         if(d->include != nil)
-            print("/* o9: include %s */\n", d->include);
+            cprint("/* o9: include %s */\n", d->include);
         if(d->source != nil)
-            print("/* o9: source %s */\n", d->source);
+            cprint("/* o9: source %s */\n", d->source);
         if(d->archive != nil){
             x = expand_objtype(d->archive);
-            print("/* o9: archive %s */\n", x);
+            cprint("/* o9: archive %s */\n", x);
             free(x);
         }
     }
@@ -466,12 +466,12 @@ emit_cdeps(void)
         if(d->header == nil)
             continue;
         if(d->header[0] == '<' || d->header[0] == '"')
-            print("#include %s\n", d->header);
+            cprint("#include %s\n", d->header);
         else
-            print("#include \"%s\"\n", d->header);
+            cprint("#include \"%s\"\n", d->header);
     }
     if(used_cdeps != nil)
-        print("\n");
+        cprint("\n");
     if(hasevent)
-        print("static int o9_draw_resized;\nstatic int o9_draw_width;\nstatic int o9_draw_height;\n\nvoid\neresized(int new)\n{\n\tif(new && getwindow(display, Refnone) < 0)\n\t\tsysfatal(\"cannot reattach draw window\");\n\tif(screen != nil){\n\t\to9_draw_resized = 1;\n\t\to9_draw_width = Dx(screen->r);\n\t\to9_draw_height = Dy(screen->r);\n\t}\n}\n\n");
+        cprint("static int o9_draw_resized;\nstatic int o9_draw_width;\nstatic int o9_draw_height;\n\nvoid\neresized(int new)\n{\n\tif(new && getwindow(display, Refnone) < 0)\n\t\tsysfatal(\"cannot reattach draw window\");\n\tif(screen != nil){\n\t\to9_draw_resized = 1;\n\t\to9_draw_width = Dx(screen->r);\n\t\to9_draw_height = Dy(screen->r);\n\t}\n}\n\n");
 }

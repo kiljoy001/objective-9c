@@ -1,0 +1,17 @@
+import "ring.o9";
+main {
+    Ring r = new Ring(8);
+    r.addNode("dev9p");
+    r.addNode("authomatic");
+    r.addNode("babyfileserver");
+    print("nodes ", r.nodeCount(), " slots ", r.slotCount(), "\n");
+    print("owner1 ", r.owner("mutant.4711"), "\n");
+    print("owner1again ", r.owner("mutant.4711"), "\n");
+    print("owner2 ", r.owner("mutant.9999"), "\n");
+    print("succ0 ", r.successor("mutant.4711", 0), "\n");
+    print("succ1 ", r.successor("mutant.4711", 1), "\n");
+    print("succ2 ", r.successor("mutant.4711", 2), "\n");
+    print("succ3 ", r.successor("mutant.4711", 3), "\n");
+    print("dup ", r.addNode("dev9p"), "\n");
+    print("empty ", r.owner("x"), "\n");
+}

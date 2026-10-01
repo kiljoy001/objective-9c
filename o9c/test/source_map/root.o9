@@ -1,0 +1,15 @@
+import "middle.o9";
+
+main {
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            int64 value = 7; // import splicing must preserve lines longer than 1023 bytes
+    if(value == 7){
+        print(
+            "root marker\n"
+        );
+    }
+    Task<int64> t = spawn origin();
+    print(t.await(), "\n");
+    MappedLeaf leaf = new MappedLeaf();
+    print(leaf.value(), "\n");
+    print(leaf.branch(2), "\n");
+}

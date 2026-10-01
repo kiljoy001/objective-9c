@@ -1,0 +1,17 @@
+import "leaf.o9";
+
+// This imported entry is stripped, but its newlines must survive.
+main {
+    print("must not run\n");
+}
+
+function origin() int64 {
+    c {
+#define MAPSUM(a, b) \
+        ((a) + (b))
+        print("raw marker %d\n", MAPSUM(1, 2));
+#undef MAPSUM
+    }
+    return
+        23;
+}

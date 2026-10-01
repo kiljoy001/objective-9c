@@ -1,0 +1,1 @@
+main { Vault v = new Vault("a", "b", "c"); }

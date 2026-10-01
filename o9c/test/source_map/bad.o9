@@ -1,0 +1,10 @@
+function bad() int64 {
+    c {
+        missing_source_map_symbol = 1;
+    }
+    return 0;
+}
+main {
+    Task<int64> t = spawn bad();
+    print(t.await(), "\n");
+}

@@ -1,0 +1,91 @@
+// Vault: encrypted fileserver, isolated memory arena, and secret integration
+class SecretBox {
+    secret string token;
+}
+
+main {
+    string keyhex = "81aee1a7dc10473b68f7593ac3ab9bee7e12e08290f886fa23faf4c6d66de95b";
+    Vault v1 = new Vault(keyhex);
+    Vault v2 = new Vault("hunter2", "e2e.vault.salt");
+
+    print("v1 valid: ", v1.valid(), "\n");
+    print("v2 valid: ", v2.valid(), "\n");
+
+    // In-memory seal and open round-trip
+    string blob = v1.seal("hello world from arena");
+    string opened = v2.open(blob);
+    print("opened: ", opened, "\n");
+
+    // Tampered blob must fail to open
+    string badblob = cat("0", blob);
+    string badopen = v2.open(badblob);
+    if(badopen == nil){
+        print("tamper: rejected\n");
+    } else {
+        print("tamper: accepted (bug)\n");
+    }
+
+    // Arena slot storage (defense-in-depth: encrypted in arena memory)
+    v2.put("api_token", "vault-slot-payload-42");
+    print("has token: ", v2.has("api_token"), "\n");
+    print("get token: ", v2.get("api_token"), "\n");
+    v2.drop("api_token");
+    print("has after drop: ", v2.has("api_token"), "\n");
+
+    // File encryption
+    string path = "/tmp/o9_test_vault_file.enc";
+    v2.sealFile(path, "encrypted persistent file on disk");
+    string filedata = v2.openFile(path);
+    print("file: ", filedata, "\n");
+
+    // Tabula encryption (Inert Data Law compliant)
+    tabula t = new tabula("secrets", "service,account,pass");
+    t.add("s1");
+    t.set("service", "plan9");
+    t.set("account", "glenda");
+    t.set("pass", "shhh");
+    string tabpath = "/tmp/o9_test_vault_tab.enc";
+    v2.sealTab(tabpath, t);
+
+    tabula dec = v2.openTab(tabpath);
+    print("tabula first: ", dec.first(), "\n");
+    print("tabula service: ", dec.get("service"), "\n");
+    print("tabula account: ", dec.get("account"), "\n");
+    print("tabula pass: ", dec.get("pass"), "\n");
+
+    // Secret keyword integration: seal_vault_ and open_vault_
+    SecretBox box = new SecretBox();
+    box.seal_vault_token(v2, "classified actor data");
+    print("box open: ", box.open_vault_token(v2), "\n");
+
+    // Wipe key and all arena slots
+    v2.wipe();
+    print("v2 valid after wipe: ", v2.valid(), "\n");
+    string failopen = v2.open(blob);
+    if(failopen == nil){
+        print("wipe: safe\n");
+    } else {
+        print("wipe: failed (bug)\n");
+    }
+
+    // Automatic RNG salt generation
+    string standalone_salt = salt();
+    print("salt len: ", len(standalone_salt), "\n");
+
+    Vault v3 = new Vault("hunter2");
+    print("v3 valid: ", v3.valid(), "\n");
+    string auto_salt = v3.salt();
+    print("v3 salt len: ", len(auto_salt), "\n");
+    string v3_blob = v3.seal("passphrase payload");
+
+    // Reopen using the auto-generated salt
+    Vault v4 = new Vault("hunter2", auto_salt);
+    print("v4 valid: ", v4.valid(), "\n");
+    string v4_opened = v4.open(v3_blob);
+    print("v4 opened: ", v4_opened, "\n");
+    v3.close();
+    v4.close();
+
+    v1.close();
+    v2.close();
+}

@@ -1,0 +1,14 @@
+</$objtype/mkfile
+
+TARG=syslogmon
+
+all:V:	$TARG
+
+$TARG:V:	syslogmon.o9
+	o9build syslogmon.o9 $TARG
+
+run:V:	$TARG
+	./$TARG
+
+clean:V:
+	rm -f syslogmon.c syslogmon.$O $TARG

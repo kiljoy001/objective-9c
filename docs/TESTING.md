@@ -6,6 +6,8 @@ authoritative behavior checks should compile and run through `mk`.
 
 ## Current Layers
 
+- `mk unit-test`: native C unit suites built on the `o9test` harness
+  (see "Unit Testing" below).
 - `mk ast-test`: parser and typechecking negatives.
 - `mk run-test`: end-to-end o9 programs compiled to Plan 9 C.
 - `mk issue-test`: focused C/runtime regressions.
@@ -26,6 +28,158 @@ python3 tools/o9crap.py instrument
 Generated C warnings are failures. The main e2e harness captures `6c` output
 and treats any `warning:` line as a regression. Do not hide warning noise in
 tests; fix the generated C or the runtime declaration that caused it.
+
+## Generated Plan 9 C
+
+`mk plan9-c-test` checks representative class, generic, tuple, spawn, scalar,
+channel, alt, state, and raw-C interop output, then compiles, links, and runs those programs using
+the native e2e harness. It is included in `mk verify`.
+
+Compiler-owned output uses native headers and types, `nil`, libthread
+channels, and libc's `ainc`/`adec` atomics. Function definitions put the return
+type, signature, and opening brace on separate lines. Struct typedefs are
+separate from their definitions, with one member declaration per line.
+Automatic declarations and initialization are separate. Generated indentation
+uses tabs, with `if(...)`, `for(...)`, and `while(...)` spacing following
+Plan 9 `style(6)`. Existing ABI names and control-flow lowering are retained.
+Edit the templates in `o9c/grammar.d/`, not generated C. Raw-C interop bodies
+are preserved as written and excluded from the structural style checks.
+
+The gate also verifies that each generated ARC attach/detach pair addresses
+the same ledger slot. It is a structural regression check plus native
+execution, not a complete C style checker or an ARC leak detector.
+
+## Original source locations
+
+`mk source-map-test`, also in `mk verify`, transpiles, compiles, links, and
+runs a fixture with nested imports, a stripped imported main, multiline
+statements, deferred calls, branches, and raw C with a continued macro.
+It checks emitted return-statement locations, scans actual PCs within the
+expected functions using libmach, then asks Acid to report those PCs' files
+and lines. Removing the directives must make the PC checker fail. A separate
+invalid raw-C fixture must produce a compiler error at its original `.o9`
+file and line. The import fixture also exercises a source line over 1023 bytes.
+
+All C emission goes through `cprint` in `21-source-map.y`, including output
+from `02-type-helpers.y`, `40-codegen.y`, `50-app-facade.y`, and `91-cdeps.y`.
+AST nodes retain original file/line locations through import splicing.
+Generated statement lines are pinned to the statement's first source line;
+raw C retains its own successive line numbers. Generated scaffolding uses
+`<o9-generated>`, and input supplied without a filename uses `<stdin>`.
+For locations after line 1, a blank spacer after an adjusted `#line` keeps
+code beyond Plan 9 libmach's history boundary while preserving cc's line count.
+Exact debugger attribution to source line 1 remains a native libmach boundary
+limitation: `#line 1` preserves compiler diagnostics, but may have no matching
+PC. Put executable statements after the first source line when checking Acid
+locations. This gate does not change the native debugger.
+
+Generated C also contains readable source comments. Each lowered statement
+has an adjacent annotation, for example:
+
+```c
+/* o9: example.o9:4 | int64 value = 7; */
+```
+
+A numbered `/* o9 source: ... */` section at the end contains each original
+file, including imports, so multiline statements can be read in full beside
+their line references. Source text is captured before import rewriting.
+Comment terminators are displayed as `* /`, and control characters are
+escaped, so source text cannot accidentally end a generated comment.
+Annotations are outside raw-C bodies and precede the restored `#line`
+directives; they do not change compiler/debugger locations. They are C
+comments, with no source bundle or extraction utility in the executable.
+
+These checks establish source locations for representative emitted code;
+optimization can remove statements or merge their instructions, so they do
+not promise a distinct PC for every source line. `mk debug-test` separately
+tests the 9P debug-state view. Local actors
+use libthread channels, so actor scheduling and UI ownership tests should be
+separate from 9P facade/session transport tests.
+
+## Unit Testing
+
+Unit tests run natively on 9front against compiler and runtime internals,
+where a failure is cheap to localize. They use `o9test`, a small harness in
+`o9c/test/o9test.h`.
+
+The point of the harness is that **a failing check does not stop the run**.
+The older native tests call `sysfatal` on the first bad value, so a change
+that breaks twenty things reports one, and you find the next failure only
+after fixing this one. `o9test` records each failure with its case, its
+check name, and the got/want pair, then keeps going, so one run tells you
+everything that is broken.
+
+```c
+#include <u.h>
+#include <libc.h>
+#include "o9test.h"
+
+static void
+test_basename(void)
+{
+	O9T_CASE("o9_basename_c");
+	o9t_eqstr("nested", o9_basename_c("a/b/c"), "c");
+	o9t_eqint("suffix match", o9_has_suffix("x.tab", ".tab"), 1);
+}
+
+void
+main(int, char**)
+{
+	o9t_begin("mytest");
+	test_basename();
+	exits(o9t_report());
+}
+```
+
+`o9t_report()` prints the summary and returns nil only when every check
+passed, so `exits(o9t_report())` gives `mk` the non-zero exit it needs.
+Suites that link `libo9.a` pull in the thread library, so they use
+`threadmain` and `threadexitsall(o9t_report())` instead.
+
+Checks: `o9t_ok`, `o9t_eqint`, `o9t_eqstr` (nil-safe, and nil is *not*
+equal to `""`), `o9t_eqmem` (reports the first differing byte), `o9t_nil`,
+`o9t_notnil`, `o9t_fail` (printf-style, for conditions the others do not
+express), and `o9t_skip` (counted and listed, but does not fail the run —
+so a disabled check stays visible). Each check returns 1 on pass and 0 on
+fail, so a caller can guard follow-on work that would crash on a bad
+value:
+
+```c
+if(o9t_notnil("parsed", p))
+	o9t_eqstr("field", p->name, "x");
+```
+
+Disk-touching tests use `o9t_tmpdir()` and `o9t_tmppath()`, which honour
+`$TMP` so a host with a read-only `/tmp` (a shared drawterm server) can
+redirect them.
+
+Current suites:
+
+- `mk o9test-selftest`: the harness proving itself. It exercises both the
+  passing and the failing arm of every check, since a library that reports
+  a pass for a failing check would silently invalidate every suite above
+  it.
+- `mk type-test`: the compiler's type-builtin table and render helpers.
+- `mk runtime-helpers-test`: the runtime's file, journal, and path
+  primitives the grid is built on — `o9_append_event`, `o9_journal_split`,
+  `o9_count_dir`, `o9_has_suffix`, `o9_basename_c`,
+  `o9_strip_repo_prefix`, `o9_read_file_c`, `o9_kv_int`,
+  `o9_tsv_get_col(s)`, `o9_hash`.
+- `mk runtime-registry-test`, `mk runtime-9p-rpc-test`: object registry
+  generations and 9P response framing.
+
+When adding a unit suite, write the failing case first and confirm it
+fails for the stated reason. A suite that passes on a deliberately broken
+copy of the code under test is not testing it: the three mutants used to
+validate `runtime-helpers-test` (a flipped `o9_has_suffix` boundary, a
+dropped field reset in `o9_journal_split`, and a removed file/directory
+partition in `o9_count_dir`) were each caught by a specific named check.
+
+Where a test pins behavior that is arguably wrong, say so in the test
+rather than quietly asserting the bug. `o9_tsv_get_col` reports a
+header-only file as `found=1` with an empty value, which is
+indistinguishable from a real row with an empty cell; the suite records
+both, so tightening the runtime later has an obvious place to update.
 
 ## Property Testing
 
@@ -453,6 +607,34 @@ python3 tools/o9pmd.py --report-only --cpp-min-tokens 100
 Reports are written under `o9c/test/artifacts/`, which is ignored. Lower the
 token thresholds as duplicated compiler/runtime code is extracted into named
 helpers.
+
+## Actor Concurrency and Lifecycle Testing
+
+Actor interactions are checked as end-to-end tests under `mk run-test` and
+`mk verify`:
+
+- `e2e_actor_cycle.o9`: Multi-hop and 1-hop direct synchronous actor call
+  cycle detection. The runtime wait-for graph (`o9_call_edges[]` in
+  `o9_runtime.c`) runs `o9_path_exists_locked(callee, caller)` prior to
+  allowing any thread to block in `recvp(reply_chan)`. When a circular
+  dependency is detected ($A \to B \to A$), the runtime aborts the call
+  immediately without blocking, sets `werrstr("actor call cycle detected")`,
+  and returns `nil`/`-1`/`0.0`, allowing the caller's `try` block to catch
+  the error cleanly.
+- `e2e_actor_exit.o9`: Premature worker exit recovery. When an asynchronous
+  actor task is spawned (`task = spawn worker.run()`), the forwarder captures
+  the worker thread's libthread thread ID (`tid = proccreate(...)`). If the
+  worker proc terminates without writing to `replyc`, the forwarder polls
+  `nbrecvp` and detects termination via `threadpid(tid) < 0`, injecting a
+  synthetic `O9Reply` with error `"actor exited without reply"`. This unblocks
+  the awaiting caller cleanly.
+- `e2e_channel_handles.o9`: Stale channel object handle safety. When an actor
+  or channel object is deallocated via ARC / `delete`, teardown invokes
+  `chanclose(self->dispatch_chan)` rather than `chanfree`, keeping the channel
+  header allocated as an immutable tombstone. Senders inspect
+  `chanclosing(obj->dispatch_chan)` and verify `sendp(...) < 0`, returning
+  `"stale object handle"` instead of panicking on `libthread` assertion
+  failures (`assert(c->e == sizeof(void*))`).
 
 ## Order
 

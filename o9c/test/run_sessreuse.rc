@@ -12,7 +12,7 @@ app=o9reuse
 src=o9c/test/reap_app.o9
 bin=/tmp/o9reuse.$pid
 mtpt=/n/o9reuse.$pid
-srv=/srv/o9.$app.$app.app
+srv=/srv/$app
 fail=0
 fn cleanup { unmount $mtpt >[2]/dev/null; kill o9reuse.$pid >[2]/dev/null; rm -f $srv $bin /tmp/o9reuse.$pid.^* }
 if(! $tool $src > /tmp/o9reuse.$pid.c){ echo 'sessreuse: FAIL transpile' >[1=2]; exit fail }
