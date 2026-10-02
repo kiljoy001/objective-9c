@@ -603,9 +603,10 @@ needs a transport that carries its 9P conversation; the protocol name alone
 does not make every connection a 9P service. For a computed address, construct
 `NetConn` with a Plan 9 address string and call its `dial()` method.
 
-The older `near` and `far` tabula declarations remain for compatibility:
-
-`near`, `far`, and `listener` are data-locality forms for `tabula` only.
+The older `near` and `far` tabula declarations remain for compatibility.
+They select IL and TCP for tabula transfers; `dial` lets code choose a
+protocol and endpoint explicitly. `near`, `far`, and `listener` are
+data-locality forms for `tabula` only.
 They do not construct remote objects.
 
 ```o9
@@ -704,7 +705,7 @@ imports/
 Use clone sessions for result-bearing calls:
 
 ```rc
-mount -c /srv/o9.Counter.Counter.app /mnt/o9
+mount -c /srv/Counter /mnt/o9
 
 sid=`{cat /mnt/o9/clone}
 echo 'method Counter.c get' > /mnt/o9/$sid/ctl

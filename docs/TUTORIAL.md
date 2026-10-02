@@ -267,19 +267,22 @@ print(send(c, "method c get"), "\n"); // reply as text → 42
 `send` is for local object handles. In-process handles parse the text into
 the same selector+frame a compiled call site uses, with the reply formatted
 by the method table's ret column. Across a mounted app facade, use clone
-sessions from the shell or another client. Source-level network data uses
-tabula `near`/`far`/`listener`, not remote object handles.
+sessions from the shell or another client. Source-level network data can use
+`dial` for explicit connections or the older tabula `near`/`far`/`listener`
+forms, never remote object handles.
 
 ## 8. Your app from the shell — one fileserver, no client code
 
-The whole program is **one** 9P fileserver posted at `/srv/o9.<app>`,
+The whole program is **one** 9P fileserver posted at `/srv/<app>`,
 with a flat, uniform interface — the same shape for every app regardless
 of its classes. Objects are **not** paths; they're named in the ctl
 line (like factotum or plumber, not procfs). A method that ran needs
 `serve()` in `main` to keep the app alive.
+The commands below use the `Counter c` server from the
+[Quickstart](QUICKSTART.md#serve-it-through-9p).
 
 ```rc
-mount -c /srv/o9.Counter.Counter.app /mnt/o9
+mount -c /srv/Counter /mnt/o9
 cat /mnt/o9/status                   # live objects: which classes/instances exist
 cat /mnt/o9/methods                  # the public method surface (private omitted)
 sid=`{cat /mnt/o9/clone}
@@ -305,8 +308,8 @@ Each session directory has its own `ctl`, `data`, and `status`.
 A public method is an explicit app-facade command — no REST/gRPC/schema
 layer to author. The shell, a script, another o9 program, and a remote
 machine all call it the same way: allocate a session, write text to its
-`ctl`, then read that session's `status`/`data`. Source-level `near` and
-`far` still move tabula data only; they do not create remote object
+`ctl`, then read that session's `status`/`data`. The retained `near` and
+`far` forms still move tabula data only; they do not create remote object
 handles. (e2e_twoclass.o9 serves two classes as peers from one post;
 session tests prove outside processes drive it over real 9P without
 sharing result buffers.)
@@ -314,6 +317,8 @@ sharing result buffers.)
 Across machines it's the same, plus one import
 (demo/TWO_MACHINE_DEMO.md): `rimport host /srv /n/x`, then use `near tabula`
 to read `exports/` and `push()` to deposit data into `imports/`.
+For a direct protocol and endpoint, use `dial protocol host:port` and mount
+the resulting `NetConn` when the peer serves 9P.
 
 ### Inspecting live state — debug only
 
@@ -325,8 +330,8 @@ public plain, private as `debug:<field>`, `secret` fields still sealed.
 Off by default, encapsulation is preserved:
 
 ```rc
-O9DEBUG=1 /tmp/myapp &
-mount -c /srv/o9.Counter.Counter.app /mnt/o9
+O9DEBUG=1 /tmp/countersrv &
+mount -c /srv/Counter /mnt/o9
 cat /mnt/o9/state                    # metadata + live state (debug only)
 ```
 

@@ -30,7 +30,7 @@ sleep 6
 
 echo '=== importing remote /srv namespace:'
 rimport $host /srv /n/bfsrv || exit rimport
-srv=/n/bfsrv/o9.o9tabdemo.o9tabdemo.app
+srv=/n/bfsrv/o9tabdemo
 
 echo '=== local consumer reads remote exports/orders.tab and pushes imports/orders.tab:'
 /tmp/o9tabcons o9tabconsumer $srv || exit consumer-run

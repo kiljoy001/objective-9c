@@ -25,6 +25,11 @@ authoritative behavior checks should compile and run through `mk`.
 python3 tools/o9crap.py instrument
 ```
 
+The positive factotum login branch in `mk auth-test` runs only with
+`O9AUTH_TEST=required` and `O9_TEST_PASSWORD` set to the password of the
+current 9front user. Without those settings, `mk verify` reports that branch
+as skipped while running the other auth checks.
+
 Generated C warnings are failures. The main e2e harness captures `6c` output
 and treats any `warning:` line as a regression. Do not hide warning noise in
 tests; fix the generated C or the runtime declaration that caused it.

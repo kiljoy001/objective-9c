@@ -45,3 +45,7 @@ near tabula lan = new tabula("orders", "item,qty,status") @ "il!host!9999";
 far tabula wan = new tabula("orders", "item,qty,status") @ "tcp!host!9999";
 listener tabula server = new tabula("orders", "item,qty,status") @ "il!*!9999";
 ```
+
+These locality declarations remain supported for tabula data. New code can
+use `dial protocol host:port` for explicit connections; the target must serve
+9P before a `NetConn` can be mounted as a file tree.

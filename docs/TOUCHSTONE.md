@@ -93,13 +93,15 @@ the test that the architecture is coherent:
 - **secret field** = a struct field stored encrypted (a sealed cell).
 - **the object** = struct + the code that operates on it.
 - **the application** = many such structs served from one process under
-  one `/srv/o9.<app>` (per-app fileserver; see roadmap A).
-- **distance tiers** = how far tabula data travels.  `same` is an in-process
-  tabula.  `near` reads a tabula over **9P/IL**.  `far` reads a tabula over
-  **9P/TCP**.  `listener` serves local tabula exports/imports through the
-  app's 9P tree.  Remote objects are rejected, and the old runtime object-RPC
-  fallback is removed; data crosses as `.tab` text and the receiver's local
-  code decides what to do.
+  one `/srv/<app>` (per-app fileserver; see roadmap A).
+- **distance tiers** = how far tabula data travels. `same` is an in-process
+  tabula. The compatibility forms `near` and `far` read tabulae over
+  **9P/IL** and **9P/TCP**; `listener` serves local tabula exports/imports
+  through the app's 9P tree. For explicit connections,
+  `dial protocol host:port` constructs a `NetConn`, including for protocols
+  outside those two tabula forms. Remote objects are rejected, and the old
+  runtime object-RPC fallback is removed; data crosses as `.tab` text and the
+  receiver's local code decides what to do.
 - **distributed application shape** = local ownership plus tabula reduction.
   Each node runs installed code against its own local state, publishes compact
   tabulae, and imports inert tabulae from peers or controllers. A coordinator
@@ -123,7 +125,7 @@ Each item is independently useful; the order is forced by what each one
 needs to exist first.
 
 - **A. Per-application fileserver.**  Collapse the per-object fileserver
-  to per-app: one process per app, one `/srv/o9.<app>` post, one shared
+  to per-app: one process per app, one `/srv/<app>` post, one shared
   facade (`clone`, `methods`, `status`, `exports/`, `imports/`, and
   per-session `ctl`/`data`/`status`). Objects are addressed by name through the
   facade or by in-process handles, not mounted as separate public object
@@ -210,7 +212,8 @@ That pattern is the language lesson:
 - code is installed and runs where the state is owned;
 - shard ownership is explicit tabula data;
 - `listener` publishes local progress or results;
-- `near` and `far` read remote tabula exports;
+- `near` and `far` read remote tabula exports in older source; explicit
+  `dial` connections are available for new code;
 - `push()` deposits proposed input into imports;
 - the receiver's local code validates and acts;
 - merge/reduce is local code over received tabulae, not remote method dispatch.
