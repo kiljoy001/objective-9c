@@ -16,7 +16,7 @@ o9 changed architectures partway through, and a feature was left behind:
   assembled from parts. Namespace composition was the load-bearing
   mechanism — it built the app.
 - **SHIPPED model (the facade):** an app is ONE fileserver in a fixed
-  SHAPE that exports a schema of virtual files — flat `/srv/o9.<app>`
+  SHAPE that exports a schema of virtual files — flat `/srv/<app>`
   with ctl/data/status/methods/clone/exports/imports. Objects live INSIDE
   it as named participants addressed through ctl, NOT as mountable parts.
   The app is a shape, not an assembly.

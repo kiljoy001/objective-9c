@@ -1,6 +1,6 @@
 # Two-Machine tabula Demo — network-first o9
 
-This demo is the current o9 networking model:
+This demo exercises tabula transfer through mounted 9P namespaces:
 
 - objects stay local to the app that owns them;
 - `.tab` data crosses the machine boundary through the app facade;
@@ -40,7 +40,7 @@ provider=$apid
 The app posts its 9P facade at:
 
 ```text
-/srv/o9.o9tabdemo.o9tabdemo.app
+/srv/o9tabdemo
 ```
 
 ## 3. Import the provider's `/srv` and run the consumer
@@ -48,7 +48,7 @@ The app posts its 9P facade at:
 ```rc
 rimport babyFileServer.rentonsoftworks.coin /srv /n/bfsrv
 
-srv=/n/bfsrv/o9.o9tabdemo.o9tabdemo.app
+srv=/n/bfsrv/o9tabdemo
 /tmp/o9tabcons o9tabconsumer $srv
 ```
 
@@ -89,6 +89,10 @@ of the consumer; it has only accepted inert text data into `imports/`.
 - `near tabula` reading a remote export through 9P.
 - `tabula.push()` depositing data into `imports/orders.tab`.
 - The core o9 rule: data can cross the network; object behavior stays local.
+
+`near` remains supported for this tabula workflow. New code can use
+`dial protocol host:port` when it needs an explicit connection; see the
+[language guide](../docs/LANGUAGE.md#dial-and-remote-tabulae).
 
 ## Why this replaced the old Counter demo
 

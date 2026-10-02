@@ -66,6 +66,14 @@ Expected output:
 15
 ```
 
+`o9build` keeps the generated Plan 9 C next to the binary, at
+`/tmp/counter.c` for this example. Read that file to review the transpiler's
+output. From the repository root, you can also run the transpiler alone:
+
+```rc
+./o9c/o9c < /tmp/counter.o9 > /tmp/counter.c
+```
+
 ## Serve It Through 9P
 
 Create `/tmp/countersrv.o9`:
@@ -101,11 +109,12 @@ o9build /tmp/countersrv.o9
 srvpid=$apid
 ```
 
-Mount the app and call methods through a clone session:
+Without a command-line app name, this program posts its last class name,
+`Counter`, under `/srv`. Mount it and call methods through a clone session:
 
 ```rc
 mkdir /mnt/o9 >[2]/dev/null
-mount -c /srv/o9.Counter.Counter.app /mnt/o9
+mount -c /srv/Counter /mnt/o9
 
 sid=`{cat /mnt/o9/clone}
 echo 'method Counter.c get' > /mnt/o9/$sid/ctl
@@ -130,32 +139,29 @@ Clean up:
 ```rc
 unmount /mnt/o9
 kill $srvpid
-rm -f /srv/o9.Counter.Counter.app
+rm -f /srv/Counter
 ```
 
 ## Run The Tests
 
-The main native checks are:
+Run the full native 9front verification suite with:
 
 ```rc
-mk ast-test
-mk run-test
-mk export-test
-mk tabula-transport-test
-mk session-test
-mk sessreuse-test
-mk ctlargs-test
-mk ctlquote-test
-mk issue-test
+mk verify
 ```
 
-For a full local pass, start with:
+For a faster first check, run:
 
 ```rc
 mk
 mk ast-test
 mk run-test
 ```
+
+The positive factotum login branch of `auth-test` needs a configured account
+for the current 9front user and `O9AUTH_TEST=required` with
+`O9_TEST_PASSWORD` set for that account. The default `mk verify` run
+exercises the other auth checks and reports that positive branch as skipped.
 
 ## Next Reading
 

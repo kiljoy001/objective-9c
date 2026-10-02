@@ -77,11 +77,12 @@ main {
 
 ## Mounted Method Call
 
-An app that stays alive with `serve()` posts a 9P service under `/srv`. Use
-clone sessions for result-bearing calls:
+An app that stays alive with `serve()` posts a 9P service under `/srv`. With
+no app name argument, the default is the last class name (`Counter` here).
+Use clone sessions for result-bearing calls:
 
 ```rc
-mount -c /srv/o9.Counter.Counter.app /mnt/o9
+mount -c /srv/Counter /mnt/o9
 sid=`{cat /mnt/o9/clone}
 echo 'method Counter.c get' > /mnt/o9/$sid/ctl
 cat /mnt/o9/$sid/data

@@ -88,7 +88,7 @@ A client can mount the app and read the data as text:
 
 ```rc
 # assuming the binary was started with app name "publisher"
-mount -c /srv/o9.publisher.publisher.app /mnt/o9
+mount -c /srv/publisher /mnt/o9
 cat /mnt/o9/exports/orders.tab
 ```
 
@@ -448,7 +448,7 @@ main {
 Shell client:
 
 ```rc
-mount -c /srv/o9.Counter.Counter.app /mnt/o9
+mount -c /srv/Counter /mnt/o9
 sid=`{cat /mnt/o9/clone}
 echo 'method Counter.c inc arg0=2' > /mnt/o9/$sid/ctl
 echo 'method Counter.c get' > /mnt/o9/$sid/ctl

@@ -4,7 +4,8 @@
 > is detail under those decisions.  Current architecture: an app is one
 > 9P server with a fixed facade (`clone`, session `ctl`/`data`/`status`,
 > `methods`, `exports/`, `imports/`). Objects are local CSP actors inside
-> that process. `near`, `far`, and `listener` move tabula data only;
+> that process. `near`, `far`, and `listener` move tabula data only, while
+> `dial protocol host:port` opens an explicit network connection;
 > source-level remote objects are rejected.
 
 o9 is built on one premise: **the network is not a library, it is the
@@ -29,7 +30,9 @@ Each ring uses the cheapest mechanism for what is allowed to cross it.
                   tabula data over 9P/TCP
 ```
 
-The source-level distance forms select transport for tabula data only.
+The older source-level distance forms select transport for tabula data only.
+`dial` creates a `NetConn` for an explicit protocol and endpoint; a 9P mount
+still requires a connection to a 9P service.
 Remote class/object construction is intentionally rejected, and the old
 runtime method-dispatch fallback over `ctl/data` is gone.
 Application composition is the app facade's job; the Plan 9 namespace
@@ -121,7 +124,7 @@ surface is the shared app fileserver facade:
  app process
  ├── actors (one proc per instance, CSP-serialized)
  ├── object/method stores     ← private runtime metadata
- ├── /srv/o9.<app>...         ← published app facade
+ ├── /srv/<app>              ← published app facade
  └── root files: clone, methods, status, exports, imports, sessions
 ```
 
