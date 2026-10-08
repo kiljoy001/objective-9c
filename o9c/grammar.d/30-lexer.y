@@ -580,6 +580,7 @@ yylex(void)
             if(strcmp(buf, "secret") == 0) return TSECRET;
             if(strcmp(buf, "public") == 0) return TPUBLIC;
             if(strcmp(buf, "private") == 0) return TPRIVATE;
+            if(strcmp(buf, "internal") == 0) return TINTERNAL;
             if(strcmp(buf, "try") == 0) return TTRY;
             if(strcmp(buf, "defer") == 0) return TDEFER;
             if(strcmp(buf, "cap") == 0) return TCAP;

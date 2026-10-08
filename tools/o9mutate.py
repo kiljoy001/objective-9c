@@ -260,13 +260,43 @@ MUTANTS = (
         "        }",
     ),
     Mutant(
+        "internal_impl_visibility",
+        "allow a public implementation of an internal interface method",
+        "if(((impl->flags ^ req->flags) & NFInternal) != 0){",
+        "if(0 && ((impl->flags ^ req->flags) & NFInternal) != 0){",
+        target="o9c/grammar.d/70-typecheck.y",
+    ),
+    Mutant(
+        "internal_ctl_exposure",
+        "allow internal actor methods through app ctl",
+        "if(m->flags & (NFPrivate|NFInternal))\n"
+        "        return 0;\n"
+        "    if(c != nil && c->name != nil && strcmp(m->name, c->name) == 0)",
+        "if(m->flags & NFPrivate)\n"
+        "        return 0;\n"
+        "    if(c != nil && c->name != nil && strcmp(m->name, c->name) == 0)",
+        target="o9c/grammar.d/40-codegen.y",
+    ),
+    Mutant(
+        "internal_metadata_exposure",
+        "list internal actor methods in facade metadata",
+        "if(m->flags & (NFPrivate|NFInternal))\n"
+        "        return 0;\n"
+        "    if(m->name != nil && c != nil && c->name != nil",
+        "if(m->flags & NFPrivate)\n"
+        "        return 0;\n"
+        "    if(m->name != nil && c != nil && c->name != nil",
+        target="o9c/grammar.d/40-codegen.y",
+    ),
+    Mutant(
         "disable_self_send_guard",
-        "allow synchronous actor calls to the current actor's own dispatch channel",
-        "if(dispatch_chan == nil || ctx->actor_chan == nil ||\n"
-        "\t   dispatch_chan != ctx->actor_chan)\n"
-        "\t\treturn 0;",
+        "disable the actor call cycle guard, allowing synchronous self-send",
+        "if(callee_chan == nil)\n"
+        "\t\treturn 0;\n"
+        "\tctx = o9_proc_ctx();",
         "if(1)\n"
-        "\t\treturn 0;",
+        "\t\treturn 0;\n"
+        "\tctx = o9_proc_ctx();",
         target="o9_runtime.c",
     ),
 )

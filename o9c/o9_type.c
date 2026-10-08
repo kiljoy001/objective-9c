@@ -40,6 +40,7 @@ static Builtin builtins[] = {
 	{ "uchar", "uchar", "scalar", "%ud", "0" },
 	{ "tabula", "O9Tabula*", "pointer", "%p", "nil" },	/* table handle */
 	{ "MountTable", "O9MountTable*", "pointer", "%p", "nil" },
+	{ "FileTree", "O9FileTree*", "pointer", "%p", "nil" },
 	{ "Vault", "O9Vault*", "pointer", "%p", "nil" },
 	{ nil, nil, nil, nil, nil }
 };

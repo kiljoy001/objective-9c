@@ -91,6 +91,14 @@ tabula-transport-test:V:	o9c libo9.a
 session-test:V:	o9c libo9.a
 	rc ./o9c/test/run_session.rc
 
+view-test:V:	o9c libo9.a
+	rc ./o9c/test/run_view.rc
+
+filetree-test:V:	libo9.a
+	$CC -I. -o o9c/test/filetree_test.$O o9c/test/filetree_test.c
+	$LD -o o9c/test/filetree_test o9c/test/filetree_test.$O libo9.a /$objtype/lib/libndb.a
+	o9c/test/filetree_test
+
 session-stress-test:V:	o9c libo9.a
 	rc ./o9c/test/run_session_stress.rc
 
@@ -257,6 +265,8 @@ tab-test:V:	libo9.a
 RUNTIME_OBJ=\
 	o9_dispatch.$O\
 	o9_runtime.$O\
+	o9_filetree.$O\
+	o9_view.$O\
 	o9_tab_discard.$O\
 	o9_crypto.$O\
 	monocypher.$O\
@@ -294,6 +304,12 @@ o9_dispatch.$O:	o9_dispatch_$objtype.s
 
 o9_runtime.$O:	o9_runtime.c o9.h
 	$CC -I$LIBTABDIR o9_runtime.c
+
+o9_filetree.$O:	o9_filetree.c o9.h
+	$CC o9_filetree.c
+
+o9_view.$O:	o9_view.c o9.h
+	$CC o9_view.c
 
 o9_tab_discard.$O:	o9_tab_discard.c
 	$CC -I$LIBTABDIR o9_tab_discard.c

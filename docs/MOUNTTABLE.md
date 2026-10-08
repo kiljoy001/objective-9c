@@ -14,6 +14,11 @@ exported, queried, or sent to another machine. Only local code that
 opens it as a `MountTable`, sets policy with `allowRoot()`, and calls
 `apply()` mutates the current namespace.
 
+For actor-owned 9P trees, `view(target, sourceId, mode)` and
+`unmount(target)` add view-specific rows. Apply these with `FileTree.apply()`;
+ordinary process namespace `MountTable.apply()` rejects them. See
+[Actor-owned views](VIEWS.md).
+
 ```o9
 MountTable mt = new MountTable();
 mt.dir("cache", 493);          // create root/cache, mode 0755

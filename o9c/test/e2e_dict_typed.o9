@@ -21,4 +21,12 @@ main {
 
     print("scott ", ages["scott"], "\n");
     print("front ", ages["front"], "\n");
+
+    Dict<double,int64> measures;
+    measures[1.5] = 15;
+    measures[2.25] = 225;
+    print("has1.5 ", measures.Has(1.5), "\n");
+    print("has3.5 ", measures.Has(3.5), "\n");
+    print("m1.5 ", measures[1.5], "\n");
+    print("m2.25 ", measures[2.25], "\n");
 }

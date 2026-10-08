@@ -1,0 +1,10 @@
+class IncompleteView {
+    internal method FileTree display(string id, string caller) {
+        return new FileTree();
+    }
+}
+
+main {
+    IncompleteView provider = new IncompleteView();
+    viewController(provider);
+}

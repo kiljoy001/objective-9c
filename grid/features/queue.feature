@@ -110,6 +110,20 @@ Feature: Two-tier work queue over a shared 9P tree
     Then the queue worker output reports skipped=1 tasks=0
     And the existing "tasks/pending/dup.001.tab" is unchanged
 
+  @new @infra
+  Scenario: A short or malformed chunk read remains pending
+    Given a chunk read stops before the complete last row
+    When a queue worker claims the chunk
+    Then it removes its claim without writing a done marker
+    And the pending chunk remains available for retry
+
+  @new @infra
+  Scenario: A failed task or done marker write does not retire its chunk
+    Given the shared 9P service rejects a task write or done marker write
+    When a queue worker expands a chunk
+    Then the pending chunk remains available for retry
+    And no successful chunk completion is reported
+
   @existing
   Scenario: Expansion respects max-pending backpressure by waiting
     Given a chunk with 4 rows

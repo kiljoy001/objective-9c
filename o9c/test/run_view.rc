@@ -1,0 +1,98 @@
+#!/bin/rc
+# 9front integration test: consume the app service through a separate mount.
+app=o9viewtest.$pid
+src=o9c/test/view_app.o9
+cfile=/tmp/o9view.$pid.c
+ofile=/tmp/o9view.$pid.6
+bin=/tmp/o9view.$pid
+iofile=/tmp/o9viewio.$pid.6
+iobin=/tmp/o9viewio.$pid
+log=/tmp/o9view.$pid.log
+mnt=/n/o9view.$pid
+other=/n/o9viewb.$pid
+post=/srv/$app
+fail=0
+worker=''
+
+fn cleanup {
+	unmount $mnt >[2]/dev/null
+	unmount $other >[2]/dev/null
+	if(! ~ $worker '') kill $worker >[2]/dev/null
+	rm -f $post $cfile $ofile $bin $iofile $iobin $log
+}
+
+if(! ./o9c/o9c $src > $cfile){ echo 'view: transpile failed' >[1=2]; exit fail }
+if(grep -s 'method name=title' $cfile || grep -s 'method name=display' $cfile){
+	echo 'view: internal method leaked into generated status metadata' >[1=2]
+	cleanup
+	exit fail
+}
+if(! 6c -FVw -I. -o $ofile $cfile){ echo 'view: compile failed' >[1=2]; cleanup; exit fail }
+if(! 6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a){ echo 'view: link failed' >[1=2]; cleanup; exit fail }
+if(! 6c -I. -o $iofile o9c/test/view_io_test.c){ echo 'view: io test compile failed' >[1=2]; cleanup; exit fail }
+if(! 6l -o $iobin $iofile){ echo 'view: io test link failed' >[1=2]; cleanup; exit fail }
+
+$bin $app > $log >[2=1] &
+worker=$apid
+i=0
+while(! test -e $post && test $i -lt 12){ sleep 1; i=`{echo $i+1|bc} }
+if(! test -e $post){ echo 'view: no service post' >[1=2]; cat $log >[1=2]; cleanup; exit fail }
+if(! mount -c $post $mnt){ echo 'view: mount failed' >[1=2]; cleanup; exit fail }
+if(! mount -c $post $other){ echo 'view: second mount failed' >[1=2]; cleanup; exit fail }
+
+if(test -e $mnt/view/clone || test -e $mnt/view/ctl){
+	echo 'view: unexpected view controls' >[1=2]; fail=1
+}
+instance=`{cat $mnt/status | awk '$1 == "instances" && $2 == "ViewExample" { print $3 }'}
+if(~ $instance ''){
+	echo 'view: controller instance missing' >[1=2]; fail=1
+}
+if not{
+	@{ echo method $instance readText 'arg0=forged' 'arg1=live' > $mnt/ctl } >[2]/dev/null
+	if(~ $status ''){ echo 'view: controller callback exposed through ctl' >[1=2]; fail=1 }
+}
+modelinstance=`{cat $mnt/status | awk '$1 == "instances" && $2 == "ViewData" { print $3 }'}
+if(~ $modelinstance ''){
+	echo 'view: model instance missing' >[1=2]; fail=1
+}
+if not{
+	@{ echo method $modelinstance title > $mnt/ctl } >[2]/dev/null
+	if(~ $status ''){ echo 'view: internal model method exposed through ctl' >[1=2]; fail=1 }
+}
+if(cat $mnt/methods | grep -s title){ echo 'view: internal model method listed' >[1=2]; fail=1 }
+if(! test -d $mnt/view || ! test -d $other/view){ echo 'view: directories missing' >[1=2]; fail=1 }
+if(! ~ `{cat $mnt/view/identity} viewer){ echo 'view: A content mismatch' >[1=2]; fail=1 }
+if(! ~ `{cat $other/view/identity} viewer){ echo 'view: B content mismatch' >[1=2]; fail=1 }
+if(! ~ `{cat $mnt/view/nested/caller} anonymous){ echo 'view: anonymous caller mismatch' >[1=2]; fail=1 }
+if(! ~ `{cat $mnt/view/live} live:live){ echo 'view: live read mismatch' >[1=2]; fail=1 }
+if(test -e $mnt/view/ctl || test -e $mnt/view/status){ echo 'view: unexpected built-in entries' >[1=2]; fail=1 }
+@{ echo updated > $mnt/view/editable } >[2]/dev/null
+if(! ~ $status ''){ echo 'view: write failed' >[1=2]; cat $log >[1=2]; cleanup; exit fail }
+if(! ~ `{cat $mnt/view/editable} updated){ echo 'view: writable text mismatch' >[1=2]; fail=1 }
+if(! ~ `{cat $other/view/editable} start){ echo 'view: viewer isolation failed' >[1=2]; fail=1 }
+deep=$mnt/view/deep/d01/d02/d03/d04/d05/d06/d07/d08/d09/d10/d11/d12/d13/d14/d15/d16/d17/leaf
+if(! ~ `{cat $deep} depth){ echo 'view: deep walk failed' >[1=2]; fail=1 }
+if(! $iobin $mnt){ echo 'view: io test failed' >[1=2]; cat $log >[1=2]; cleanup; exit fail }
+if(test -e $mnt/view/identity){ echo 'view: closed path still walks' >[1=2]; fail=1 }
+if(! test -e $other/view/identity){ echo 'view: closing A revoked B' >[1=2]; fail=1 }
+echo view close > $other/ctl
+
+cleanup
+app=o9viewdeny.$pid
+src=o9c/test/view_deny_app.o9
+post=/srv/$app
+worker=''
+if(! ./o9c/o9c $src > $cfile){ echo 'view: deny transpile failed' >[1=2]; exit fail }
+if(! 6c -FVw -I. -o $ofile $cfile){ echo 'view: deny compile failed' >[1=2]; cleanup; exit fail }
+if(! 6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a){ echo 'view: deny link failed' >[1=2]; cleanup; exit fail }
+$bin $app > $log >[2=1] &
+worker=$apid
+i=0
+while(! test -e $post && test $i -lt 12){ sleep 1; i=`{echo $i+1|bc} }
+if(! test -e $post){ echo 'view: deny service missing' >[1=2]; cat $log >[1=2]; cleanup; exit fail }
+if(! mount -c $post $mnt){ echo 'view: deny mount failed' >[1=2]; cleanup; exit fail }
+if(test -e $mnt/view){ echo 'view: denied view still accessible' >[1=2]; fail=1 }
+if(! test -e $mnt/ctl){ echo 'view: denied attach lost app ctl' >[1=2]; fail=1 }
+cleanup
+if(~ $fail 0) echo 'view: OK'
+if not exit fail

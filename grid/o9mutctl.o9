@@ -60,7 +60,14 @@ main {
             if(nargs <= idx + 1) {
                 print("usage: o9mutctl [-r root] manifest manifest.tsv\n");
             } else {
-                print(grid.enqueueManifest(root, p.arg(idx + 1)));
+                string manifestResult = grid.enqueueManifest(root, p.arg(idx + 1));
+                print(manifestResult);
+                if(cmp(manifestResult, "manifest failed\n") == 0) {
+                    fail("manifest enqueue failed");
+                }
+                if(cmp(manifestResult, "manifest failed: chunk write error\n") == 0) {
+                    fail("manifest enqueue failed");
+                }
             }
         } else if(cmp(cmd, "enqueue") == 0) {
             if(nargs <= idx + 5) {
@@ -70,7 +77,11 @@ main {
                 if(nargs > idx + 6) {
                     priority = p.arg(idx + 6);
                 }
-                print(grid.enqueue(root, p.arg(idx + 1), p.arg(idx + 2), p.arg(idx + 3), p.arg(idx + 4), p.arg(idx + 5), priority));
+                string enqueueResult = grid.enqueue(root, p.arg(idx + 1), p.arg(idx + 2), p.arg(idx + 3), p.arg(idx + 4), p.arg(idx + 5), priority);
+                print(enqueueResult);
+                if(cmp(enqueueResult, "enqueue failed\n") == 0) {
+                    fail("enqueue failed");
+                }
             }
         } else if(cmp(cmd, "wait-drain") == 0) {
             int64 timeoutSec = 0;

@@ -12,6 +12,7 @@
 typedef struct Node Node;
 typedef struct TypeBind TypeBind;
 typedef struct TypedMember TypedMember;
+static void copy_source(Node *to, Node *from);
 
 enum {
     NClass,
@@ -102,7 +103,8 @@ enum {
     NFMain = 1<<5,	/* reserved top-level program bootstrap block */
     NFChanSendOnly = 1<<6,	/* public endpoint may send, not receive */
     NFChanRecvOnly = 1<<7,	/* public endpoint may receive, not send */
-    NFDial = 1<<8		/* construct and open a NetConn */
+    NFDial = 1<<8,		/* construct and open a NetConn */
+    NFInternal = 1<<9	/* callable within the app, absent from 9P facade */
 };
 
 struct Node {

@@ -406,6 +406,8 @@ extern int           o9_mount_table_mountsrv(O9MountTable *m, O9String *fdsrc, O
 extern int           o9_mount_table_mountnet(O9MountTable *m, O9String *addr, O9String *old, vlong flag, O9String *aname);
 extern int           o9_mount_table_mountnear(O9MountTable *m, O9String *fdsrc, O9String *old, vlong flag, O9String *aname);
 extern int           o9_mount_table_mountfar(O9MountTable *m, O9String *addr, O9String *old, vlong flag, O9String *aname);
+extern int           o9_mount_table_view(O9MountTable *m, O9String *target, O9String *sourceid, vlong mode);
+extern int           o9_mount_table_unmount(O9MountTable *m, O9String *target);
 extern O9String*     o9_mount_table_schema(O9MountTable *m);
 extern int           o9_mount_table_has(O9MountTable *m, O9String *col);
 extern O9String*     o9_mount_table_get(O9MountTable *m, O9String *col);
@@ -418,6 +420,57 @@ extern int           o9_mount_table_flush(O9MountTable *m);
 extern int           o9_mount_table_validate(O9MountTable *m);
 extern int           o9_mount_table_apply(O9MountTable *m);
 extern void          o9_mount_table_close(O9MountTable *m);
+
+/* Actor-owned view trees. Paths are relative to the empty tree root. */
+typedef struct O9FileTree O9FileTree;
+typedef struct O9FTEntry O9FTEntry;
+enum { O9FT_DIR = 1, O9FT_TEXT = 2, O9FT_LIVE = 3 };
+extern O9FileTree* o9_filetree_new(void);
+extern int o9_filetree_dir(O9FileTree *t, O9String *path);
+extern int o9_filetree_text(O9FileTree *t, O9String *path, O9String *data, vlong writable);
+extern int o9_filetree_live(O9FileTree *t, O9String *path, vlong writable);
+extern int o9_filetree_remove(O9FileTree *t, O9String *path);
+extern int o9_filetree_register(O9FileTree *t, O9String *id);
+extern int o9_filetree_apply(O9FileTree *t, O9MountTable *m);
+extern void o9_filetree_close(O9FileTree *t);
+extern O9FTEntry* o9_filetree_root(O9FileTree *t);
+extern O9FTEntry* o9_filetree_lookup(O9FileTree *t, O9FTEntry *parent, char *name);
+extern int o9_filetree_kind(O9FTEntry *e);
+extern int o9_filetree_writable(O9FTEntry *e);
+extern uvlong o9_filetree_id(O9FTEntry *e);
+extern char* o9_filetree_name(O9FTEntry *e);
+extern O9FTEntry* o9_filetree_parent(O9FTEntry *e);
+extern O9FileTree* o9_filetree_entry_tree(O9FTEntry *e);
+extern O9String* o9_filetree_data(O9FileTree *t, O9FTEntry *e);
+extern int o9_filetree_entries(O9FileTree *t, O9FTEntry *dir, O9FTEntry ***out);
+extern int o9_filetree_alive(O9FileTree *t);
+extern void* o9_filetree_owner(O9FileTree *t);
+extern void o9_filetree_revoke(O9FileTree *t);
+extern void* o9_actor_channel(void);
+typedef struct O9FTMountSpec O9FTMountSpec;
+struct O9FTMountSpec { char *target; char *source; int mode; int unmount; };
+extern int o9_filetree_apply_specs(O9FileTree *t, O9FTMountSpec *spec, int n);
+
+/* lib9p adapter used by generated app facades. */
+typedef struct Fid Fid;
+typedef struct Req Req;
+typedef struct Tree Tree;
+typedef struct File File;
+extern void o9_view_setup(Tree *root);
+extern int o9_view_register_controller(void *object);
+extern int o9_view_close(Req *r);
+extern int o9_view_attach(Req *r);
+extern char* o9_view_clone(Fid *fid, Fid *newfid);
+extern char* o9_view_walk1(Fid *fid, char *name, Qid *qid);
+extern void* o9_view_enter_fixed(Fid *f);
+extern void o9_view_leave_fixed(Fid *f, void *context);
+extern File* o9_view_request_file(Req *r);
+extern int o9_view_open(Req *r);
+extern int o9_view_read(Req *r);
+extern int o9_view_write(Req *r);
+extern void o9_view_destroyfid(Fid *f);
+extern void o9_view_remove(Req *r);
+extern void o9_view_stat(Req *r);
 
 /* Task<T> — a one-shot spawn join handle (channel-backed; the numbered
  * channel is internal). spawn returns it; t.await() joins. */

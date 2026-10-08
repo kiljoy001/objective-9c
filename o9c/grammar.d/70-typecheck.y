@@ -805,7 +805,8 @@ type_accepts_nil(Type *t)
     if(t->kind == TyApply)
         return 1;
     if(t->kind == TyName){
-        if(strcmp(t->name, "string") == 0 || strcmp(t->name, "chan") == 0)
+        if(strcmp(t->name, "string") == 0 || strcmp(t->name, "chan") == 0 ||
+           strcmp(t->name, "FileTree") == 0)
             return 1;
         d = type_decl_node(t);
         return d != nil && (d->type == NClass || d->type == NInterface);
@@ -1207,6 +1208,11 @@ annotate_self_call_expr(Node *e, Node *scope_class)
 static Type*
 annotate_handle_msg_type(Node *e, Type *lt)
 {
+    if(type_named(lt, "FileTree")){
+        if(expr_name_is(e, "close"))
+            return type_name("void");
+        return type_name("int64");
+    }
     if(o9_type_is_tabula(lt) || type_named(lt, "MountTable")){
         if(expr_name_is(e, "schema") || expr_name_is(e, "get") ||
            expr_name_is(e, "value") ||
@@ -1571,6 +1577,11 @@ require_method_impl_bound(Node *owner, Node *req, TypeBind *reqbind, int *errs)
             req->name, owner->name);
         (*errs)++;
     }
+    if(((impl->flags ^ req->flags) & NFInternal) != 0){
+        fprint(2, "o9c: error: line %d: method '%s' in '%s' must match inherited internal visibility\n",
+            sem_line, req->name, owner->name);
+        (*errs)++;
+    }
 }
 
 static void
@@ -1705,6 +1716,10 @@ check_interface_member_contract(Node *cnode, Node *m, int *errs)
         fprint(2, "o9c: error: line %d: interface method '%s' cannot have a body\n", sem_line, m->name);
         (*errs)++;
     }
+    if(m->type == NMethod && (m->flags & NFPrivate)){
+        fprint(2, "o9c: error: line %d: interface method '%s' cannot be private\n", sem_line, m->name);
+        (*errs)++;
+    }
 }
 
 static void
@@ -1830,6 +1845,12 @@ is_mount_table_new(Node *e)
     return e != nil && e->type == NClass &&
         e->typeinfo != nil && e->typeinfo->kind == TyName &&
         e->typeinfo->name != nil && strcmp(e->typeinfo->name, "MountTable") == 0;
+}
+
+static int
+is_filetree_new(Node *e)
+{
+    return e != nil && e->type == NClass && type_named(e->typeinfo, "FileTree");
 }
 
 static int
@@ -2014,6 +2035,13 @@ typecheck_class_new(Node *e, Node *scope_class, int *errs)
         typecheck_mount_table_new(e, scope_class, errs);
         return;
     }
+    if(is_filetree_new(e)){
+        if(e->right != nil){
+            fprint(2, "o9c: error: line %d: FileTree constructor takes no arguments\n", sem_line);
+            (*errs)++;
+        }
+        return;
+    }
     if(is_vault_new(e)){
         typecheck_vault_new(e, scope_class, errs);
         return;
@@ -2160,6 +2188,45 @@ typecheck_builtin_arg(Node *e, Builtin *bi, Node *a, int pi, int *errs)
             fprint(2, "o9c: error: line %d: argument %d to '%s' must be an object handle\n",
                 sem_line, pi + 1, e->name);
             (*errs)++;
+        }
+        if(strcmp(e->name, "viewController") == 0 && type_decl_node(a->typeinfo) != nil){
+            static char *names[] = { "display", "readText", "writeText" };
+            static char *returns[] = { "FileTree", "string", "int64" };
+            static char *params[3][5] = {
+                { "string", "string", nil, nil, nil },
+                { "string", "string", nil, nil, nil },
+                { "string", "string", "int64", "string", "bool" },
+            };
+            static int counts[] = { 2, 2, 5 };
+            TypedMember tm;
+            Node *arg, *member, *controller_class;
+            int mi, ai, good, contract;
+            controller_class = type_decl_node(a->typeinfo);
+            contract = 0;
+            for(member = controller_class->left; member != nil; member = member->next)
+                if(member->type == NInherit && member->name != nil &&
+                   strcmp(member->name, "ViewController") == 0)
+                    contract = 1;
+            if(!contract){
+                fprint(2, "o9c: error: line %d: viewController needs a class implementing ViewController\n", sem_line);
+                (*errs)++;
+            }
+            for(mi = 0; mi < 3; mi++){
+                good = typed_member_lookup(a->typeinfo, names[mi], 1, &tm) &&
+                    tm.node != nil && (tm.node->flags & NFInternal) &&
+                    type_named(tm.type, returns[mi]);
+                if(good){
+                    if(node_list_len(tm.node->right) != counts[mi]) good = 0;
+                    else{
+                        for(arg = tm.node->right, ai = 0; arg != nil; arg = arg->next, ai++)
+                            if(!type_named(arg->typeinfo, params[mi][ai])) good = 0;
+                    }
+                }
+                if(!good){
+                    fprint(2, "o9c: error: line %d: viewController needs internal %s with the ViewController signature\n", sem_line, names[mi]);
+                    (*errs)++;
+                }
+            }
         }
         return;
     }
@@ -2466,6 +2533,8 @@ typecheck_mounttable_msg(Node *e, Node *scope_class, Type *lt, int *errs)
         {"mountnet", 4, 0, 2, 2, 1},
         {"mountnear", 4, 0, 2, 2, 1},
         {"mountfar", 4, 0, 2, 2, 1},
+        {"view", 3, 0, 2, 2, 0},
+        {"unmount", 1, 1, 0, -1, 0},
         {"schema", 0, 0, 0, -1, 0},
         {"has", 1, 1, 0, -1, 0},
         {"get", 1, 1, 0, -1, 0},
@@ -2493,6 +2562,54 @@ typecheck_mounttable_msg(Node *e, Node *scope_class, Type *lt, int *errs)
         return 1;
     }
     typecheck_rule_args("MountTable", e, scope_class, r, errs);
+    return 1;
+}
+
+static int
+typecheck_filetree_msg(Node *e, Node *scope_class, Type *lt, int *errs)
+{
+    static MsgRule rules[] = {
+        {"dir", 1, 1, 0, -1, 0},
+        {"text", 3, 0, 2, -1, 0},
+        {"live", 2, 0, 1, -1, 0},
+        {"remove", 1, 1, 0, -1, 0},
+        {"register", 1, 1, 0, -1, 0},
+        {"close", 0, 0, 0, -1, 0},
+    };
+    MsgRule *r;
+    if(!type_named(lt, "FileTree"))
+        return 0;
+    if(expr_name_is(e, "apply")){
+        if(node_list_len(e->right) != 1){
+            msg_arity_error("FileTree", e, 1, node_list_len(e->right), errs);
+            typecheck_arg_values(e->right, scope_class, errs);
+        }else{
+            typecheck_expr(e->right, scope_class, errs);
+            if(!type_named(e->right->typeinfo, "MountTable")){
+                fprint(2, "o9c: error: line %d: FileTree.apply needs MountTable\n", sem_line);
+                (*errs)++;
+            }
+        }
+        return 1;
+    }
+    r = lookup_msg_rule(rules, nelem(rules), e->name);
+    if(r == nil){
+        fprint(2, "o9c: error: line %d: FileTree has no method '%s'\n", sem_line, e->name);
+        (*errs)++;
+        typecheck_arg_values(e->right, scope_class, errs);
+        return 1;
+    }
+    typecheck_rule_args("FileTree", e, scope_class, r, errs);
+    if((expr_name_is(e, "text") || expr_name_is(e, "live")) &&
+       node_list_len(e->right) == r->argc){
+        Node *a;
+        a = e->right;
+        while(a->next != nil) a = a->next;
+        if(!type_named(a->typeinfo, "bool") && !type_named(a->typeinfo, "int64")){
+            fprint(2, "o9c: error: line %d: FileTree.%s writable argument must be bool\n", sem_line, e->name);
+            (*errs)++;
+        }
+    }
     return 1;
 }
 
@@ -2660,6 +2777,7 @@ static TypecheckMsgFn typecheck_msg_handlers[] = {
     typecheck_task_msg,
     typecheck_tabula_msg,
     typecheck_mounttable_msg,
+    typecheck_filetree_msg,
     typecheck_vault_msg,
     typecheck_list_msg,
     typecheck_dict_msg,

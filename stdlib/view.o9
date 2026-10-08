@@ -1,0 +1,7 @@
+// The controller chooses the FileTree for each 9P attach. The id is
+// application-internal and is never a client path or ctl result.
+interface ViewController {
+    internal method FileTree display(string id, string caller);
+    internal method string readText(string id, string path);
+    internal method int64 writeText(string id, string path, int64 offset, string text, bool truncate);
+}

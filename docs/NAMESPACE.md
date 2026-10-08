@@ -3,8 +3,9 @@
 Status: PARTLY BUILT. `link`-style object composition is removed.
 `MountTable` exists as the lower-level tabula-backed mount/bind data
 object, and `Namespace` is the user-facing object for programmatic
-namespace setup. The broader produce-into-namespace facade is still
-design work.
+namespace setup. Actor-owned views now provide per-view produced
+namespaces inside the one application service. Broader app output
+composition remains design work.
 
 ## The architectural honesty check (why this doc exists)
 

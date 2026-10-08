@@ -1,0 +1,12 @@
+interface Model {
+    internal method int64 value();
+}
+
+class ModelData {
+    Model;
+    method int64 value() { return 1; }
+}
+
+main {
+    ModelData model = new ModelData();
+}

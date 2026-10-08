@@ -111,6 +111,27 @@ prop bool ready;
 and call private methods; outside code cannot. Private members are also
 filtered from the 9P facade.
 
+`internal` marks an application-local member. Other objects in the same
+application can call an internal method through its interface and CSP, but
+the app's 9P `ctl`, `methods`, and status metadata do not publish it. An
+interface method and its implementation must agree on `internal` visibility:
+
+```o9
+interface AccountModel {
+    internal method int64 balance();
+}
+
+class AccountData {
+    AccountModel;
+    internal method int64 balance() { return 42; }
+}
+```
+
+Use `private` for class-only details, `internal` for calls between actors in
+one application, and public methods for the app facade. The controller can
+consume an internal model interface and choose the `FileTree` exposed to each
+viewer. An internal method has no client path or direct ctl command.
+
 `secret string name;` stores sealed text and generates `seal_name` and
 `open_name` helpers. It is for secrets in object state and `.tab` workflows;
 it is not a replacement for factotum when native Plan 9 authentication is

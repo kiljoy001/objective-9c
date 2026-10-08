@@ -10,6 +10,7 @@ never mutated.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import fnmatch
 import os
 import random
@@ -48,6 +49,8 @@ GRAMMAR_TARGETS = (
 COMPILER_TARGETS = ("o9c/o9_type.c",) + GRAMMAR_TARGETS
 RUNTIME_TARGETS = (
     "o9_runtime.c",
+    "o9_filetree.c",
+    "o9_view.c",
     "o9_crypto.c",
     "o9_tab_discard.c",
     "libtab/tab_error.c",
@@ -118,6 +121,44 @@ def rc_quote(text: str) -> str:
 def host_to_plan9(path: Path) -> str:
     resolved = path.resolve()
     return "/mnt/term" + str(resolved)
+
+
+@contextlib.contextmanager
+def staged_plan9_repo(args: argparse.Namespace):
+    """Keep accumulated mutation artifacts out of synthetic ramfs copies."""
+    if not getattr(args, "synthetic_ramfs", False) or args.plan9_repo != DEFAULT_PLAN9_REPO:
+        yield
+        return
+
+    source_root = Path(__file__).resolve().parents[1]
+    with tempfile.TemporaryDirectory(prefix="o9um-source-") as dirname:
+        staged = Path(dirname) / "repo"
+        staged.mkdir()
+
+        def ignore_artifacts(directory: str, names: list[str]) -> set[str]:
+            path = Path(directory)
+            if path.name == "test" and path.parent.name == "o9c":
+                return {"artifacts"} & set(names)
+            return set()
+
+        for name in ("o9c", "libtab", "stdlib"):
+            shutil.copytree(source_root / name, staged / name, ignore=ignore_artifacts)
+        for name in (
+            "mkfile", "o9.h", "o9_runtime.c", "o9_filetree.c", "o9_view.c",
+            "o9_crypto.c", "o9_tab_discard.c", "monocypher.c", "monocypher.h",
+        ):
+            source = source_root / name
+            if source.exists():
+                shutil.copy2(source, staged / name)
+        for source in source_root.glob("o9_dispatch_*.s"):
+            shutil.copy2(source, staged / source.name)
+
+        original = args.plan9_repo
+        args.plan9_repo = host_to_plan9(staged)
+        try:
+            yield
+        finally:
+            args.plan9_repo = original
 
 
 def language_for_source(source: Path, requested: str | None) -> str:
@@ -212,6 +253,8 @@ def command_passed(code: int | None, output: str, marker: str | None) -> bool:
     marked = marker_status(output, marker)
     if marked is not None:
         return marked
+    if marker is not None:
+        return False
     return code == 0
 
 
@@ -271,6 +314,8 @@ def write_plan9_ramfs_script(
         f.write("copyfile mkfile\n")
         f.write("copyfile o9.h\n")
         f.write("copyfile o9_runtime.c\n")
+        f.write("copyfile o9_filetree.c\n")
+        f.write("copyfile o9_view.c\n")
         f.write("copyfile o9_crypto.c\n")
         f.write("copyfile o9_tab_discard.c\n")
         f.write("copyfile o9_dispatch_$objtype.s\n")
@@ -314,7 +359,18 @@ def run_verification(
     cmd = cmd.replace("{source}", str(source))
     cmd = cmd.replace("{mutant}", host_to_plan9(mutant) if mutant is not None else "")
     try:
-        return run_shell(cmd, args.timeout)
+        elapsed = 0.0
+        for attempt in range(3):
+            code, output, seconds = run_shell(cmd, timeout)
+            elapsed += seconds
+            if (args.status_marker is None or
+                marker_status(output, args.status_marker) is not None or
+                command_timed_out(args, code) or
+                "can't dial" not in output or attempt == 2):
+                return code, output, elapsed
+            time.sleep(2)
+            elapsed += 2
+        raise AssertionError("unreachable")
     finally:
         try:
             script.unlink()
@@ -325,6 +381,8 @@ def run_verification(
 def verification_result(args: argparse.Namespace, code: int | None, output: str) -> str:
     if command_timed_out(args, code):
         return "timeout"
+    if args.status_marker is not None and marker_status(output, args.status_marker) is None:
+        raise SystemExit("o9um: verification returned without status marker; output:\n" + output)
     if command_passed(code, output, args.status_marker):
         return "survived"
     return "killed"
@@ -1442,7 +1500,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.set_defaults(func=cmd_list_targets)
 
     args = parser.parse_args(argv)
-    return args.func(args)
+    with staged_plan9_repo(args):
+        return args.func(args)
 
 
 if __name__ == "__main__":

@@ -272,6 +272,18 @@ if(~ $fail 0){
 	}
 }
 
+# Import uploads remain removable through the existing app namespace.
+if(test -e $mtpt/imports/orders.tab){
+	if(! rm $mtpt/imports/orders.tab){
+		echo 'export: FAIL: import removal failed' >[1=2]
+		fail=1
+	}
+	if(test -e $mtpt/imports/orders.tab){
+		echo 'export: FAIL: removed import still walks' >[1=2]
+		fail=1
+	}
+}
+
 kill $p $guard >[2]/dev/null
 cleanup
 

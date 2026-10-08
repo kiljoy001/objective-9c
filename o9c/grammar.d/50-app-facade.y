@@ -158,9 +158,10 @@ codegen(Node *root)
      * clobbered by a concurrent request while the first is inside
      * ch->write (blocked on the actor's reply). */
     cprint("static O9Session*\no9app_req_session(Req *r)\n{\n");
-    cprint("\tvoid *aux;\n");
-    cprint("\tif(r == nil || r->fid == nil || r->fid->file == nil) return nil;\n");
-    cprint("\taux = r->fid->file->aux;\n");
+    cprint("\tvoid *aux; File *file;\n");
+    cprint("\tfile = o9_view_request_file(r);\n");
+    cprint("\tif(file == nil) return nil;\n");
+    cprint("\taux = file->aux;\n");
     cprint("\tif(aux != nil && *(int*)aux == O9AUX_SESSION) return aux;\n");
     cprint("\treturn nil;\n");
     cprint("}\n");
@@ -359,6 +360,7 @@ codegen(Node *root)
     cprint("}\n");
     /* open: ref++ (diagnostics; balanced by destroyfid). */
     cprint("static void\no9app_open(Req *r)\n{\n");
+    cprint("\tif(o9_view_open(r)) return;\n");
     cprint("\tif(r->fid != nil && r->fid->file != nil && r->fid->file->aux != nil &&\n");
     cprint("\t   *(int*)r->fid->file->aux == O9AUX_IMPORT){\n");
     cprint("\t\tint __m;\n\t\t__m = r->ifcall.mode & 3;\n");
@@ -383,9 +385,7 @@ codegen(Node *root)
     cprint("static void\no9app_attach(Req *r)\n{\n");
     cprint("\tif(o9app_auth_required && authattach(r) < 0) return;\n");
     cprint("\tif(r->fid == nil || o9app_tree == nil || o9app_tree->root == nil){ respond(r, \"no root\"); return; }\n");
-    cprint("\tr->fid->file = o9app_tree->root;\n");
-    cprint("\tr->fid->qid = o9app_tree->root->qid;\n");
-    cprint("\tr->ofcall.qid = r->fid->qid;\n");
+    cprint("\tif(o9_view_attach(r) < 0){ respond(r, \"no memory\"); return; }\n");
     cprint("\trespond(r, nil);\n");
     cprint("}\n");
     cprint("static void\no9app_create(Req *r)\n{\n");
@@ -408,8 +408,15 @@ codegen(Node *root)
     cprint("\tr->ofcall.qid = f->qid;\n");
     cprint("\trespond(r, nil);\n");
     cprint("}\n");
+    cprint("static void\no9app_remove(Req *r)\n{\n");
+    cprint("\tFile *f;\n\tf = o9_view_request_file(r);\n");
+    cprint("\tif(f != nil && f->parent == o9app_imports_dir){\n");
+    cprint("\t\tincref(f);\n\t\tif(removefile(f) < 0){ respond(r, \"remove failed\"); return; }\n");
+    cprint("\t\trespond(r, nil); return;\n\t}\n");
+    cprint("\to9_view_remove(r);\n}\n");
     cprint("static void\no9app_root_read(Req *r)\n{\n");
     cprint("\tif(r != nil && r->fid != nil && (r->fid->qid.type & QTAUTH)){ authread(r); return; }\n");
+    cprint("\tif(o9_view_read(r)) return;\n");
     cprint("\tchar *name;\n\tname = r->fid->file->name;\n");
     cprint("\tchar buf[8192]; char *p;\n\tp = buf; int i;\n");
     /* clone: reading allocates a session and returns its id. */
@@ -501,6 +508,7 @@ codegen(Node *root)
     cprint("\trespond(r, \"not found\");\n}\n");
     cprint("static void\no9app_root_write(Req *r)\n{\n");
     cprint("\tif(r != nil && r->fid != nil && (r->fid->qid.type & QTAUTH)){ authwrite(r); return; }\n");
+    cprint("\tif(o9_view_write(r)) return;\n");
     cprint("\tchar *name;\n\tname = r->fid->file->name;\n");
     cprint("\tchar cmd[1024], *f[16]; int nf; char inst[64]; O9ClassH *ch;\n");
     cprint("\tif(r->fid != nil && r->fid->file != nil && r->fid->file->aux != nil && *(int*)r->fid->file->aux == O9AUX_IMPORT){ o9app_import_write(r); return; }\n");
@@ -510,6 +518,12 @@ codegen(Node *root)
      * requests each route to their OWN session. */
     cprint("\tsnprint(cmd, sizeof cmd, \"%%.*s\", (int)r->ifcall.count, (char*)r->ifcall.data);\n");
     cprint("\tnf = tokenize(cmd, f, nelem(f));\n");
+    cprint("\tif(nf >= 1 && strcmp(f[0], \"view\") == 0){\n");
+    cprint("\t\tif(nf == 2 && strcmp(f[1], \"close\") == 0){\n");
+    cprint("\t\t\tif(o9_view_close(r) < 0){ respond(r, \"no view\"); return; }\n");
+    cprint("\t\t\to9app_put_status(r, \"ok\\n\");\n");
+    cprint("\t\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t\t}\n");
+    cprint("\t\trespond(r, \"want: view close\"); return;\n\t}\n");
     /* `close`: end THIS conversation (a session ctl only) — mark the slot
      * reusable. The explicit release that ends a session's lifetime. */
     cprint("\tif(nf >= 1 && strcmp(f[0], \"close\") == 0){\n");
@@ -554,6 +568,22 @@ codegen(Node *root)
     cprint("\t}\n");
     cprint("\tch->write(r, nil);\t/* class fswrite re-parses r->ifcall.data */\n");
     cprint("}\n\n");
+
+    cprint("static void\no9app_read_dispatch(Req *r)\n{\n");
+    cprint("\tvoid *ctx;\n\tif(o9_view_read(r)) return;\n");
+    cprint("\tincref(&r->ref);\n\tctx = o9_view_enter_fixed(r->fid);\n\to9app_root_read(r);\n\to9_view_leave_fixed(r->fid, ctx);\n\tclosereq(r);\n}\n");
+    cprint("static void\no9app_write_dispatch(Req *r)\n{\n");
+    cprint("\tvoid *ctx;\n\tif(o9_view_write(r)) return;\n");
+    cprint("\tincref(&r->ref);\n\tctx = o9_view_enter_fixed(r->fid);\n\tr->aux = ctx;\n\to9app_root_write(r);\n\tr->aux = nil;\n\to9_view_leave_fixed(r->fid, ctx);\n\tclosereq(r);\n}\n");
+    cprint("static void\no9app_open_dispatch(Req *r)\n{\n");
+    cprint("\tvoid *ctx;\n\tif(o9_view_open(r)) return;\n");
+    cprint("\tincref(&r->ref);\n\tctx = o9_view_enter_fixed(r->fid);\n\to9app_open(r);\n\to9_view_leave_fixed(r->fid, ctx);\n\tclosereq(r);\n}\n");
+    cprint("static void\no9app_create_dispatch(Req *r)\n{\n");
+    cprint("\tvoid *ctx;\n\tincref(&r->ref);\n\tctx = o9_view_enter_fixed(r->fid);\n");
+    cprint("\to9app_create(r);\n\to9_view_leave_fixed(r->fid, ctx);\n\tclosereq(r);\n}\n");
+    cprint("static void\no9app_destroyfid_dispatch(Fid *f)\n{\n");
+    cprint("\tvoid *ctx;\n\tctx = o9_view_enter_fixed(f);\n");
+    cprint("\to9app_destroyfid(f);\n\to9_view_leave_fixed(f, ctx);\n\to9_view_destroyfid(f);\n}\n\n");
 
     /* o9_export_tab: publish a tabula into the served-tree exports/ dir at
      * runtime.  A single createfile into the stable exports parent (the
@@ -630,15 +660,18 @@ codegen(Node *root)
     cprint("\to9_ns_class_path(o9app_mount, sizeof o9app_mount, o9app_root, __o9app);\n");
     cprint("\to9_ns_ensure_app(o9app_root);\n");
     cprint("\to9app_tree = alloctree(nil, nil, DMDIR|0555, nil);\n");
+    cprint("\to9_view_setup(o9app_tree);\n");
     cprint("\to9app_srv.tree = o9app_tree;\n");
-    cprint("\to9app_srv.read = o9app_root_read;\n\to9app_srv.write = o9app_root_write;\n");
+    cprint("\to9app_srv.read = o9app_read_dispatch;\n\to9app_srv.write = o9app_write_dispatch;\n");
     cprint("\tif(o9app_auth_required){\n");
     cprint("\t\to9app_srv.auth = o9app_auth;\n");
-    cprint("\t\to9app_srv.attach = o9app_attach;\n");
     cprint("\t\to9app_srv.keyspec = \"proto=p9any role=server\";\n");
     cprint("\t}\n");
-    cprint("\to9app_srv.create = o9app_create;\n");
-    cprint("\to9app_srv.open = o9app_open;\n\to9app_srv.destroyfid = o9app_destroyfid;\t/* session fid diagnostics */\n");
+    cprint("\to9app_srv.attach = o9app_attach;\n");
+    cprint("\to9app_srv.create = o9app_create_dispatch;\n");
+    cprint("\to9app_srv.walk1 = o9_view_walk1;\n\to9app_srv.clone = o9_view_clone;\n");
+    cprint("\to9app_srv.stat = o9_view_stat;\n\to9app_srv.remove = o9app_remove;\n");
+    cprint("\to9app_srv.open = o9app_open_dispatch;\n\to9app_srv.destroyfid = o9app_destroyfid_dispatch;\t/* session fid diagnostics */\n");
     /* The four control files + state are a FIXED shape, built once, never
      * mutated (their content is live, their structure is frozen). */
     cprint("\tcreatefile(o9app_tree->root, \"ctl\", \"o9\", 0666, nil);\n");
@@ -653,6 +686,7 @@ codegen(Node *root)
      * ctl/data/status (docs/SESSIONS.md) — the /net/tcp/clone pattern that
      * gives concurrent callers a private, path-addressable conversation. */
     cprint("\tcreatefile(o9app_tree->root, \"clone\", \"o9\", 0444, nil);\n");
+    cprint("\tcreatefile(o9app_tree->root, \"view\", \"o9\", DMDIR|0555, nil);\n");
     /* exports/ is a served-tree DIRECTORY inside the application file tree
      * (NOT on disk).  It is the one MUTABLE part: objects publish tabulae
      * into it at runtime via a single createfile into this stable parent

@@ -125,7 +125,8 @@ surface is the shared app fileserver facade:
  ├── actors (one proc per instance, CSP-serialized)
  ├── object/method stores     ← private runtime metadata
  ├── /srv/<app>              ← published app facade
- └── root files: clone, methods, status, exports, imports, sessions
+ └── root files: clone, methods, status, exports, imports, sessions,
+     and actor-owned view namespaces
 ```
 
 ### The Registry Actor (CSP as the intra-program bus)

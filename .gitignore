@@ -40,6 +40,7 @@ o9c/test/runtime_registry_test
 o9c/test/runtime_9p_rpc_test
 o9c/test/runtime_router_test
 o9c/test/o9_type_test
+o9c/test/filetree_test
 release/*.tar
 release/*.tar.gz
 

@@ -132,6 +132,12 @@ o9_actor_enter(void *dispatch_chan, char *oid)
 		ctx->actor_oid[0] = '\0';
 }
 
+void*
+o9_actor_channel(void)
+{
+	return o9_proc_ctx()->actor_chan;
+}
+
 void
 o9_set_current_request(char *user, int blessed)
 {
@@ -3490,6 +3496,85 @@ o9_mount_table_mountfar(O9MountTable *m, O9String *addr, O9String *old,
 	free(caddr);
 	free(cold);
 	free(caname);
+	return rv;
+}
+
+int
+o9_mount_table_view(O9MountTable *m, O9String *target, O9String *sourceid, vlong mode)
+{
+	char *dst, *src;
+	int rv;
+	if(m == nil || target == nil || sourceid == nil || mode < 0 || mode > 2) return -1;
+	dst = o9_string_cstr(target);
+	src = o9_string_cstr(sourceid);
+	if(dst == nil || src == nil){ free(dst); free(src); return -1; }
+	rv = -1;
+	if(o9_mt_target_ok(dst) && src[0] != 0 && strchr(src, '/') == nil &&
+	   strchr(src, '!') == nil && strchr(src, ':') == nil && !o9_mt_bad_text(src))
+		rv = o9_mt_add_entry(m, "view", src, dst, nil, mode, nil, -1);
+	free(dst);
+	free(src);
+	return rv;
+}
+
+int
+o9_mount_table_unmount(O9MountTable *m, O9String *target)
+{
+	char *dst;
+	int rv;
+	if(m == nil || target == nil) return -1;
+	dst = o9_string_cstr(target);
+	if(dst == nil) return -1;
+	rv = o9_mt_target_ok(dst) ? o9_mt_add_entry(m, "unview", nil, dst, nil, 0, nil, -1) : -1;
+	free(dst);
+	return rv;
+}
+
+/* View recipes are resolved only here, against the process-local source
+ * registry. Neither a serialized table nor namespace apply() can dial. */
+int
+o9_filetree_apply(O9FileTree *t, O9MountTable *m)
+{
+	TabIter *it;
+	TabRow *r;
+	O9FTMountSpec *spec;
+	const char *call, *target, *source, *flag;
+	vlong mode;
+	int n, i, rv;
+	if(t == nil || m == nil || m->spec == nil || !o9_mt_schema_ok(m->spec)) return -1;
+	it = tab_iter(m->spec->tab);
+	if(it == nil) return -1;
+	n = 0;
+	while(tab_iter_next(it) != nil) n++;
+	tab_iter_close(it);
+	spec = mallocz((n > 0 ? n : 1) * sizeof *spec, 1);
+	if(spec == nil) return -1;
+	it = tab_iter(m->spec->tab);
+	if(it == nil){ free(spec); return -1; }
+	rv = -1;
+	i = 0;
+	while((r = tab_iter_next(it)) != nil){
+		call = tab_get(r, "call");
+		target = tab_get(r, "old");
+		source = tab_get(r, "fd");
+		flag = tab_get(r, "flag");
+		if(call == nil || !o9_mt_target_ok((char*)target)) goto done;
+		spec[i].target = (char*)target;
+		if(strcmp(call, "unview") == 0) spec[i].unmount = 1;
+		else if(strcmp(call, "view") == 0){
+			if(source == nil || source[0] == 0 || strchr(source, '/') != nil ||
+			   strchr(source, '!') != nil || strchr(source, ':') != nil ||
+			   o9_mt_parse_vlong((char*)flag, &mode) < 0 || mode < 0 || mode > 2)
+				goto done;
+			spec[i].source = (char*)source;
+			spec[i].mode = mode;
+		}else goto done;
+		i++;
+	}
+	rv = o9_filetree_apply_specs(t, spec, n);
+done:
+	tab_iter_close(it);
+	free(spec);
 	return rv;
 }
 

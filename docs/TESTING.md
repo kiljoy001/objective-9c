@@ -338,7 +338,10 @@ host-side; it generates mutated source files. The preferred runner mode is
 `--synthetic-ramfs`: `o9um.py` writes a tiny rc script, drawterm runs it on
 9front, the script creates a private `ramfs` worktree, copies maintained source
 inputs into it, writes the mutant into that ramfs copy, runs the real gate, and
-throws the whole synthetic tree away. The real checkout is not opened for write.
+throws the whole synthetic tree away. The runner stages source inputs without
+`o9c/test/artifacts`, so accumulated campaign output does not fill ramfs. The
+real checkout is not opened for write. A missing result marker fails the run;
+it cannot count as a killed mutant.
 
 Install Universal Mutator into an isolated host venv:
 
@@ -462,7 +465,8 @@ python3 tools/o9um.py triage-batch --target-set all \
 ### 3-node 9front grid campaign
 
 For long native 9front campaigns, generate Universal Mutator files on the host
-once, then let the o9 grid drain the queue through the shared 9P fileserver.
+once, then let the o9 grid drain the queue through drawterm's host-mounted
+namespace. This does not require exposing the `babyFileServer` 9fs service.
 The host-side generator writes worker-visible mutant paths and a small rc
 enqueue wrapper:
 
@@ -471,26 +475,38 @@ python3 tools/o9grid_um_manifest.py --target-set all \
   --mutant-root o9c/test/artifacts/o9um-grid-mutants \
   --manifest o9c/test/artifacts/o9um_grid_manifest.tsv \
   --enqueue-rc o9c/test/artifacts/o9um_grid_enqueue.rc \
-  --timeout-ms 300000
+  --timeout-ms 900000
 ```
 
 From drawterm on `dev9p`, launch persistent workers across the three nodes:
 
+First run `mk o9mutgrid-test` on 9front. It checks the claim locks, complete
+task reads, and classification of setup and infrastructure exits. Use a new,
+empty campaign root for every launch; chunk and result files are created
+exclusively, so a previous run's files are not valid inputs for another run.
+
 ```rc
 cd /mnt/term/home/scott/Repo/objective-9c
-root=/n/babyFileServer.rentonsoftworks.coin/tmp/o9mut-campaign
+root=/mnt/term/tmp/o9mut-campaign
 rc grid/run_3node_campaign.rc \
+  -A -y -D -S \
   -r $root \
   -n 3 \
   -j 0 \
   -E /mnt/term/home/scott/Repo/objective-9c/o9c/test/artifacts/o9um_grid_enqueue.rc \
-  dev9p authomatic babyFileServer.rentonsoftworks.coin
+  dev9p.rentonsoftworks.coin Authomatic.rentonsoftworks.coin babyFileServer.rentonsoftworks.coin
 ```
 
-The launcher asks you to confirm that `rcpu` login has already been warmed for
-each node, then runs an auth probe before launching workers. After you have
-already done that preflight and want a non-interactive rerun, pass `-y`. Use
-`-A` only when intentionally skipping the rcpu probe.
+The root maps to host `/tmp/o9mut-campaign`; `rcpu` forwards that host mount to
+each node. Keep the drawterm session open for the campaign's lifetime. The
+example uses `-A -y` after a successful manual `rcpu` trial on all three nodes;
+`-D` starts the stale-task recovery daemon and `-S` snapshots gate inputs.
+The 15-minute timeout covers the full compiler gate under grid load.
+All nodes authenticate against the same Authomatic server, but an outbound
+`rcpu` call still needs a usable `dp9ik` key in the calling session's factotum.
+After a reboot, a direct drawterm login to each node does not establish that
+dev9p can make those outbound calls. Run the manual `rcpu` trials from dev9p
+before using `-A -y`; a noninteractive key prompt is a failed preflight.
 
 `-j 0` keeps workers alive until drained. Monitor from `dev9p`:
 

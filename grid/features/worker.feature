@@ -9,8 +9,8 @@ Feature: Task worker runs one gate per claimed task and classifies the result
     killed       gate exited non-zero (the mutant was detected)
     survived     gate exited zero (the mutant passed — a missing test)
     timeout      the watchdog killed the gate after timeout_ms
-    setup_error  the task row was missing a gate or scratch could not be made
-    infra_fail   reserved for infrastructure failure (see crash_recovery)
+    setup_error  the complete task row omitted a gate or the gate reported setup failure
+    infra_fail   gate fork, log, or exec failure, or a known infrastructure error in its log
     equivalent   reserved for ledger/lexical equivalence (see triage_bridge)
 
   Result file columns:
@@ -96,6 +96,30 @@ Feature: Task worker runs one gate per claimed task and classifies the result
     When the worker claims "t2"
     Then the result file "results/t2.tab" has result=setup_error reason=missing gate
     And the task is moved to done without forking a gate
+
+  @new @race
+  Scenario: A worker waits for the queue writer to complete a task row
+    Given "tasks/pending/t2.tab" contains only its header
+    When a worker observes the file
+    Then it releases its claim without writing a result or removing the pending task
+    When the complete task row is written
+    Then the worker can claim and execute it
+
+  @new @infra
+  Scenario: A gate setup or infrastructure exit is not a mutant kill
+    When a gate exits with status "setup"
+    Then the result is setup_error
+    When a gate exits with status "exec"
+    Then the result is infra_fail
+    And neither result increments the killed count
+
+  @new @infra
+  Scenario: A known infrastructure message in the gate log invalidates a kill
+    When a nonzero gate log contains "no procs"
+    Then the result is infra_fail
+    And the result is not counted as a killed mutant
+    When a nonzero gate log contains "no proc for kproc"
+    Then the result is infra_fail
 
   @new @race
   Scenario: A duplicate post-claim worker cannot overwrite a finished result

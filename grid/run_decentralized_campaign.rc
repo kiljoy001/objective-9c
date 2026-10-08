@@ -125,7 +125,7 @@ fn snapshot_repo {
 		mkdir $snap/$d || exit snapshot
 		dircp $repo/$d $snap/$d || exit snapshot
 	}
-	for(f in mkfile o9.h o9_runtime.c o9_crypto.c o9_tab_discard.c o9_dispatch_$objtype.s monocypher.c monocypher.h)
+	for(f in mkfile o9.h o9_runtime.c o9_filetree.c o9_view.c o9_crypto.c o9_tab_discard.c o9_dispatch_$objtype.s monocypher.c monocypher.h)
 		cp $repo/$f $snap/$f || exit snapshot
 	echo snapshot-repo-complete
 }

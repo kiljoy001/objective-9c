@@ -136,9 +136,9 @@ def main() -> int:
             for row in rows:
                 task_id, source, mutant, gate_path, timeout_ms, priority = row
                 f.write(
-                    "$bindir/o9mutctl -r $root enqueue "
+                    "if(! $bindir/o9mutctl -r $root enqueue "
                     + " ".join(rc_quote(v) for v in (task_id, source, mutant, gate_path, timeout_ms, priority))
-                    + " >/dev/null\n"
+                    + " >/dev/null){ echo failed to enqueue " + rc_quote(task_id) + " >[1=2]; exit enqueue }\n"
                 )
         else:
             f.write("elog=$root/logs/enqueue.$pid.out\n")
@@ -148,6 +148,12 @@ def main() -> int:
             f.write("enq=`{grep '^manifest_enqueued' $elog}\n")
             f.write("if(~ $#enq 0){ echo manifest enqueue count missing >[1=2]; exit enqueue }\n")
             f.write("if(~ $enq(2) 0){ echo manifest enqueue produced zero tasks >[1=2]; exit enqueue }\n")
+            expected = str(len(rows))
+            f.write(
+                f"if(! ~ $enq(2) {expected}){{ "
+                f"echo manifest enqueue count mismatch: expected {expected} got $enq(2) >[1=2]; "
+                "exit enqueue }\n"
+            )
         f.write("echo enqueued " + str(len(rows)) + "\n")
     enqueue.chmod(0o755)
 

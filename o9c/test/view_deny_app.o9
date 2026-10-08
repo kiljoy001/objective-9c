@@ -1,0 +1,27 @@
+interface ViewController {
+    internal method FileTree display(string id, string caller);
+    internal method string readText(string id, string path);
+    internal method int64 writeText(string id, string path, int64 offset, string text, bool truncate);
+}
+
+class DenyView {
+    ViewController;
+
+    internal method FileTree display(string id, string caller) {
+        return nil;
+    }
+
+    internal method string readText(string id, string path) {
+        return "";
+    }
+
+    internal method int64 writeText(string id, string path, int64 offset, string text, bool truncate) {
+        return -1;
+    }
+}
+
+main {
+    DenyView controller = new DenyView();
+    viewController(controller);
+    serve();
+}

@@ -347,6 +347,15 @@ gen_mounttable_new_expr(Node *e)
 }
 
 static int
+gen_filetree_new_expr(Node *e)
+{
+    if(!type_named(e->typeinfo, "FileTree"))
+        return 0;
+    cprint("o9_filetree_new()");
+    return 1;
+}
+
+static int
 gen_vault_new_expr(Node *e)
 {
     int got;
@@ -376,6 +385,8 @@ gen_class_expr(Node *e)
     if(gen_tabula_new_expr(e))
         return;
     if(gen_mounttable_new_expr(e))
+        return;
+    if(gen_filetree_new_expr(e))
         return;
     if(gen_vault_new_expr(e))
         return;
@@ -637,6 +648,8 @@ gen_mounttable_msg(Node *e, Type *lt)
         {"mountnet", "o9_mount_table_mountnet"},
         {"mountnear", "o9_mount_table_mountnear"},
         {"mountfar", "o9_mount_table_mountfar"},
+        {"view", "o9_mount_table_view"},
+        {"unmount", "o9_mount_table_unmount"},
         {"schema", "o9_mount_table_schema"},
         {"has", "o9_mount_table_has"},
         {"get", "o9_mount_table_get"},
@@ -652,6 +665,21 @@ gen_mounttable_msg(Node *e, Type *lt)
     };
 
     return gen_mapped_handle_msg(e, lt, "MountTable", map, nelem(map));
+}
+
+static int
+gen_filetree_msg(Node *e, Type *lt)
+{
+    static CMethod map[] = {
+        {"dir", "o9_filetree_dir"},
+        {"text", "o9_filetree_text"},
+        {"live", "o9_filetree_live"},
+        {"remove", "o9_filetree_remove"},
+        {"register", "o9_filetree_register"},
+        {"apply", "o9_filetree_apply"},
+        {"close", "o9_filetree_close"},
+    };
+    return gen_mapped_handle_msg(e, lt, "FileTree", map, nelem(map));
 }
 
 static int
@@ -1054,6 +1082,7 @@ static GenMsgFn gen_msg_handlers[] = {
     gen_tabula_typed_msg,
     gen_tabula_msg,
     gen_mounttable_msg,
+    gen_filetree_msg,
     gen_vault_msg,
     gen_list_msg,
     gen_dict_msg,
@@ -1520,6 +1549,7 @@ discard_msgsend_is_cvoid(Node *ve)
      * void helpers. */
     return lt != nil && lt->kind == TyName && lt->name != nil &&
         (o9_type_name_is_tabula(lt->name) || strcmp(lt->name, "MountTable") == 0 ||
+         strcmp(lt->name, "FileTree") == 0 ||
          strcmp(lt->name, "Vault") == 0);
 }
 
@@ -1681,7 +1711,7 @@ void
 gen_local_new(Node *s, char *cn, int distance)
 {
     Node *ca;
-    int ai = 0, nctor = 0;
+    int ai, nctor = 0;
     for(ca = s->left->right; ca; ca = ca->next)
         nctor++;
 
@@ -1708,17 +1738,12 @@ gen_local_new(Node *s, char *cn, int distance)
     cprint("\tproccreate(%s_loop, __%s, 65536);\n", cn, s->name);
     cprint("\t%s_create_instance(__%s, \"%s\");\n", cn, s->name, s->name);
     if(nctor > 0){
-        cprint("\t{ vlong __args_%s[%d];\n", s->name, nctor);
-        for(ca = s->left->right; ca; ca = ca->next){
+        cprint("\t{ ");
+        cprint("vlong __args_%s[%d];\n", s->name, nctor);
+        for(ca = s->left->right, ai = 0; ca; ca = ca->next, ai++){
             cprint("\t__args_%s[%d] = ", s->name, ai);
-            if(type_is_double(ca->typeinfo)){
-                cprint("o9_double_pack("); gen_expr(ca); cprint(")");
-            } else if(type_storage_pointerish(ca->typeinfo)){
-                cprint("(vlong)(uintptr)("); gen_expr(ca); cprint(")");
-            } else
-                gen_expr(ca);
+            gen_msgsend_pack_arg(ca);
             cprint(";\n");
-            ai++;
         }
         cprint("\t(void)obj9_msgSendN(&%s, \"%s\", 0x%lux, __args_%s, %d); }\n", s->name, cn, o9_hash(cn), s->name, nctor);
     } else {
@@ -3410,7 +3435,7 @@ gen_state_col_names(Node *c)
         }
         if((m->type == NProp || m->type == NState) &&
            !type_is_class_ref(m->typeinfo)){
-            if(m->flags & NFPrivate)
+            if(m->flags & (NFPrivate|NFInternal))
                 cprint("\"debug:%s\", ", m->name);
             else
                 cprint("\"%s\", ", m->name);
@@ -3517,7 +3542,7 @@ void
 gen_state_store_flagged(char *stateexpr, char *fieldexpr, char *name, Type *type, int flags)
 {
     char colname[128];
-    if(flags & NFPrivate)
+    if(flags & (NFPrivate|NFInternal))
         snprint(colname, sizeof colname, "debug:%s", name);
     else
         snprint(colname, sizeof colname, "%s", name);
@@ -3668,13 +3693,13 @@ gen_cache_entries_buf(Node *c, char *classname, char *bufname)
         }
         /* private field: don't expose its offset in the facade-reachable
          * status cache (#7). */
-        if(m->type == NProp && !(m->flags & NFPrivate)) cprint("\t\tp += snprint(p, sizeof %s - (p-%s), \"d:%%ld:%%ld\\n\", %ldL, (long)o9_offsetof(%s_Internal, %s));\n", bufname, bufname, o9_hash(m->name), classname, m->name);
+        if(m->type == NProp && !(m->flags & (NFPrivate|NFInternal))) cprint("\t\tp += snprint(p, sizeof %s - (p-%s), \"d:%%ld:%%ld\\n\", %ldL, (long)o9_offsetof(%s_Internal, %s));\n", bufname, bufname, o9_hash(m->name), classname, m->name);
         if(m->type == NMethod && method_has_body(m) &&
            c->type == NClass && (c->flags & NFAbstract) == 0){
             /* This cache table also lands in facade-reachable `status` —
              * don't expose private methods' or a constructor's handler
              * pointer there (it's not external API). */
-            if(m->flags & NFPrivate)
+            if(m->flags & (NFPrivate|NFInternal))
                 continue;
             if(m->name != nil && c->name != nil && strcmp(m->name, c->name) == 0)
                 continue;	/* constructor */
@@ -3714,7 +3739,7 @@ gen_method_registrations(Node *c, Node *concrete)
              * still get an INTERNAL dispatch case (gen_dispatch_cases) for
              * o9-to-o9 calls, super(), and new — this only gates the
              * external API surface (method store + /methods). */
-            if(m->flags & NFPrivate)
+            if(m->flags & (NFPrivate|NFInternal))
                 continue;
             if(m->name != nil && c->name != nil && strcmp(m->name, c->name) == 0)
                 continue;	/* constructor */
@@ -3785,7 +3810,7 @@ metadata_is_field_member(Node *m)
 static int
 metadata_field_visible(Node *m)
 {
-    return metadata_is_field_member(m) && (m->flags & NFPrivate) == 0;
+    return metadata_is_field_member(m) && (m->flags & (NFPrivate|NFInternal)) == 0;
 }
 
 static int
@@ -3795,7 +3820,7 @@ metadata_method_visible(Node *c, Node *m)
         return 0;
     /* Facade-reachable status is external API, so private methods and
      * constructors must not appear. */
-    if(m->flags & NFPrivate)
+    if(m->flags & (NFPrivate|NFInternal))
         return 0;
     if(m->name != nil && c != nil && c->name != nil && strcmp(m->name, c->name) == 0)
         return 0;
@@ -4805,7 +4830,7 @@ gen_class_fsread_method_files(Node *c)
              * doesn't expose these per-method files as paths), but if
              * object paths return, private members must not become
              * readable — same rule as the ctl/facade seams. */
-            if(m->flags & NFPrivate)
+            if(m->flags & (NFPrivate|NFInternal))
                 continue;
             if(m->name != nil && c->name != nil && strcmp(m->name, c->name) == 0)
                 continue;	/* constructor */
@@ -4847,7 +4872,7 @@ gen_class_fsread_props(Node *c)
             /* SECURITY (#7): private fields must not be readable through a
              * per-class prop path. Latent (flat facade doesn't expose
              * these paths now), but defense-in-depth for if they return. */
-            if(m->flags & NFPrivate)
+            if(m->flags & (NFPrivate|NFInternal))
                 continue;
             fmt = type_fmt_for_codegen(m->typeinfo);
             cast = type_cast_for_codegen(m->typeinfo);
@@ -4940,6 +4965,8 @@ gen_class_ctl_arity_check(Node *m, int np)
 static int
 ctl_method_exported(Node *c, Node *m)
 {
+    Node *p;
+
     if(m == nil || m->type != NMethod)
         return 0;
     if(m->name == nil || strcmp(m->name, "main") == 0)
@@ -4947,10 +4974,20 @@ ctl_method_exported(Node *c, Node *m)
     /* SECURITY: do not emit a ctl-dispatch case for private methods or
      * the constructor. They still have INTERNAL dispatch cases for
      * o9-to-o9 calls, super, and new. */
-    if(m->flags & NFPrivate)
+    if(m->flags & (NFPrivate|NFInternal))
         return 0;
     if(c != nil && c->name != nil && strcmp(m->name, c->name) == 0)
         return 0;
+    /* Controller callbacks are only called by the app's 9P adapter.
+     * Generic ctl invocation would bypass the controller's viewer policy. */
+    if(c != nil && (strcmp(m->name, "display") == 0 ||
+       strcmp(m->name, "readText") == 0 ||
+       strcmp(m->name, "writeText") == 0)){
+        for(p = c->left; p != nil; p = p->next)
+            if(p->type == NInherit && p->name != nil &&
+               strcmp(p->name, "ViewController") == 0)
+                return 0;
+    }
     return 1;
 }
 
@@ -5047,9 +5084,11 @@ gen_class_router_callbacks(Node *c)
     Node *m;
 
     for(m = c->left; m; m = m->next){
-        if(!ctl_method_exported(c, m))
+        if(m->type != NMethod || m->name == nil ||
+           strcmp(m->name, "main") == 0 || (m->flags & (NFPrivate|NFInternal)) ||
+           (c->name != nil && strcmp(m->name, c->name) == 0))
             continue;
-        if(ctl_method_supported(m)){
+        if(ctl_method_exported(c, m) && ctl_method_supported(m)){
             cprint("static void\ncomplete_ctl_%s_%s(O9RouterOp *op, O9Reply *__o9rep)\n{\n", c->name, m->name);
             cprint("\tReq *r;\n\tr = op != nil ? op->r : nil;\n");
             cprint("\tif(r != nil){\n");
@@ -5176,7 +5215,7 @@ gen_class_method_file_writes(Node *c)
             Node *p;
             /* SECURITY (#7): no per-method write file for private methods
              * or the constructor. */
-            if(m->flags & NFPrivate)
+            if(m->flags & (NFPrivate|NFInternal))
                 continue;
             if(m->name != nil && c->name != nil && strcmp(m->name, c->name) == 0)
                 continue;
@@ -5266,7 +5305,7 @@ gen_class_prop_writes(Node *c)
         if(m->type == NProp){
             /* SECURITY (#7): private fields not writable via a per-class
              * prop path. */
-            if(m->flags & NFPrivate)
+            if(m->flags & (NFPrivate|NFInternal))
                 continue;
             gen_class_prop_write(m);
         }

@@ -132,6 +132,43 @@ if(test -d $root/tasks/claimed/stale){
 	fail=1
 }
 
+# The queue publishes a task in two writes. A worker may see the header
+# before the row arrives; it must retry without producing a false setup_error.
+echo 'task_id	source	mutant_path	gate	timeout_ms	priority	attempt	created_at' >$root/tasks/pending/partial.tab
+$tmp/o9mutw -r $root -w partial-reader -n 1 -idle-ms 100 >$tmp/partial-reader.out >[2=1] &
+sleep 1
+if(test -e $root/results/partial.tab){
+	echo 'o9mutgrid: incomplete task row produced a result' >[1=2]
+	fail=1
+}
+echo 'partial	sample	sample	exit fail	5000	100	0	1' >>$root/tasks/pending/partial.tab
+wait
+if(! awk -F '\t' '$1=="partial" && $2=="partial-reader" && $3=="sample" && $4=="sample" && $5=="killed" {found=1} END{if(!found) exit 1}' $root/results/partial.tab){
+	echo 'o9mutgrid: completed task row was not processed' >[1=2]
+	fail=1
+}
+
+$tmp/o9mutctl -r $root enqueue gate-setup sample sample 'exit setup' 5000 100 >[2]/dev/null
+$tmp/o9mutw -r $root -w setup-reader -n 1 >$tmp/setup-reader.out >[2=1]
+if(! awk -F '\t' '$1=="gate-setup" && $2=="setup-reader" && $5=="setup_error" {found=1} END{if(!found) exit 1}' $root/results/gate-setup.tab){
+	echo 'o9mutgrid: setup exit was counted as a mutant kill' >[1=2]
+	fail=1
+}
+
+$tmp/o9mutctl -r $root enqueue gate-exec sample sample 'exit exec' 5000 100 >[2]/dev/null
+$tmp/o9mutw -r $root -w infra-reader -n 1 >$tmp/infra-reader.out >[2=1]
+if(! awk -F '\t' '$1=="gate-exec" && $2=="infra-reader" && $5=="infra_fail" {found=1} END{if(!found) exit 1}' $root/results/gate-exec.tab){
+	echo 'o9mutgrid: infrastructure exit was counted as a mutant kill' >[1=2]
+	fail=1
+}
+
+$tmp/o9mutctl -r $root enqueue gate-kproc sample sample 'echo no proc for kproc; exit fail' 5000 100 >[2]/dev/null
+$tmp/o9mutw -r $root -w kproc-reader -n 1 >$tmp/kproc-reader.out >[2=1]
+if(! awk -F '\t' '$1=="gate-kproc" && $2=="kproc-reader" && $5=="infra_fail" {found=1} END{if(!found) exit 1}' $root/results/gate-kproc.tab){
+	echo 'o9mutgrid: kproc exhaustion was counted as a mutant kill' >[1=2]
+	fail=1
+}
+
 if(~ $fail 0)
 	echo o9mutgrid: OK
 

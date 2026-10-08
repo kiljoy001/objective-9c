@@ -48,19 +48,20 @@ work=$mnt/repo
 mkdir $work || die mkdir work
 
 fn copydir {
-	if(test -d $repo/$1){
-		mkdir $work/$1 || exit copydir
-		dircp $repo/$1 $work/$1 || exit copydir
-	}
+	if(! test -d $repo/$1)
+		die missing directory $1
+	mkdir $work/$1 || die copydir mkdir $1
+	dircp $repo/$1 $work/$1 || die copydir $1
 }
 
 fn copyfile {
-	if(test -e $repo/$1)
-		cp $repo/$1 $work/$1 || exit copyfile
+	if(! test -e $repo/$1)
+		die missing file $1
+	cp $repo/$1 $work/$1 || die copyfile $1
 }
 
 fn copy_o9c {
-	mkdir $work/o9c || exit copy_o9c
+	mkdir $work/o9c || die copy_o9c mkdir
 	for(f in $repo/o9c/*){
 		name=`{basename $f}
 		if(~ $name test grammar.d){
@@ -68,12 +69,12 @@ fn copy_o9c {
 		}
 		if not {
 			if(! test -d $f)
-				cp $f $work/o9c/$name || exit copy_o9c
+				cp $f $work/o9c/$name || die copy_o9c $name
 		}
 	}
-	mkdir $work/o9c/grammar.d || exit copy_o9c
-	dircp $repo/o9c/grammar.d $work/o9c/grammar.d || exit copy_o9c
-	mkdir $work/o9c/test || exit copy_o9c
+	mkdir $work/o9c/grammar.d || die copy_o9c grammar.d
+	dircp $repo/o9c/grammar.d $work/o9c/grammar.d || die copy_o9c grammar.d
+	mkdir $work/o9c/test || die copy_o9c test
 	for(f in $repo/o9c/test/*){
 		name=`{basename $f}
 		if(~ $name artifacts){
@@ -81,11 +82,11 @@ fn copy_o9c {
 		}
 		if not {
 			if(test -d $f){
-				mkdir $work/o9c/test/$name || exit copy_o9c
-				dircp $f $work/o9c/test/$name || exit copy_o9c
+				mkdir $work/o9c/test/$name || die copy_o9c mkdir $name
+					dircp $f $work/o9c/test/$name || die copy_o9c $name
 			}
 			if not
-				cp $f $work/o9c/test/$name || exit copy_o9c
+				cp $f $work/o9c/test/$name || die copy_o9c $name
 		}
 	}
 	mkdir $work/o9c/test/artifacts >[2]/dev/null
@@ -99,6 +100,8 @@ copydir stdlib || die copy stdlib
 copyfile mkfile || die copy mkfile
 copyfile o9.h || die copy o9.h
 copyfile o9_runtime.c || die copy o9_runtime.c
+copyfile o9_filetree.c || die copy o9_filetree.c
+copyfile o9_view.c || die copy o9_view.c
 copyfile o9_crypto.c || die copy o9_crypto.c
 copyfile o9_tab_discard.c || die copy o9_tab_discard.c
 copyfile o9_dispatch_$objtype.s || die copy o9_dispatch_$objtype.s
@@ -109,17 +112,27 @@ cp $mut $work/$src || die apply mutant $mut $src
 mkdir $work/tmp || die mkdir tmp
 bind -c $work/tmp /tmp || die bind tmp
 cd $work || die cd work
-mk clean >/dev/null >[2=1]
+if(! mk clean >/dev/null >[2=1])
+	die clean
 
 fail=0
 switch($src){
+case o9_filetree.c o9_view.c
+	if(! mk filetree-test) fail=1
+	if(! mk view-test) fail=1
 case libtab/* o9_runtime.c o9_crypto.c o9_tab_discard.c
 	if(! mk crypto-test) fail=1
 	if(! mk tab-test) fail=1
+	if(~ $src o9_runtime.c){
+		if(! mk filetree-test) fail=1
+		if(! mk view-test) fail=1
+	}
 case *
 	if(! mk ast-test) fail=1
 	if(! mk run-test) fail=1
 	if(! mk function-object-contract-test) fail=1
+	if(! mk filetree-test) fail=1
+	if(! mk view-test) fail=1
 }
 
 unmount $mnt >[2]/dev/null

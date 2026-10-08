@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh the Gust mutation campaign mirror every ten minutes
+
+[Timer]
+OnCalendar=*:0/10
+Persistent=true
+Unit=o9mut-gust-sync.service
+
+[Install]
+WantedBy=timers.target

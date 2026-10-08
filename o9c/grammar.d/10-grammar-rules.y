@@ -346,6 +346,12 @@ member:
             n->flags |= NFPrivate;
         $$ = $2;
     }
+    | TINTERNAL member_body {
+        Node *n;
+        for(n = $2; n != nil; n = n->next)
+            n->flags |= NFInternal;
+        $$ = $2;
+    }
     ;
 
 member_body:

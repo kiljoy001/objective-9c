@@ -1,0 +1,7 @@
+[Unit]
+Description=Mirror the active Objective-9 mutation campaign for Gust
+
+[Service]
+Type=oneshot
+ExecStart=/home/scott/Repo/objective-9c/grid/gust/sync_active_campaign.sh
+

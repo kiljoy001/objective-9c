@@ -98,6 +98,7 @@ echo close > /mnt/o9/$sid/ctl
 - [tabula](docs/TABULA.md) - `.tab` files as structured, inert data.
 - [Two-Machine Demo](demo/TWO_MACHINE_DEMO.md) - tabula over a 9P grid.
 - [MountTable](docs/MOUNTTABLE.md) - namespace recipes as tabula data.
+- [Actor-owned views](docs/VIEWS.md) - private 9P trees built by an app actor.
 - [Assembly Dispatch](docs/ASM_DISPATCH.md) - same-process asm cache design.
 - [Transpiler CRAP Score](docs/CRAP.md) - complexity plus real test coverage.
 - [Testing Strategy](docs/TESTING.md) - regression, property, CRAP, PMD, fuzz,
