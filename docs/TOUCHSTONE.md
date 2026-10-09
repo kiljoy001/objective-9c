@@ -1,4 +1,4 @@
-# o9 — Architecture of Record (Touchstone)
+# o9 - Architecture of Record (Touchstone)
 
 This is the anchor document.  When a design question arises, it is
 answered here or made consistent with here.  Everything else
@@ -12,7 +12,7 @@ under these decisions.
 > pointer.**
 
 A normal struct is memory; you serialize it *to* a file, send it *over*
-a socket, store it *in* a database — three formats, translation at every
+a socket, store it *in* a database - three formats, translation at every
 seam.  o9's struct does not translate: its memory *is* a table, the file
 *is* that table, the thing on the wire *is* that table.  One
 representation, three jobs, no serialization seam anywhere.
@@ -25,7 +25,7 @@ anything).
 
 Everything below is a consequence of this seed.
 
-## 9P is the dependency — not Plan 9
+## 9P is the dependency - not Plan 9
 
 o9 depends on **9P, the protocol**, not on Plan 9, the operating system.
 9P has independent implementations: plan9port, the Linux kernel's v9fs /
@@ -33,16 +33,16 @@ o9 depends on **9P, the protocol**, not on Plan 9, the operating system.
 speak 9P and run compiled code; it does not need to *be* Plan 9.
 
 This is the escape-velocity property.  o9's deepest value
-(struct-as-file-over-9P) is inseparable from *9P* — but 9P is portable,
+(struct-as-file-over-9P) is inseparable from *9P* - but 9P is portable,
 so the value travels to any host that implements the protocol.  The
 substrate is a protocol, not a kernel.  (Contrast Amoeba: its value was
 inseparable from the *OS*, and it stayed a research artifact while the
-language built on it — Python — survived by being portable.  9P being a
+language built on it - Python - survived by being portable.  9P being a
 protocol is what lets o9 avoid that fate without abandoning its soul.)
 
 Targets, concretely: 9front (native), and 9lx/Linux (9P via plan9port +
 kernel v9fs; the port scoped separately).  libtab and monocypher already
-build on both — proof the dual-target approach holds.
+build on both - proof the dual-target approach holds.
 
 ## The five decisions
 
@@ -55,11 +55,11 @@ build on both — proof the dual-target approach holds.
 2. **9P-on-tables is the semantics; the machinery is the transport.**
    A method's effect on state *means* "a 9P action on the object's
    `.tab`."  shm + CSP channel + asm thunk is the **zero-distance
-   transport** that realizes that meaning in-process — no walk, no
+   transport** that realizes that meaning in-process - no walk, no
    marshal, no round-trip.  9P-over-a-connection is the remote
    transport.  `distance` selects the transport under one interface.
    **Law:** the local fast path must faithfully realize the 9P
-   semantics — same effect on the same `.tab`, only faster — and must
+   semantics - same effect on the same `.tab`, only faster - and must
    never become a literal 9P round-trip for `same`, nor diverge from
    what a remote caller would see.  The asm tier is documented in
    [ASM_DISPATCH.md](ASM_DISPATCH.md); it is a cache over local
@@ -67,7 +67,7 @@ build on both — proof the dual-target approach holds.
 
 3. **The network carries data only; it is inert on arrival.**  A
    tabula that crosses the wire is read like any file.  It is never an
-   object, never code, never actionable — nothing the sender wrote can
+   object, never code, never actionable - nothing the sender wrote can
    cause anything to happen on the receiver.  **o9 does not move objects
    and does not rehydrate them**: reconstructing a live thing from
    sender-supplied bytes is RCE in disguise (the deserialization-RCE
@@ -87,7 +87,7 @@ build on both — proof the dual-target approach holds.
 
 ## Everything is a consequence
 
-Each feature is an implication of the seed, not an independent addition —
+Each feature is an implication of the seed, not an independent addition -
 the test that the architecture is coherent:
 
 - **secret field** = a struct field stored encrypted (a sealed cell).
@@ -115,11 +115,11 @@ the test that the architecture is coherent:
   is data and data is inert.
 
 If a proposed feature is *not* expressible as a consequence of the seed,
-that is the signal to question it — bloat and insecurity have entered
+that is the signal to question it - bloat and insecurity have entered
 together every time in this design's history (rehydration, shipped code,
 a fat runtime), and the seed is the filter that catches them.
 
-## Build roadmap — converged, dependency-ordered
+## Build roadmap - converged, dependency-ordered
 
 Each item is independently useful; the order is forced by what each one
 needs to exist first.
@@ -129,30 +129,30 @@ needs to exist first.
   facade (`clone`, `methods`, `status`, `exports/`, `imports/`, and
   per-session `ctl`/`data`/`status`). Objects are addressed by name through the
   facade or by in-process handles, not mounted as separate public object
-  trees. Foundation for B/C/D — they all need "a program" to be one
+  trees. Foundation for B/C/D - they all need "a program" to be one
   addressable thing. Escape hatch: behavior that needs a real trust boundary
   runs as a separate app and exchanges tabula data through `exports/` and
   `imports/`, paying 9P cost exactly where isolation is wanted.
 
 - **B. ~~One `kind`-keyed ledger per app.~~  Abandoned (July 2026).**
   A unified store requires a query filter to answer "what methods does
-  this class have?" — a separate in-memory method table answers that
+  this class have?" - a separate in-memory method table answers that
   directly.  One purpose per table is still the honest Plan 9 design, but
   authority-bearing metadata is no longer a public writable file:
-    - method table — private in-memory registrations
-    - object table — private in-memory object inventory / node table
-    - `<class>.<inst>.tab` — per-instance field state when debug state
+    - method table - private in-memory registrations
+    - object table - private in-memory object inventory / node table
+    - `<class>.<inst>.tab` - per-instance field state when debug state
       snapshots are explicitly enabled
-    - `exports/<name>.tab` — published tabulae (written by `export()`)
-    - `imports/<name>.tab` — inert inbound tabula deposits
+    - `exports/<name>.tab` - published tabulae (written by `export()`)
+    - `imports/<name>.tab` - inert inbound tabula deposits
   Persisted method/object copies are debug snapshots only.  Roadmap order
-  collapses to **A (done) → C → D**.
+  collapses to **A (done) -> C -> D**.
 
-- **C. ~~Reference graph.~~  Abandoned (July 2026) — wrong in principle.**
+- **C. ~~Reference graph.~~  Abandoned (July 2026) - wrong in principle.**
   An explicit reference graph (write-barrier on every handle assignment)
   is a manual GC write barrier: you're doing by hand what a GC does
   automatically.  o9 has no GC and no VM, and this mechanism belongs to
-  that world.  The object graph in o9 is not stored — it is *enacted at
+  that world.  The object graph in o9 is not stored - it is *enacted at
   call time* through late-bound dispatch, exactly as in ObjC.  "What does
   this object connect to" is answered by the registry (who's alive, by
   oid) and the namespace (what's bound where), which are already real and
@@ -166,7 +166,7 @@ needs to exist first.
   is honest on 9front. This is the "Python-on-Amoeba" moment: the layer
   that makes the substrate conversational. Whether it becomes
   Python-the-survivor or Amoeba-the-artifact turns on the dual-target
-  reach (see 9P section) — o9 being compelling to someone who doesn't
+  reach (see 9P section) - o9 being compelling to someone who doesn't
   already believe in the substrate.
 
 The old A/B/C sequence has converged: A is built, B and C were cut, and
@@ -188,9 +188,9 @@ by editing metadata files.
 
 So the split is:
 
-- **Read/write data** — mount `exports/` to read published tabulae, or write
+- **Read/write data** - mount `exports/` to read published tabulae, or write
   `.tab` files into `imports/`. Data is inert, signable, and cat-able.
-- **Invoke behavior** — write a method command to a session `ctl`, or use
+- **Invoke behavior** - write a method command to a session `ctl`, or use
   direct in-process dispatch. Required for side effects, arguments, and
   computed return values.
 

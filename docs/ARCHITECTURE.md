@@ -1,4 +1,4 @@
-# o9: A Network-Native Language — Architecture
+# o9: A Network-Native Language - Architecture
 
 > **See TOUCHSTONE.md for the architecture of record.**  This document
 > is detail under those decisions.  Current architecture: an app is one
@@ -45,7 +45,7 @@ Every class compiles to:
 
 - an **Internal struct** (authoritative state, persisted per-field via
   libtab), owned by a **CSP actor proc** that serializes all method
-  execution — one writer per object, no locks;
+  execution - one writer per object, no locks;
 - a **local client handle** callers hold for in-process dispatch;
 - an **app 9P facade**: root `clone`, `methods`, `status`, `view/`, `exports/`, `imports/`,
   and per-session `<id>/ctl`, `<id>/data`, `<id>/status`;
@@ -53,14 +53,14 @@ Every class compiles to:
   wrappers.
 
 Inheritance is struct embedding with flattened dispatch; interfaces and
-`abstract` are compile-time contracts; generics are **monomorphized** —
-each concrete instantiation (`Box<int64>` → `Box__int64`) is a real class.
+`abstract` are compile-time contracts; generics are **monomorphized** -
+each concrete instantiation (`Box<int64>` -> `Box__int64`) is a real class.
 
 ## Dispatch Tiers (per call, fastest first)
 
 ```
  1. asm L1 cache      64-entry direct-mapped, per-client       ~ns
- 2. method store      libtab (class, selector) → thunk;
+ 2. method store      libtab (class, selector) -> thunk;
                       pid-generation guard: a hit is always
                       a same-process pointer                   fill L1, retry
  3. CSP channel       O9Msg over dispatch_chan to the actor    in-process
@@ -78,9 +78,9 @@ layout, miss/refill behavior, and fallback invariants.
 
 One identity, two forms:
 
-- **process identity**: the `oid` — resolves through the in-process object
+- **process identity**: the `oid` - resolves through the in-process object
   registry and debug/method metadata;
-- **local fast form**: `(dispatch_chan, shm_base, gen)` — valid only
+- **local fast form**: `(dispatch_chan, shm_base, gen)` - valid only
   in-process, guarded by the generation counter.
 
 Channels carry typed o9 values through a generic byte envelope. Handles are
@@ -114,6 +114,47 @@ reading the app's `state` file emits read-only method/object snapshots
 alongside live instance state. With `O9DEBUG` unset, the inspector remains
 gated.
 
+## Cryptographic Security Model
+
+o9 uses Monocypher to provide built-in cryptographic primitives for attestation
+and confidentiality.
+
+### The TEXT Invariant
+
+All cryptographic boundary values (public/private keys, signatures, BLAKE2b
+digests, keyed MACs, salts, and AEAD cipher blobs) are lowercase hex strings.
+Values travel across `.tab` cells, `ctl` lines, 9P messages, and file storage
+without encoding changes or binary truncation. An encrypted value is a standard
+cat-able string whose payload is sealed.
+
+### Primitives And Custody
+
+- **Attestation**: Ed25519 (`sign`, `verify`) and BLAKE2b-256 (`hash`, `mac`).
+- **Confidentiality**: XChaCha20-Poly1305 AEAD (`encrypt`, `decrypt`) and
+  X25519 (`exchange`, `xpubkey`).
+- **Key Derivation**: Argon2id (`passkey`) matching `libtab` parameters (64 MiB RAM,
+  3 passes, 1 lane).
+- **Key Custody**: The program manages keys via `keygen`, `passkey`, or `exchange`.
+  The runtime never stores persistent keys on its own.
+
+### Memory Isolation: Vault And O9KeyArena
+
+`Vault` isolates cryptographic keys and secret records in a dedicated memory arena
+(`O9KeyArena`):
+
+1. **RAM Encryption**: Slot records stored with `put(name, val)` remain AEAD-encrypted
+   inside memory with fresh random nonces. Plaintext exists only during active calls.
+2. **At-Rest Sealing**: `sealFile` and `sealTab` persist ciphertext blobs to the filesystem.
+   Tabulae encrypted this way obey the Inert Data Law: they are inert text at rest.
+3. **Zeroization**: `wipe()` and `close()` erase keys, salts, and arena slot memory
+   using `crypto_wipe`.
+
+### Secret Fields
+
+Classes can declare `secret string name;`. The compiler replaces the field with
+`name__blob` (an AEAD hex blob) and generates accessors (`seal_name`, `open_name`,
+`seal_vault_name`, `open_vault_name`). No plaintext accessor exists.
+
 ## The Process Model
 
 **One OS process per app instance.** All classes of an app are roommates:
@@ -122,10 +163,10 @@ surface is the shared app fileserver facade:
 
 ```
  app process
- ├── actors (one proc per instance, CSP-serialized)
- ├── object/method stores     ← private runtime metadata
- ├── /srv/<app>              ← published app facade
- └── root files: clone, methods, status, exports, imports, sessions,
+ |-- actors (one proc per instance, CSP-serialized)
+ |-- object/method stores     <- private runtime metadata
+ |-- /srv/<app>               <- published app facade
+ \-- root files: clone, methods, status, exports, imports, sessions,
      and actor-owned view namespaces
 ```
 
@@ -151,7 +192,7 @@ Namespace control now has two jobs:
 
 **The /srv seam (verified on the grid):** a server's self-mount is
 visible only inside its own process namespace. The idempotent `/srv`
-post is therefore the canonical publication point — machine-global,
+post is therefore the canonical publication point - machine-global,
 importable (`rimport host /srv`), mountable anywhere. Assembled
 `/mnt/o9/App` trees are built by consumers in their own namespaces, never
 by the server for others.
@@ -159,19 +200,19 @@ by the server for others.
 ## Compilation Pipeline
 
 ```
- source.o9 → o9c (prescan registry → registry-only lexing → AST with
- Type* + line numbers → typecheck with bindings → monomorphize →
- codegen) → Plan 9 C → 6c/6l + libo9.a → binary
+ source.o9 -> o9c (prescan registry -> registry-only lexing -> AST with
+ Type* + line numbers -> typecheck with bindings -> monomorphize ->
+ codegen) -> Plan 9 C -> 6c/6l + libo9.a -> binary
 ```
 
 Diagnostics carry line numbers everywhere. TTYPEIDENT means *declared
-type* — PascalCase members, locals, and bare self-access all work.
+type* - PascalCase members, locals, and bare self-access all work.
 
 ## Testing
 
 Compile-and-grep suites (`production_ast.rc`: AST dumps, generated-C
 requires, rejection fixtures) plus **execute-and-assert** (`mk run-test`):
-real binaries run on 9front, stdout compared — dispatch/frames/self-calls,
+real binaries run on 9front, stdout compared - dispatch/frames/self-calls,
 builtins, destructors, generics, channels, tabula transport, stdlib, and
 libdraw headless checks.
 
@@ -180,7 +221,7 @@ libdraw headless checks.
 - [x] Type* metadata, line diagnostics, registry lexing, monomorphization
 - [x] Method/object stores; methods file; error propagation; delete;
       stdlib object layer; execute-and-assert harness
-- [x] **Phase 1**: idempotent unique `/srv` posts — verified across the
+- [x] **Phase 1**: idempotent unique `/srv` posts - verified across the
       grid (demo/TWO_MACHINE_DEMO.md)
 - [x] **Phase 2**: clone/session facade with per-request session state
 - [x] **Phase 3**: `function`/`spawn`/`Task<T>` and stdlib object layer

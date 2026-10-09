@@ -1,4 +1,4 @@
-# Two-Machine tabula Demo — network-first o9
+# Two-Machine tabula Demo - network-first o9
 
 This demo exercises tabula transfer through mounted 9P namespaces:
 

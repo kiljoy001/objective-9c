@@ -12,19 +12,19 @@
 
 o9 can eventually expose the compiler's surface syntax as a table so
 trusted build-time filters can transform a program before typecheck.
-This borrows the useful part of Lisp-style macros — code transformation
-as data transformation — without making runtime objects rewrite their
+This borrows the useful part of Lisp-style macros - code transformation
+as data transformation - without making runtime objects rewrite their
 own behavior.
 
 The Plan 9-shaped translation is:
 
-- runtime invocation as *lines* — done: the `send` builtin fires the
+- runtime invocation as *lines* - done: the `send` builtin fires the
   same ctl line the shell writes (e2e_send.o9);
-- program structure as *tables* — this design: the compiler's AST as a
+- program structure as *tables* - this design: the compiler's AST as a
   libtab table that ordinary programs can transform between parse and
   typecheck.
 
-A macro is then any program that maps code-table → code-table.  Not a
+A macro is then any program that maps code-table -> code-table.  Not a
 new sublanguage, not an interpreter in the compiler: a filter in a
 pipeline, which is what this OS already knows how to compose.
 
@@ -46,7 +46,7 @@ pipeline, which is what this OS already knows how to compose.
 ## The Code Table
 
 One entry per AST node.  `Node` is {type, flags, line, name, typename,
-qname, left, right, params, next} — everything else (`typeinfo`,
+qname, left, right, params, next} - everything else (`typeinfo`,
 `cname`) is derived by typecheck/codegen and deliberately NOT
 serialized: macros operate on surface structure, and the typechecker
 re-derives semantics after expansion.
@@ -66,7 +66,7 @@ Columns:
 | typename | Node.typename                                      |
 | qname    | Node.qname                                         |
 
-Pointer order becomes (parent, edge, seq) — tables have no pointer
+Pointer order becomes (parent, edge, seq) - tables have no pointer
 identity, so sibling chains are explicit sequence numbers.  String
 literals with spaces/newlines are safe because libtab cell encoding
 already quotes arbitrary text.
@@ -75,18 +75,18 @@ already quotes arbitrary text.
 
 Two flags beside the existing `-ast`:
 
-- `o9c -T < prog.o9 > prog.code.tab` — parse only, emit the code
+- `o9c -T < prog.o9 > prog.code.tab` - parse only, emit the code
   table, exit.  (Pre-typecheck, unlike `-ast`: macros must see the
   program before semantic analysis, and expansion output gets checked
   afterward anyway.)
-- `o9c -t < prog.code.tab > prog.c` — skip lexer/parser, rebuild the
+- `o9c -t < prog.code.tab > prog.c` - skip lexer/parser, rebuild the
   Node graph from entries, then run the normal typecheck + codegen.
 
 These flags are design targets, not current command-line options.
 
 The invariant that makes the whole design testable:
 
-    o9c -T < x.o9 | o9c -t   ≡   o9c < x.o9
+    o9c -T < x.o9 | o9c -t   ==   o9c < x.o9
 
 for every program in the e2e corpus.  That roundtrip identity is the
 Phase-2 gate (`mk table-test`), and it is what licenses trusting the
@@ -97,7 +97,7 @@ table as *the* program rather than a lossy view of it.
     o9c -T < prog.o9 | expand_secret | derive_accessors | o9c -t > prog.c
 
 Each stage is an ordinary program reading a table and writing a
-table — rc, awk, or o9 itself. These stages run in a trusted build
+table - rc, awk, or o9 itself. These stages run in a trusted build
 namespace chosen by the developer. They do not run because an app
 received a file under `imports/`, and they are not part of the
 generated runtime.
@@ -125,48 +125,49 @@ Two properties Lisp macros don't have:
   on what compiles.
 
 ## First macro: secret fields
-
-The proof-of-design macro ties into the crypto stdlib.  Today the
-Vault pattern (TUTORIAL.md) is hand-written; with the table stage,
-
-    class Account {
-        secret string apitoken;
-    }
-
-is rewritten by `expand_secret` into what e2e_crypto.o9 does by hand:
+ 
+The proof-of-design macro ties into the crypto stdlib. Today the
+Vault pattern and `secret` fields are built into the language
+(see LANGUAGE.md and TUTORIAL.md). Originally conceived as a table macro:
+ 
+     class Account {
+         secret string apitoken;
+     }
+ 
+is rewritten into what e2e_crypto.o9 and e2e_vault.o9 do:
 the stored field becomes the AEAD blob, and accessors take the key:
-
-    class Account {
-        string apitoken__blob;
-        method void seal_apitoken(string key, string v)
-            { apitoken__blob = encrypt(key, v); }
-        method string open_apitoken(string key)
-            { return decrypt(key, apitoken__blob); }
-    }
-
+ 
+     class Account {
+         string apitoken__blob;
+         method void seal_apitoken(string key, string v)
+             { apitoken__blob = encrypt(key, v); }
+         method string open_apitoken(string key)
+             { return decrypt(key, apitoken__blob); }
+     }
+ 
 A language feature shipped as a table transformation: nothing added
 to the grammar, nothing hardcoded in codegen, fully typechecked after
-expansion — and removable by deleting one pipeline stage.
-
+expansion - and removable by deleting one pipeline stage.
+ 
 ## Staging
-
+ 
 1. **-T**: emit entries (rework `dump_ast` into `dump_table`; move the
    call site before typecheck).  Assert well-formedness: every parent
    exists, (parent, edge, seq) unique.
-2. **-t**: entries → Node graph (two passes: allocate by id, then link).
+2. **-t**: entries -> Node graph (two passes: allocate by id, then link).
    Gate: roundtrip identity over the whole e2e corpus, `mk table-test`.
 3. **expand_secret** as the first macro + e2e case; TUTORIAL section.
 4. Later, if wanted: use the existing `tabula` object for code-table
    editing, add signed-expansion verification in mk rules, and build a
-   pretty-printer (table → .o9 source) for debugging macros.
-
+   pretty-printer (table -> .o9 source) for debugging macros.
+ 
 ## Naming: tabula
-
+ 
 The language-level type is **tabula**, not Table or Tab.  "Tab" reads
 as the whitespace character; "Table" quietly promises relational
 algebra (joins, SQL semantics) that libtab deliberately does not
-have.  A tabula is the writing surface itself — entries written to a
-slate, searched and iterated, nothing heaped on top — which is what this
+have.  A tabula is the writing surface itself - entries written to a
+slate, searched and iterated, nothing heaped on top - which is what this
 storage actually is.  The lineage decays naturally through the
-layers: tabula (language) → .tab (files) → libtab (C library), the
+layers: tabula (language) -> .tab (files) -> libtab (C library), the
 same relationship string has to char*.

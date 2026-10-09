@@ -132,10 +132,17 @@ one application, and public methods for the app facade. The controller can
 consume an internal model interface and choose the `FileTree` exposed to each
 viewer. An internal method has no client path or direct ctl command.
 
-`secret string name;` stores sealed text and generates `seal_name` and
-`open_name` helpers. It is for secrets in object state and `.tab` workflows;
-it is not a replacement for factotum when native Plan 9 authentication is
-available.
+`secret string name;` stores sealed text. The compiler generates:
+
+- `seal_name(string key, string val)`
+- `open_name(string key) string`
+- `seal_vault_name(Vault v, string val)`
+- `open_vault_name(Vault v) string`
+
+Storage is `name__blob` as lowercase hex AEAD ciphertext. Plaintext never
+persists in object state, `/srv` data, or `.tab` rows. Key custody stays with
+the caller. It is for secrets in object state and `.tab` workflows; it is not a
+replacement for factotum when native Plan 9 authentication is available.
 
 A class can contain fields of other class types:
 
@@ -249,7 +256,7 @@ Task<T>
 chan<T> stream<T>
 List<T> Dict<string,T>
 list<T> array<T> dictionary<T>
-tabula Namespace MountTable FileTree
+tabula Namespace MountTable FileTree Vault
 ```
 
 `List<T>` and `Dict<string,T>` are compiler/runtime carriers. The stdlib
@@ -512,6 +519,100 @@ normal properties and methods.
 `use` names resolve through the built-in Plan 9 dependency registry and then
 optional project-root `deps.tab`. Project dependencies must stay under the
 project folder.
+
+## Built-in Functions
+
+o9 provides core built-in functions for text, files, process control, and
+cryptography. A class method of the same name shadows any built-in function.
+
+### Text And File Operations
+
+- `len(string s) int64`: Byte count of string `s`.
+- `cmp(string a, string b) int64`: Lexicographic comparison (0 if equal, -1 if `a < b`, 1 if `a > b`).
+- `cat(string a, string b) string`: Concatenates two strings.
+- `readfile(string path) string`: Reads complete file contents at `path` as text.
+- `writefile(string path, string s) int64`: Writes string `s` to `path`. Returns byte count or -1 on error.
+- `readline() string`: Reads one line from standard input.
+
+### Application And 9P Facade
+
+- `serve() void`: Blocks (yielding) so the process continues serving its 9P fileserver facade.
+- `viewController(object vc) int64`: Registers custom dynamic view controller for 9P `/view` requests.
+- `listen(string addr) void`: Starts listening on network address.
+- `export(string name, tabula t) void`: Publishes a `tabula` into the served `exports/` directory.
+- `fail(string msg) void`: Error-as-value. Sets the current method error and returns immediately.
+- `lookup(string name) void`: Resolves client registration.
+- `send(object obj, string cmd) string`: Executes a `ctl` command string against an actor handle and returns reply.
+
+### Cryptographic Operations
+
+o9 includes built-in cryptography backed by Monocypher.
+
+The TEXT Invariant: All cryptographic boundary values (keys, signatures,
+digests, salts, and AEAD cipher blobs) are lowercase hex strings. They can
+travel inside `.tab` cells, `ctl` lines, 9P messages, and text files without
+escaping, base64 corruption, or binary truncation.
+
+- `keygen() string`: Generates 32 random bytes from `/dev/random` as a 64-character lowercase hex seed. The seed is the secret key.
+- `pubkey(string sec) string`: Derives the 64-hex Ed25519 public key from the secret seed `sec`.
+- `sign(string sec, string msg) string`: Signs string `msg` with secret seed `sec` using Ed25519. Returns a 128-hex signature string.
+- `verify(string pub, string msg, string sig) int64`: Verifies Ed25519 signature `sig` for string `msg` against public key `pub`. Returns 1 if valid, 0 if invalid, -1 on malformed input.
+- `hash(string msg) string`: Computes BLAKE2b-256 digest of string `msg`. Returns a 64-hex string.
+- `mac(string key, string msg) string`: Computes keyed BLAKE2b-256 Message Authentication Code. `key` is 64 hex characters (32 bytes). Returns a 64-hex string.
+- `passkey(string pass, string salt) string`: Key derivation via Argon2id (64 MiB RAM, 3 passes, 1 lane, matching `libtab`). `salt` must be at least 8 characters. Returns a deterministic 64-hex key.
+- `salt() string`: Generates 16 random bytes from `/dev/random` as a 32-character lowercase hex salt string.
+- `encrypt(string key, string msg) string`: Authenticated encryption with XChaCha20-Poly1305 AEAD. A fresh 24-byte nonce is drawn from `/dev/random` on every call. Returns a single lowercase hex string: `nonce[24] || mac[16] || ciphertext`.
+- `decrypt(string key, string blob) string`: Authenticated decryption of an AEAD hex blob. Returns the plaintext string, or `nil` if the key is wrong or the blob was tampered with.
+- `xpubkey(string sec) string`: Derives a 64-hex X25519 public key from seed `sec` for Diffie-Hellman key exchange.
+- `exchange(string sec, string pub) string`: Computes X25519 shared secret between secret key `sec` and peer public key `pub`, hashed with BLAKE2b-256. Returns a 64-hex shared key. Returns `nil` if the peer public key is low-order.
+
+## Cryptography And Vault
+
+### Secret Fields
+
+Declare confidential fields inside classes using the `secret` keyword:
+
+```o9
+class SecretBox {
+    secret string apitoken;
+}
+```
+
+The compiler desugars the field:
+1. Replaces storage with `apitoken__blob`.
+2. Generates `seal_apitoken(string key, string val)`.
+3. Generates `open_apitoken(string key) string`.
+4. Generates `seal_vault_apitoken(Vault v, string val)`.
+5. Generates `open_vault_apitoken(Vault v) string`.
+
+No plain getter or setter exists. The field is ciphertext in all representations
+(memory, `/srv`, `.tab` storage). Key custody remains with the caller.
+
+### Vault
+
+`Vault` is an isolated memory arena (`O9KeyArena`) for key derivation, defense-in-depth
+in-memory encryption, and at-rest file and table encryption.
+
+Constructors:
+- `new Vault()`: Generates random ephemeral key.
+- `new Vault(string key_or_pass)`: Accepts a 64-hex key or passphrase. If given a passphrase, it generates an automatic 16-byte random salt and derives the key via Argon2id.
+- `new Vault(string pass, string salt)`: Derives key via Argon2id with explicit salt (salt must be at least 8 characters).
+
+Methods:
+- `valid() int64`: Returns 1 if vault key is active, 0 if wiped or closed.
+- `seal(string msg) string`: Encrypts `msg` with XChaCha20-Poly1305. Returns lowercase hex blob.
+- `open(string blob) string`: Decrypts AEAD hex blob. Returns plaintext, or `nil` on authentication failure.
+- `sealFile(string path, string data) int64`: Encrypts `data` and writes hex blob to `path`. Returns byte count or -1.
+- `openFile(string path) string`: Reads hex blob from `path` and decrypts. Returns plaintext string or `nil`.
+- `sealTab(string path, tabula t) int64`: Serializes `t`, encrypts it, and writes hex blob to `path`. Returns byte count or -1.
+- `openTab(string path) tabula`: Reads and decrypts file at `path`, returning a restored `tabula` object.
+- `put(string name, string val) int64`: Stores `val` encrypted inside an isolated RAM slot. Each slot has its own nonce and AEAD ciphertext in memory. Up to 64 slots. Returns 0 on success, -1 on failure.
+- `get(string name) string`: Decrypts and returns plaintext from slot `name`. Returns plaintext string or `nil`.
+- `has(string name) int64`: Returns 1 if slot exists, 0 otherwise.
+- `drop(string name) int64`: Wipes slot memory and releases it. Returns 1 if found, 0 if not found.
+- `salt() string`: Returns the salt string used by the Vault.
+- `wipe() void`: Wipes key, slots, and salt in memory using `crypto_wipe`. Marks Vault invalid.
+- `close() void`: Wipes memory and frees the Vault.
 
 ## tabula
 

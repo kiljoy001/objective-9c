@@ -1,4 +1,4 @@
-# syslogmon — 9front Syslog Monitor (Objective-9C)
+# syslogmon - 9front Syslog Monitor (Objective-9C)
 
 `syslogmon` is an Objective-9C application that monitors system logs across all machines in the 9front grid (`dev9p`, `babyFileServer`, `Authomatic`, etc.).
 

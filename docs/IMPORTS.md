@@ -1,4 +1,4 @@
-# o9 imports — design (July 2026)
+# o9 imports - design (July 2026)
 
 Status: BUILT (July 2026). The supported form is `import "path";`.
 The imported file's full body is spliced into the compilation and
@@ -15,7 +15,7 @@ to FILE's dir). `o9c < FILE.o9` still works (resolves relative to cwd).
 Python's package system is the anti-pattern we reject: `__init__.py`
 marker files whose mere presence changes whether a dir is a package,
 `sys.path` search, implicit vs explicit relative imports, namespace
-packages — a pile of implicit, stateful, action-at-a-distance
+packages - a pile of implicit, stateful, action-at-a-distance
 resolution. You cannot tell from an import statement what file actually
 opens; it depends on cwd, PYTHONPATH, installed site-packages, and which
 `__init__.py` files exist.
@@ -39,7 +39,7 @@ dependencies and their locations visible.
 ## Path resolution + the project boundary (firm rule)
 
 An import path resolves **relative to the directory of the importing
-file** (NOT the cwd — location-stable: the path means the same thing no
+file** (NOT the cwd - location-stable: the path means the same thing no
 matter where o9c is invoked).
 
 AND it may only reach that directory or its SUBDIRECTORIES. Never
@@ -57,7 +57,7 @@ the base, reject: "import path escapes the importing file's directory;
 imports must stay within the project subtree."
 
 Why: a project is a self-contained subtree. All of a project's
-dependencies live inside the project — move the folder, it still builds,
+dependencies live inside the project - move the folder, it still builds,
 no machine-specific paths. And it's a real boundary: the import graph
 physically cannot escape the project root (no ../../../ traversal into
 other projects or system files). Better than Python (imports from
@@ -70,12 +70,12 @@ compilation.
 
 There is deliberately NO `from "path" import A, B;`. It was tried and
 removed: because the mechanism splices the WHOLE file, a `from` that
-named A, B produced output IDENTICAL to `import` — the name list was a
+named A, B produced output IDENTICAL to `import` - the name list was a
 lie. o9 does not ship a verb that overpromises. `from` is rejected with:
 "'from ... import' is not supported; use `import "path";`. Selective
 import is not yet implemented." A real filtering `from` (splice only the
 named decls + their transitive dependency closure) can return WHEN it
-actually filters — not before.
+actually filters - not before.
 
 ## Mechanism: splice into one compilation
 

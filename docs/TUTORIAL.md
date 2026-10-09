@@ -1,7 +1,7 @@
 # Learning o9
 
 Everything here is verified by the test suite (`o9c/test/e2e_*.o9` are
-runnable, asserted examples — read them alongside this).
+runnable, asserted examples - read them alongside this).
 
 ## Build & run (on 9front)
 
@@ -24,7 +24,7 @@ main {
 }                                    // numbers as %lld; % is literal
 ```
 
-## 2. Classes — every object is a CSP actor
+## 2. Classes - every object is a CSP actor
 
 ```
 class Counter {
@@ -38,11 +38,11 @@ class Counter {
 main {
     Counter a = new Counter(20);
     a.add(a.twice());                // nested calls are safe
-    print("a ", a.get(), "\n");      // → a 60
+    print("a ", a.get(), "\n");      // -> a 60
 }
 ```
 
-Each `new` spawns a CSP actor proc owning the state — one writer per
+Each `new` spawns a CSP actor proc owning the state - one writer per
 object, no locks. PascalCase members work (`method int64 GetValue()`,
 `prop string Name;`, bare self-access). `delete a;` runs `~Counter()`
 synchronously, then the actor exits (see e2e_delete.o9).
@@ -50,7 +50,7 @@ synchronously, then the actor exits (see e2e_delete.o9).
 Inheritance: name the parent as a member (`Base;`). `interface` and
 `abstract class` are compile-time contracts the checker enforces.
 
-Construction chains explicitly with `super(args)` — when a class and its
+Construction chains explicitly with `super(args)` - when a class and its
 parent both have constructors, call the parent's first so every level
 initializes its own fields (e2e_hard_super.o9):
 
@@ -68,17 +68,17 @@ o9-honest: no hidden super calls, you write the chain. If the parent has
 no constructor, `new Child(...)` reaches the nearest ancestor constructor
 automatically (no `super` needed).
 
-A class cannot `new` **itself** inside its own constructor — the object
+A class cannot `new` **itself** inside its own constructor - the object
 is half-built (same reason Swift's two-phase init forbids it; C++/Java
 just recurse forever). Constructing a *different* class into a field
 (composition) is fine; build more of your own kind in a method, not the
 constructor.
 
-### public / private — the network boundary
+### public / private - the network boundary
 
 A member is `public` by default. `private` makes it class-scoped
-(C#-style) — callable only from the declaring class's own methods, and
-**not reachable through the app's fileserver** (see §6). So the access
+(C#-style) - callable only from the declaring class's own methods, and
+**not reachable through the app's fileserver** (see section 6). So the access
 modifier is also the network API boundary: public methods are the
 service; private ones are internal.
 
@@ -93,10 +93,10 @@ class Counter {
 ```
 
 Calling `bump` (or reading `val`) from outside `Counter` is a compile
-error. You publish a method by *not* marking it private — there is no
+error. You publish a method by *not* marking it private - there is no
 separate interface to author (e2e_private.o9).
 
-## 3. Generics — real classes per instantiation
+## 3. Generics - real classes per instantiation
 
 ```
 class Box<T> {
@@ -108,7 +108,7 @@ Box<int64> a = new Box<int64>(41);   // Box__int64: vlong field
 Box<string> s = new Box<string>("hi"); // Box__string: char* field
 ```
 
-## 4. Errors — values, not exceptions
+## 4. Errors - values, not exceptions
 
 o9 has no exceptions and no stack unwinding. Errors are values, checked
 where they happen (Go's model), with two conveniences (e2e_error.o9):
@@ -131,48 +131,49 @@ class Bank {
 }
 ```
 
-- **`fail("msg")`** — sets the method's error and returns early. Success
+- **`fail("msg")`** - sets the method's error and returns early. Success
   is an ordinary `return`.
-- **`try expr`** — if the call failed, the *enclosing* method returns
+- **`try expr`** - if the call failed, the *enclosing* method returns
   that same error immediately (like Rust's `?`); otherwise `try` yields
   the value. No boilerplate `if err != nil { return err }`.
-- **`defer expr`** — schedules cleanup to run when the method exits,
+- **`defer expr`** - schedules cleanup to run when the method exits,
   whichever way it exits (normal return, `fail`, or a `try` that
   propagated). LIFO. This is what `finally` is good for, without the
   exception machinery.
 
-Across the fileserver (§6), a failed call surfaces as `error: <msg>` in
-the `data` file — so a shell or remote caller checks the same way: read
+Across the fileserver (section 6), a failed call surfaces as `error: <msg>` in
+the `data` file - so a shell or remote caller checks the same way: read
 the result, look for `error:`. Errors are values all the way out.
 
 ## 5. Builtins
 
-`len(s)` `cmp(a,b)` `cat(a,b)` — strings;
-`readfile(path)` `writefile(path, s)` `readline()` — files/stdin;
-`serve()` — block (yielding) so an app keeps serving its fileserver.
+`len(s)` `cmp(a,b)` `cat(a,b)` - strings;
+`readfile(path)` `writefile(path, s)` `readline()` - files/stdin;
+`serve()` - block (yielding) so an app keeps serving its fileserver.
 
 Crypto (monocypher; every key/sig/digest/blob is a lowercase hex
 string, so values travel in files, ctl lines and libtab cells
 unchanged):
 
-- `keygen()` — 32 random bytes as 64 hex; the seed IS the secret.
-- `pubkey(sec)` `sign(sec, msg)` `verify(pub, msg, sig)` — Ed25519.
-  `verify` returns 1/0 (valid/invalid).
-- `hash(msg)` — BLAKE2b-256; `mac(key, msg)` — keyed BLAKE2b-256.
-- `encrypt(key, msg)` — XChaCha20-Poly1305; a fresh random nonce is
+- `keygen()` - 32 random bytes as 64 hex; the seed IS the secret.
+- `pubkey(sec)` `sign(sec, msg)` `verify(pub, msg, sig)` - Ed25519.
+  `verify` returns 1/0/-1 (valid/invalid/malformed).
+- `hash(msg)` - BLAKE2b-256; `mac(key, msg)` - keyed BLAKE2b-256.
+- `encrypt(key, msg)` - XChaCha20-Poly1305; a fresh random nonce is
   generated inside and carried in the blob, so there is no nonce to
   get wrong. `decrypt(key, blob)` returns the plaintext, or nil if
   the key is wrong or the blob was tampered with.
-- `xpubkey(sec)` `exchange(mysec, theirpub)` — X25519 agreement;
+- `xpubkey(sec)` `exchange(mysec, theirpub)` - X25519 agreement;
   both sides derive the same 64-hex key, ready to feed `encrypt`
   or `mac`. Don't reuse a signing seed for exchange.
-- `passkey(password, salt)` — Argon2id (64 MiB, 3 passes; libtab's
+- `passkey(password, salt)` - Argon2id (64 MiB, 3 passes; libtab's
   cost). Deterministic: the same password+salt always derives the
   same key, so an object can hold only sealed text and reopen it
-  from a passphrase — nothing key-shaped is ever stored. Salt is
+  from a passphrase - nothing key-shaped is ever stored. Salt is
   per-secret context, 8 chars minimum.
+- `salt()` - 16 random bytes as 32 hex chars from `/dev/random`.
 
-Secret safety is a declaration — `secret` fields (e2e_secret.o9):
+Secret safety is a declaration - `secret` fields (e2e_secret.o9):
 
 ```
 class Account {
@@ -183,10 +184,11 @@ class Account {
 
 The compiler rewrites the field so plaintext storage never exists:
 the member becomes `apitoken__blob` (the AEAD blob, still one
-cat-able hex string) and the only generated accessors take the key —
-`seal_apitoken(key, v)` and `open_apitoken(key)`. There is no plain
-getter to call, so every visible form of the object (shm, /srv data,
-persisted rows, send replies) carries ciphertext:
+cat-able hex string) and generated accessors take the key or a Vault -
+`seal_apitoken(key, v)`, `open_apitoken(key)`, `seal_vault_apitoken(v, val)`,
+and `open_vault_apitoken(v)`. There is no plain getter to call, so every
+visible form of the object (shm, /srv data, persisted rows, send replies)
+carries ciphertext:
 
 ```
 string k = passkey(readline(), "app.vault.v1");
@@ -195,10 +197,11 @@ a.seal_apitoken(k, "tok-12345");
 print(a.open_apitoken(k), "\n");     // plaintext, only here
 ```
 
-Key custody stays with the program (`passkey`/`exchange`/`keygen`) —
-the language guarantees at-rest safety, never key storage. v1:
-string fields only. The same pattern written by hand is in
-e2e_crypto.o9 (the Vault class).
+Key custody stays with the program (`passkey`/`exchange`/`keygen`) -
+the language guarantees at-rest safety, never key storage. String
+fields only. The built-in `Vault` class provides an isolated in-memory
+arena (`O9KeyArena`), RAM slot encryption (`put`/`get`), and at-rest
+persistence (`sealFile`/`openFile` and `sealTab`/`openTab`) (e2e_vault.o9).
 
 A class method of the same name shadows any builtin.
 (e2e_text.o9, e2e_crypto.o9)
@@ -246,22 +249,22 @@ main {
 See `stdlib/README.md` for the method list and `stdlib/e2e_*.o9` for runnable
 examples.
 
-## 7. Handles — lookup by identity
+## 7. Handles - lookup by identity
 
 ```
 Counter c = new Counter(77);
 Counter h = lookup("c");             // local registry handle
-print(h.get(), "\n");                // → 77
+print(h.get(), "\n");                // -> 77
 ```
 
-### Code as data — send
+### Code as data - send
 
 The ctl line the shell writes is a value the language can build and
 fire (e2e_send.o9):
 
 ```
 send(c, "method c add arg0=2");       // same line as: echo ... > ctl
-print(send(c, "method c get"), "\n"); // reply as text → 42
+print(send(c, "method c get"), "\n"); // reply as text -> 42
 ```
 
 `send` is for local object handles. In-process handles parse the text into
@@ -271,10 +274,10 @@ sessions from the shell or another client. Source-level network data can use
 `dial` for explicit connections or the older tabula `near`/`far`/`listener`
 forms, never remote object handles.
 
-## 8. Your app from the shell — one fileserver, no client code
+## 8. Your app from the shell - one fileserver, no client code
 
 The whole program is **one** 9P fileserver posted at `/srv/<app>`,
-with a flat, uniform interface — the same shape for every app regardless
+with a flat, uniform interface - the same shape for every app regardless
 of its classes. Objects are **not** paths; they're named in the ctl
 line (like factotum or plumber, not procfs). A method that ran needs
 `serve()` in `main` to keep the app alive.
@@ -289,23 +292,23 @@ sid=`{cat /mnt/o9/clone}
 echo 'method Counter.c add arg0=5' > /mnt/o9/$sid/ctl   # target named in the line
 echo 'method Counter.c get' > /mnt/o9/$sid/ctl
 cat /mnt/o9/$sid/status              # ok, or error text
-cat /mnt/o9/$sid/data                # → the return value
+cat /mnt/o9/$sid/data                # -> the return value
 echo close > /mnt/o9/$sid/ctl
 ```
 
 A string arg with spaces must be **single-quoted** (the ctl line is
 tokenized rc-style): `arg0='hello world'` is one value; unquoted
-`hello world` is two tokens and fails the arity check — as it should.
+`hello world` is two tokens and fails the arity check - as it should.
 Object-handle and tabula args can't be marshaled over a text ctl line
 and are rejected (pass objects in-process instead).
 
 The root files: `clone` (allocate a conversation), `status` (service
-state), `methods` (the public API — this *is* the contract, generated
+state), `methods` (the public API - this *is* the contract, generated
 from the actual public methods, so it never drifts), `exports/` (app-owned
 published `.tab` data), and `imports/` (inert inbound `.tab` deposits).
 Each session directory has its own `ctl`, `data`, and `status`.
 
-A public method is an explicit app-facade command — no REST/gRPC/schema
+A public method is an explicit app-facade command - no REST/gRPC/schema
 layer to author. The shell, a script, another o9 program, and a remote
 machine all call it the same way: allocate a session, write text to its
 `ctl`, then read that session's `status`/`data`. The retained `near` and
@@ -320,10 +323,10 @@ to read `exports/` and `push()` to deposit data into `imports/`.
 For a direct protocol and endpoint, use `dial protocol host:port` and mount
 the resulting `NetConn` when the peer serves 9P.
 
-### Inspecting live state — debug only
+### Inspecting live state - debug only
 
 Object state is in memory, not on disk (persistence is an explicit act,
-not a side effect). By default it's private — the app exposes behavior,
+not a side effect). By default it's private - the app exposes behavior,
 not its guts. Set `O9DEBUG` before launching and the `state` file dumps
 read-only method/object metadata snapshots plus every live object's fields:
 public plain, private as `debug:<field>`, `secret` fields still sealed.
@@ -362,9 +365,9 @@ data without making mounted data executable.
 ## Exercises
 
 1. A `Stack` class (`push`/`pop`/`size`) over an `int64` field per slot
-   of `List<int64>` — drive it from main, then from the shell through a
+   of `List<int64>` - drive it from main, then from the shell through a
    clone session.
-2. `Logger` with `prop string Name;` writing lines via `writefile` —
+2. `Logger` with `prop string Name;` writing lines via `writefile` -
    `delete` it and watch the destructor fire.
 3. `Box<string>` holding `readline()` input, echoed back via a
    `lookup`-resolved handle.

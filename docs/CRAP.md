@@ -65,7 +65,7 @@ To hide yacc skeleton helpers and focus on o9-owned code:
 python3 tools/o9crap.py report --ignore '^yy'
 ```
 
-To enforce the strict “under 5” goal for owned code:
+To enforce the strict "under 5" goal for owned code:
 
 ```sh
 python3 tools/o9crap.py report --ignore '^yy' --max-crap 5 --fail

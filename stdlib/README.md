@@ -1427,3 +1427,62 @@ main {
 
 For architecture and 9P interaction, read [../docs/VIEWS.md](../docs/VIEWS.md).
 
+## Vault
+
+`Vault` is the built-in isolated memory arena (`O9KeyArena`) for cryptographic
+key custody, RAM slot encryption, and at-rest file and table encryption.
+
+```o9
+main {
+    // Construct with passphrase and salt
+    Vault v = new Vault("hunter2", "my.app.salt");
+
+    // Seal and open text in memory
+    string blob = v.seal("secret message");
+    string text = v.open(blob);
+    print(text, "\n");
+
+    // Defense-in-depth RAM slot storage (encrypted in memory)
+    v.put("token", "my-api-token");
+    print(v.get("token"), "\n");
+    v.drop("token");
+
+    // Encrypt tabula at rest
+    tabula t = new tabula("keys", "service,pass");
+    t.add("entry1");
+    t.set("service", "plan9");
+    t.set("pass", "shhh");
+    v.sealTab("/tmp/keys.enc", t);
+
+    tabula restored = v.openTab("/tmp/keys.enc");
+    print(restored.get("pass"), "\n");
+
+    // Zero memory and invalidate keys
+    v.wipe();
+    v.close();
+}
+```
+
+Constructors:
+
+- `Vault()`: Initializes an ephemeral random 32-byte key.
+- `Vault(string key_or_pass)`: Uses a 64-hex key directly, or derives a 32-byte key from a passphrase with an auto-generated 16-byte random salt.
+- `Vault(string pass, string salt)`: Derives a 32-byte key from a passphrase and explicit salt via Argon2id (salt >= 8 bytes).
+
+Methods:
+
+- `valid() int64`: Returns 1 if vault key is active, 0 if wiped or closed.
+- `seal(string msg) string`: Encrypts `msg` with XChaCha20-Poly1305. Returns lowercase hex blob.
+- `open(string blob) string`: Decrypts AEAD hex blob. Returns plaintext, or `nil` on authentication failure.
+- `sealFile(string path, string data) int64`: Encrypts `data` and writes hex blob to `path`. Returns byte count or -1.
+- `openFile(string path) string`: Reads hex blob from `path` and decrypts. Returns plaintext string or `nil`.
+- `sealTab(string path, tabula t) int64`: Serializes `t`, encrypts it, and writes hex blob to `path`. Returns byte count or -1.
+- `openTab(string path) tabula`: Reads and decrypts file at `path`, returning a restored `tabula` object.
+- `put(string name, string val) int64`: Stores `val` encrypted inside an isolated RAM slot. Each slot has its own nonce and AEAD ciphertext in memory. Up to 64 slots. Returns 0 on success, -1 on failure.
+- `get(string name) string`: Decrypts and returns plaintext from slot `name`. Returns plaintext string or `nil`.
+- `has(string name) int64`: Returns 1 if slot exists, 0 otherwise.
+- `drop(string name) int64`: Wipes slot memory and releases it. Returns 1 if found, 0 if not found.
+- `salt() string`: Returns the salt string used by the Vault.
+- `wipe() void`: Wipes key, slots, and salt in memory using `crypto_wipe`. Marks Vault invalid.
+- `close() void`: Wipes memory and frees the Vault.
+

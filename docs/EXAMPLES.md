@@ -455,3 +455,55 @@ echo 'method Counter.c get' > /mnt/o9/$sid/ctl
 cat /mnt/o9/$sid/data
 echo close > /mnt/o9/$sid/ctl
 ```
+
+## Cryptography And Vault
+
+This example demonstrates Ed25519 signatures, BLAKE2b digests, secret fields,
+and the `Vault` isolated memory arena with file and tabula encryption.
+
+```o9
+class UserRecord {
+    secret string apitoken;
+
+    method UserRecord() {
+    }
+}
+
+main {
+    // 1. Attestation: Ed25519 and BLAKE2b
+    string sec = keygen();
+    string pub = pubkey(sec);
+    string sig = sign(sec, "verify payload");
+    print("verify: ", verify(pub, "verify payload", sig), "\n");
+    print("digest: ", hash("payload"), "\n");
+
+    // 2. Vault with Argon2id passphrase derivation
+    Vault v = new Vault("hunter2", "example.salt.v1");
+    print("vault valid: ", v.valid(), "\n");
+
+    // 3. Isolated in-memory slots (AEAD encrypted in RAM)
+    v.put("db_pass", "supersecret");
+    print("has slot: ", v.has("db_pass"), "\n");
+    print("get slot: ", v.get("db_pass"), "\n");
+    v.drop("db_pass");
+
+    // 4. Secret field integration
+    UserRecord u = new UserRecord();
+    u.seal_vault_apitoken(v, "tok-xyz-987");
+    print("token: ", u.open_vault_apitoken(v), "\n");
+
+    // 5. Encrypted tabula persistence at rest
+    tabula t = new tabula("auth", "user,role");
+    t.add("u1");
+    t.set("user", "glenda");
+    t.set("role", "admin");
+    v.sealTab("/tmp/auth.tab.enc", t);
+
+    tabula dec = v.openTab("/tmp/auth.tab.enc");
+    print("user: ", dec.get("user"), " role: ", dec.get("role"), "\n");
+
+    // 6. Zero memory
+    v.wipe();
+    v.close();
+}
+```

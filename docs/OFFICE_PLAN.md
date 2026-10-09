@@ -1,4 +1,4 @@
-# OFFICE_PLAN.md — the Office Plan suite; Office Sheets as the first program
+# OFFICE_PLAN.md - the Office Plan suite; Office Sheets as the first program
 
 Status: **design / hypothetical / not yet implemented**. A product-level view of
 the work captured in `DRAWGRID.md` and `docs/TABULA.md`. Nothing here is built;
@@ -12,13 +12,13 @@ tabula as 9P).
 
 ## 1. Pitch
 
-**Office Plan** is an office suite for Plan 9 — not a set of applications that
+**Office Plan** is an office suite for Plan 9 - not a set of applications that
 share a file format, but a set of **views over one substrate**: every document
 is a signed `tabula` served on the 9P namespace, and every "application" is a
 facade (o9c-generated 9P server) that renders a constrained view of it. The
 suite is unified the way Plan 9 is unified: by the namespace, not by a vendor.
 
-**Office Sheets** is the first program — the "Plan 9 VisiCalc." A worksheet
+**Office Sheets** is the first program - the "Plan 9 VisiCalc." A worksheet
 whose cells are typed and signed, whose references are 9P paths, whose
 recalculation is dependency-graph propagation, and whose whole document is a
 grepable text file you can also mount from across the grid.
@@ -31,11 +31,11 @@ always should have had.**
 ## 2. Lineage and thesis
 
 The spreadsheet formula **language** matured by about 1990 and is the lingua
-franca of business — every accountant writes `=SUM(A1:A10)*1.1`. The spreadsheet
+franca of business - every accountant writes `=SUM(A1:A10)*1.1`. The spreadsheet
 **substrate** did not mature; it is still the VisiCalc-era model:
 
 - a flat 2D grid (so hierarchical and relational data are forced into it),
-- IEEE-754 float with silent coercion (so `0.1+0.2 ≠ 0.3`),
+- IEEE-754 float with silent coercion (so `0.1+0.2 != 0.3`),
 - grid-coordinate addressing (so cross-sheet relationships need `VLOOKUP` soup),
 - a sealed, opaque, single-user file (so sharing means email, and provenance
   means "trust me"),
@@ -51,8 +51,8 @@ part. The substrate is what we are escaping.
 |---|---|---|
 | 1979 | VisiCalc | the grid, A1, cell-reference-as-relationship, relative/absolute "replicate" |
 | 1983 | Lotus 1-2-3 | `@`-functions, macros, the IBM-PC scale |
-| 1985– | Excel | real operator precedence (fixing VisiCalc), named ranges, the function library, dependency-DAG recalc |
-| — | **Office Sheets** | the same language on path references, typed decimal cells, signed provenance, a 9P namespace |
+| 1985- | Excel | real operator precedence (fixing VisiCalc), named ranges, the function library, dependency-DAG recalc |
+| - | **Office Sheets** | the same language on path references, typed decimal cells, signed provenance, a 9P namespace |
 
 ---
 
@@ -61,17 +61,17 @@ part. The substrate is what we are escaping.
 Plan 9's founding idea is "everything is a file you can walk, locally or over
 the wire." Office Plan's claim is that **office documents are not an exception**:
 a worksheet, a memo, a presentation, a contact list, a project plan are all, at
-bottom, structured records — and a structured record is a `tabula`, and a
+bottom, structured records - and a structured record is a `tabula`, and a
 `tabula` is a namespace. So the suite is not N apps with N formats; it is N
 facades over one substrate, composable by `bind`.
 
-- **Office Sheets** — typed, signed, path-referenced worksheets (this doc).
-- *Office Words* (speculative) — a memo/doc program; a document is a tabula of
+- **Office Sheets** - typed, signed, path-referenced worksheets (this doc).
+- *Office Words* (speculative) - a memo/doc program; a document is a tabula of
   styled text blocks, paragraphs as rows, structure as nesting. Same grid
   primitive, `outline`/`form` display modes.
-- *Office Slides* (speculative) — a deck is a tabula of slides; a slide is a
+- *Office Slides* (speculative) - a deck is a tabula of slides; a slide is a
   sub-tabula of blocks. `form`/`grid` modes; the renderer is one more facade.
-- *Office Mail* / *Contacts* / *Planner* (speculative) — each a tabula on the
+- *Office Mail* / *Contacts* / *Planner* (speculative) - each a tabula on the
   namespace, each a thin facade.
 
 The unifying rule: **every Office Plan program is a constrained view over signed
@@ -86,17 +86,17 @@ The rest of this doc is about the anchor program.
 
 ---
 
-## 4. Office Sheets — the program
+## 4. Office Sheets - the program
 
 ### 4.1 The model (storage)
 
 A sheet is a `tabula` (libtab): an ndb-shaped, grepable text file with a
 `schema=` tuple and typed columns. Cells carry inline provenance:
 
-- **`HASHED:`** — BLAKE2b content hash (integrity; content-addressed dedup).
-- **`SIGNED:`** — Ed25519 signature (tamper-evidence + non-repudiation; the
+- **`HASHED:`** - BLAKE2b content hash (integrity; content-addressed dedup).
+- **`SIGNED:`** - Ed25519 signature (tamper-evidence + non-repudiation; the
   cell knows its origin).
-- plain cells stay plain — only the cells that need provenance carry crypto.
+- plain cells stay plain - only the cells that need provenance carry crypto.
 
 The file is grepable (`grep '^row=txn-001' ledger.tab`), `diff`-able, and
 *also* a live 9P namespace when served by the facade. **The .tab file is the
@@ -112,47 +112,47 @@ with display modes:
 | mode | use |
 |---|---|
 | `grid` | browse / navigate the hierarchy |
-| `flat` | volume (10k+ rows) — reuse `DrawTable` |
+| `flat` | volume (10k+ rows) - reuse `DrawTable` |
 | `outline` | read as an indented tree |
 | `tree` | nested boxes / mind-map |
-| `graph` | **draw the references as edges** — see the relational structure |
+| `graph` | **draw the references as edges** - see the relational structure |
 | `form` | enter / edit one record's fields |
 
 Constraints live in the model (the tabula schema), so **every mode is equally
-constrained — validate once, render many.** You cannot draw an invalid invoice
+constrained - validate once, render many.** You cannot draw an invalid invoice
 in any mode, because no mode owns the validation. Layout is *derived* by the
 renderer (not stored), so there is no spatial state for concurrent writers to
-conflict on — multi-user comes from 9P, free.
+conflict on - multi-user comes from 9P, free.
 
 ### 4.3 The verbs (interaction)
 
 The Plan 9 three-button set, uniform across all display modes (see
-`DRAWGRID.md` §5):
+`DRAWGRID.md` section 5):
 
 - **B1** select a cell (sweep = cross-hierarchy multi-select).
-- **B2** operate — a command menu **generated from the selected cell's type**
-  (data → cut/paste/snarf; signed → verify/provenance/re-sign; code → run;
-  sub-grid → open/bind/commit). The schema is the verb palette.
-- **B3** chase — follow a reference to its target (descend a sub-grid, jump to
+- **B2** operate - a command menu **generated from the selected cell's type**
+  (data -> cut/paste/snarf; signed -> verify/provenance/re-sign; code -> run;
+  sub-grid -> open/bind/commit). The schema is the verb palette.
+- **B3** chase - follow a reference to its target (descend a sub-grid, jump to
   a referenced cell, chase a signer).
-- **chords** — snarf carries a signed cell's identity; paste runs the
+- **chords** - snarf carries a signed cell's identity; paste runs the
   verification membrane (tampered cells rejected on paste). The cut/paste chord
   becomes verified-record transfer between tabulae.
 
 ### 4.4 The computation (formulas)
 
-The "Plan 9 VisiCalc" core. Detailed in §5.
+The "Plan 9 VisiCalc" core. Detailed in section 5.
 
 ### 4.5 The architecture in one line
 
 **model** = `tabula` (libtab: schema + `signed:`/`hashed:` cells)
-· **view** = display mode (`DrawWidget` renderers)
-· **verb** = 3-button (uniform)
-· **computation** = the formula layer (§5).
+- **view** = display mode (`DrawWidget` renderers)
+- **verb** = 3-button (uniform)
+- **computation** = the formula layer (section 5).
 
 Four independent axes; uniform model + uniform verbs + uniform engine, variable
 views. The recursion is the same at every layer (UI cell holds a grid; tabula
-field holds a sub-tabula; over 9P that sub-tabula is mounted from another node —
+field holds a sub-tabula; over 9P that sub-tabula is mounted from another node -
 cross-node composition shows up as a sub-grid cell).
 
 ---
@@ -176,8 +176,8 @@ cross-node composition shows up as a sub-grid cell).
 | reject | why | what instead |
 |---|---|---|
 | **A1 coordinate addressing** | wrong addressing for a namespace | **9P paths**: `/ledger/txn-001/amount`. A1 is only a rendering label in `flat` mode |
-| **IEEE-754 float + silent coercion** | `0.1+0.2 ≠ 0.3`; silent string→number bugs | **typed decimal/currency cells, explicit coercion** — Frankston's VisiCalc instinct, which was right |
-| **`VLOOKUP`/`XLOOKUP`/`INDEX`+`MATCH`** | the lookup category is a workaround for joins in a flat grid | **a reference *is* the join** — path-reference the related cell; the whole category evaporates |
+| **IEEE-754 float + silent coercion** | `0.1+0.2 != 0.3`; silent string->number bugs | **typed decimal/currency cells, explicit coercion** - Frankston's VisiCalc instinct, which was right |
+| **`VLOOKUP`/`XLOOKUP`/`INDEX`+`MATCH`** | the lookup category is a workaround for joins in a flat grid | **a reference *is* the join** - path-reference the related cell; the whole category evaporates |
 | implicit intersection / spilled-array quirks | artifacts of the 2D-grid evaluation model | not needed in a typed namespace |
 | ~400-function sprawl | the long tail is poor code-in-disguise | curated core + `CT_CODE` escape hatch (LET/LAMBDA is the ramp) |
 | ephemeral, no-provenance | a result has no history/trust | signed results; a formula reading a tampered source fails verification *during recalc* |
@@ -205,7 +205,7 @@ the line in `graph` mode, it is the B3 navigation target.
 ### 5.5 Provenance runs through recalc
 
 A cell's *result* may itself be `signed:`. A formula that reads a tampered
-source cell does not return a wrong number — it returns a **verification error**
+source cell does not return a wrong number - it returns a **verification error**
 that propagates like any other typed error. The crypto membrane is part of
 evaluation, not a check bolted on after. This is what makes a recombinable,
 shared worksheet safe: verification is the fitness function, applied at every
@@ -214,7 +214,7 @@ recalc.
 ### 5.6 The escape hatch is real code
 
 When a formula outgrows the curated library, it doesn't hit a wall: wrap it in
-`LAMBDA`, then let it become a `CT_CODE` cell — actual o9 code in a cell, with
+`LAMBDA`, then let it become a `CT_CODE` cell - actual o9 code in a cell, with
 full access to the language. The formula surface and the code layer are one
 continuum, not two modes. This is the thing Excel never had and the thing that
 ends "you can't do that in a spreadsheet."
@@ -223,17 +223,17 @@ ends "you can't do that in a spreadsheet."
 
 ## 6. How a sheet lives on the grid
 
-- **stored** as `ledger.tab` — grepable ndb text, `diff`-able, version-controllable.
+- **stored** as `ledger.tab` - grepable ndb text, `diff`-able, version-controllable.
 - **served** by the o9c facade as a 9P tree (`50-app-facade.y`: `Srv` + `Tree`
   + `o9app_exports_dir`). The same bytes are a file and a namespace.
-- **shared** by mounting — no email, no "send a copy"; you `bind` someone
+- **shared** by mounting - no email, no "send a copy"; you `bind` someone
   else's exported sheet, or a cell references their path over ygg+aan.
-- **composed** — an invoice sheet references a vendor's price sub-grid (a
+- **composed** - an invoice sheet references a vendor's price sub-grid (a
   mounted foreign tabula); the reference is a path; the price cell is signed
   by the vendor; if the vendor tampers, your invoice's recalc surfaces a
   verification error at that cell. **Provenance crosses organizational lines
   without a trust reset.**
-- **audited** — every signed cell carries its signer; walk the reference graph
+- **audited** - every signed cell carries its signer; walk the reference graph
   to reconstruct where any number came from.
 
 This is the Contoso application layer (#36) made concrete: business records as
@@ -246,7 +246,7 @@ signed tabulae on the namespace, the office apps as facades over them.
 - **Not a relational database.** Path references *are* joins for the
   cell-reference case; `graph` mode shows relationships; but this is not a SQL
   engine. Bulk analytics across many sheets is a separate reporting client that
-  walks many mounted tabulae — faithful to the substrate (local, no global
+  walks many mounted tabulae - faithful to the substrate (local, no global
   coordinator), not a missing feature.
 - **Not free-form.** Deliberately. The TreeSheets canvas is the wrong face for
   record-keeping; Office Sheets is schema-driven. A free-form organizer may be
@@ -268,50 +268,50 @@ signed tabulae on the namespace, the office apps as facades over them.
 
 ## 8. Implementation phases
 
-Anchored on `DRAWGRID.md` §8; Office Sheets is the product that exercises those
+Anchored on `DRAWGRID.md` section 8; Office Sheets is the product that exercises those
 primitives:
 
-1. **`DrawGrid`** — cell = `DrawWidget`, grid layout, zoom/collapse.
-2. **`renderStyle`** — grid + flat, then outline, then form.
-3. **3-button verbs** — `routeMouse` enum, B2 type-driven menu, B3 chase.
-4. **`graph` mode** — render references as edges.
-5. **9P binding** — sub-grid cell ← mounted sub-tabula (cross-node composition).
-6. **Formula engine** — grammar, path references, dependency-DAG recalc, typed
+1. **`DrawGrid`** - cell = `DrawWidget`, grid layout, zoom/collapse.
+2. **`renderStyle`** - grid + flat, then outline, then form.
+3. **3-button verbs** - `routeMouse` enum, B2 type-driven menu, B3 chase.
+4. **`graph` mode** - render references as edges.
+5. **9P binding** - sub-grid cell <- mounted sub-tabula (cross-node composition).
+6. **Formula engine** - grammar, path references, dependency-DAG recalc, typed
    decimal, curated function core, signed-result verification in-recalc.
-7. **`LET`/`LAMBDA` → `CT_CODE` bridge.**
-8. **Chords + provenance-carrying snarf** — verified record transfer.
+7. **`LET`/`LAMBDA` -> `CT_CODE` bridge.**
+8. **Chords + provenance-carrying snarf** - verified record transfer.
 
-Phases 1–5 are `DRAWGRID.md`; 6–8 are the Office Sheets computation layer on
+Phases 1-5 are `DRAWGRID.md`; 6-8 are the Office Sheets computation layer on
 top. Phase 6 is where "Plan 9 VisiCalc" becomes real.
 
 ---
 
 ## 9. Open questions
 
-- **2D grid → 1D directory convention** for 9P serving (rows = records, columns
+- **2D grid -> 1D directory convention** for 9P serving (rows = records, columns
   = fields? or a relation view synthesized by the facade). Must be settled
-  before phase 5. (See `DRAWGRID.md` §9.)
-- **Formula syntax for path references** — exact form of relative/absolute path
+  before phase 5. (See `DRAWGRID.md` section 9.)
+- **Formula syntax for path references** - exact form of relative/absolute path
   refs and the `$`-anchor operator; whether to allow a hybrid A1-in-flat-mode
   for muscle memory.
-- **Recalc semantics across a mounted foreign sheet** — partial vs full, caching,
+- **Recalc semantics across a mounted foreign sheet** - partial vs full, caching,
   what happens when the remote cell changes (push vs pull; aan sessions).
-- **Where `renderStyle` lives** — per-widget or per-screen (likely per-screen for
+- **Where `renderStyle` lives** - per-widget or per-screen (likely per-screen for
   business apps, per-widget for exploratory).
-- **The sibling apps** — when, and whether Words/Slides reuse `DrawGrid` or get
+- **The sibling apps** - when, and whether Words/Slides reuse `DrawGrid` or get
   their own facade shapes.
 
 ---
 
 ## 10. In-repo references
 
-- `docs/DRAWGRID.md` — the UI primitive this program is built from
-- `docs/TABULA.md`, `docs/NAMESPACE.md`, `docs/CONCURRENCY.md` — the substrate
-- `stdlib/draw.o9:1876/3276/4424` — `DrawWidget`/`DrawTable`/`DrawPanel`
-- `o9c/grammar.d/50-app-facade.y` — the facade that serves a tabula as 9P
-- `libtab/libtab.h`, `libtab/tab_persist.c` — signed/hashed cells, content
+- `docs/DRAWGRID.md` - the UI primitive this program is built from
+- `docs/TABULA.md`, `docs/NAMESPACE.md`, `docs/CONCURRENCY.md` - the substrate
+- `stdlib/draw.o9:1876/3276/4424` - `DrawWidget`/`DrawTable`/`DrawPanel`
+- `o9c/grammar.d/50-app-facade.y` - the facade that serves a tabula as 9P
+- `libtab/libtab.h`, `libtab/tab_persist.c` - signed/hashed cells, content
   addressing (note: the 9P *client* path is `#ifdef __GNUC__`, OFF on native
   Plan 9; the 9P *server* over a tabula implied here is the direction, not the
   existing client blob-write)
-- Task #36 — the Contoso application layer; Office Sheets is its first concrete
+- Task #36 - the Contoso application layer; Office Sheets is its first concrete
   program

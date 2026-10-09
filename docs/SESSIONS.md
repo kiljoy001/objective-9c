@@ -1,4 +1,4 @@
-# o9 sessions — clone/session facade design (July 2026)
+# o9 sessions - clone/session facade design (July 2026)
 
 Status: BUILT. This fixes the old per-caller data race where all callers
 shared one global result mailbox. Result-bearing calls now use
@@ -7,7 +7,7 @@ data/status through the current `Req *`.
 
 ## Why clone (not just fid->aux)
 
-fid->aux is per-open state — perfect for ONE opened file (write a
+fid->aux is per-open state - perfect for ONE opened file (write a
 command, read the reply from the SAME fid). But the flat API spans TWO
 opens:
 
@@ -19,7 +19,7 @@ The server cannot infer that fid B's data-read belongs to fid A's earlier
 ctl-write: a fid is not a user-visible, path-addressable session name.
 
 So the interaction needs a shared, NAMED conversation object. That is
-what clone provides — the /net/tcp/clone pattern. A custom 9P client
+what clone provides - the /net/tcp/clone pattern. A custom 9P client
 knows its fid; a shell user does not, so the session id lives in the
 PATH.
 
@@ -28,28 +28,28 @@ PATH.
     /mnt/o9/
         clone        # read -> "17\n", allocates session 17
         methods      # GLOBAL: public API surface (describes the service)
-        status       # GLOBAL: app/service state (running, classes) — the SERVICE
+        status       # GLOBAL: app/service state (running, classes) - the SERVICE
         exports/     # GLOBAL: published .tab data products
         imports/     # GLOBAL: inert inbound .tab deposits
         17/          # a session (created by reading clone)
             ctl      # write-only: this session's commands
-            data     # read-only: this session's result (NO race — owned by the session)
+            data     # read-only: this session's result (NO race - owned by the session)
             status   # read-only: THIS conversation's success/error/pending
 
-Only the CONVERSATION is cloned. methods/status/exports/imports stay global —
+Only the CONVERSATION is cloned. methods/status/exports/imports stay global -
 they describe the service and its data products. ctl/data/status become
 session-local because they carry per-client interaction.
 
 ## File roles (strict)
 
-- ctl    — WRITE ONLY. Commands in. Nothing is read from ctl.
-- data   — READ ONLY. The method's RESULT (return value) only. No error
-           text mixed in (that was the old bug — errors were stuffed into
+- ctl    - WRITE ONLY. Commands in. Nothing is read from ctl.
+- data   - READ ONLY. The method's RESULT (return value) only. No error
+           text mixed in (that was the old bug - errors were stuffed into
            the data buffer).
-- status — READ ONLY. Success/error of the last call, or pending. Errors
+- status - READ ONLY. Success/error of the last call, or pending. Errors
            live HERE, not in data.
 
-Two files named `status`, disambiguated by PATH (Plan 9 idiom — ctl/
+Two files named `status`, disambiguated by PATH (Plan 9 idiom - ctl/
 status recur at different levels):
 - root  /status      = the SERVICE (app running? classes?). Stable.
 - session <id>/status = MY conversation (did my call succeed? error?).
@@ -65,32 +65,32 @@ status recur at different levels):
 ## Root ctl (optional, restricted)
 
 A root write-only ctl MAY remain, but ONLY for app-wide / fire-and-forget
-commands (create object, shutdown, reload, debug toggle) — never for
+commands (create object, shutdown, reload, debug toggle) - never for
 result-bearing calls (those have no session to route the reply to). Any
 call that returns a value goes through a session.
 
 ## A session is an EXPLICIT CONVERSATION (not an open-fid lifetime)
 
-Decided (Scott): a session lives until the client explicitly closes it —
+Decided (Scott): a session lives until the client explicitly closes it -
 NOT until its last fid clunks. This is the whole point of path-visible
 clone (shell use):
 
     sid=`{cat /mnt/o9/clone}
     echo 'method Counter.c get' > /mnt/o9/$sid/ctl   # ctl fid clunks here
-    cat /mnt/o9/$sid/data                            # separate open — still reads it
+    cat /mnt/o9/$sid/data                            # separate open - still reads it
     echo close > /mnt/o9/$sid/ctl                    # ends the conversation
 
 Refcount->free would recycle the session in the gap between echo>ctl
-(clunk) and cat data (open) — different processes, different fids. So:
+(clunk) and cat data (open) - different processes, different fids. So:
 - clone allocates; inuse=1 until explicit `close`.
-- destroyfid is DIAGNOSTICS ONLY (ref count) — clunking a fid does NOT
+- destroyfid is DIAGNOSTICS ONLY (ref count) - clunking a fid does NOT
   end the conversation.
 - `echo close > <id>/ctl` marks the slot reusable (inuse=0, status
   "closed").
 - allocating a reused slot clears data/status.
 - correctness never depends on timing (no idle-timeout).
 
-Cost: a forgetful client leaks its slot until reused — bounded, normal
+Cost: a forgetful client leaks its slot until reused - bounded, normal
 Plan 9 "manual release" territory. A future admin `close-all`/`reap-idle`
 root ctl command can mop up; correctness doesn't need it.
 
@@ -101,7 +101,7 @@ under srv->slock, and our ctl handler blocks inline on recvp (the actor's
 reply). One slow call blocked the whole app. Two coupled fixes:
 
 1. srvrelease(r->srv) before BOTH the potentially blocking sendp and recvp,
-   srvacquire after — drops slock while waiting for queue room in the actor's
+   srvacquire after - drops slock while waiting for queue room in the actor's
    dispatch channel (sendp) as well as for the actor's reply (recvp).
    Now N clients' calls are in flight to N parallel object-procs at once, and
    an actor with a saturated dispatch queue does not stall unrelated 9P
@@ -118,14 +118,14 @@ that's why they land together.
 
 ## Session lifecycle: grow-and-reuse pool (NOT create/destroy)
 
-Sessions are a GROW-AND-REUSE POOL — the Plan 9 /net clone model, with
+Sessions are a GROW-AND-REUSE POOL - the Plan 9 /net clone model, with
 C#-List-style growth. A fixed set of numbered dirs is reused, never
 destroyed. o9 adds growth so there is no hard cap.
 
 - Slot dirs <i>/{ctl,data,status} are created ONCE (at first use / on
   growth) and NEVER removed.
 - clone: reuse a closed slot (`inuse==0`); if none, grow the pool
-  (`realloc` + one createfile-into-stable-parent — the safe pattern).
+  (`realloc` + one createfile-into-stable-parent - the safe pattern).
   Reset the slot's state (`data`/`status`/diagnostic `ref`) and return
   its id.
 - A slot becomes reusable only through explicit release:
@@ -145,9 +145,9 @@ distinguishes session files from export files.
 
 - clone: a served file whose READ allocates a new session (id counter),
   createfiles the session dir + its ctl/data/status into the served tree
-  (createfile into the stable root — the authsrv/ramfs-proven pattern,
+  (createfile into the stable root - the authsrv/ramfs-proven pattern,
   same as exports/), and returns the id string.
-- Per-session state (last result, last status) lives on the session —
+- Per-session state (last result, last status) lives on the session -
   keyed by the session dir's files' aux, NOT a global. Reads of
   <id>/data and <id>/status serve that session's aux.
 - Session teardown: explicit `close` marks the slot reusable and clears

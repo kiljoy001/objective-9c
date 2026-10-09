@@ -1,30 +1,30 @@
-# tabula — the data envelope
+# tabula - the data envelope
 
 ## What it is, in one sentence
 
 A tabula is a **data envelope**: an ordered, schema-carrying collection
-of entries — any value individually sealable — that moves across the
+of entries - any value individually sealable - that moves across the
 grid as a 9P file.  It is data.  It is never an object, never code,
 never actionable on arrival.
 
 ## The four properties
 
-- **Ordered** — entries keep their file order. Applications may use
+- **Ordered** - entries keep their file order. Applications may use
   values to encode sequence or relationships, but tabula itself is not
   a tree, graph, or query model.
-- **Schematic** — columns are declared and travel *with* the data. A
+- **Schematic** - columns are declared and travel *with* the data. A
   tabula is self-describing: a receiver knows what it got without an
   out-of-band contract. (JSON has no schema; protobuf keeps the schema
   in a separate file you must already hold. Here the schema is in the
   bytes.)
-- **Loose / user-defined** — you declare the value names. The format
+- **Loose / user-defined** - you declare the value names. The format
   imposes no higher data model. A program can encode a Merkle tree with
   `hash`, `parent`, and `seq` values if it wants, but those are still
   just values attached to entries; the receiver's own code gives them
   meaning.
-- **Persistent** — the wire form, the at-rest form, and the serialized
+- **Persistent** - the wire form, the at-rest form, and the serialized
   form are the *same bytes*. `writefile` it, `tab_open` it, mount it,
-  mail it — one representation everywhere, no serialize/deserialize/
+  mail it - one representation everywhere, no serialize/deserialize/
   re-serialize cycle at any boundary.
 
 One line: a self-describing, ordered, user-schema'd entry format whose
@@ -41,13 +41,13 @@ entry.
 
 Terms used in these docs:
 
-- **entry** — one item in a tabula: an id value plus attached named
+- **entry** - one item in a tabula: an id value plus attached named
   values.
-- **id** — the entry identity value. It lives in the first schema column
+- **id** - the entry identity value. It lives in the first schema column
   and cannot be nil, empty, or the literal string `nil`.
-- **value** — a named value attached to an entry. A semantic nil value
+- **value** - a named value attached to an entry. A semantic nil value
   means the entry does not use that value name.
-- **nil entry** — the hidden canonical entry whose id and values are
+- **nil entry** - the hidden canonical entry whose id and values are
   nil. It exists to make removal and deduplication simple; it is skipped
   by iteration, query, and serialization.
 
@@ -141,7 +141,7 @@ unflushed changes; `flush()` is the disk boundary.
 A tabula that crosses the network is **read like any file**.  It is not
 a process, not a spawn, not a hydration.  Nothing the sender wrote into
 it can cause anything to happen on the receiver.  A receiver's own
-local, already-installed code may read values out of a tabula —
+local, already-installed code may read values out of a tabula -
 exactly as it reads values out of a config file or user input, with the
 receiver's logic in full control of every branch.  The tabula proposes
 nothing; it just *is*.
@@ -159,11 +159,11 @@ well understood.
 
 ## Why we do NOT move objects or rehydrate them
 
-Rehydration — reconstructing a live object on the receiver from
-sender-supplied bytes — is remote code execution in disguise, even when
+Rehydration - reconstructing a live object on the receiver from
+sender-supplied bytes - is remote code execution in disguise, even when
 the class is local and trusted.  The reason is structural: hydration
 means the *sender's bytes* decide which class is instantiated, which
-constructor/method runs, and with which values — i.e. the sender gains
+constructor/method runs, and with which values - i.e. the sender gains
 a lever on the receiver's control flow.  That is precisely the
 deserialization-RCE family (Java, Python pickle, Ruby, .NET): each
 began as "just rehydrate an object into a class you already have," and
@@ -178,7 +178,7 @@ never true; what is true is "data arrived, and my trusted local code
 chose to build something from it."  Same practical outcome for the real
 use case (state transfer / clone), with the RCE lever removed.
 
-Consequence — what this deletes from the design, permanently: no capsule
+Consequence - what this deletes from the design, permanently: no capsule
 exec format, no schema-hash admission gate, no signature-gated compile,
 no interpreter, no sandbox for foreign behavior, no totality theorem to
 enforce (nothing computes), no dp9ik-before-rehydration, no resource
@@ -189,15 +189,18 @@ defending a thing that should not exist.
 
 What survives is exactly the value we wanted, minus the danger:
 
-- **Data crosses the grid natively** — it's 9P, a file write and a file
+- **Data crosses the grid natively** - it's 9P, a file write and a file
   read. The language's "networking nativeness" is file IO, which is all
   9P ever was.
-- **Secrets cross sealed** — any cell may be sealed (AEAD blob, the same
+- **Secrets cross sealed** - any cell may be sealed (AEAD blob, the same
   `encrypt`/`decrypt` format as `secret` fields). Confidentiality that
-  survives the table travelling, being cached, or being backed up.
-- **Provenance crosses** — a tabula is one text value, so `sign`/
+  survives the table travelling, being cached, or being backed up. Full
+  workbooks can also be sealed at rest via `Vault.sealTab` and restored
+  via `Vault.openTab`.
+- **Provenance crosses** - a tabula is one text value, so `sign`/
   `verify` apply: a receiver can check who vouched for the data before
-  trusting its values.
+  trusting its values. In `libtab`, columns may also declare `HASHED`
+  (BLAKE2b or Argon2id) or `SIGNED` (Ed25519) provenance.
 
 ## Relationship to compile-time code tables
 
@@ -211,8 +214,9 @@ wire format. Only tabulae of **data** travel, and they travel inert.
 ## Scope discipline
 
 Standing by "tabula is a data envelope" is a deliberate anti-bloat
-decision.  Every temptation to make it heavier — carry an object, carry
-code, run on arrival, self-instantiate — reintroduces the RCE it exists
+decision.  Every temptation to make it heavier - carry an object, carry
+code, run on arrival, self-instantiate - reintroduces the RCE it exists
 to avoid.  The rule that keeps the design small is also the rule that
 keeps it secure: **it sends a file; the file is data; the data is
 inert.**  That is all a tabula is, and all it should ever become.
+

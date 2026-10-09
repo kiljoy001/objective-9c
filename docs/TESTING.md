@@ -144,7 +144,7 @@ Suites that link `libo9.a` pull in the thread library, so they use
 Checks: `o9t_ok`, `o9t_eqint`, `o9t_eqstr` (nil-safe, and nil is *not*
 equal to `""`), `o9t_eqmem` (reports the first differing byte), `o9t_nil`,
 `o9t_notnil`, `o9t_fail` (printf-style, for conditions the others do not
-express), and `o9t_skip` (counted and listed, but does not fail the run —
+express), and `o9t_skip` (counted and listed, but does not fail the run -
 so a disabled check stays visible). Each check returns 1 on pass and 0 on
 fail, so a caller can guard follow-on work that would crash on a bad
 value:
@@ -166,7 +166,7 @@ Current suites:
   it.
 - `mk type-test`: the compiler's type-builtin table and render helpers.
 - `mk runtime-helpers-test`: the runtime's file, journal, and path
-  primitives the grid is built on — `o9_append_event`, `o9_journal_split`,
+  primitives the grid is built on - `o9_append_event`, `o9_journal_split`,
   `o9_count_dir`, `o9_has_suffix`, `o9_basename_c`,
   `o9_strip_repo_prefix`, `o9_read_file_c`, `o9_kv_int`,
   `o9_tsv_get_col(s)`, `o9_hash`.
