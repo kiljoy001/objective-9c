@@ -47,7 +47,7 @@ Every class compiles to:
   libtab), owned by a **CSP actor proc** that serializes all method
   execution — one writer per object, no locks;
 - a **local client handle** callers hold for in-process dispatch;
-- an **app 9P facade**: root `clone`, `methods`, `status`, `exports/`, `imports/`,
+- an **app 9P facade**: root `clone`, `methods`, `status`, `view/`, `exports/`, `imports/`,
   and per-session `<id>/ctl`, `<id>/data`, `<id>/status`;
 - generated **impl functions**, asm-cache **thunks**, and same-class-call
   wrappers.

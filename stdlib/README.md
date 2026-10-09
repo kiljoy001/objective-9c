@@ -26,6 +26,7 @@ import "process.o9";
 import "random.o9";
 import "time.o9";
 import "draw.o9";
+import "view.o9";
 ```
 
 ## String
@@ -1373,3 +1374,56 @@ main {
     file.write("p", "0x", b.hex());
 }
 ```
+
+## View
+
+`view.o9` defines the `ViewController` interface. The compiler/runtime also provides `FileTree`, an actor-owned dynamic 9P directory tree carrier.
+
+```o9
+import "view.o9";
+
+class MyController {
+    ViewController;
+
+    internal method FileTree display(string id, string caller) {
+        FileTree t = new FileTree();
+        t.dir("docs");
+        t.text("docs/hello", "Hello, " + caller + "\n", false);
+        return t;
+    }
+
+    internal method string readText(string id, string path) {
+        return "";
+    }
+
+    internal method int64 writeText(string id, string path, int64 offset, string text, bool truncate) {
+        return -1;
+    }
+}
+
+main {
+    MyController c = new MyController();
+    viewController(c);
+    serve();
+}
+```
+
+`ViewController` interface methods:
+
+- `display(string id, string caller) FileTree`
+- `readText(string id, string path) string`
+- `writeText(string id, string path, int64 offset, string text, bool truncate) int64`
+
+`FileTree` methods:
+
+- `FileTree()`
+- `dir(string path) int64`
+- `text(string path, string data, bool writable) int64`
+- `live(string path, bool writable) int64`
+- `remove(string path) int64`
+- `register(string id) int64`
+- `apply(MountTable m) int64`
+- `close()`
+
+For architecture and 9P interaction, read [../docs/VIEWS.md](../docs/VIEWS.md).
+

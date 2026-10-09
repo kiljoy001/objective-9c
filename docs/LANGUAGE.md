@@ -249,7 +249,7 @@ Task<T>
 chan<T> stream<T>
 List<T> Dict<string,T>
 list<T> array<T> dictionary<T>
-tabula Namespace MountTable
+tabula Namespace MountTable FileTree
 ```
 
 `List<T>` and `Dict<string,T>` are compiler/runtime carriers. The stdlib
@@ -716,12 +716,22 @@ When an app calls `serve()`, it posts a 9P service. The service root has:
 clone
 methods
 status
+view/
 exports/
 imports/
 <session-id>/ctl
 <session-id>/data
 <session-id>/status
 ```
+
+An app can also register a dynamic view controller before `serve()`:
+
+```o9
+viewController(myController);
+serve();
+```
+
+When clients mount the service, requests under `/view` dispatch to the controller's `display(id, caller)` method, returning a tailored `FileTree`. See [VIEWS.md](VIEWS.md).
 
 Use clone sessions for result-bearing calls:
 
