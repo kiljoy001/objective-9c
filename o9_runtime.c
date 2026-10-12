@@ -100,6 +100,16 @@ o9_proc_ctx(void)
 	return *pp;
 }
 
+void
+o9_proc_ctx_clear(void)
+{
+	O9ProcCtx **pp;
+
+	pp = (O9ProcCtx**)procdata();
+	free(*pp);
+	*pp = nil;
+}
+
 /* Last-call error signal for `try`: set non-nil by a failed dispatch,
  * nil on success.  try checks it right after a call to decide whether to
  * propagate.  PER-PROC (via procdata()), NOT a global: every object is
@@ -3804,13 +3814,16 @@ o9_mount_table_close(O9MountTable *m)
  * spawn f(args) returns a Task<T>. Internally channel-backed (the
  * "numbered channel" — compiler/runtime plumbing, never user-facing): a
  * forwarder proc puts the spawned method's O9Reply (value+error) into
- * `done`. t.await() blocks on it, sets the caller's PER-PROC call-error
+ * `done`. The caller and forwarder each hold a reference so the caller can
+ * take the result without freeing the channel during sendp. t.await() blocks
+ * on it, sets the caller's PER-PROC call-error
  * on failure (so `try t.await()` propagates), and returns the value.
  * Result carries value AND error, so spawned failures never route
  * through a global.
  */
 struct O9Task {
 	int id;			/* spawn index (the "number") */
+	long ref;		/* caller and result-forwarding proc */
 	Channel *done;		/* forwarder sends the O9Reply* here */
 	O9Reply *reply;		/* cached after first await */
 };
@@ -3822,6 +3835,7 @@ o9_task_new(int id)
 	if(t == nil)
 		return nil;
 	t->id = id;
+	t->ref = 2;
 	t->done = chancreate(sizeof(void*), 1);	/* buffered: forwarder need not rendezvous */
 	return t;
 }
@@ -3913,10 +3927,32 @@ o9_task_close(O9Task *t)
 {
 	if(t == nil)
 		return;
+	if(o9_atomic_dec(&t->ref) != 0)
+		return;
 	if(t->done != nil)
 		chanfree(t->done);
 	o9_reply_free(t->reply);
 	free(t);
+}
+
+vlong
+o9_task_take(O9Task *t)
+{
+	vlong value;
+
+	value = o9_task_await(t);
+	o9_task_close(t);
+	return value;
+}
+
+double
+o9_task_take_double(O9Task *t)
+{
+	double value;
+
+	value = o9_task_await_double(t);
+	o9_task_close(t);
+	return value;
 }
 
 char*
