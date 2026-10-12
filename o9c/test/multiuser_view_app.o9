@@ -1,0 +1,30 @@
+interface ViewController {
+    internal method FileTree display(string id, string caller);
+    internal method string readText(string id, string path);
+    internal method int64 writeText(string id, string path, int64 offset, string text, bool truncate);
+}
+
+class PrivateView {
+    ViewController;
+
+    internal method FileTree display(string id, string caller) {
+        FileTree tree = new FileTree();
+        tree.text("caller", caller, false);
+        tree.text("session", id, false);
+        return tree;
+    }
+
+    internal method string readText(string id, string path) {
+        return "";
+    }
+
+    internal method int64 writeText(string id, string path, int64 offset, string text, bool truncate) {
+        return -1;
+    }
+}
+
+main {
+    PrivateView view = new PrivateView();
+    viewController(view);
+    serveMultiuser();
+}

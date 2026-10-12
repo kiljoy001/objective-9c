@@ -2,13 +2,32 @@
  * APP FACADE GENERATION AND PROGRAM EMISSION
  * ======================================================================== */
 
+static int
+multiuser_requested(Node *node)
+{
+    for(; node != nil; node = node->next){
+        if((node->type == NFuncCall || node->type == NSelfCall) &&
+           node->name != nil && strcmp(node->name, "serveMultiuser") == 0)
+            return 1;
+        if(multiuser_requested(node->left) ||
+           multiuser_requested(node->right) ||
+           multiuser_requested(node->params))
+            return 1;
+    }
+    return 0;
+}
+
 void
 codegen(Node *root)
 {
     Node *n;
+    Node *main_func;
     ClassDef *cd;
+    int multiuser;
 
     mono_scan_node(root);
+    main_func = find_main_func(root);
+    multiuser = multiuser_requested(root);
 
     cprint("/* Generated o9 Source */\n");
     cprint("#include <u.h>\n#include <libc.h>\n#include <thread.h>\n#include <fcall.h>\n#include <9p.h>\n#include <auth.h>\n#include <o9.h>\n\n");
@@ -103,6 +122,7 @@ codegen(Node *root)
     cprint("File *o9app_imports_dir;\t/* served-tree imports/ dir (mutable) */\n");
     cprint("int o9app_debug;\t/* set from O9DEBUG at startup */\n\n");
     cprint("int o9app_auth_required;\t/* set from O9AUTH=required at startup */\n\n");
+    cprint("int o9app_multiuser = %d;\n\n", multiuser);
     /* One published tabula: its serialized bytes live in the File's aux,
      * served ramfs-style on read.  This is the mutable part of the fs. */
     cprint("typedef struct O9Export O9Export;\n");
@@ -147,11 +167,26 @@ codegen(Node *root)
     cprint("typedef struct O9Session O9Session;\n");
     /* QLock per session guards data/status against concurrent request
      * handlers (once srvrelease lets requests interleave). */
-    cprint("struct O9Session {\n\tint tag;\n\tint id;\n\tFile *dir;\n\tQLock lock;\n\tlong ref;\n\tint inuse;\n\tint blessed;\n\tchar authuser[64];\n\tchar data[4096];\n\tchar status[256];\n};\n");
+    cprint("struct O9Session {\n\tint tag;\n\tint id;\n\tFile *dir;\n\tQLock lock;\n\tlong ref;\n\tint inuse;\n\tuvlong generation;\n\tchar *owner;\n\tint blessed;\n\tchar authuser[64];\n\tchar data[4096];\n\tchar status[256];\n};\n");
     cprint("static O9Session **o9app_sessions;\t/* the pool (grows) */\n");
     cprint("static int o9app_nsessions;\t/* slots created */\n");
     cprint("static int o9app_sessions_cap;\n");
     cprint("static QLock o9app_pool_lock;\t/* guards pool alloc/reuse */\n");
+    cprint("static int\no9app_session_guard(Fid *fid, File *file, uvlong oldgen, uvlong *newgen)\n{\n");
+    cprint("\tFile *p; O9Session *s; int ok;\n");
+    cprint("\tif(newgen != nil) *newgen = 0;\n");
+    cprint("\tif(!o9app_multiuser) return 1;\n");
+    cprint("\tfor(p = file; p != nil && p != o9app_tree->root; p = p->parent){\n");
+    cprint("\t\tif(p->aux != nil && *(int*)p->aux == O9AUX_SESSION) break;\n\t}\n");
+    cprint("\tif(p == nil || p == o9app_tree->root){\n");
+    cprint("\t\tif(file == o9app_tree->root) return 1;\n");
+    cprint("\t\treturn file != nil && file->parent == o9app_tree->root &&\n");
+    cprint("\t\t       (strcmp(file->name, \"clone\") == 0 || strcmp(file->name, \"methods\") == 0);\n\t}\n");
+    cprint("\ts = p->aux;\n\tqlock(&o9app_pool_lock);\n");
+    cprint("\tok = s->inuse && s->owner != nil && fid != nil && fid->uid != nil &&\n");
+    cprint("\t     strcmp(fid->uid, s->owner) == 0 && (oldgen == 0 || oldgen == s->generation);\n");
+    cprint("\tif(ok && newgen != nil) *newgen = s->generation;\n");
+    cprint("\tqunlock(&o9app_pool_lock);\n\treturn ok;\n}\n");
     cprint("static char o9app_lastdata[4096];\t/* root-ctl fire-and-forget reply */\n");
     /* NO global cur_session. The session is DYNAMIC REQUEST STATE — it
      * follows the Req*, derived from r->fid->file->aux. A global would be
@@ -246,6 +281,7 @@ codegen(Node *root)
     cprint("\tcreatefile(dir, \"ctl\", \"o9\", 0222, s);\n");
     cprint("\tcreatefile(dir, \"data\", \"o9\", 0444, s);\n");
     cprint("\tcreatefile(dir, \"status\", \"o9\", 0444, s);\n");
+    cprint("\tif(o9app_multiuser) createfile(dir, \"view\", \"o9\", DMDIR|0555, s);\n");
     cprint("\to9app_sessions[o9app_nsessions++] = s;\n");
     cprint("\treturn s;\n}\n");
     /* clone: a session is an EXPLICIT CONVERSATION owned by the client
@@ -254,13 +290,18 @@ codegen(Node *root)
      * cat data are separate opens; the session must persist between them).
      * Reuse a CLOSED slot (inuse==0), else grow. Clear its buffers on
      * (re)alloc. Pool-locked. */
-    cprint("static O9Session*\no9app_alloc_session(void)\n{\n");
-    cprint("\tint i; O9Session *s;\n\ts = nil;\n");
+    cprint("static O9Session*\no9app_alloc_session(char *owner)\n{\n");
+    cprint("\tint i; O9Session *s; char *copy;\n\ts = nil; copy = nil;\n");
+    cprint("\tif(o9app_multiuser){\n");
+    cprint("\t\tif(owner == nil || owner[0] == '\\0' || strcmp(owner, \"none\") == 0) return nil;\n");
+    cprint("\t\tcopy = strdup(owner); if(copy == nil) return nil;\n\t}\n");
     cprint("\tqlock(&o9app_pool_lock);\n");
     cprint("\tfor(i = 0; i < o9app_nsessions; i++)\n");
-    cprint("\t\tif(o9app_sessions[i]->inuse == 0){ s = o9app_sessions[i]; break; }\n");
+    cprint("\t\tif(o9app_sessions[i]->inuse == 0 && (!o9app_multiuser || o9app_sessions[i]->ref == 0)){ s = o9app_sessions[i]; break; }\n");
     cprint("\tif(s == nil) s = o9app_grow_session();\n");
-    cprint("\tif(s == nil){ qunlock(&o9app_pool_lock); return nil; }\n");
+    cprint("\tif(s == nil){ qunlock(&o9app_pool_lock); free(copy); return nil; }\n");
+    cprint("\tfree(s->owner); s->owner = copy;\n");
+    cprint("\tif(++s->generation == 0) ++s->generation;\n");
     cprint("\ts->inuse = 1; s->ref = 0;\n");
     cprint("\tqlock(&s->lock);\n");
     cprint("\ts->blessed = 0;\n");
@@ -275,6 +316,7 @@ codegen(Node *root)
     cprint("static void\no9app_close_session(O9Session *s)\n{\n");
     cprint("\tif(s == nil) return;\n");
     cprint("\tqlock(&o9app_pool_lock);\n");
+    cprint("\tif(o9app_multiuser) o9_view_session_close(s->dir);\n");
     cprint("\ts->inuse = 0;\n");
     cprint("\tqlock(&s->lock); s->blessed = 0; s->authuser[0] = '\\0'; snprint(s->status, sizeof s->status, \"closed\\n\"); s->data[0] = '\\0'; qunlock(&s->lock);\n");
     cprint("\tqunlock(&o9app_pool_lock);\n");
@@ -421,9 +463,12 @@ codegen(Node *root)
     cprint("\tchar buf[8192]; char *p;\n\tp = buf; int i;\n");
     /* clone: reading allocates a session and returns its id. */
     cprint("\tif(strcmp(name, \"clone\") == 0){\n");
-    cprint("\t\tO9Session *__s;\n\t\t__s = o9app_alloc_session();\n");
+    cprint("\t\tO9Session *__s;\n");
+    cprint("\t\tif(o9app_multiuser && (r->fid == nil || r->fid->uid == nil || strcmp(r->fid->uid, \"none\") == 0)){ respond(r, \"authentication required\"); return; }\n");
+    cprint("\t\t__s = o9app_alloc_session(r->fid != nil ? r->fid->uid : nil);\n");
     cprint("\t\tchar __idb[16];\n");
     cprint("\t\tif(__s == nil){ respond(r, \"no session\"); return; }\n");
+    cprint("\t\tif(o9app_multiuser && o9_view_session_start(r, __s->dir) < 0){ o9app_close_session(__s); respond(r, \"view unavailable\"); return; }\n");
     cprint("\t\tsnprint(__idb, sizeof __idb, \"%%d\\n\", __s->id);\n");
     cprint("\t\treadstr(r, __idb); respond(r, nil); return;\n\t}\n");
     /* Session-local data/status: the file's aux is the O9Session; serve
@@ -531,6 +576,7 @@ codegen(Node *root)
     cprint("\t\tif(__cs != nil) o9app_close_session(__cs);\n");
     cprint("\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t}\n");
     cprint("\tif(nf >= 1 && strcmp(f[0], \"login\") == 0){\n");
+    cprint("\t\tif(o9app_multiuser){ o9app_wipe(cmd, sizeof cmd); respond(r, \"use authenticated attach\"); return; }\n");
     cprint("\t\tO9Session *__ls;\n\t\t__ls = o9app_req_session(r); char __err[128]; int __ok;\n");
     cprint("\t\tif(__ls == nil){ o9app_wipe(cmd, sizeof cmd); respond(r, \"login requires session ctl\"); return; }\n");
     cprint("\t\tif(nf != 3){ o9app_put_status(r, \"error: want login user password\\n\"); o9app_put_result(r, \"\"); o9app_wipe(cmd, sizeof cmd); r->ofcall.count = r->ifcall.count; respond(r, nil); return; }\n");
@@ -571,12 +617,15 @@ codegen(Node *root)
 
     cprint("static void\no9app_read_dispatch(Req *r)\n{\n");
     cprint("\tvoid *ctx;\n\tif(o9_view_read(r)) return;\n");
+    cprint("\tif(!o9_view_authorize(r)){ respond(r, \"permission denied\"); return; }\n");
     cprint("\tincref(&r->ref);\n\tctx = o9_view_enter_fixed(r->fid);\n\to9app_root_read(r);\n\to9_view_leave_fixed(r->fid, ctx);\n\tclosereq(r);\n}\n");
     cprint("static void\no9app_write_dispatch(Req *r)\n{\n");
     cprint("\tvoid *ctx;\n\tif(o9_view_write(r)) return;\n");
+    cprint("\tif(!o9_view_authorize(r)){ respond(r, \"permission denied\"); return; }\n");
     cprint("\tincref(&r->ref);\n\tctx = o9_view_enter_fixed(r->fid);\n\tr->aux = ctx;\n\to9app_root_write(r);\n\tr->aux = nil;\n\to9_view_leave_fixed(r->fid, ctx);\n\tclosereq(r);\n}\n");
     cprint("static void\no9app_open_dispatch(Req *r)\n{\n");
     cprint("\tvoid *ctx;\n\tif(o9_view_open(r)) return;\n");
+    cprint("\tif(!o9_view_authorize(r)){ respond(r, \"permission denied\"); return; }\n");
     cprint("\tincref(&r->ref);\n\tctx = o9_view_enter_fixed(r->fid);\n\to9app_open(r);\n\to9_view_leave_fixed(r->fid, ctx);\n\tclosereq(r);\n}\n");
     cprint("static void\no9app_create_dispatch(Req *r)\n{\n");
     cprint("\tvoid *ctx;\n\tincref(&r->ref);\n\tctx = o9_view_enter_fixed(r->fid);\n");
@@ -628,7 +677,6 @@ codegen(Node *root)
         if(cd->node->type != NStruct && cd->node->type != NEnum)
             gen_class_header(cd->node);
     }
-    Node *main_func = find_main_func(root);
     Node *last = nil;
 
     gen_enums(root);
@@ -654,13 +702,15 @@ codegen(Node *root)
     cprint("\tif(argc > 1 && argv[1] != nil && argv[1][0] != '\\0') __o9app = argv[1];\n");
     cprint("\tsnprint(o9app_name, sizeof o9app_name, \"%%s\", __o9app);\n");
     cprint("\t{ char *__d;\n\t__d = getenv(\"O9DEBUG\"); o9app_debug = (__d != nil && __d[0] != '\\0'); free(__d); }\n");
-    cprint("\t{ char *__a;\n\t__a = getenv(\"O9AUTH\"); o9app_auth_required = (__a != nil && strcmp(__a, \"required\") == 0); free(__a); }\n");
+    cprint("\t{ char *__a;\n\t__a = getenv(\"O9AUTH\"); o9app_auth_required = o9app_multiuser || (__a != nil && strcmp(__a, \"required\") == 0); free(__a); }\n");
     cprint("\to9_ns_app_root(o9app_root, sizeof o9app_root, __o9app);\n");
     cprint("\to9_ns_service_name(o9app_srvname, sizeof o9app_srvname, __o9app, __o9app, \"app\");\n");
     cprint("\to9_ns_class_path(o9app_mount, sizeof o9app_mount, o9app_root, __o9app);\n");
     cprint("\to9_ns_ensure_app(o9app_root);\n");
     cprint("\to9app_tree = alloctree(nil, nil, DMDIR|0555, nil);\n");
     cprint("\to9_view_setup(o9app_tree);\n");
+    cprint("\to9_view_set_fixed_guard(o9app_session_guard);\n");
+    cprint("\to9_view_set_session_mode(o9app_multiuser);\n");
     cprint("\to9app_srv.tree = o9app_tree;\n");
     cprint("\to9app_srv.read = o9app_read_dispatch;\n\to9app_srv.write = o9app_write_dispatch;\n");
     cprint("\tif(o9app_auth_required){\n");
@@ -686,7 +736,7 @@ codegen(Node *root)
      * ctl/data/status (docs/SESSIONS.md) — the /net/tcp/clone pattern that
      * gives concurrent callers a private, path-addressable conversation. */
     cprint("\tcreatefile(o9app_tree->root, \"clone\", \"o9\", 0444, nil);\n");
-    cprint("\tcreatefile(o9app_tree->root, \"view\", \"o9\", DMDIR|0555, nil);\n");
+    cprint("\tif(!o9app_multiuser) createfile(o9app_tree->root, \"view\", \"o9\", DMDIR|0555, nil);\n");
     /* exports/ is a served-tree DIRECTORY inside the application file tree
      * (NOT on disk).  It is the one MUTABLE part: objects publish tabulae
      * into it at runtime via a single createfile into this stable parent

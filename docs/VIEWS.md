@@ -84,3 +84,6 @@ OS `mount` and `bind` commands.
 
 See [view_app.o9](../o9c/test/view_app.o9) and
 [run_view.rc](../o9c/test/run_view.rc) for a working 9front example.
+
+For services that need authenticated users and a view inside each clone
+session, see [owned clone views](MULTIUSER_VIEWS.md).

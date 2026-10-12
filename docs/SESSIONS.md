@@ -5,6 +5,10 @@ shared one global result mailbox. Result-bearing calls now use
 clone-allocated session directories, and generated writers route
 data/status through the current `Req *`.
 
+For authenticated clone ownership and session-local views, see
+[owned clone views](MULTIUSER_VIEWS.md). The design below describes the
+original `serve()` facade.
+
 ## Why clone (not just fid->aux)
 
 fid->aux is per-open state - perfect for ONE opened file (write a
