@@ -1,0 +1,38 @@
+#!/bin/rc
+who=$1
+other=$2
+mtpt=/tmp/o9mt-$who
+
+if(! mount -c -k 'user='^$who^' dom=o9vm' /srv/o9multi $mtpt){
+	echo 'O9 AUTH MOUNT FAIL: '^$who >[1=2]
+	exit fail
+}
+sid=`{cat $mtpt/clone}
+if(~ $#sid 0){
+	echo 'O9 AUTH CLONE FAIL: '^$who >[1=2]
+	exit fail
+}
+caller=`{cat $mtpt/$sid/view/caller}
+if(! ~ $"caller $"who){
+	echo 'O9 AUTH CALLER FAIL: '^$who^' got '^$"caller >[1=2]
+	exit fail
+}
+echo $sid >/tmp/o9sid-$who
+
+if(! ~ $"other ''){
+	otherid=`{cat /tmp/o9sid-$other}
+	if(~ $#otherid 0){
+		echo 'O9 AUTH OTHER ID MISSING: '^$other >[1=2]
+		exit fail
+	}
+	if(cat $mtpt/$otherid/view/caller >/tmp/o9foreign-$who >[2]/tmp/o9foreign-$who.err){
+		echo 'O9 AUTH CROSS ACCESS: '^$who^' to '^$other >[1=2]
+		exit fail
+	}
+	if(! grep -s 'permission denied' /tmp/o9foreign-$who.err){
+		echo 'O9 AUTH WRONG DENIAL: '^$who^' to '^$other >[1=2]
+		cat /tmp/o9foreign-$who.err >[1=2]
+		exit fail
+	}
+}
+echo 'O9 AUTH CLIENT PASS: '^$who^' session '^$sid

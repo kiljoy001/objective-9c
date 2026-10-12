@@ -142,7 +142,8 @@ o9_view_session_start(Req *r, File *dir)
 	char *username;
 	if(!view_session_mode || !view_has_controller || r == nil ||
 	   r->fid == nil || dir == nil) return -1;
-	if(r->srv == nil || !r->srv->authok || r->fid->uid == nil ||
+	if(r->srv == nil || r->srv->auth == nil || r->srv->authok ||
+	   r->fid->uid == nil ||
 	   strcmp(r->fid->uid, "none") == 0) return -1;
 	username = r->fid->uid;
 	id = o9_keygen();
@@ -276,7 +277,8 @@ o9_view_attach(Req *r)
 	if(!view_has_controller || view_session_mode) return 0;
 	id = o9_keygen();
 	username = "anonymous";
-	if(r->srv != nil && r->srv->authok && r->fid->uid != nil &&
+	if(r->srv != nil && r->srv->auth != nil && !r->srv->authok &&
+	   r->fid->uid != nil &&
 	   strcmp(r->fid->uid, "none") != 0) username = r->fid->uid;
 	caller = o9_string_from_c(username);
 	if(id == nil || caller == nil){ o9_string_release(id); o9_string_release(caller); return -1; }
@@ -513,7 +515,8 @@ o9_view_request_file(Req *r)
 static void
 view_identity(Req *r)
 {
-	if(r != nil && r->srv != nil && r->srv->authok && r->fid != nil &&
+	if(r != nil && r->srv != nil && r->srv->auth != nil &&
+	   !r->srv->authok && r->fid != nil &&
 	   r->fid->uid != nil && strcmp(r->fid->uid, "none") != 0)
 		o9_set_current_request(r->fid->uid, 1);
 	else o9_set_current_request("anonymous", 0);

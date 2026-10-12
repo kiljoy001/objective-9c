@@ -43,11 +43,16 @@ With a 9front disk image and the host o9c compiler built from this branch:
 
 ```sh
 python3 o9c/test/test_multiuser_qemu.py /path/to/9front.img
+python3 o9c/test/test_multiuser_auth_qemu.py /path/to/9front.img p9sk1
+python3 o9c/test/test_multiuser_auth_qemu.py /path/to/9front.img dp9ik
 ```
 
-This builds the current runtime with 9front C in an isolated VM, checks owner
-and generation rules, boots the service, and confirms an unauthenticated attach
-is rejected. A two-account factotum test is still needed before enabling the
-feature for a remote multiuser service. It must exercise real `Tauth` and
-`Tattach` for each account, then confirm that neither account can walk or use
-the other's clone and that an old fid stays revoked after reuse.
+Each command boots a disposable copy of the disk image. The first builds the
+current runtime with 9front C, checks owner and generation rules, boots the
+service, and confirms an unauthenticated attach is rejected. The second runs
+an isolated keyfs and authsrv, installs separate factotum keys for Alice and
+Bob, and mounts the generated service as each user with the selected protocol.
+It checks each user's view identity and confirms that cross-user access fails
+in both directions with `permission denied`. It also checks that `cat clone`
+allocates one session. The auth VM test does not contact an external auth
+server.

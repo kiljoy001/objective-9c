@@ -464,6 +464,7 @@ codegen(Node *root)
     /* clone: reading allocates a session and returns its id. */
     cprint("\tif(strcmp(name, \"clone\") == 0){\n");
     cprint("\t\tO9Session *__s;\n");
+    cprint("\t\tif(r->ifcall.offset != 0){ r->ofcall.count = 0; respond(r, nil); return; }\n");
     cprint("\t\tif(o9app_multiuser && (r->fid == nil || r->fid->uid == nil || strcmp(r->fid->uid, \"none\") == 0)){ respond(r, \"authentication required\"); return; }\n");
     cprint("\t\t__s = o9app_alloc_session(r->fid != nil ? r->fid->uid : nil);\n");
     cprint("\t\tchar __idb[16];\n");
