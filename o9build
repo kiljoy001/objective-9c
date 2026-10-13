@@ -58,7 +58,7 @@ cfile=$out^.c
 ofile=$out^.$O
 
 o9stdlib=/sys/lib/o9/stdlib
-if(! test -d $o9stdlib)
+if(test -d $home/lib/o9/stdlib)
 	o9stdlib=$home/lib/o9/stdlib
 if(! test -d $o9stdlib){
 	echo 'o9build: missing o9 stdlib; run mk install from objective-9c first' >[1=2]
@@ -66,15 +66,23 @@ if(! test -d $o9stdlib){
 }
 
 o9include=/sys/include
-if(! test -e $o9include/o9.h)
+if(test -e $home/include/o9.h)
 	o9include=$home/include
 if(! test -e $o9include/o9.h){
 	echo 'o9build: missing o9.h; run mk install from objective-9c first' >[1=2]
 	exit missing
 }
+# Plan 9 C searches /sys/include before -I for angle-bracket includes.
+# Put the selected user header first in this build's private namespace.
+if(! ~ $o9include /sys/include){
+	if(! rfork n)
+		exit namespace
+	if(! bind -b $o9include /sys/include)
+		exit namespace
+}
 
 o9lib=/$objtype/lib/libo9.a
-if(! test -e $o9lib)
+if(test -e $home/lib/o9/libo9.a)
 	o9lib=$home/lib/o9/libo9.a
 if(! test -e $o9lib){
 	echo 'o9build: missing libo9.a; run mk install from objective-9c first' >[1=2]

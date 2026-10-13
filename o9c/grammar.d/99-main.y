@@ -5,6 +5,10 @@
 typedef struct CompilerOptions CompilerOptions;
 struct CompilerOptions {
     int dumpast;
+    int listmutants;
+    int mutantline;
+    int mutantordinal;
+    char *mutantsource;
     char *srcpath;
 };
 
@@ -15,13 +19,37 @@ parse_compiler_options(int argc, char **argv)
     int i;
 
     opt.dumpast = 0;
+    opt.listmutants = 0;
+    chosenline = chosenordinal = 0;
+    mutant_id(getenv("O9_MUTANT"));
+    opt.mutantsource = getenv("O9_MUTATE_SOURCE");
     opt.srcpath = nil;
     for(i = 1; i < argc; i++){
         if(strcmp(argv[i], "-ast") == 0)
             opt.dumpast = 1;
+        else if(strcmp(argv[i], "-mutants") == 0)
+            opt.listmutants = 1;
+        else if(strcmp(argv[i], "-mutant") == 0){
+            if(i+1 >= argc)
+                sysfatal("-mutant requires line.ordinal");
+            mutant_id(argv[++i]);
+        }
+        else if(strcmp(argv[i], "-mutate-source") == 0){
+            if(i+1 >= argc)
+                sysfatal("-mutate-source requires a path");
+            opt.mutantsource = argv[++i];
+        }
         else if(argv[i][0] != '-')
             opt.srcpath = argv[i];	/* optional source file (else stdin) */
     }
+    opt.mutantline = chosenline;
+    opt.mutantordinal = chosenordinal;
+    if(opt.listmutants && opt.mutantline)
+        sysfatal("-mutants and -mutant cannot be combined");
+    if((opt.listmutants || opt.mutantline) && opt.srcpath == nil)
+        sysfatal("mutation requires a source path");
+    if(opt.mutantsource == nil)
+        opt.mutantsource = opt.srcpath;
     return opt;
 }
 
@@ -100,7 +128,7 @@ resolve_imports_or_exit(void)
 }
 
 static void
-parse_typecheck_emit_or_exit(int dumpast)
+parse_typecheck_emit_or_exit(CompilerOptions opt)
 {
     if(yyparse() != 0){
         fprint(2, "o9c: parse failed\n");
@@ -108,7 +136,16 @@ parse_typecheck_emit_or_exit(int dumpast)
     }
     if(typecheck(ast_root) != 0)
         exits("typecheck");
-    if(dumpast)
+    if(opt.listmutants || opt.mutantline){
+        listmutants = opt.listmutants;
+        chosenline = opt.mutantline;
+        chosenordinal = opt.mutantordinal;
+        mutantsource = opt.mutantsource;
+        mutate_or_list(ast_root);
+    }
+    if(opt.listmutants)
+        return;
+    if(opt.dumpast)
         dump_ast(ast_root);
     else
         codegen(ast_root);
@@ -128,7 +165,7 @@ main(int argc, char **argv)
     load_dependencies_or_exit();
     resolve_imports_or_exit();
     prescan();
-    parse_typecheck_emit_or_exit(opt.dumpast);
+    parse_typecheck_emit_or_exit(opt);
     exits(nil);
     return 0;
 }

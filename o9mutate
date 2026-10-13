@@ -1,0 +1,57 @@
+#!/bin/rc
+# Run one source-level mutant at a time through the native o9test runner.
+
+if(! ~ $#* 1 2){
+	echo 'usage: o9mutate test_file.o9 [mutated_source.o9]' >[1=2]
+	exit usage
+}
+testfile=$1
+target=$1
+if(~ $#* 2)
+	target=$2
+list=/tmp/o9mutate.$pid.list
+log=/tmp/o9mutate.$pid.log
+summary=/tmp/o9mutate.$pid.summary
+
+if(! O9_MUTANT='' o9c -mutants -mutate-source $target $testfile >$list){
+	rm -f $list $log $summary
+	exit list
+}
+if(! test -s $list){
+	echo 'o9mutate: no candidates in' $target >[1=2]
+	rm -f $list $log $summary
+	exit empty
+}
+if(! O9_MUTANT='' o9test --seed 9009 --trials 100 $testfile >$log >[2=1]){
+	echo 'o9mutate: baseline failed' >[1=2]
+	cat $log >[1=2]
+	rm -f $list $log $summary
+	exit baseline
+}
+echo 'BASELINE PASS '^$testfile
+echo baseline >$summary
+for(id in `{awk '{print $1}' $list}){
+	if(O9_MUTANT=$id O9_MUTATE_SOURCE=$target o9test --seed 9009 --trials 100 $testfile >$log >[2=1]){
+		echo 'SURVIVED '^$id
+		echo survived >>$summary
+	}
+	if not if(grep -s '^BUILD ERROR ' $log){
+		echo 'ERROR '^$id
+		cat $log >[1=2]
+		echo error >>$summary
+	}
+	if not if(grep -s '^TIMEOUT ' $log){
+		echo 'TIMEOUT '^$id
+		echo timeout >>$summary
+	}
+	if not {
+		echo 'KILLED '^$id
+		echo killed >>$summary
+	}
+}
+awk '{count[$1]++} END {printf "%d killed, %d survived, %d build errors, %d timed out\n", count["killed"], count["survived"], count["error"], count["timeout"]}' $summary
+bad=`{awk '$1 == "survived" || $1 == "error" || $1 == "timeout" {print 1; exit}' $summary}
+rm -f $list $log $summary
+if(~ $bad 1)
+	exit mutants
+exit ''

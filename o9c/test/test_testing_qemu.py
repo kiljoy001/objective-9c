@@ -60,6 +60,13 @@ def main():
                            ("t_san_arc.c", work / "t_san_arc.c"),
                            ("mockbuild", work / "mockbuild"),
                            ("test_sanitize.o9", work / "test_sanitize.o9"),
+                           ("test_mutation.o9", ROOT / "stdlib/test_mutation.o9"),
+                           ("testing.o9", ROOT / "stdlib/testing.o9"),
+                           ("o9build", ROOT / "o9build"),
+                           ("o9mutate", ROOT / "o9mutate"),
+                           ("grammar.y", ROOT / "o9c/grammar.y"),
+                           ("o9_type.c", ROOT / "o9c/o9_type.c"),
+                           ("o9_type.h", ROOT / "o9c/o9_type.h"),
                            *((name, ROOT / name) for name in runtime)):
             subprocess.run(["mcopy", "-i", fat, str(path),
                             f"::o9test/{name}"], check=True)
@@ -131,6 +138,27 @@ def main():
                     "8l -o /tmp/o9-sanitize-arc /tmp/o9test/t_san_arc.8 /tmp/o9test/libo9.a /386/lib/libndb.a /386/lib/libauth.a /386/lib/libmp.a /386/lib/libsec.a",
                     "8c -o /tmp/o9test/o9test.8 /tmp/o9test/o9test.c",
                     "8l -o /tmp/o9test/o9test /tmp/o9test/o9test.8",
+                    "cd /tmp/o9test; yacc -d grammar.y",
+                    "8c -I/tmp/o9test -o /tmp/o9test/y.tab.8 /tmp/o9test/y.tab.c",
+                    "8c -I/tmp/o9test -o /tmp/o9test/o9_type.8 /tmp/o9test/o9_type.c",
+                    "8l -o /tmp/o9test/o9c /tmp/o9test/y.tab.8 /tmp/o9test/o9_type.8",
+                    "mkdir /tmp/o9test/bin",
+                    "mkdir /tmp/o9test/bin/386",
+                    "mkdir /tmp/o9test/bin/rc",
+                    "mkdir /tmp/o9test/include",
+                    "mkdir /tmp/o9test/lib",
+                    "mkdir /tmp/o9test/lib/o9",
+                    "mkdir /tmp/o9test/lib/o9/stdlib",
+                    "cp /tmp/o9test/o9c /tmp/o9test/bin/386/o9c",
+                    "cp /tmp/o9test/o9test /tmp/o9test/bin/386/o9test",
+                    "cp /tmp/o9test/o9build /tmp/o9test/bin/rc/o9build",
+                    "chmod +x /tmp/o9test/bin/rc/o9build",
+                    "cp /tmp/o9test/o9.h /tmp/o9test/include/o9.h",
+                    "cp /tmp/o9test/libo9.a /tmp/o9test/lib/o9/libo9.a",
+                    "cp /tmp/o9test/testing.o9 /tmp/o9test/lib/o9/stdlib/testing.o9",
+                    "bind -b /tmp/o9test/bin/386 /bin",
+                    "home=/tmp/o9test; objtype=386; o9c -mutants /tmp/o9test/test_mutation.o9",
+                    "home=/tmp/o9test; objtype=386; rc /tmp/o9test/o9mutate /tmp/o9test/test_mutation.o9",
                     "if(/tmp/o9-testing-ok) echo TEST_SUCCESS_EXIT_OK",
                     "if(! /tmp/o9-testing-fail) echo TEST_FAILURE_EXIT_OK",
                     "if(/tmp/o9-property-ok) echo PROPERTY_SUCCESS_EXIT_OK",
@@ -150,6 +178,13 @@ def main():
                     raise AssertionError("testing selftest output differs from expected")
                 if "UNEXPECTED_CHILD_OUTPUT" in transcript:
                     raise AssertionError("isolated child output leaked into test output")
+                if ("5.1\t/tmp/o9test/test_mutation.o9\t5\t<\t<=" not in transcript or
+                    "BASELINE PASS /tmp/o9test/test_mutation.o9" not in transcript or
+                    "KILLED 5.1" not in transcript or
+                    "KILLED 6.1" not in transcript or
+                    "KILLED 7.1" not in transcript or
+                    "3 killed, 0 survived, 0 build errors, 0 timed out" not in transcript):
+                    raise AssertionError("native o9c/o9mutate did not kill all fixture mutants")
                 if "\nTEST_SUCCESS_EXIT_OK\n" not in transcript:
                     raise AssertionError("passing test process did not exit cleanly")
                 if ("FAIL expected_failure/deliberate mismatch: got 1 want 2" not in transcript or
@@ -194,7 +229,7 @@ def main():
                 runner_output = transcript[transcript.rfind("term% if(/tmp/o9test/o9test"):]
                 if "O9SAN sanitize_ok: live delta" not in runner_output:
                     raise AssertionError("o9test --sanitize did not enable runtime diagnostics")
-                print("O9 TESTING VM PASS: assertions, property tests, native bounds/ARC diagnostics, and live allocation reports")
+                print("O9 TESTING VM PASS: assertions, property tests, sanitizer checks, and native mutation runner")
             except Exception:
                 log.flush()
                 print(logpath.read_text(errors="replace")[-12000:])

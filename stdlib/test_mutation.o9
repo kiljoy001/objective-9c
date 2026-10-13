@@ -1,0 +1,10 @@
+import "testing.o9";
+
+main {
+    Test t = new Test("mutation");
+    t.notOk("strict lower boundary", 3 < 3);
+    t.ok("inclusive upper boundary", 3 <= 3);
+    t.ok("literal true", true);
+    t.report();
+    t.finish();
+}

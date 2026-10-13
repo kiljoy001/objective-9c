@@ -330,6 +330,30 @@ still succeeds means the mutant survived. Surviving mutants are more useful
 than the mutation score itself: each survivor should become a new regression
 test, then the mutant should be killed on the next run.
 
+### Native application mutations
+
+9front can run a focused application mutation campaign without Python or
+source rewriting:
+
+```rc
+o9c -mutants stdlib/test_mutation.o9
+rc ./o9mutate stdlib/test_mutation.o9
+```
+
+`o9c -mutants` lists tab-separated `line.ordinal`, source, line, original
+operator, and replacement. The first operators are `<`/`<=`, `>`/`>=`, and
+boolean literal flips. IDs stay stable for an unchanged source line and AST
+shape. The `o9mutate` script checks the baseline first, runs one mutant per
+`o9test` process, and distinguishes killed, survived, build error, and
+timeout. `o9test` builds each program in its own scratch directory.
+
+To mutate an imported application module, pass its resolved source path as a
+second argument, for example `rc ./o9mutate tests/test_cache.o9
+tests/cache.o9`. The compiler uses `O9_MUTANT=line.ordinal` and
+`O9_MUTATE_SOURCE=path` internally. An unknown ID is a build error, never a
+passing or killed mutant. This campaign is separate from the older harness
+that mutates compiler source.
+
 ### Universal Mutator
 
 `tools/o9mutate.py` is for hand-picked semantic mutants. For broader mutation

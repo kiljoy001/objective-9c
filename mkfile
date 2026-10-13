@@ -51,6 +51,7 @@ GRAMMAR_PARTS=\
 	o9c/grammar.d/60-prescan.y\
 	o9c/grammar.d/70-typecheck.y\
 	o9c/grammar.d/80-ast-dump.y\
+	o9c/grammar.d/85-mutation.y\
 	o9c/grammar.d/90-import-resolution.y\
 	o9c/grammar.d/91-cdeps.y\
 	o9c/grammar.d/92-import-resolution-continued.y\
@@ -405,6 +406,13 @@ install:V: o9c libo9.a o9test
 		chmod +x $home/bin/rc/o9build
 	}
 	if(test -e /rc/bin/o9build) chmod +x /rc/bin/o9build
+	if(! cp o9mutate /rc/bin/o9mutate){
+		if(! test -d $home/bin) mkdir $home/bin
+		if(! test -d $home/bin/rc) mkdir $home/bin/rc
+		cp o9mutate $home/bin/rc/o9mutate
+		chmod +x $home/bin/rc/o9mutate
+	}
+	if(test -e /rc/bin/o9mutate) chmod +x /rc/bin/o9mutate
 	if(! cp o9plumb /rc/bin/o9plumb){
 		echo 'warning: could not install /rc/bin/o9plumb; using '$home'/bin/rc/o9plumb' >[1=2]
 		if(! test -d $home/bin) mkdir $home/bin
@@ -470,6 +478,7 @@ install:V: o9c libo9.a o9test
 	@ echo '  o9c      -> /bin/o9c or '$home'/bin/'$objtype'/o9c'
 	@ echo '  o9test   -> /bin/o9test or '$home'/bin/'$objtype'/o9test'
 	@ echo '  o9build  -> /rc/bin/o9build or '$home'/bin/rc/o9build'
+	@ echo '  o9mutate -> /rc/bin/o9mutate or '$home'/bin/rc/o9mutate'
 	@ echo '  o9plumb  -> /rc/bin/o9plumb or '$home'/bin/rc/o9plumb'
 	@ echo '  o9plumbbuild -> /rc/bin/o9plumbbuild or '$home'/bin/rc/o9plumbbuild'
 	@ echo '  o9proj   -> /rc/bin/o9proj or '$home'/bin/rc/o9proj'
@@ -493,6 +502,8 @@ uninstall:V:
 	if(! rm -f $home/bin/$objtype/o9c) echo 'warning: could not remove '$home'/bin/'$objtype'/o9c' >[1=2]
 	if(! rm -f /rc/bin/o9build) echo 'warning: could not remove /rc/bin/o9build' >[1=2]
 	if(! rm -f $home/bin/rc/o9build) echo 'warning: could not remove '$home'/bin/rc/o9build' >[1=2]
+	if(! rm -f /rc/bin/o9mutate) echo 'warning: could not remove /rc/bin/o9mutate' >[1=2]
+	if(! rm -f $home/bin/rc/o9mutate) echo 'warning: could not remove '$home'/bin/rc/o9mutate' >[1=2]
 	if(! rm -f /rc/bin/o9plumb) echo 'warning: could not remove /rc/bin/o9plumb' >[1=2]
 	if(! rm -f $home/bin/rc/o9plumb) echo 'warning: could not remove '$home'/bin/rc/o9plumb' >[1=2]
 	if(! rm -f /rc/bin/o9plumbbuild) echo 'warning: could not remove /rc/bin/o9plumbbuild' >[1=2]

@@ -173,10 +173,6 @@ defaultbuilder(void)
 	char *home;
 	static char path[Maxpath];
 
-	if(access("/rc/bin/o9build", AEXEC) == 0)
-		return "/rc/bin/o9build";
-	if(access("/bin/o9build", AEXEC) == 0)
-		return "/bin/o9build";
 	home = getenv("home");
 	if(home != nil){
 		snprint(path, sizeof path, "%s/bin/rc/o9build", home);
@@ -184,6 +180,10 @@ defaultbuilder(void)
 		if(access(path, AEXEC) == 0)
 			return path;
 	}
+	if(access("/rc/bin/o9build", AEXEC) == 0)
+		return "/rc/bin/o9build";
+	if(access("/bin/o9build", AEXEC) == 0)
+		return "/bin/o9build";
 	return nil;
 }
 
