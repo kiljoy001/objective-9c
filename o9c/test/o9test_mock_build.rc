@@ -1,0 +1,17 @@
+#!/bin/rc
+
+if(! ~ $#* 2)
+	exit usage
+
+switch($1){
+case *test_build.o9
+	echo 'deliberate build failure' >[1=2]
+	exit build
+case *test_timeout.o9
+	cp /tmp/o9fixture_timeout $2
+case *test_fail.o9
+	cp /tmp/o9fixture_fail $2
+case *
+	cp /tmp/o9fixture_pass $2
+}
+chmod +x $2

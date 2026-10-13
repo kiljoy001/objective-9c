@@ -1577,3 +1577,29 @@ snapshot to `assertFail(what, error)`, `assertNoFail(what, error)`, or
 error state. The error is process local, so the `Test` actor cannot read it
 directly.
 
+### Running a project test suite
+
+Name test sources `test_*.o9` or `*_test.o9`, then run `o9test` from the
+project root. It searches `tests` by default when that directory exists,
+otherwise the current directory. It finds tests recursively, compiles each
+into a private temporary directory with `o9build`, and runs each in a
+separate process.
+The generated `o9proj` project includes a `tests/test_app.o9` smoke test
+and a `mk test` target.
+
+```rc
+o9test tests
+o9test -k parser -v tests
+o9test -x -t 10 tests
+o9test --list tests
+```
+
+`-k` filters paths by substring, `-v` names passing files, `-q` shows only
+the summary, `-s` prints captured output, `-x` stops after the first
+failure, and `-t` sets the per-test run timeout in seconds (default 30).
+`--build-timeout` sets the build timeout (default 180 seconds). Failing
+tests print their captured output; `--keep` retains temporary build files.
+An explicit `.o9` file runs even if its name does not match the discovery
+patterns. The runner exits with a failure status for test failures, build
+errors, timeouts, or an empty selection.
+

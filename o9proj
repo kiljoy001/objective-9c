@@ -13,6 +13,7 @@ if(test -e $dir){
 }
 
 mkdir $dir || exit mkdir
+mkdir $dir/tests || exit mkdir
 
 {
 	echo '#!/bin/rc'
@@ -42,6 +43,9 @@ mkdir $dir || exit mkdir
 	echo 'run:V:	$TARG'
 	echo '	./$TARG'
 	echo ''
+	echo 'test:V:'
+	echo '	o9test tests'
+	echo ''
 	echo 'clean:V:'
 	echo '	rm -f app.c app.$O $TARG'
 } >$dir/mkfile
@@ -56,12 +60,25 @@ mkdir $dir || exit mkdir
 	echo '}'
 } >$dir/app.o9
 
+{
+	echo 'import "testing.o9";'
+	echo ''
+	echo 'main {'
+	echo '    Test t = new Test("app");'
+	echo '    t.testCase("smoke");'
+	echo '    t.ok("test runner works", true);'
+	echo '    t.report();'
+	echo '    t.finish();'
+	echo '}'
+} >$dir/tests/test_app.o9
+
 chmod +x $dir/env.rc
 
 echo 'created '^$dir
 echo 'next:'
 echo '	cd '^$dir
 echo '	mk run'
+echo '	mk test'
 echo ''
 echo 'for an interactive namespace with stdlib union-bound:'
 echo '	. ./env.rc'

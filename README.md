@@ -31,13 +31,14 @@ transpiles the `.o9` file, compiles the generated C, links `libo9.a`, and
 writes an executable next to the source. Use `o9c` directly only when debugging
 the compiler.
 
-After installation, `o9c`, `o9build`, `o9plumb`, and `o9proj` are on the
+After installation, `o9c`, `o9build`, `o9test`, `o9plumb`, and `o9proj` are on the
 command path. Start a small project with:
 
 ```rc
 o9proj myapp
 cd myapp
 mk run
+mk test
 ```
 
 To make plumbing an `.o9` file start a build, run:

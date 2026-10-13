@@ -1,13 +1,13 @@
 # root mkfile — build and install o9 toolchain
 # Targets:
-#   mk            — build o9c compiler + libo9.a
-#   mk install    — install o9c, o9.h, libo9.a, stdlib, o9build, and o9proj
+#   mk            — build o9c compiler, libo9.a, and o9test runner
+#   mk install    — install o9c, o9test, o9.h, libo9.a, stdlib, o9build, and o9proj
 #   mk uninstall  — remove files installed by mk install
 #   mk clean      — clean build artifacts
 
 </$objtype/mkfile
 
-default:V: o9c libo9.a
+default:V: o9c libo9.a o9test
 
 VERSION=0.1.0
 
@@ -66,6 +66,12 @@ o9c/y.tab.$O:	o9c/y.tab.c
 
 o9c:V:	$CFILES
 	cd o9c; $LD -o o9c y.tab.$O o9_type.$O
+
+o9test_runner.$O:	o9test.c
+	$CC -o o9test_runner.$O o9test.c
+
+o9test:	o9test_runner.$O
+	$LD -o o9test o9test_runner.$O
 
 # o9_type.o — the live type-builtin table, linked into o9c (above).
 o9c/o9_type.$O:	o9c/o9_type.c o9c/o9_type.h
@@ -371,7 +377,7 @@ libo9.a:	$RUNTIME_OBJ $LIBTAB_OBJ
 	ar r libo9.a $RUNTIME_OBJ $LIBTAB_OBJ
 
 # === install ===
-install:V: o9c libo9.a
+install:V: o9c libo9.a o9test
 	if(! cp o9c/o9c /$objtype/bin/o9c) echo 'warning: could not install /'$objtype'/bin/o9c; using /bin/o9c' >[1=2]
 	if(! cp o9c/o9c /bin/o9c){
 		echo 'warning: could not install /bin/o9c; using '$home'/bin/'$objtype'/o9c' >[1=2]
@@ -381,6 +387,15 @@ install:V: o9c libo9.a
 		chmod +x $home/bin/$objtype/o9c
 	}
 	if(test -e /bin/o9c) chmod +x /bin/o9c
+	if(! cp o9test /$objtype/bin/o9test) echo 'warning: could not install /'$objtype'/bin/o9test' >[1=2]
+	if(! cp o9test /bin/o9test){
+		echo 'warning: could not install /bin/o9test; using '$home'/bin/'$objtype'/o9test' >[1=2]
+		if(! test -d $home/bin) mkdir $home/bin
+		if(! test -d $home/bin/$objtype) mkdir $home/bin/$objtype
+		cp o9test $home/bin/$objtype/o9test
+		chmod +x $home/bin/$objtype/o9test
+	}
+	if(test -e /bin/o9test) chmod +x /bin/o9test
 	if(! cp o9build /rc/bin/o9build){
 		echo 'warning: could not install /rc/bin/o9build; using '$home'/bin/rc/o9build' >[1=2]
 		if(! test -d $home/bin) mkdir $home/bin
@@ -452,6 +467,7 @@ install:V: o9c libo9.a
 	@ echo ''
 	@ echo '=== o9 toolchain installed ==='
 	@ echo '  o9c      -> /bin/o9c or '$home'/bin/'$objtype'/o9c'
+	@ echo '  o9test   -> /bin/o9test or '$home'/bin/'$objtype'/o9test'
 	@ echo '  o9build  -> /rc/bin/o9build or '$home'/bin/rc/o9build'
 	@ echo '  o9plumb  -> /rc/bin/o9plumb or '$home'/bin/rc/o9plumb'
 	@ echo '  o9plumbbuild -> /rc/bin/o9plumbbuild or '$home'/bin/rc/o9plumbbuild'
@@ -463,12 +479,16 @@ install:V: o9c libo9.a
 	@ echo ''
 	@ echo 'Usage:'
 	@ echo '  o9build source.o9'
+	@ echo '  o9test tests'
 	@ echo '  o9proj myapp'
 	@ echo '  o9plumb'
 
 uninstall:V:
 	if(! rm -f /$objtype/bin/o9c) echo 'warning: could not remove /'$objtype'/bin/o9c' >[1=2]
 	if(! rm -f /bin/o9c) echo 'warning: could not remove /bin/o9c' >[1=2]
+	if(! rm -f /$objtype/bin/o9test) echo 'warning: could not remove /'$objtype'/bin/o9test' >[1=2]
+	if(! rm -f /bin/o9test) echo 'warning: could not remove /bin/o9test' >[1=2]
+	if(! rm -f $home/bin/$objtype/o9test) echo 'warning: could not remove '$home'/bin/'$objtype'/o9test' >[1=2]
 	if(! rm -f $home/bin/$objtype/o9c) echo 'warning: could not remove '$home'/bin/'$objtype'/o9c' >[1=2]
 	if(! rm -f /rc/bin/o9build) echo 'warning: could not remove /rc/bin/o9build' >[1=2]
 	if(! rm -f $home/bin/rc/o9build) echo 'warning: could not remove '$home'/bin/rc/o9build' >[1=2]
@@ -498,7 +518,7 @@ uninstall:V:
 
 clean:V:
 	rm -f o9c/grammar.y o9c/y.tab.* o9c/type.tab.* o9c/o9c o9c/o9type o9c/*.[$O]
-	rm -f *.[$O] *.9 libo9.a
+	rm -f *.[$O] *.9 libo9.a o9test
 	rm -f o9c/test/*.[$O] o9c/test/crypto_test o9c/test/tab_test
 	rm -f o9c/test/o9test_selftest o9c/test/runtime_helpers_test
 	rm -f o9c/test/runtime_registry_test o9c/test/runtime_9p_rpc_test
