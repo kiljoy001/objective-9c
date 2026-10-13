@@ -2,6 +2,7 @@
 """Run the Objective-9C testing library in a disposable 9front VM."""
 
 import importlib.util
+import json
 import os
 import re
 import subprocess
@@ -122,18 +123,28 @@ def main():
                     "\nTEST_FAILURE_EXIT_OK\n" not in transcript or
                     "ERROR: finish returned" in transcript):
                     raise AssertionError("failing test process did not exit with failure")
-                if ("property_pass: 1 passed, 0 failed" not in transcript or
-                    "property_basics: 200 passed, 0 failed" not in transcript or
+                if ("property_pass: 3 passed, 0 failed" not in transcript or
+                    "property_basics: 300 passed, 0 failed" not in transcript or
                     "\nPROPERTY_SUCCESS_EXIT_OK\n" not in transcript or
                     "seed=9009 trial=0" not in transcript or
                     "shrunk=11" not in transcript or
                     "shrunk=-11" not in transcript or
-                    "property_fail: 0 passed, 2 failed" not in transcript or
+                    "property_fail: 0 passed, 4 failed" not in transcript or
                     "\nPROPERTY_FAILURE_EXIT_OK\n" not in transcript or
                     "seed=123 trial=0" not in transcript or
                     "\nPROPERTY_REPLAY_EXIT_OK\n" not in transcript):
                     raise AssertionError("native property tests did not shrink or report correctly")
-                print("O9 TESTING VM PASS: assertions, TAP, fixtures, isolation, property generation, shrinking, and failure exit")
+                string_failure = re.search(
+                    r'FAIL property_fail/long string: [^\n]*shrunk=("(?:\\.|[^"\\])*")',
+                    transcript)
+                sequence_failure = re.search(
+                    r'FAIL property_fail/long sequence: [^\n]*shrunk=(\[[0-9,]*\])',
+                    transcript)
+                if (string_failure is None or sequence_failure is None or
+                    len(json.loads(string_failure.group(1))) != 4 or
+                    len(json.loads(sequence_failure.group(1))) != 3):
+                    raise AssertionError("string or operation sequence did not shrink to its boundary")
+                print("O9 TESTING VM PASS: assertions, integer/string/sequence generation, shrinking, and replay")
             except Exception:
                 log.flush()
                 print(logpath.read_text(errors="replace")[-12000:])

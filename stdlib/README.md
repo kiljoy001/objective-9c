@@ -1605,9 +1605,10 @@ errors, timeouts, or an empty selection.
 
 ### Native property tests
 
-`property.o9` adds seeded integer generation and shrinking. Define an
-`IntProperty` whose `holds` method returns a boolean without recording an
-assertion, then ask `Property` to try generated values:
+`property.o9` adds seeded generation and shrinking for integers, ASCII
+strings, and operation sequences. Define a property whose `holds` method
+returns a boolean without recording an assertion, then ask `Property` to
+try generated values:
 
 ```o9
 import "property.o9";
@@ -1637,4 +1638,19 @@ The integer shrinker tries zero, repeated halving, and steps toward zero;
 it stops after 256 candidates. `PropertyRandom` provides an independent
 deterministic stream for handwritten generators. `Property.configure(seed,
 trials)` overrides the environment settings for a particular suite.
+
+For text, implement `StringProperty.holds(string)` and call
+`runString(name, check, maxLen)`. The generator uses printable ASCII, spaces,
+tabs, and newlines, with `maxLen` at most 256 bytes. Its shrinker removes
+chunks until the failing string cannot be shortened further within 256
+attempts. Failure output escapes tabs and newlines.
+
+For state machines, implement `SequenceProperty.holds(OperationSequence)` and call
+`runSequence(name, check, maxOps, opKinds)`. Each generated integer is an
+operation code from `0` through `opKinds-1`; the property applies those
+codes to the system under test and a simple reference model. Read codes with
+`operations.length()` and `operations.get(index)`. `maxOps` is at
+most 128 and `opKinds` at most 256. The shrinker removes contiguous spans
+of operations, preserving order, and prints the remaining sequence as
+`[0,2,1]`.
 

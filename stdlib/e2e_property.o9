@@ -8,6 +8,29 @@ class IntegerIdentity {
     }
 }
 
+class ShortStrings {
+    StringProperty;
+
+    method bool holds(string value) {
+        return len(value) <= 32;
+    }
+}
+
+class ValidOperations {
+    SequenceProperty;
+
+    method bool holds(OperationSequence operations) {
+        int64 i = 0;
+        while(i < operations.length()) {
+            if(operations.get(i) < 0 || operations.get(i) >= 4) {
+                return false;
+            }
+            i = i + 1;
+        }
+        return operations.length() <= 24;
+    }
+}
+
 main {
     Test test = new Test("property_basics");
     PropertyRandom a = new PropertyRandom(77);
@@ -20,10 +43,22 @@ main {
         test.ok("range", left >= -1000 && left <= 1000);
         i = i + 1;
     }
+    i = 0;
+    while(i < 50) {
+        string left = a.ascii(32);
+        string right = b.ascii(32);
+        test.eqStr("string seed replay", left, right);
+        test.ok("string length", len(left) <= 32);
+        i = i + 1;
+    }
     Property property = new Property("property_pass");
     IntegerIdentity identity = new IntegerIdentity();
+    ShortStrings shortStrings = new ShortStrings();
+    ValidOperations validOperations = new ValidOperations();
     property.configure(77, 100);
     property.runInt("subtract self", identity, -1000, 1000);
+    property.runString("bounded strings", shortStrings, 32);
+    property.runSequence("operation codes", validOperations, 24, 4);
     property.report();
     property.finish();
     test.report();

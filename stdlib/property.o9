@@ -1,4 +1,4 @@
-// Native property tests: deterministic generation, replay, and integer shrinking.
+// Native property tests: deterministic generation, replay, and shrinking.
 import "testing.o9";
 
 function PropertyNextRaw(int64 current) int64 {
@@ -60,8 +60,124 @@ function PropertyTextRaw(int64 value) string {
     return out;
 }
 
+function PropertyStringRaw(int64 current, int64 size) string {
+    string out;
+    c {
+        static char alphabet[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_/.\t\n";
+        uvlong x;
+        char *p;
+        vlong i;
+
+        if(size < 0 || size > 256){
+            out = o9_string_new("", 0);
+        }else{
+            out = o9_string_new(nil, size);
+            p = o9_string_data(out);
+            x = (uvlong)current;
+            if(x == 0)
+                x = 0x9e3779b97f4a7c15ULL;
+            for(i = 0; i < size; i++){
+                x ^= x >> 12;
+                x ^= x << 25;
+                x ^= x >> 27;
+                p[i] = alphabet[(x * 0x2545f4914f6cdd1dULL) % (sizeof alphabet - 1)];
+            }
+            p[size] = 0;
+        }
+    }
+    return out;
+}
+
+function PropertyDropRaw(string value, int64 start, int64 count) string {
+    string out;
+    c {
+        char *src, *dst;
+        vlong n;
+
+        n = o9_string_len(value);
+        src = o9_string_data(value);
+        if(start < 0 || count < 0 || start > n || count > n - start){
+            out = o9_string_new(src, n);
+        }else{
+            out = o9_string_new(nil, n - count);
+            dst = o9_string_data(out);
+            if(start > 0)
+                memmove(dst, src, start);
+            if(n - start - count > 0)
+                memmove(dst + start, src + start + count, n - start - count);
+            dst[n - count] = 0;
+        }
+    }
+    return out;
+}
+
+function PropertyQuoteRaw(string value) string {
+    string out;
+    c {
+        char buf[1030], *src;
+        vlong i, n, pos;
+        uchar ch;
+
+        src = o9_string_data(value);
+        n = o9_string_len(value);
+        pos = 0;
+        buf[pos++] = '"';
+        for(i = 0; i < n && pos < sizeof buf - 5; i++){
+            ch = src[i];
+            if(ch == '\\' || ch == '"'){
+                buf[pos++] = '\\';
+                buf[pos++] = ch;
+            }else if(ch == '\n'){
+                buf[pos++] = '\\';
+                buf[pos++] = 'n';
+            }else if(ch == '\t'){
+                buf[pos++] = '\\';
+                buf[pos++] = 't';
+            }else{
+                buf[pos++] = ch;
+            }
+        }
+        buf[pos++] = '"';
+        out = o9_string_new(buf, pos);
+    }
+    return out;
+}
+
 interface IntProperty {
     method bool holds(int64 value);
+}
+
+interface StringProperty {
+    method bool holds(string value);
+}
+
+class OperationSequence {
+    private int64[] codes;
+    private int64 count;
+
+    method OperationSequence() {
+        count = 0;
+    }
+
+    method void add(int64 code) {
+        codes[count] = code;
+        count = count + 1;
+    }
+
+    method int64 length() {
+        return count;
+    }
+
+    method int64 get(int64 index) {
+        if(index < 0 || index >= count) {
+            return -1;
+        }
+        return codes[index];
+    }
+}
+
+interface SequenceProperty {
+    method bool holds(OperationSequence operations);
 }
 
 class PropertyRandom {
@@ -83,6 +199,16 @@ class PropertyRandom {
         }
         int64 bits = next();
         Task<int64> t = spawn PropertyBetweenRaw(bits, low, high);
+        return t.take();
+    }
+
+    method string ascii(int64 maxLen) {
+        if(maxLen < 0 || maxLen > 256) {
+            return "";
+        }
+        int64 size = between(0, maxLen);
+        int64 bits = next();
+        Task<string> t = spawn PropertyStringRaw(bits, size);
         return t.take();
     }
 }
@@ -123,6 +249,29 @@ class Property {
         return t.take();
     }
 
+    private method string quoted(string value) {
+        Task<string> t = spawn PropertyQuoteRaw(value);
+        return t.take();
+    }
+
+    private method string drop(string value, int64 start, int64 count) {
+        Task<string> t = spawn PropertyDropRaw(value, start, count);
+        return t.take();
+    }
+
+    private method string sequenceText(OperationSequence operations) {
+        string text = "[";
+        int64 i = 0;
+        while(i < operations.length()) {
+            if(i > 0) {
+                text = cat(text, ",");
+            }
+            text = cat(text, number(operations.get(i)));
+            i = i + 1;
+        }
+        return cat(text, "]");
+    }
+
     private method int64 shrinkInt(IntProperty check, int64 value) {
         int64 current = value;
         if(current == 0) {
@@ -154,6 +303,102 @@ class Property {
         return current;
     }
 
+    private method string shrinkString(StringProperty check, string value) {
+        string current = value;
+        if(len(current) == 0) {
+            return current;
+        }
+        if(!check.holds("")) {
+            return "";
+        }
+        int64 chunk = len(current) / 2;
+        if(chunk == 0) {
+            chunk = 1;
+        }
+        int64 attempts = 0;
+        while(chunk > 0 && attempts < 256) {
+            int64 start = 0;
+            bool reduced = false;
+            while(start < len(current) && !reduced && attempts < 256) {
+                int64 count = chunk;
+                if(start + count > len(current)) {
+                    count = len(current) - start;
+                }
+                string candidate = drop(current, start, count);
+                attempts = attempts + 1;
+                if(!check.holds(candidate)) {
+                    current = candidate;
+                    reduced = true;
+                } else {
+                    start = start + chunk;
+                }
+            }
+            if(reduced) {
+                if(len(current) == 0) {
+                    return current;
+                }
+                if(chunk > len(current)) {
+                    chunk = len(current);
+                }
+            } else {
+                chunk = chunk / 2;
+            }
+        }
+        return current;
+    }
+
+    private method OperationSequence shrinkSequence(SequenceProperty check, OperationSequence original) {
+        OperationSequence current = original;
+        OperationSequence empty = new OperationSequence();
+        if(current.length() == 0) {
+            return current;
+        }
+        if(!check.holds(empty)) {
+            return empty;
+        }
+        int64 chunk = current.length() / 2;
+        if(chunk == 0) {
+            chunk = 1;
+        }
+        int64 attempts = 0;
+        while(chunk > 0 && attempts < 256) {
+            int64 start = 0;
+            bool reduced = false;
+            while(start < current.length() && !reduced && attempts < 256) {
+                int64 end = start + chunk;
+                if(end > current.length()) {
+                    end = current.length();
+                }
+                OperationSequence candidate = new OperationSequence();
+                int64 j = 0;
+                while(j < current.length()) {
+                    if(j < start || j >= end) {
+                        candidate.add(current.get(j));
+                    }
+                    j = j + 1;
+                }
+                attempts = attempts + 1;
+                if(!check.holds(candidate)) {
+                    current = candidate;
+                    reduced = true;
+                } else {
+                    start = start + chunk;
+                }
+            }
+            if(reduced) {
+                if(current.length() == 0) {
+                    return current;
+                }
+                if(chunk > current.length()) {
+                    chunk = current.length();
+                }
+            } else {
+                chunk = chunk / 2;
+            }
+        }
+        return current;
+    }
+
     method bool runInt(string name, IntProperty check, int64 low, int64 high) {
         if(low > high) {
             return assertions.fail(name, "invalid generator range");
@@ -167,6 +412,54 @@ class Property {
                 detail = cat(detail, cat(" trial=", number(i)));
                 detail = cat(detail, cat(" original=", number(value)));
                 detail = cat(detail, cat(" shrunk=", number(smallest)));
+                detail = cat(detail, cat("; replay: o9test --seed ", number(seedValue)));
+                return assertions.fail(name, detail);
+            }
+            i = i + 1;
+        }
+        return assertions.ok(name, true);
+    }
+
+    method bool runString(string name, StringProperty check, int64 maxLen) {
+        if(maxLen < 0 || maxLen > 256) {
+            return assertions.fail(name, "string length must be 0..256");
+        }
+        int64 i = 0;
+        while(i < trialCount) {
+            string value = random.ascii(maxLen);
+            if(!check.holds(value)) {
+                string shrunk = shrinkString(check, value);
+                string detail = cat("seed=", number(seedValue));
+                detail = cat(detail, cat(" trial=", number(i)));
+                detail = cat(detail, cat(" original=", quoted(value)));
+                detail = cat(detail, cat(" shrunk=", quoted(shrunk)));
+                detail = cat(detail, cat("; replay: o9test --seed ", number(seedValue)));
+                return assertions.fail(name, detail);
+            }
+            i = i + 1;
+        }
+        return assertions.ok(name, true);
+    }
+
+    method bool runSequence(string name, SequenceProperty check, int64 maxOps, int64 opKinds) {
+        if(maxOps < 0 || maxOps > 128 || opKinds < 1 || opKinds > 256) {
+            return assertions.fail(name, "sequence limits must be 0..128 operations and 1..256 kinds");
+        }
+        int64 i = 0;
+        while(i < trialCount) {
+            OperationSequence operations = new OperationSequence();
+            int64 size = random.between(0, maxOps);
+            int64 j = 0;
+            while(j < size) {
+                operations.add(random.between(0, opKinds - 1));
+                j = j + 1;
+            }
+            if(!check.holds(operations)) {
+                OperationSequence shrunk = shrinkSequence(check, operations);
+                string detail = cat("seed=", number(seedValue));
+                detail = cat(detail, cat(" trial=", number(i)));
+                detail = cat(detail, cat(" original=", sequenceText(operations)));
+                detail = cat(detail, cat(" shrunk=", sequenceText(shrunk)));
                 detail = cat(detail, cat("; replay: o9test --seed ", number(seedValue)));
                 return assertions.fail(name, detail);
             }

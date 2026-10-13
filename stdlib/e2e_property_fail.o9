@@ -16,12 +16,32 @@ class AtLeastMinusTen {
     }
 }
 
+class AtMostThreeChars {
+    StringProperty;
+
+    method bool holds(string value) {
+        return len(value) <= 3;
+    }
+}
+
+class AtMostTwoOps {
+    SequenceProperty;
+
+    method bool holds(OperationSequence operations) {
+        return operations.length() <= 2;
+    }
+}
+
 main {
     Property property = new Property("property_fail");
     AtMostTen positive = new AtMostTen();
     AtLeastMinusTen negative = new AtLeastMinusTen();
+    AtMostThreeChars shortText = new AtMostThreeChars();
+    AtMostTwoOps shortOps = new AtMostTwoOps();
     property.runInt("positive threshold", positive, 20, 200);
     property.runInt("negative threshold", negative, -200, -20);
+    property.runString("long string", shortText, 16);
+    property.runSequence("long sequence", shortOps, 12, 4);
     property.report();
     property.finish();
 }
