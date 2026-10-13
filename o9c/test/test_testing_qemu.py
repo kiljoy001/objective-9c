@@ -27,10 +27,17 @@ def main():
         for kind, source in (("ok", "e2e_testing.o9"),
                              ("fail", "e2e_testing_fail.o9"),
                              ("prop_ok", "e2e_property.o9"),
-                             ("prop_fail", "e2e_property_fail.o9")):
+                             ("prop_fail", "e2e_property_fail.o9"),
+                             ("san_ok", "e2e_sanitize_ok.o9"),
+                             ("san_bounds", "e2e_sanitize_bounds_fail.o9"),
+                             ("san_write", "e2e_sanitize_write_fail.o9"),
+                             ("san_list_write", "e2e_sanitize_list_write_fail.o9"),
+                             ("san_arc", "e2e_sanitize_arc_fail.o9")):
             with (work / f"t_{kind}.c").open("w") as output:
                 subprocess.run([str(ROOT / "o9c/o9c"), f"stdlib/{source}"],
                                cwd=ROOT, stdout=output, check=True)
+        (work / "mockbuild").write_text("#!/bin/rc\ncp /tmp/o9-sanitize-ok $2\n")
+        (work / "test_sanitize.o9").write_text("main {}\n")
         disk = work / "test.img"
         subprocess.run(["cp", "--sparse=always", sys.argv[1], disk], check=True)
         fat = f"{disk}@@{builder.ninefat_offset(disk)}"
@@ -39,13 +46,20 @@ def main():
                         str(work / "plan9.ini"), "::plan9.ini"], check=True)
         subprocess.run(["mmd", "-i", fat, "::o9test"], check=True)
         subprocess.run(["mmd", "-i", fat, "::o9tlib"], check=True)
-        runtime = ("mkfile", "o9.h", "o9_runtime.c", "o9_filetree.c",
+        runtime = ("mkfile", "o9.h", "o9test.c", "o9_runtime.c", "o9_filetree.c",
                    "o9_view.c", "o9_tab_discard.c", "o9_crypto.c",
                    "monocypher.c", "monocypher.h", "o9_dispatch_386.s")
         for name, path in (("t_ok.c", work / "t_ok.c"),
                            ("t_fail.c", work / "t_fail.c"),
                            ("t_prop_ok.c", work / "t_prop_ok.c"),
                            ("t_prop_fail.c", work / "t_prop_fail.c"),
+                           ("t_san_ok.c", work / "t_san_ok.c"),
+                           ("t_san_bounds.c", work / "t_san_bounds.c"),
+                           ("t_san_write.c", work / "t_san_write.c"),
+                           ("t_san_list_write.c", work / "t_san_list_write.c"),
+                           ("t_san_arc.c", work / "t_san_arc.c"),
+                           ("mockbuild", work / "mockbuild"),
+                           ("test_sanitize.o9", work / "test_sanitize.o9"),
                            *((name, ROOT / name) for name in runtime)):
             subprocess.run(["mcopy", "-i", fat, str(path),
                             f"::o9test/{name}"], check=True)
@@ -81,7 +95,9 @@ def main():
                 if console.expect([marker + "\r\nterm% ",
                                    marker + "\nterm% "], timeout) is None:
                     raise RuntimeError(f"guest command timed out: {command}")
-                output = logpath.read_text(errors="replace")[start:].replace("\r", "")
+                with logpath.open("rb") as recorded:
+                    recorded.seek(start)
+                    output = recorded.read().decode(errors="replace").replace("\r", "")
                 if re.search(rf"\n{result}[ \t]*\n", output) is None:
                     raise RuntimeError(f"guest command failed: {command}\n{output[-1500:]}")
 
@@ -99,15 +115,33 @@ def main():
                     "8c -FV -DO9_HAVE_SRVRELEASE -I/tmp/o9test -o /tmp/o9test/t_fail.8 /tmp/o9test/t_fail.c",
                     "8c -FV -DO9_HAVE_SRVRELEASE -I/tmp/o9test -o /tmp/o9test/t_prop_ok.8 /tmp/o9test/t_prop_ok.c",
                     "8c -FV -DO9_HAVE_SRVRELEASE -I/tmp/o9test -o /tmp/o9test/t_prop_fail.8 /tmp/o9test/t_prop_fail.c",
+                    "8c -FV -DO9_HAVE_SRVRELEASE -I/tmp/o9test -o /tmp/o9test/t_san_ok.8 /tmp/o9test/t_san_ok.c",
+                    "8c -FV -DO9_HAVE_SRVRELEASE -I/tmp/o9test -o /tmp/o9test/t_san_bounds.8 /tmp/o9test/t_san_bounds.c",
+                    "8c -FV -DO9_HAVE_SRVRELEASE -I/tmp/o9test -o /tmp/o9test/t_san_write.8 /tmp/o9test/t_san_write.c",
+                    "8c -FV -DO9_HAVE_SRVRELEASE -I/tmp/o9test -o /tmp/o9test/t_san_list_write.8 /tmp/o9test/t_san_list_write.c",
+                    "8c -FV -DO9_HAVE_SRVRELEASE -I/tmp/o9test -o /tmp/o9test/t_san_arc.8 /tmp/o9test/t_san_arc.c",
                     "8l -o /tmp/o9-testing-ok /tmp/o9test/t_ok.8 /tmp/o9test/libo9.a /386/lib/libndb.a /386/lib/libauth.a /386/lib/libmp.a /386/lib/libsec.a",
                     "8l -o /tmp/o9-testing-fail /tmp/o9test/t_fail.8 /tmp/o9test/libo9.a /386/lib/libndb.a /386/lib/libauth.a /386/lib/libmp.a /386/lib/libsec.a",
                     "8l -o /tmp/o9-property-ok /tmp/o9test/t_prop_ok.8 /tmp/o9test/libo9.a /386/lib/libndb.a /386/lib/libauth.a /386/lib/libmp.a /386/lib/libsec.a",
                     "8l -o /tmp/o9-property-fail /tmp/o9test/t_prop_fail.8 /tmp/o9test/libo9.a /386/lib/libndb.a /386/lib/libauth.a /386/lib/libmp.a /386/lib/libsec.a",
+                    "8l -o /tmp/o9-sanitize-ok /tmp/o9test/t_san_ok.8 /tmp/o9test/libo9.a /386/lib/libndb.a /386/lib/libauth.a /386/lib/libmp.a /386/lib/libsec.a",
+                    "8l -o /tmp/o9-sanitize-bounds /tmp/o9test/t_san_bounds.8 /tmp/o9test/libo9.a /386/lib/libndb.a /386/lib/libauth.a /386/lib/libmp.a /386/lib/libsec.a",
+                    "8l -o /tmp/o9-sanitize-write /tmp/o9test/t_san_write.8 /tmp/o9test/libo9.a /386/lib/libndb.a /386/lib/libauth.a /386/lib/libmp.a /386/lib/libsec.a",
+                    "8l -o /tmp/o9-sanitize-list-write /tmp/o9test/t_san_list_write.8 /tmp/o9test/libo9.a /386/lib/libndb.a /386/lib/libauth.a /386/lib/libmp.a /386/lib/libsec.a",
+                    "8l -o /tmp/o9-sanitize-arc /tmp/o9test/t_san_arc.8 /tmp/o9test/libo9.a /386/lib/libndb.a /386/lib/libauth.a /386/lib/libmp.a /386/lib/libsec.a",
+                    "8c -o /tmp/o9test/o9test.8 /tmp/o9test/o9test.c",
+                    "8l -o /tmp/o9test/o9test /tmp/o9test/o9test.8",
                     "if(/tmp/o9-testing-ok) echo TEST_SUCCESS_EXIT_OK",
                     "if(! /tmp/o9-testing-fail) echo TEST_FAILURE_EXIT_OK",
                     "if(/tmp/o9-property-ok) echo PROPERTY_SUCCESS_EXIT_OK",
                     "if(! /tmp/o9-property-fail) echo PROPERTY_FAILURE_EXIT_OK",
                     "O9TEST_SEED=123; O9TEST_TRIALS=7; if(! /tmp/o9-property-fail) echo PROPERTY_REPLAY_EXIT_OK",
+                    "O9_SANITIZE=1; if(/tmp/o9-sanitize-ok) echo SANITIZE_SUCCESS_EXIT_OK",
+                    "if(! /tmp/o9-sanitize-bounds) echo SANITIZE_BOUNDS_EXIT_OK",
+                    "if(! /tmp/o9-sanitize-write) echo SANITIZE_WRITE_EXIT_OK",
+                    "if(! /tmp/o9-sanitize-list-write) echo SANITIZE_LIST_WRITE_EXIT_OK",
+                    "if(! /tmp/o9-sanitize-arc) echo SANITIZE_ARC_EXIT_OK",
+                    "if(/tmp/o9test/o9test --sanitize --builder /tmp/o9test/mockbuild /tmp/o9test/test_sanitize.o9) echo SANITIZE_RUNNER_EXIT_OK",
                 ):
                     guest(command, 300 if "mk libo9" in command else 180)
                 transcript = logpath.read_text(errors="replace").replace("\r", "")
@@ -144,7 +178,23 @@ def main():
                     len(json.loads(string_failure.group(1))) != 4 or
                     len(json.loads(sequence_failure.group(1))) != 3):
                     raise AssertionError("string or operation sequence did not shrink to its boundary")
-                print("O9 TESTING VM PASS: assertions, integer/string/sequence generation, shrinking, and replay")
+                if ("SANITIZE_SUCCESS_EXIT_OK" not in transcript or
+                    "SANITIZE_BOUNDS_EXIT_OK" not in transcript or
+                    "SANITIZE_WRITE_EXIT_OK" not in transcript or
+                    "SANITIZE_LIST_WRITE_EXIT_OK" not in transcript or
+                    "SANITIZE_ARC_EXIT_OK" not in transcript or
+                    "SANITIZE_RUNNER_EXIT_OK" not in transcript or
+                    "1 passed, 0 failed, 0 build errors, 0 timed out" not in transcript or
+                    "O9SAN sanitize_ok: live delta" not in transcript or
+                    re.search(r"O9SAN stdlib/e2e_sanitize_bounds_fail.o9:4: index 1 outside slice length 1", transcript) is None or
+                    re.search(r"O9SAN stdlib/e2e_sanitize_write_fail.o9:3: invalid growing slice write index -1", transcript) is None or
+                    re.search(r"O9SAN stdlib/e2e_sanitize_list_write_fail.o9:3: write index 0 outside slice length 0", transcript) is None or
+                    "O9SAN invalid fixture release: ref=-1" not in transcript):
+                    raise AssertionError("native sanitizer checks or report failed")
+                runner_output = transcript[transcript.rfind("term% if(/tmp/o9test/o9test"):]
+                if "O9SAN sanitize_ok: live delta" not in runner_output:
+                    raise AssertionError("o9test --sanitize did not enable runtime diagnostics")
+                print("O9 TESTING VM PASS: assertions, property tests, native bounds/ARC diagnostics, and live allocation reports")
             except Exception:
                 log.flush()
                 print(logpath.read_text(errors="replace")[-12000:])

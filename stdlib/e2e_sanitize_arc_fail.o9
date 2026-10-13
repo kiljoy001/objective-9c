@@ -1,0 +1,16 @@
+function SanitizeBadRefRaw() int64 {
+    int64 out;
+    c {
+        long ref;
+
+        ref = 0;
+        o9_sanitize_ref_dec(&ref, "fixture");
+        out = 0;
+    }
+    return out;
+}
+
+main {
+    Task<int64> result = spawn SanitizeBadRefRaw();
+    print(result.take(), "\n");
+}

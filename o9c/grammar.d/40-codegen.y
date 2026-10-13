@@ -1384,11 +1384,13 @@ gen_array_list_get(Node *e, Type *lt)
     if(!type_is_collection(lt, "List"))
         return 0;
     et = type_list_at(lt->args, 0);
-    cprint("(*(%s*)o9_slice_get(&", type_storage_for_codegen(et));
+    cprint("(*(%s*)o9_slice_get_checked(&", type_storage_for_codegen(et));
     gen_expr(e->left);
     cprint(", ");
     gen_expr(e->right);
-    cprint("))");
+    cprint(", ");
+    gen_c_string_literal(e->sourcefile != nil ? e->sourcefile : "<unknown>");
+    cprint(", %d))", e->sourceline);
     return 1;
 }
 
@@ -1400,11 +1402,13 @@ gen_array_array_get(Node *e, Type *lt)
     if(!type_is_array(lt))
         return 0;
     et = type_array_elem(lt);
-    cprint("(*(%s*)o9_slice_get(&", type_storage_for_codegen(et));
+    cprint("(*(%s*)o9_slice_get_checked(&", type_storage_for_codegen(et));
     gen_expr(e->left);
     cprint(", ");
     gen_expr(e->right);
-    cprint("))");
+    cprint(", ");
+    gen_c_string_literal(e->sourcefile != nil ? e->sourcefile : "<unknown>");
+    cprint(", %d))", e->sourceline);
     return 1;
 }
 
@@ -1644,6 +1648,7 @@ gen_assign_alloc_local(char *varname, char *target, char *lhs_type,
 
     id = new_tmp_id++;
     cprint("\t%s_Internal *__o9n%d;\n\t__o9n%d = emalloc9p(sizeof(%s_Internal));\n", cn, id, id, cn);
+    cprint("\to9_sanitize_object_alloc();\n");
     cprint("\tmemset(__o9n%d, 0, sizeof(%s_Internal));\n", id, cn);
     cprint("\t__o9n%d->dispatch_chan = chancreate(sizeof(void*), 10);\n", id);
     cprint("\t__o9n%d->distance = %d;\n", id, dval >= 0 ? dval : -1);
@@ -1716,6 +1721,7 @@ gen_local_new(Node *s, char *cn, int distance)
         nctor++;
 
     cprint("\t%s_Internal *__%s;\n\t__%s = emalloc9p(sizeof(%s_Internal));\n", cn, s->name, s->name, cn);
+    cprint("\to9_sanitize_object_alloc();\n");
     cprint("\tmemset(__%s, 0, sizeof(%s_Internal));\n", s->name, cn);
     cprint("\t__%s->dispatch_chan = chancreate(sizeof(void*), 10);\n", s->name);
     cprint("\t%s_Client %s;\n", cn, s->name);
@@ -2717,7 +2723,9 @@ gen_slice_set_assign(Node *left, Node *right, Type *et, char *fn)
     gen_expr(left->left);
     cprint(", ");
     gen_expr(left->right);
-    cprint(", &__v); }\n");
+    cprint(", &__v, ");
+    gen_c_string_literal(left->sourcefile != nil ? left->sourcefile : "<unknown>");
+    cprint(", %d); }\n", left->sourceline);
 }
 
 static int
@@ -2730,11 +2738,11 @@ gen_assign_array(Node *c, Node *s)
         return 0;
     lt = s->left->left != nil ? s->left->left->typeinfo : nil;
     if(type_is_collection(lt, "List")){
-        gen_slice_set_assign(s->left, s->right, type_list_at(lt->args, 0), "o9_slice_set");
+        gen_slice_set_assign(s->left, s->right, type_list_at(lt->args, 0), "o9_slice_set_checked");
         return 1;
     }
     if(type_is_array(lt)){
-        gen_slice_set_assign(s->left, s->right, type_array_elem(lt), "o9_slice_setgrow");
+        gen_slice_set_assign(s->left, s->right, type_array_elem(lt), "o9_slice_setgrow_checked");
         return 1;
     }
     if(type_is_collection(lt, "Dict")){
@@ -4125,6 +4133,7 @@ gen_class_cleanup_impl(Node *c, int has_destruct)
     cprint("\tchanclose(self->dispatch_chan);\n");
     if((c->flags & NFFunction) != 0)
         cprint("\tchanfree(self->dispatch_chan);\n");
+    cprint("\to9_sanitize_object_free();\n");
     cprint("\tfree(self);\n");
     cprint("}\n\n");
 }
@@ -4138,15 +4147,15 @@ gen_class_arc_callbacks(Node *c)
     cprint("static void\no9_attach_%s(Req *r)\n{\n", c->name);
     cprint("\t%s_Internal *self;\n\n", c->name);
     cprint("\tself = r->srv->aux;\n");
-    cprint("\tself->ledger.entries[0x%lux & 63].count++;\n", aid);
-    cprint("\tainc(&self->ref);\n");
+    cprint("\to9_sanitize_ledger_adjust(&self->ledger.entries[0x%lux & 63].count, 1, \"%s\");\n", aid, c->name);
+    cprint("\to9_sanitize_ref_inc(&self->ref, \"%s\");\n", c->name);
     cprint("\trespond(r, nil);\n");
     cprint("}\n\n");
     cprint("static void\no9_destroyfid_%s(Fid *f)\n{\n", c->name);
     cprint("\t%s_Internal *self;\n\tO9Msg *m;\n\n", c->name);
     cprint("\tself = f->pool->srv->aux;\n");
-    cprint("\tself->ledger.entries[0x%lux & 63].count--;\n", aid);
-    cprint("\tif(adec(&self->ref) == 0){\n");
+    cprint("\to9_sanitize_ledger_adjust(&self->ledger.entries[0x%lux & 63].count, -1, \"%s\");\n", aid, c->name);
+    cprint("\tif(o9_sanitize_ref_dec(&self->ref, \"%s\") == 0){\n", c->name);
     cprint("\t\tm = mallocz(sizeof *m, 1);\n");
     cprint("\t\tm->sel = 0x%lux;\n", o9_hash("destroy"));
     cprint("\t\tm->replyc = nil;\n");
@@ -4649,6 +4658,7 @@ gen_spawn_forward_proc(Node *c)
     cprint("\t} else {\n");
     cprint("\t\to9_dag_actor_exit(ctx->inst->dispatch_chan);\n");
     cprint("\t\tchanfree(ctx->inst->dispatch_chan); free(ctx->inst);\n");
+    cprint("\t\to9_sanitize_object_free();\n");
     cprint("\t}\n");
     cprint("\tfree(ctx->msg->args); free(ctx->msg);\n");
     cprint("\tchanfree(ctx->replyc); o9_task_close(ctx->task); free(ctx);\n");
@@ -4686,6 +4696,7 @@ gen_spawn_instance_setup(Node *c)
     cprint("\tchar __nm[64]; snprint(__nm, sizeof __nm, \"%s#%%d\", __id);\n", c->name);
     cprint("\tO9Task *__task;\n\t__task = o9_task_new(__id);\n");
     cprint("\t%s_Internal *__inst;\n\t__inst = emalloc9p(sizeof(%s_Internal));\n", c->name, c->name);
+    cprint("\to9_sanitize_object_alloc();\n");
     cprint("\tmemset(__inst, 0, sizeof(%s_Internal));\n", c->name);
     cprint("\t__inst->dispatch_chan = chancreate(sizeof(void*), 10);\n");
     cprint("\t__inst->distance = -1;\n");
@@ -4949,6 +4960,7 @@ gen_class_ctl_new(Node *c)
     cprint("\t\t\ttarget = %s_find_instance(f[1]);\n", c->name);
     cprint("\t\t\tif(target == nil){\n");
     cprint("\t\t\t\ttarget = emalloc9p(sizeof(%s_Internal));\n", c->name);
+    cprint("\t\t\t\to9_sanitize_object_alloc();\n");
     cprint("\t\t\t\tmemset(target, 0, sizeof(%s_Internal));\n", c->name);
     cprint("\t\t\t\ttarget->dispatch_chan = chancreate(sizeof(void*), 10);\n");
     cprint("\t\t\t\ttarget->state = o9_state_create_path(o9_app_root_%s, \"%s\", f[1], o9_state_cols_%s, %d);\n",

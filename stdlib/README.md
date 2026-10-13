@@ -1591,6 +1591,7 @@ and a `mk test` target.
 o9test tests
 o9test -k parser -v tests
 o9test -x -t 10 tests
+o9test --sanitize tests
 o9test --list tests
 ```
 
@@ -1602,6 +1603,18 @@ tests print their captured output; `--keep` retains temporary build files.
 An explicit `.o9` file runs even if its name does not match the discovery
 patterns. The runner exits with a failure status for test failures, build
 errors, timeouts, or an empty selection.
+
+`--sanitize` enables native Objective-9C diagnostics in each test process.
+The runner displays sanitizer reports for passing tests as well as failures.
+Out-of-range `List<T>` and `T[]` reads and invalid writes report the `.o9`
+file, line, and index before failing the test. String, object-handle, and class-fid
+reference counts report underflow. At `Test.finish()`, an `O9SAN` line gives
+the change in live generated objects, strings, and slice allocations since
+that suite began. The report is a leak investigation aid: a positive count
+can also be an intentionally live object. Raw C pointer accesses and
+allocations made outside these runtime paths are not checked. To enable the
+same diagnostics in a standalone program, set `O9_SANITIZE=1` before running
+it; live allocation reports still require `Test.finish()`.
 
 ### Native property tests
 

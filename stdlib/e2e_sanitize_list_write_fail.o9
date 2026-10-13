@@ -1,0 +1,4 @@
+main {
+    List<int64> values;
+    values[0] = 42;
+}

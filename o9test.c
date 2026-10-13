@@ -28,12 +28,13 @@ static int showoutput;
 static int failfast;
 static int listonly;
 static int keep;
+static int sanitize;
 static char scratch[Maxpath];
 
 static void
 usage(void)
 {
-	fprint(2, "usage: o9test [-vqsx] [-k text] [-t seconds] [--seed n] [--trials n] [--build-timeout seconds] [--builder path] [--list] [--keep] [path ...]\n");
+	fprint(2, "usage: o9test [-vqsx] [-k text] [-t seconds] [--seed n] [--trials n] [--sanitize] [--build-timeout seconds] [--builder path] [--list] [--keep] [path ...]\n");
 	exits("usage");
 }
 
@@ -238,6 +239,8 @@ runphase(char *program, char *arg1, char *arg2, char *logpath,
 		if(fd > 2)
 			close(fd);
 		if(arg2 == nil){
+			if(sanitize)
+				putenv("O9_SANITIZE", "1");
 			if(seedarg != nil)
 				putenv("O9TEST_SEED", seedarg);
 			if(trialsarg != nil)
@@ -373,6 +376,7 @@ main(int argc, char **argv)
 			print("--build-timeout sets the build timeout (default 180s); --list prints discovered files.\n");
 			print("--builder selects a build script; --keep retains scratch files.\n");
 			print("--seed replays property input generation; --trials sets cases per property (default 100).\n");
+			print("--sanitize enables native bounds and ARC diagnostics with live allocation reports.\n");
 			exits(nil);
 		}
 		if(!endopts && strcmp(argv[i], "-v") == 0) verbose = 1;
@@ -381,6 +385,7 @@ main(int argc, char **argv)
 		else if(!endopts && strcmp(argv[i], "-x") == 0) failfast = 1;
 		else if(!endopts && strcmp(argv[i], "--list") == 0) listonly = 1;
 		else if(!endopts && strcmp(argv[i], "--keep") == 0) keep = 1;
+		else if(!endopts && strcmp(argv[i], "--sanitize") == 0) sanitize = 1;
 		else if(!endopts && strcmp(argv[i], "-k") == 0 && ++i < argc) pattern = argv[i];
 		else if(!endopts && strcmp(argv[i], "-t") == 0 && ++i < argc) timeout = seconds(argv[i]);
 		else if(!endopts && strcmp(argv[i], "--build-timeout") == 0 && ++i < argc) buildtimeout = seconds(argv[i]);
@@ -454,7 +459,7 @@ main(int argc, char **argv)
 				pass++;
 				if(verbose) print("PASS %s\n", tests[i].path);
 				else if(!quiet) print(".");
-				if(showoutput) showlog(logpath);
+				if(showoutput || sanitize) showlog(logpath);
 			}
 		}
 		if(!keep)

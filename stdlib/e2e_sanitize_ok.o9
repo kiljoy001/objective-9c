@@ -1,0 +1,10 @@
+import "testing.o9";
+
+main {
+    Test test = new Test("sanitize_ok");
+    int64[] values;
+    values[0] = 42;
+    test.eqInt("valid slice read", values[0], 42);
+    test.report();
+    test.finish();
+}

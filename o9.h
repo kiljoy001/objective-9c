@@ -189,9 +189,22 @@ struct O9Slice {
 extern void   o9_slice_init(O9Slice *s, int elemsize);
 extern void   o9_slice_append(O9Slice *s, void *val);
 extern void*  o9_slice_get(O9Slice *s, vlong idx);
+extern void*  o9_slice_get_checked(O9Slice *s, vlong idx, char *file, int line);
 extern void   o9_slice_set(O9Slice *s, vlong idx, void *val);
 extern void   o9_slice_setgrow(O9Slice *s, vlong idx, void *val);
+extern void   o9_slice_set_checked(O9Slice *s, vlong idx, void *val, char *file, int line);
+extern void   o9_slice_setgrow_checked(O9Slice *s, vlong idx, void *val, char *file, int line);
 extern void   o9_slice_free(O9Slice *s);
+
+/* Opt-in native diagnostics, enabled by O9_SANITIZE=1. */
+extern int    o9_sanitize_enabled(void);
+extern long   o9_sanitize_ref_inc(long *ref, char *kind);
+extern long   o9_sanitize_ref_dec(long *ref, char *kind);
+extern long   o9_sanitize_ledger_adjust(long *count, int delta, char *kind);
+extern void   o9_sanitize_object_alloc(void);
+extern void   o9_sanitize_object_free(void);
+extern vlong  o9_sanitize_checkpoint(void);
+extern void   o9_sanitize_report(vlong checkpoint, char *name);
 
 /* Generic CSP channel payload.  The compiler owns typechecking; this
  * envelope only moves bytes and releases abandoned owned payloads. */

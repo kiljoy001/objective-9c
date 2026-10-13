@@ -72,6 +72,158 @@ o9_atomic_dec(long *p)
 	return adec(p);
 #endif
 }
+
+typedef struct O9SanitizeSnapshot O9SanitizeSnapshot;
+struct O9SanitizeSnapshot {
+	vlong id;
+	vlong strings;
+	vlong stringbytes;
+	vlong slices;
+	vlong slicebytes;
+	vlong objects;
+};
+
+static QLock o9_sanitize_lock;
+static O9SanitizeSnapshot o9_sanitize_live;
+static O9SanitizeSnapshot o9_sanitize_saved[64];
+static vlong o9_sanitize_nextid;
+static int o9_sanitize_mode = -1;
+
+int
+o9_sanitize_enabled(void)
+{
+	char *s;
+
+	if(o9_sanitize_mode < 0){
+		s = getenv("O9_SANITIZE");
+		o9_sanitize_mode = s != nil && strcmp(s, "1") == 0;
+		free(s);
+	}
+	return o9_sanitize_mode;
+}
+
+long
+o9_sanitize_ref_inc(long *ref, char *kind)
+{
+	long n;
+
+	n = o9_atomic_inc(ref);
+	if(o9_sanitize_enabled() && n <= 0)
+		sysfatal("O9SAN invalid %s retain: ref=%ld", kind, n);
+	return n;
+}
+
+long
+o9_sanitize_ref_dec(long *ref, char *kind)
+{
+	long n;
+
+	n = o9_atomic_dec(ref);
+	if(o9_sanitize_enabled() && n < 0)
+		sysfatal("O9SAN invalid %s release: ref=%ld", kind, n);
+	return n;
+}
+
+long
+o9_sanitize_ledger_adjust(long *count, int delta, char *kind)
+{
+	long n;
+
+	if(delta > 0)
+		n = o9_atomic_inc(count);
+	else if(delta < 0)
+		n = o9_atomic_dec(count);
+	else
+		n = *count;
+	if(o9_sanitize_enabled() && n < 0)
+		sysfatal("O9SAN invalid %s ledger: count=%ld", kind, n);
+	return n;
+}
+
+void
+o9_sanitize_object_alloc(void)
+{
+	if(!o9_sanitize_enabled())
+		return;
+	qlock(&o9_sanitize_lock);
+	o9_sanitize_live.objects++;
+	qunlock(&o9_sanitize_lock);
+}
+
+void
+o9_sanitize_object_free(void)
+{
+	if(!o9_sanitize_enabled())
+		return;
+	qlock(&o9_sanitize_lock);
+	o9_sanitize_live.objects--;
+	if(o9_sanitize_live.objects < 0)
+		sysfatal("O9SAN object accounting underflow");
+	qunlock(&o9_sanitize_lock);
+}
+
+vlong
+o9_sanitize_checkpoint(void)
+{
+	vlong id;
+
+	if(!o9_sanitize_enabled())
+		return 0;
+	qlock(&o9_sanitize_lock);
+	id = ++o9_sanitize_nextid;
+	o9_sanitize_saved[id % nelem(o9_sanitize_saved)] = o9_sanitize_live;
+	o9_sanitize_saved[id % nelem(o9_sanitize_saved)].id = id;
+	qunlock(&o9_sanitize_lock);
+	return id;
+}
+
+void
+o9_sanitize_report(vlong checkpoint, char *name)
+{
+	O9SanitizeSnapshot base, now;
+
+	if(!o9_sanitize_enabled() || checkpoint <= 0)
+		return;
+	qlock(&o9_sanitize_lock);
+	base = o9_sanitize_saved[checkpoint % nelem(o9_sanitize_saved)];
+	now = o9_sanitize_live;
+	qunlock(&o9_sanitize_lock);
+	if(base.id != checkpoint){
+		fprint(2, "O9SAN %s: checkpoint expired\n", name);
+		return;
+	}
+	fprint(2, "O9SAN %s: live delta objects=%lld strings=%lld stringbytes=%lld slices=%lld slicebytes=%lld\n",
+		name, now.objects-base.objects, now.strings-base.strings,
+		now.stringbytes-base.stringbytes, now.slices-base.slices,
+		now.slicebytes-base.slicebytes);
+}
+
+static void
+o9_sanitize_string_adjust(vlong count, vlong bytes)
+{
+	if(!o9_sanitize_enabled())
+		return;
+	qlock(&o9_sanitize_lock);
+	o9_sanitize_live.strings += count;
+	o9_sanitize_live.stringbytes += bytes;
+	if(o9_sanitize_live.strings < 0 || o9_sanitize_live.stringbytes < 0)
+		sysfatal("O9SAN string accounting underflow");
+	qunlock(&o9_sanitize_lock);
+}
+
+static void
+o9_sanitize_slice_adjust(vlong count, vlong bytes)
+{
+	if(!o9_sanitize_enabled())
+		return;
+	qlock(&o9_sanitize_lock);
+	o9_sanitize_live.slices += count;
+	o9_sanitize_live.slicebytes += bytes;
+	if(o9_sanitize_live.slices < 0 || o9_sanitize_live.slicebytes < 0)
+		sysfatal("O9SAN slice accounting underflow");
+	qunlock(&o9_sanitize_lock);
+}
+
 void o9_cache_fill(void *client, ulong hash, int is_ctrl);
 
 typedef struct O9ProcCtx O9ProcCtx;
@@ -1609,6 +1761,7 @@ o9_string_new(char *data, vlong len)
 	s->data[len] = '\0';
 	s->len = len;
 	s->ref = 1;
+	o9_sanitize_string_adjust(1, len);
 	return s;
 }
 
@@ -1633,6 +1786,7 @@ o9_string_take(char *s)
 	os->data = s;
 	os->len = strlen(s);
 	os->ref = 1;
+	o9_sanitize_string_adjust(1, os->len);
 	return os;
 }
 
@@ -1640,7 +1794,7 @@ O9String*
 o9_string_retain(O9String *s)
 {
 	if(s != nil)
-		o9_atomic_inc(&s->ref);
+		o9_sanitize_ref_inc(&s->ref, "string");
 	return s;
 }
 
@@ -1649,7 +1803,8 @@ o9_string_release(O9String *s)
 {
 	if(s == nil)
 		return;
-	if(o9_atomic_dec(&s->ref) == 0){
+	if(o9_sanitize_ref_dec(&s->ref, "string") == 0){
+		o9_sanitize_string_adjust(-1, -s->len);
 		free(s->data);
 		free(s);
 	}
@@ -5077,9 +5232,9 @@ o9_ledger_update(void *client, ulong id, int delta)
 	USED(id);
 	if(obj == nil) return;
 	if(delta > 0){
-		while(delta--) o9_atomic_inc(&obj->ref);
+		while(delta--) o9_sanitize_ref_inc(&obj->ref, "object handle");
 	} else {
-		while(delta++) o9_atomic_dec(&obj->ref);
+		while(delta++) o9_sanitize_ref_dec(&obj->ref, "object handle");
 	}
 }
 
@@ -5317,9 +5472,17 @@ o9_slice_init(O9Slice *s, int elemsize)
 void
 o9_slice_append(O9Slice *s, void *val)
 {
+	vlong oldcap;
+	void *ndata;
+
 	if(s->len >= s->cap){
+		oldcap = s->cap;
 		s->cap = s->cap ? s->cap * 2 : 8;
-		s->data = realloc(s->data, s->cap * s->elemsize);
+		ndata = realloc(s->data, s->cap * s->elemsize);
+		if(ndata == nil)
+			sysfatal("o9_slice_append: no memory");
+		s->data = ndata;
+		o9_sanitize_slice_adjust(oldcap == 0, (s->cap - oldcap) * s->elemsize);
 	}
 	memmove((char*)s->data + (s->len * s->elemsize), val, s->elemsize);
 	s->len++;
@@ -5335,6 +5498,18 @@ o9_slice_get(O9Slice *s, vlong idx)
 	return (char*)s->data + (idx * s->elemsize);
 }
 
+void*
+o9_slice_get_checked(O9Slice *s, vlong idx, char *file, int line)
+{
+	vlong length;
+
+	length = s != nil ? s->len : 0;
+	if(o9_sanitize_enabled() && (s == nil || idx < 0 || idx >= length))
+		sysfatal("O9SAN %s:%d: index %lld outside slice length %lld",
+			file, line, idx, length);
+	return o9_slice_get(s, idx);
+}
+
 /*
  * o9_slice_set — copy value to element at idx.
  */
@@ -5343,6 +5518,18 @@ o9_slice_set(O9Slice *s, vlong idx, void *val)
 {
 	if(idx < 0 || idx >= s->len) return;
 	memmove((char*)s->data + (idx * s->elemsize), val, s->elemsize);
+}
+
+void
+o9_slice_set_checked(O9Slice *s, vlong idx, void *val, char *file, int line)
+{
+	vlong length;
+
+	length = s != nil ? s->len : 0;
+	if(o9_sanitize_enabled() && (s == nil || val == nil || idx < 0 || idx >= length))
+		sysfatal("O9SAN %s:%d: write index %lld outside slice length %lld",
+			file, line, idx, length);
+	o9_slice_set(s, idx, val);
 }
 
 /*
@@ -5370,6 +5557,7 @@ o9_slice_setgrow(O9Slice *s, vlong idx, void *val)
 		memset((char*)s->data + oldcap * s->elemsize, 0,
 			(newcap - oldcap) * s->elemsize);
 		s->cap = newcap;
+		o9_sanitize_slice_adjust(oldcap == 0, (newcap - oldcap) * s->elemsize);
 	}
 	if(idx >= s->len){
 		memset((char*)s->data + s->len * s->elemsize, 0,
@@ -5379,13 +5567,29 @@ o9_slice_setgrow(O9Slice *s, vlong idx, void *val)
 	memmove((char*)s->data + idx * s->elemsize, val, s->elemsize);
 }
 
+void
+o9_slice_setgrow_checked(O9Slice *s, vlong idx, void *val, char *file, int line)
+{
+	if(o9_sanitize_enabled() && (s == nil || val == nil || idx < 0 || s->elemsize <= 0))
+		sysfatal("O9SAN %s:%d: invalid growing slice write index %lld",
+			file, line, idx);
+	o9_slice_setgrow(s, idx, val);
+}
+
 /*
  * o9_slice_free — free slice data.
  */
 void
 o9_slice_free(O9Slice *s)
 {
-	if(s) free(s->data);
+	if(s){
+		if(s->data != nil)
+			o9_sanitize_slice_adjust(-1, -s->cap * s->elemsize);
+		free(s->data);
+		s->data = nil;
+		s->len = 0;
+		s->cap = 0;
+	}
 }
 
 static void

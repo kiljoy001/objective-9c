@@ -1,0 +1,5 @@
+main {
+    int64[] values;
+    values[0] = 42;
+    print(values[1], "\n");
+}
