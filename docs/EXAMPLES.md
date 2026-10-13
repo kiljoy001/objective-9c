@@ -458,7 +458,7 @@ echo close > /mnt/o9/$sid/ctl
 
 ## Cryptography And Vault
 
-This example demonstrates Ed25519 signatures, BLAKE2b digests, secret fields,
+This example demonstrates Monocypher EdDSA-BLAKE2b signatures, BLAKE2b digests, secret fields,
 and the `Vault` isolated memory arena with file and tabula encryption.
 
 ```o9
@@ -470,7 +470,7 @@ class UserRecord {
 }
 
 main {
-    // 1. Attestation: Ed25519 and BLAKE2b
+    // 1. Attestation: Monocypher EdDSA-BLAKE2b and BLAKE2b
     string sec = keygen();
     string pub = pubkey(sec);
     string sig = sign(sec, "verify payload");

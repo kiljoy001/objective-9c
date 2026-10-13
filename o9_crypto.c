@@ -7,7 +7,7 @@
 /*
  * o9 crypto stdlib — the full practical monocypher surface.
  *
- * Attestation: sign/verify (Ed25519), hash (BLAKE2b-256), mac (keyed
+ * Attestation: sign/verify (Monocypher EdDSA-BLAKE2b), hash (BLAKE2b-256), mac (keyed
  * BLAKE2b-256), plus keygen/pubkey.  Confidentiality: encrypt/decrypt
  * (XChaCha20-Poly1305 AEAD) and xpubkey/exchange (X25519 agreement).
  *
@@ -88,8 +88,8 @@ fromhex(char *in, uchar *out, int max)
 }
 
 /*
- * o9_crypto_keypair — generate an Ed25519 keypair.
- * Writes 64 hex chars of public key to pub, 128 of secret to sec.
+ * o9_crypto_keypair — generate a Monocypher EdDSA-BLAKE2b keypair.
+ * Writes 64 hex chars of public key to pub and 64 of seed to sec.
  * The 32-byte seed is the secret; monocypher derives the public point.
  */
 int
@@ -114,7 +114,7 @@ o9_crypto_keypair(char *pub, char *sec)
 }
 
 /*
- * o9_crypto_sign — Ed25519 sign msg (nmsg bytes) with hex secret key.
+ * o9_crypto_sign — Monocypher EdDSA-BLAKE2b sign msg (nmsg bytes) with hex secret key.
  * Writes 128 hex chars of signature to sig.  Returns 0 / -1.
  */
 int
@@ -198,7 +198,7 @@ o9_keygen(void)
 	return o9_string_take(sec);
 }
 
-/* pubkey(sec) -> 64-hex Ed25519 public key derived from the seed. */
+/* pubkey(sec) -> 64-hex Monocypher EdDSA-BLAKE2b public key derived from the seed. */
 O9String*
 o9_pubkey(O9String *sec)
 {
@@ -225,7 +225,7 @@ o9_pubkey(O9String *sec)
 	return o9_string_take(pub);
 }
 
-/* sign(sec, msg) -> 128-hex Ed25519 signature over the string msg. */
+/* sign(sec, msg) -> 128-hex Monocypher EdDSA-BLAKE2b signature over the string msg. */
 O9String*
 o9_sign(O9String *sec, O9String *msg)
 {
@@ -431,7 +431,7 @@ o9_passkey(O9String *pass, O9String *salt)
 }
 
 /* xpubkey(sec) -> 64-hex X25519 public key; sec is any keygen() seed.
- * X25519 keys are separate from Ed25519 ones — don't reuse a signing
+ * X25519 keys are separate from Monocypher EdDSA-BLAKE2b ones — don't reuse a signing
  * seed for exchange. */
 O9String*
 o9_xpubkey(O9String *sec)

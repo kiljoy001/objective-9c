@@ -12,6 +12,7 @@ default:V: o9c libo9.a
 VERSION=0.1.0
 
 STDLIB_MODULES=\
+	stdlib/appuser.o9\
 	stdlib/buffer.o9\
 	stdlib/bytes.o9\
 	stdlib/collections.o9\

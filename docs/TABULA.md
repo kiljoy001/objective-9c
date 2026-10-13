@@ -200,7 +200,7 @@ What survives is exactly the value we wanted, minus the danger:
 - **Provenance crosses** - a tabula is one text value, so `sign`/
   `verify` apply: a receiver can check who vouched for the data before
   trusting its values. In `libtab`, columns may also declare `HASHED`
-  (BLAKE2b or Argon2id) or `SIGNED` (Ed25519) provenance.
+  (BLAKE2b or Argon2id) or `SIGNED` (Monocypher EdDSA-BLAKE2b) provenance.
 
 ## Relationship to compile-time code tables
 

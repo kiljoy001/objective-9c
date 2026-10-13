@@ -12,6 +12,7 @@ programs, read [../docs/QUICKSTART.md](../docs/QUICKSTART.md) and
 Import modules by filename:
 
 ```o9
+import "appuser.o9";
 import "string.o9";
 import "bytes.o9";
 import "buffer.o9";
@@ -28,6 +29,17 @@ import "time.o9";
 import "draw.o9";
 import "view.o9";
 ```
+
+## Application identity
+
+`AppUser` holds a public RSA key and profile claims for one application. Its
+`prove(service, nonce)` method asks stock 9front factotum to sign a scoped
+challenge; `verify(service, nonce, signature)` checks that signature against
+the public modulus and exponent. The private key never enters the object.
+Create one RSA key per application with `auth/rsagen` and tag it with
+`service=appuser app=<app> hash=sha256`; load the key into factotum before
+calling `prove`. See [../docs/APPUSER.md](../docs/APPUSER.md) for the challenge
+format and current limits.
 
 ## String
 

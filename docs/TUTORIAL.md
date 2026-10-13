@@ -156,7 +156,7 @@ string, so values travel in files, ctl lines and libtab cells
 unchanged):
 
 - `keygen()` - 32 random bytes as 64 hex; the seed IS the secret.
-- `pubkey(sec)` `sign(sec, msg)` `verify(pub, msg, sig)` - Ed25519.
+- `pubkey(sec)` `sign(sec, msg)` `verify(pub, msg, sig)` - Monocypher EdDSA-BLAKE2b.
   `verify` returns 1/0/-1 (valid/invalid/malformed).
 - `hash(msg)` - BLAKE2b-256; `mac(key, msg)` - keyed BLAKE2b-256.
 - `encrypt(key, msg)` - XChaCha20-Poly1305; a fresh random nonce is

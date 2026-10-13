@@ -554,9 +554,9 @@ travel inside `.tab` cells, `ctl` lines, 9P messages, and text files without
 escaping, base64 corruption, or binary truncation.
 
 - `keygen() string`: Generates 32 random bytes from `/dev/random` as a 64-character lowercase hex seed. The seed is the secret key.
-- `pubkey(string sec) string`: Derives the 64-hex Ed25519 public key from the secret seed `sec`.
-- `sign(string sec, string msg) string`: Signs string `msg` with secret seed `sec` using Ed25519. Returns a 128-hex signature string.
-- `verify(string pub, string msg, string sig) int64`: Verifies Ed25519 signature `sig` for string `msg` against public key `pub`. Returns 1 if valid, 0 if invalid, -1 on malformed input.
+- `pubkey(string sec) string`: Derives the 64-hex Monocypher EdDSA-BLAKE2b public key from the secret seed `sec`.
+- `sign(string sec, string msg) string`: Signs string `msg` with secret seed `sec` using Monocypher EdDSA-BLAKE2b. Returns a 128-hex signature string.
+- `verify(string pub, string msg, string sig) int64`: Verifies Monocypher EdDSA-BLAKE2b signature `sig` for string `msg` against public key `pub`. Returns 1 if valid, 0 if invalid, -1 on malformed input.
 - `hash(string msg) string`: Computes BLAKE2b-256 digest of string `msg`. Returns a 64-hex string.
 - `mac(string key, string msg) string`: Computes keyed BLAKE2b-256 Message Authentication Code. `key` is 64 hex characters (32 bytes). Returns a 64-hex string.
 - `passkey(string pass, string salt) string`: Key derivation via Argon2id (64 MiB RAM, 3 passes, 1 lane, matching `libtab`). `salt` must be at least 8 characters. Returns a deterministic 64-hex key.

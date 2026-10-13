@@ -1,0 +1,292 @@
+// Public application identity with stock 9front factotum RSA signing.
+// The private key remains in factotum; an AppUser contains public data only.
+
+function AppUserScopeValidRaw(string scope) bool {
+    bool out;
+    c {
+        char *s;
+        int i, n;
+
+        out = 0;
+        s = o9_string_data(scope);
+        n = o9_string_len(scope);
+        if(s != nil && n > 0 && n <= 64){
+            out = 1;
+            for(i = 0; i < n; i++)
+                if(!((s[i] >= 'a' && s[i] <= 'z') ||
+                     (s[i] >= 'A' && s[i] <= 'Z') ||
+                     (s[i] >= '0' && s[i] <= '9') ||
+                     s[i] == '.' || s[i] == '_' || s[i] == '-')){
+                    out = 0;
+                    break;
+                }
+        }
+    }
+    return out;
+}
+
+function AppUserNonceValidRaw(string nonce) bool {
+    bool out;
+    c {
+        char *s;
+        int i;
+
+        out = 0;
+        s = o9_string_data(nonce);
+        if(s != nil && o9_string_len(nonce) == 64){
+            out = 1;
+            for(i = 0; i < 64; i++)
+                if(!((s[i] >= '0' && s[i] <= '9') ||
+                     (s[i] >= 'a' && s[i] <= 'f'))){
+                    out = 0;
+                    break;
+                }
+        }
+    }
+    return out;
+}
+
+// The version and field separators prevent one application's challenge from
+// being interpreted as another application or service's challenge.
+function AppUserChallenge(string app, string service, string nonce) string {
+    Task<bool> appValid = spawn AppUserScopeValidRaw(app);
+    Task<bool> serviceValid = spawn AppUserScopeValidRaw(service);
+    Task<bool> nonceValid = spawn AppUserNonceValidRaw(nonce);
+    if(!appValid.await() || !serviceValid.await() || !nonceValid.await()) {
+        return "";
+    }
+    return cat(cat(cat(cat(cat("o9-appuser-rsa-sha256-v1\napp=", app),
+        "\nservice="), service), "\nnonce="), cat(nonce, "\n"));
+}
+
+function AppUserRSASignRaw(string app, string message) string {
+    use { auth sec }
+
+    string out;
+    c {
+        static char digits[] = "0123456789abcdef";
+        AuthRpc *rpc;
+        char *name, *spec, *hex;
+        uchar digest[SHA2_256dlen];
+        int fd, i, n, appLen;
+        char *appData;
+
+        out = o9_string_from_c("");
+        spec = nil;
+        rpc = nil;
+        fd = -1;
+        appData = o9_string_data(app);
+        appLen = o9_string_len(app);
+        if(appData == nil || appLen < 1 || appLen > 64)
+            goto sign_done;
+        for(i = 0; i < appLen; i++)
+            if(!((appData[i] >= 'a' && appData[i] <= 'z') ||
+                 (appData[i] >= 'A' && appData[i] <= 'Z') ||
+                 (appData[i] >= '0' && appData[i] <= '9') ||
+                 appData[i] == '.' || appData[i] == '_' || appData[i] == '-'))
+                goto sign_done;
+        name = o9_string_cstr(app);
+        if(name == nil)
+            goto sign_done;
+        spec = smprint("proto=rsa service=appuser app=%s hash=sha256 role=sign", name);
+        free(name);
+        if(spec == nil)
+            goto sign_done;
+        fd = open("/mnt/factotum/rpc", ORDWR|OCEXEC);
+        if(fd < 0)
+            goto sign_done;
+        rpc = auth_allocrpc(fd);
+        if(rpc == nil)
+            goto sign_done;
+        sha2_256((uchar*)o9_string_data(message), o9_string_len(message), digest, nil);
+        if(auth_rpc(rpc, "start", spec, strlen(spec)) == ARok &&
+           auth_rpc(rpc, "write", digest, sizeof digest) == ARok &&
+           auth_rpc(rpc, "read", nil, 0) == ARok &&
+           rpc->narg >= 256 && rpc->narg <= 1024){
+            n = rpc->narg;
+            hex = malloc(2*n+1);
+            if(hex != nil){
+                for(i = 0; i < n; i++){
+                    hex[2*i] = digits[((uchar*)rpc->arg)[i] >> 4];
+                    hex[2*i+1] = digits[((uchar*)rpc->arg)[i] & 15];
+                }
+                hex[2*n] = 0;
+                o9_string_release(out);
+                out = o9_string_take(hex);
+            }
+        }
+        memset(digest, 0, sizeof digest);
+sign_done:
+        if(rpc != nil) auth_freerpc(rpc);
+        if(fd >= 0) close(fd);
+        free(spec);
+    }
+    return out;
+}
+
+// Verify the exact PKCS #1 v1.5 SHA-256 DigestInfo emitted by stock 9front
+// factotum. Public key fields are the hex `n` and `ek` from auth/rsagen.
+function AppUserRSAVerifyRaw(string modulus, string exponent,
+                             string message, string signature) bool {
+    use { sec mp }
+
+    bool out;
+    c {
+        static uchar prefix[] = {
+            0x30,0x31,0x30,0x0d,0x06,0x09,0x60,0x86,0x48,0x01,
+            0x65,0x03,0x04,0x02,0x01,0x05,0x00,0x04,0x20
+        };
+        RSApub pub;
+        mpint *sig, *plain;
+        char *nhex, *ehex, *shex;
+        uchar digest[SHA2_256dlen], *want, *got, *sigbytes;
+        int i, k, m, len, hi, lo;
+
+        out = 0;
+        pub.n = nil;
+        pub.ek = nil;
+        sig = nil;
+        plain = nil;
+        want = nil;
+        got = nil;
+        sigbytes = nil;
+        nhex = nil;
+        ehex = nil;
+        shex = nil;
+        if(o9_string_len(modulus) < 512 || o9_string_len(modulus) > 2048 ||
+           o9_string_len(exponent) < 1 || o9_string_len(exponent) > 8 ||
+           o9_string_len(signature) < 512 || o9_string_len(signature) > 2048)
+            goto verify_done;
+        nhex = o9_string_cstr(modulus);
+        ehex = o9_string_cstr(exponent);
+        shex = o9_string_cstr(signature);
+        if(nhex == nil || ehex == nil || shex == nil)
+            goto verify_done;
+        for(i = 0; nhex[i] != 0; i++)
+            if(!((nhex[i] >= '0' && nhex[i] <= '9') ||
+                 (nhex[i] >= 'a' && nhex[i] <= 'f') ||
+                 (nhex[i] >= 'A' && nhex[i] <= 'F')))
+                goto verify_done;
+        for(i = 0; ehex[i] != 0; i++)
+            if(!((ehex[i] >= '0' && ehex[i] <= '9') ||
+                 (ehex[i] >= 'a' && ehex[i] <= 'f') ||
+                 (ehex[i] >= 'A' && ehex[i] <= 'F')))
+                goto verify_done;
+        lo = nhex[strlen(nhex)-1];
+        lo = lo >= '0' && lo <= '9' ? lo-'0' :
+             lo >= 'a' && lo <= 'f' ? lo-'a'+10 : lo-'A'+10;
+        if((lo & 1) == 0)
+            goto verify_done;
+        pub.n = strtomp(nhex, nil, 16, nil);
+        pub.ek = strtomp(ehex, nil, 16, nil);
+        if(pub.n == nil || pub.ek == nil ||
+           mpsignif(pub.n) < 2048 || mpsignif(pub.n) > 8192 ||
+           mpsignif(pub.ek) > 32 || mptoui(pub.ek) < 3 ||
+           (mptoui(pub.ek) & 1) == 0)
+            goto verify_done;
+        k = (mpsignif(pub.n)+7)/8;
+        len = strlen(shex);
+        if(len != k*2)
+            goto verify_done;
+        sigbytes = malloc(k);
+        want = malloc(k);
+        got = malloc(k);
+        if(sigbytes == nil || want == nil || got == nil)
+            goto verify_done;
+        for(i = 0; i < k; i++){
+            hi = shex[2*i];
+            lo = shex[2*i+1];
+            hi = hi >= '0' && hi <= '9' ? hi-'0' :
+                 hi >= 'a' && hi <= 'f' ? hi-'a'+10 : -1;
+            lo = lo >= '0' && lo <= '9' ? lo-'0' :
+                 lo >= 'a' && lo <= 'f' ? lo-'a'+10 : -1;
+            if(hi < 0 || lo < 0)
+                goto verify_done;
+            sigbytes[i] = (hi << 4) | lo;
+        }
+        sig = betomp(sigbytes, k, nil);
+        if(sig == nil || mpcmp(sig, pub.n) >= 0)
+            goto verify_done;
+        plain = rsaencrypt(&pub, sig, nil);
+        if(plain == nil || mpsignif(plain) == 0 || mpsignif(plain) > k*8)
+            goto verify_done;
+        m = (mpsignif(plain)+7)/8;
+        memset(got, 0, k);
+        if(mptobe(plain, got+k-m, m, nil) != m)
+            goto verify_done;
+        sha2_256((uchar*)o9_string_data(message), o9_string_len(message), digest, nil);
+        want[0] = 0;
+        want[1] = 1;
+        memset(want+2, 0xff, k-3-sizeof prefix-sizeof digest);
+        want[k-1-sizeof prefix-sizeof digest] = 0;
+        memmove(want+k-sizeof prefix-sizeof digest, prefix, sizeof prefix);
+        memmove(want+k-sizeof digest, digest, sizeof digest);
+        out = memcmp(got, want, k) == 0;
+verify_done:
+        memset(digest, 0, sizeof digest);
+        free(nhex);
+        free(ehex);
+        free(shex);
+        free(sigbytes);
+        free(want);
+        free(got);
+        if(sig != nil) mpfree(sig);
+        if(plain != nil) mpfree(plain);
+        if(pub.n != nil) mpfree(pub.n);
+        if(pub.ek != nil) mpfree(pub.ek);
+    }
+    return out;
+}
+
+class AppUser {
+    private string appValue;
+    private string nameValue;
+    private string aliasValue;
+    private string emailValue;
+    private string modulusValue;
+    private string exponentValue;
+
+    method AppUser(string app, string name, string alias, string email,
+                   string modulus, string exponent) {
+        appValue = app;
+        nameValue = name;
+        aliasValue = alias;
+        emailValue = email;
+        modulusValue = modulus;
+        exponentValue = exponent;
+    }
+
+    method string profile() {
+        tabula t = new tabula("app_user", "app,algorithm,name,alias,email,modulus,exponent");
+        t.write("user", "app", appValue);
+        t.write("user", "algorithm", "rsa-pkcs1v15-sha256");
+        t.write("user", "name", nameValue);
+        t.write("user", "alias", aliasValue);
+        t.write("user", "email", emailValue);
+        t.write("user", "modulus", modulusValue);
+        t.write("user", "exponent", exponentValue);
+        string data = t.read();
+        t.close();
+        return data;
+    }
+
+    method string prove(string service, string nonce) {
+        Task<string> challenge = spawn AppUserChallenge(appValue, service, nonce);
+        string message = challenge.await();
+        if(len(message) == 0) {
+            return "";
+        }
+        Task<string> signature = spawn AppUserRSASignRaw(appValue, message);
+        return signature.await();
+    }
+
+    method bool verify(string service, string nonce, string signature) {
+        Task<string> challenge = spawn AppUserChallenge(appValue, service, nonce);
+        string message = challenge.await();
+        if(len(message) == 0) {
+            return false;
+        }
+        Task<bool> result = spawn AppUserRSAVerifyRaw(modulusValue, exponentValue, message, signature);
+        return result.await();
+    }
+}

@@ -97,7 +97,18 @@ miss_call:
 	MOVL	20(SP), DI
 	MOVL	8(BX), SI
 	TESTL	SI, SI
-	JNZ	call_probe
+	JZ	fail_call
+	/* A missing local thunk leaves the cache entry empty.  Returning lets
+	 * the caller use 9P dispatch instead of probing the same miss forever. */
+	MOVL	AX, CX
+	ANDL	$63, CX
+	LEAL	(CX)(CX*2), CX
+	SHLL	$2, CX
+	ADDL	$768, CX
+	ADDL	SI, CX
+	CMPL	0(CX), AX
+	JNE	fail_call
+	JMP	call_probe
 
 fail_call:
 	XORL	AX, AX

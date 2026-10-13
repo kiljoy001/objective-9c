@@ -304,7 +304,7 @@ extern void o9_ns_recipe(char *root, char *app, char *line);
 extern int  o9_ns_bind_obj(char *mount, char *root, char *inst);
 
 /* Crypto stdlib — full practical monocypher surface: attestation
- * (Ed25519 sign/verify, BLAKE2b hash/mac) plus confidentiality
+ * (Monocypher EdDSA-BLAKE2b sign/verify, BLAKE2b hash/mac) plus confidentiality
  * (XChaCha20-Poly1305 encrypt/decrypt, X25519 exchange).  Every
  * boundary value is lowercase hex — an encrypted value is still one
  * cat-able string, only its content is sealed. */

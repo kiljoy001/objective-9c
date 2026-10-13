@@ -1,0 +1,34 @@
+import "appuser.o9";
+import "process.o9";
+
+main {
+    print("BEGIN APPUSER\n");
+    Task<string> modulusArg = spawn ProcessArgRaw(2);
+    Task<string> exponentArg = spawn ProcessArgRaw(3);
+    Task<string> wrongModulusArg = spawn ProcessArgRaw(4);
+    Task<string> wrongExponentArg = spawn ProcessArgRaw(5);
+    string modulus = modulusArg.await();
+    string exponent = exponentArg.await();
+    string wrongModulus = wrongModulusArg.await();
+    string wrongExponent = wrongExponentArg.await();
+    print("ARGS ", len(modulus), " ", len(exponent), " ", len(wrongModulus), " ", len(wrongExponent), "\n");
+    string nonce = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    AppUser alice = new AppUser("o9irc", "Alice", "alice", "alice@example.test", modulus, exponent);
+    print("CREATED APPUSER\n");
+    string profile = alice.profile();
+    print("PROFILE ", len(profile) > 0, "\n");
+    string signature = alice.prove("ircfs", nonce);
+    print("SIGNED ", len(signature) > 0, "\n");
+    print("VERIFY ", alice.verify("ircfs", nonce, signature), "\n");
+    print("WRONG_SERVICE ", alice.verify("other", nonce, signature), "\n");
+    print("WRONG_NONCE ", alice.verify("ircfs", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", signature), "\n");
+    AppUser otherApp = new AppUser("notes", "Alice", "alice", "", modulus, exponent);
+    print("WRONG_APP ", otherApp.verify("ircfs", nonce, signature), "\n");
+    AppUser notes = new AppUser("notes", "Alice", "alice", "", wrongModulus, wrongExponent);
+    string notesSignature = notes.prove("ircfs", nonce);
+    print("SECOND_APP_SIGNED ", len(notesSignature) > 0, "\n");
+    print("SECOND_APP_VERIFY ", notes.verify("ircfs", nonce, notesSignature), "\n");
+    AppUser wrongKey = new AppUser("o9irc", "Alice", "alice", "", wrongModulus, wrongExponent);
+    print("WRONG_KEY ", wrongKey.verify("ircfs", nonce, signature), "\n");
+    print("BAD_SCOPE ", len(alice.prove("bad scope", nonce)) == 0, "\n");
+}
