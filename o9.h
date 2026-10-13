@@ -129,6 +129,8 @@ extern int   o9_equiv_candidate_reason(const char *source_path, const char *muta
  * has its own — see o9_runtime.c). NOT a global: parallel actors. */
 extern void  o9_set_call_err(char *e);
 extern char* o9_get_call_err(void);
+extern O9String* o9_call_error(void);
+extern void o9_clear_call_error(void);
 extern void  o9_actor_enter(void *dispatch_chan, char *oid);
 extern void  o9_dag_actor_exit(void *actor_chan);
 extern int   o9_dag_dump(char *buf, int nbuf);

@@ -25,6 +25,7 @@ import "net.o9";
 import "path.o9";
 import "process.o9";
 import "random.o9";
+import "testing.o9";
 import "time.o9";
 import "draw.o9";
 import "rtext.o9";
@@ -1539,4 +1540,40 @@ Methods:
 - `salt() string`: Returns the salt string used by the Vault.
 - `wipe() void`: Wipes key, slots, and salt in memory using `crypto_wipe`. Marks Vault invalid.
 - `close() void`: Wipes memory and frees the Vault.
+
+## Testing
+
+`testing.o9` provides a `Test` class for native Objective-9C tests. Checks
+continue after an assertion fails. `report()` prints a summary or TAP output;
+`finish()` exits with a failing status if any check failed.
+
+```o9
+import "testing.o9";
+
+main {
+    Test t = new Test("arithmetic");
+    t.testCase("addition");
+    t.eqInt("two plus two", 2 + 2, 4);
+    t.report();
+    t.finish();
+}
+```
+
+Assertions include `ok`, `notOk`, `eqInt`, `neInt`, `eqStr`, `neStr`,
+`eqBool`, `eqDouble` (with epsilon), `containsStr`, `emptyStr`, and
+`notEmptyStr`. `testCase`, `caseParam`, `subcase`, and `endSubcase` label
+checks; `skip` records a skipped check. `setTAP(true)` selects TAP output.
+
+`tmpDir()` creates a private random directory under `$TMP` (or `/tmp`),
+`tmpPath(stem)` returns a path inside it, and `cleanTmp()` removes it.
+`isolate` and `isolateFail` run a shell command in a child process with its
+output suppressed and check its exit status. They isolate process failure;
+they do not restrict filesystem or network access.
+
+To check an Objective-9C call error, capture `callError()` in the caller
+immediately after the call, before sending a message to `Test`. Pass the
+snapshot to `assertFail(what, error)`, `assertNoFail(what, error)`, or
+`assertError(what, error, expected)`. `clearCallError()` clears the caller's
+error state. The error is process local, so the `Test` actor cannot read it
+directly.
 

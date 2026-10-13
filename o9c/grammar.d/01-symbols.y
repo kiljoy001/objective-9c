@@ -94,6 +94,8 @@ static Builtin builtins[] = {
     {"readfile",  "o9_readfile",  1, "string", {"string", nil}},
     {"writefile", "o9_writefile", 2, "int64",  {"string", "string"}},
     {"readline",  "o9_readline",  0, "string", {nil, nil}},
+    {"callError", "o9_call_error", 0, "string", {nil, nil}},
+    {"clearCallError", "o9_clear_call_error", 0, "void", {nil, nil}},
     {"serve",     "o9_serve",     0, "void",   {nil, nil}},
     {"serveMultiuser", "o9_serve", 0, "void", {nil, nil}},
     {"serveAppUsers", "o9_appuser_serve", 1, "void", {"object", nil}},

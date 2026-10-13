@@ -129,6 +129,21 @@ o9_get_call_err(void)
 	return o9_proc_ctx()->err;
 }
 
+O9String*
+o9_call_error(void)
+{
+	char *err;
+
+	err = o9_get_call_err();
+	return o9_string_from_c(err != nil ? err : "");
+}
+
+void
+o9_clear_call_error(void)
+{
+	o9_set_call_err(nil);
+}
+
 void
 o9_actor_enter(void *dispatch_chan, char *oid)
 {

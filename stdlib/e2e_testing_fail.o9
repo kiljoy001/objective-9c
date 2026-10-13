@@ -1,0 +1,9 @@
+import "testing.o9";
+
+main {
+    Test t = new Test("expected_failure");
+    t.eqInt("deliberate mismatch", 1, 2);
+    t.report();
+    t.finish();
+    print("ERROR: finish returned\n");
+}

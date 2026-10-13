@@ -539,6 +539,15 @@ cryptography. A class method of the same name shadows any built-in function.
 - `writefile(string path, string s) int64`: Writes string `s` to `path`. Returns byte count or -1 on error.
 - `readline() string`: Reads one line from standard input.
 
+### Call Error Inspection
+
+- `callError() string`: Copies the current process's last call error, or returns an empty string when there is no error.
+- `clearCallError() void`: Clears that process's last call error.
+
+Capture `callError()` before making another actor call; a later successful
+call may replace the error. The testing library accepts this snapshot in its
+error assertions.
+
 ### Application And 9P Facade
 
 - `serve() void`: Blocks (yielding) so the process continues serving its 9P fileserver facade.

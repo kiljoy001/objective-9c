@@ -27,6 +27,7 @@ STDLIB_MODULES=\
 	stdlib/random.o9\
 	stdlib/rtext.o9\
 	stdlib/string.o9\
+	stdlib/testing.o9\
 	stdlib/time.o9\
 	stdlib/view.o9\
 
