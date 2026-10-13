@@ -1,5 +1,6 @@
 import "appuser.o9";
 import "process.o9";
+import "time.o9";
 
 main {
     print("BEGIN APPUSER\n");
@@ -31,4 +32,39 @@ main {
     AppUser wrongKey = new AppUser("o9irc", "Alice", "alice", "", wrongModulus, wrongExponent);
     print("WRONG_KEY ", wrongKey.verify("ircfs", nonce, signature), "\n");
     print("BAD_SCOPE ", len(alice.prove("bad scope", nonce)) == 0, "\n");
+
+    AppUserRSAProvider provider = new AppUserRSAProvider("o9irc", "ircfs", 60);
+    print("PROVIDER_ENROLL ", provider.enroll("alice", modulus, exponent), "\n");
+    print("PROVIDER_DUP_KEY ", !provider.enroll("alias", modulus, exponent), "\n");
+    print("PROVIDER_BAD_KEY ", !provider.enroll("badkey", "bad", exponent), "\n");
+    AppUserRSAProvider invalidProvider = new AppUserRSAProvider("bad app", "ircfs", 60);
+    print("PROVIDER_BAD_SCOPE ", !invalidProvider.enroll("alice", modulus, exponent), "\n");
+    string challenge = provider.challenge("session1", "alice");
+    print("PROVIDER_NONCE ", len(challenge) == 64, "\n");
+    string answer = alice.prove("ircfs", challenge);
+    print("PROVIDER_ANSWER ", cmp(provider.answer("session1", challenge, answer), "alice") == 0, "\n");
+    print("PROVIDER_REPLAY ", len(provider.answer("session1", challenge, answer)) == 0, "\n");
+
+    string prior = provider.challenge("session1", "alice");
+    string replacement = provider.challenge("session1", "alice");
+    print("PROVIDER_REPLACED ", len(provider.answer("session1", prior, alice.prove("ircfs", prior))) == 0, "\n");
+    print("PROVIDER_REPLACED_CONSUMED ", len(provider.answer("session1", replacement, alice.prove("ircfs", replacement))) == 0, "\n");
+
+    string another = provider.challenge("session2", "alice");
+    string anotherAnswer = alice.prove("ircfs", another);
+    print("PROVIDER_BINDING ", len(provider.answer("session3", another, anotherAnswer)) == 0, "\n");
+    print("PROVIDER_BINDING_OK ", cmp(provider.answer("session2", another, anotherAnswer), "alice") == 0, "\n");
+
+    string wrong = provider.challenge("session4", "alice");
+    string wrongAnswer = notes.prove("ircfs", wrong);
+    print("PROVIDER_BAD_SIG ", len(provider.answer("session4", wrong, wrongAnswer)) == 0, "\n");
+    print("PROVIDER_BAD_RETRY ", len(provider.answer("session4", wrong, alice.prove("ircfs", wrong))) == 0, "\n");
+
+    AppUserRSAProvider shortProvider = new AppUserRSAProvider("o9irc", "ircfs", 1);
+    shortProvider.enroll("alice", modulus, exponent);
+    string expiring = shortProvider.challenge("session5", "alice");
+    string expiringAnswer = alice.prove("ircfs", expiring);
+    Task<int64> nap = spawn TimeSleepRaw(2500);
+    nap.await();
+    print("PROVIDER_EXPIRED ", len(shortProvider.answer("session5", expiring, expiringAnswer)) == 0, "\n");
 }

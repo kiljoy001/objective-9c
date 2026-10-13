@@ -41,6 +41,13 @@ Create one RSA key per application with `auth/rsagen` and tag it with
 calling `prove`. See [../docs/APPUSER.md](../docs/APPUSER.md) for the challenge
 format and current limits.
 
+`AppUserRSAProvider` implements the internal `AppUserAuthProvider` interface.
+The serving application enrolls a trusted public key, requests a nonce for a
+server-generated connection binding, sends that nonce to the supplicant, and
+passes its signed response back to `answer`. A successful answer returns the
+enrolled principal. Challenges expire, are consumed on the first answer, and
+are limited to 128 pending bindings per provider.
+
 ## String
 
 `String` is the object wrapper for o9's built-in length-carrying `string`.

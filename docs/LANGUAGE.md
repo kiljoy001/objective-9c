@@ -435,6 +435,9 @@ default:
 
 `function` defines a one-method function object. It can be top-level or nested
 inside a class. It is the intended place for low-level Plan 9 C interop.
+At top level, `internal function` keeps its `run` method out of the generated
+9P method table while allowing local `spawn` calls. Use it for helpers that
+handle private keys or other sensitive inputs.
 
 ```o9
 function addone(int64 n) int64 {

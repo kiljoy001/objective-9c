@@ -49,7 +49,38 @@ factotum signing, and RSA verification. The disposable 9front VM check is
 stock factotum signature, checks independent keys for two applications, and
 rejects a different app, service, nonce, and key.
 
-The application server still needs enrollment, a trusted mapping from the
-public key to its permissions, single-use nonce tracking, and a verified
-principal bound to each 9P attach. Until that integration exists, an
-`AppUser` proof alone does not grant access to an o9irc or other 9P view.
+`AppUserRSAProvider` now holds the trusted enrollment map and the pending
+challenge table. Its `enroll`, `challenge`, and `answer` methods are internal
+to the serving application. The application must load each public key from a
+trusted local source; accepting a profile sent by an unauthenticated client
+as enrollment would let that client grant itself access. `challenge` takes a
+server-generated connection binding and an enrolled principal and returns a
+fresh 64-character nonce. The supplicant calls `AppUser.prove(service, nonce)`
+and returns the signature. `answer(binding, nonce, signature)` consumes the
+pending challenge before checking it, returning the enrolled principal only
+when the signature, binding, nonce, and deadline all match. The provider holds
+at most 64 keys and 128 pending challenges. The constructor accepts a lifetime
+of 1 to 300 seconds and uses 60 seconds for an out-of-range value.
+Enrollment rejects malformed RSA keys and a public key already assigned to
+another principal.
+
+The application side of an exchange is:
+
+```o9
+AppUserRSAProvider provider = new AppUserRSAProvider("o9irc", "ircfs", 60);
+provider.enroll("alice", trustedModulus, trustedExponent);
+string nonce = provider.challenge(serverBinding, "alice");
+// Send nonce to the supplicant; receive its signature.
+string principal = provider.answer(serverBinding, nonce, receivedSignature);
+```
+
+The supplicant calls `user.prove("ircfs", nonce)` with its private key in
+factotum. The provider returns `""` for a failed exchange.
+The signing method and raw factotum helper are internal to the supplicant;
+they are absent from a served application's 9P method table.
+
+The application still needs to carry these bytes over its chosen 9P files or
+other transport and bind the verified principal to its 9P attach or private
+view. A caller supplied username must never stand in for the server-generated
+binding. This proof authenticates an application identity; it does not encrypt
+the transport.

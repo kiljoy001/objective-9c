@@ -27,6 +27,14 @@ def main():
         with source.open("w") as output:
             subprocess.run([str(ROOT / "o9c/o9c"), "stdlib/e2e_appuser.o9"],
                            cwd=ROOT, stdout=output, check=True)
+        generated = source.read_text()
+        for method in ("enroll", "challenge", "answer"):
+            if f'o9_method_register("AppUserRSAProvider", "{method}"' in generated:
+                raise AssertionError(f"provider {method} leaked into the 9P method table")
+        if 'o9_method_register("AppUser", "prove"' in generated:
+            raise AssertionError("factotum signing method leaked into the 9P method table")
+        if 'o9_method_register("AppUserRSASignRaw", "run"' in generated:
+            raise AssertionError("factotum signing helper leaked into the 9P method table")
         disk = work / "test.img"
         subprocess.run(["cp", "--sparse=always", sys.argv[1], disk], check=True)
         fat = f"{disk}@@{builder.ninefat_offset(disk)}"
@@ -99,10 +107,19 @@ def main():
                                       ("VERIFY", "1"), ("WRONG_SERVICE", "0"),
                                       ("WRONG_NONCE", "0"), ("WRONG_APP", "0"),
                                       ("SECOND_APP_SIGNED", "1"), ("SECOND_APP_VERIFY", "1"),
-                                      ("WRONG_KEY", "0"), ("BAD_SCOPE", "1")):
+                                      ("WRONG_KEY", "0"), ("BAD_SCOPE", "1"),
+                                      ("PROVIDER_ENROLL", "1"), ("PROVIDER_DUP_KEY", "1"),
+                                      ("PROVIDER_BAD_KEY", "1"),
+                                      ("PROVIDER_BAD_SCOPE", "1"),
+                                      ("PROVIDER_NONCE", "1"), ("PROVIDER_ANSWER", "1"),
+                                      ("PROVIDER_REPLAY", "1"), ("PROVIDER_REPLACED", "1"),
+                                      ("PROVIDER_REPLACED_CONSUMED", "1"),
+                                      ("PROVIDER_BINDING", "1"),
+                                      ("PROVIDER_BINDING_OK", "1"), ("PROVIDER_BAD_SIG", "1"),
+                                      ("PROVIDER_BAD_RETRY", "1"), ("PROVIDER_EXPIRED", "1")):
                     if not re.search(rf"^{label} {wanted}\r?$", transcript, re.MULTILINE):
                         raise AssertionError(f"missing {label} {wanted}")
-                print("APPUSER RSA VM PASS: two stock factotum keys sign independently; o9c rejects wrong scope/key")
+                print("APPUSER RSA PROVIDER VM PASS: enrolled keys, bound nonces, expiry, one-time answers")
             except Exception:
                 log.flush()
                 print(logpath.read_text(errors="replace")[-14000:])
