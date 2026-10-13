@@ -60,6 +60,31 @@ main {
     print("PROVIDER_BAD_SIG ", len(provider.answer("session4", wrong, wrongAnswer)) == 0, "\n");
     print("PROVIDER_BAD_RETRY ", len(provider.answer("session4", wrong, alice.prove("ircfs", wrong))) == 0, "\n");
 
+    // Exercise the actual serialized .tab records through the filesystem.
+    string challengeWire = provider.challengeTab("tab-session", "alice");
+    writefile("/tmp/appuser-challenge.tab", challengeWire);
+    tabula challengeRecord = new tabula("/tmp/appuser-challenge.tab");
+    print("TAB_CHALLENGE ", cmp(challengeRecord.schema(), "appuser_challenge_v1") == 0 &&
+          len(challengeRecord.value("challenge", "nonce")) == 64 &&
+          len(challengeRecord.value("challenge", "deadline")) == 20, "\n");
+    print("TAB_WRONG_SERVICE ", len(alice.responseTab(challengeRecord, "other")) == 0, "\n");
+    string responseWire = alice.responseTab(challengeRecord, "ircfs");
+    challengeRecord.close();
+    writefile("/tmp/appuser-response.tab", responseWire);
+    tabula responseRecord = new tabula("/tmp/appuser-response.tab");
+    print("TAB_RESPONSE ", cmp(responseRecord.schema(), "appuser_response_v1") == 0 &&
+          len(responseRecord.value("response", "signature")) == 512, "\n");
+    print("TAB_WRONG_BINDING ", len(provider.answerTab("other-session", responseRecord)) == 0, "\n");
+    print("TAB_ANSWER ", cmp(provider.answerTab("tab-session", responseRecord), "alice") == 0, "\n");
+    print("TAB_REPLAY ", len(provider.answerTab("tab-session", responseRecord)) == 0, "\n");
+    responseRecord.close();
+
+    string wrongAppWire = provider.challengeTab("wrong-app-session", "alice");
+    writefile("/tmp/appuser-wrong-app.tab", wrongAppWire);
+    tabula wrongAppRecord = new tabula("/tmp/appuser-wrong-app.tab");
+    print("TAB_WRONG_APP ", len(notes.responseTab(wrongAppRecord, "ircfs")) == 0, "\n");
+    wrongAppRecord.close();
+
     AppUserRSAProvider shortProvider = new AppUserRSAProvider("o9irc", "ircfs", 1);
     shortProvider.enroll("alice", modulus, exponent);
     string expiring = shortProvider.challenge("session5", "alice");

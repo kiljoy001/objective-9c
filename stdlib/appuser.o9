@@ -330,6 +330,39 @@ class AppUser {
         return signature.await();
     }
 
+    // The challenge is a tabula read from the serving application's 9P
+    // session. Only the app, service, and nonce are signed; the caller never
+    // supplies the server's session binding or enrolled principal.
+    internal method string responseTab(tabula challenge, string expectedService) {
+        if(cmp(challenge.schema(), "appuser_challenge_v1") != 0 ||
+           challenge.first() == 0 || cmp(challenge.get("id"), "challenge") != 0) {
+            return "";
+        }
+        string app = challenge.get("app");
+        string service = challenge.get("service");
+        string nonce = challenge.get("nonce");
+        string version = challenge.get("version");
+        if(challenge.next() != 0 || cmp(version, "1") != 0 ||
+           cmp(app, appValue) != 0 || cmp(service, expectedService) != 0) {
+            return "";
+        }
+        Task<bool> valid = spawn AppUserNonceValidRaw(nonce);
+        if(!valid.await()) {
+            return "";
+        }
+        string signature = prove(service, nonce);
+        if(len(signature) == 0) {
+            return "";
+        }
+        tabula response = new tabula("appuser_response_v1", "version,nonce,signature");
+        response.write("response", "version", "1");
+        response.write("response", "nonce", nonce);
+        response.write("response", "signature", signature);
+        string wire = response.read();
+        response.close();
+        return wire;
+    }
+
     method bool verify(string service, string nonce, string signature) {
         Task<string> challenge = spawn AppUserChallenge(appValue, service, nonce);
         string message = challenge.await();
@@ -487,6 +520,25 @@ class AppUserRSAProvider {
         return nonce;
     }
 
+    // This is the small .tab record to publish as challenge.tab in the
+    // server-created session directory. Never put the principal or binding
+    // into the wire record.
+    internal method string challengeTab(string binding, string principal) {
+        string nonce = challenge(binding, principal);
+        if(len(nonce) == 0) {
+            return "";
+        }
+        tabula record = new tabula("appuser_challenge_v1", "version,app,service,nonce,deadline");
+        record.write("challenge", "version", "1");
+        record.write("challenge", "app", appValue);
+        record.write("challenge", "service", serviceValue);
+        record.write("challenge", "nonce", nonce);
+        record.write("challenge", "deadline", pending.value(binding, "deadline"));
+        string wire = record.read();
+        record.close();
+        return wire;
+    }
+
     // Consumes the challenge before checking the signature. Each binding can
     // have one outstanding challenge, and expiry is checked at completion.
     internal method string answer(string binding, string nonce, string signature) {
@@ -518,6 +570,27 @@ class AppUserRSAProvider {
             return "";
         }
         return principal;
+    }
+
+    // The transport first stages a complete response.tab, then opens it as
+    // a tabula and calls this method with its *server-owned* binding. The
+    // signature and nonce are the only untrusted values taken from the file.
+    internal method string answerTab(string binding, tabula response) {
+        if(cmp(response.schema(), "appuser_response_v1") != 0 ||
+           response.first() == 0 || cmp(response.get("id"), "response") != 0) {
+            return "";
+        }
+        string version = response.get("version");
+        string nonce = response.get("nonce");
+        string signature = response.get("signature");
+        if(response.next() != 0 || cmp(version, "1") != 0) {
+            return "";
+        }
+        Task<bool> valid = spawn AppUserNonceValidRaw(nonce);
+        if(!valid.await() || len(signature) < 512 || len(signature) > 2048) {
+            return "";
+        }
+        return answer(binding, nonce, signature);
     }
 
     ~AppUserRSAProvider() {

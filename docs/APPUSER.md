@@ -64,23 +64,37 @@ of 1 to 300 seconds and uses 60 seconds for an out-of-range value.
 Enrollment rejects malformed RSA keys and a public key already assigned to
 another principal.
 
-The application side of an exchange is:
+For a `.tab` exchange, the application side is:
 
 ```o9
 AppUserRSAProvider provider = new AppUserRSAProvider("o9irc", "ircfs", 60);
 provider.enroll("alice", trustedModulus, trustedExponent);
-string nonce = provider.challenge(serverBinding, "alice");
-// Send nonce to the supplicant; receive its signature.
-string principal = provider.answer(serverBinding, nonce, receivedSignature);
+string challengeWire = provider.challengeTab(serverBinding, "alice");
+// Publish challengeWire as this session's challenge.tab.
+// Stage the complete response.tab before opening it as a tabula.
+tabula response = new tabula(responsePath);
+string principal = provider.answerTab(serverBinding, response);
+response.close();
 ```
 
-The supplicant calls `user.prove("ircfs", nonce)` with its private key in
-factotum. The provider returns `""` for a failed exchange.
+The supplicant opens `challenge.tab` as a tabula and calls
+`user.responseTab(challenge, expectedService)` to produce the serialized
+`response.tab` record. The expected service comes from the client's trusted
+configuration, not from the received record.
+Its private key stays in factotum. The challenge record carries version, app,
+service, nonce, and deadline. The response carries version, nonce, and RSA
+signature. Neither record carries the server's session binding or the trusted
+principal. The provider returns `""` for a failed exchange, and consumes a
+well-formed attempted answer once.
+
+`challengeTab`, `responseTab`, and `answerTab` are internal methods, absent
+from the generated 9P method table. The file transport must keep each
+challenge and response in a server-created session, cap a response at 4096
+bytes before parsing, and stage split 9P writes until the record is complete.
 The signing method and raw factotum helper are internal to the supplicant;
 they are absent from a served application's 9P method table.
 
-The application still needs to carry these bytes over its chosen 9P files or
-other transport and bind the verified principal to its 9P attach or private
-view. A caller supplied username must never stand in for the server-generated
-binding. This proof authenticates an application identity; it does not encrypt
-the transport.
+The generated application facade does not yet create those per-session auth
+files or bind the verified principal to its 9P attach/private view. A caller
+supplied username must never stand in for the server-generated binding. This
+proof authenticates an application identity; it does not encrypt the transport.

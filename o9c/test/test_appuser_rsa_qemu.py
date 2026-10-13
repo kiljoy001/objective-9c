@@ -28,11 +28,12 @@ def main():
             subprocess.run([str(ROOT / "o9c/o9c"), "stdlib/e2e_appuser.o9"],
                            cwd=ROOT, stdout=output, check=True)
         generated = source.read_text()
-        for method in ("enroll", "challenge", "answer"):
+        for method in ("enroll", "challenge", "answer", "challengeTab", "answerTab"):
             if f'o9_method_register("AppUserRSAProvider", "{method}"' in generated:
                 raise AssertionError(f"provider {method} leaked into the 9P method table")
-        if 'o9_method_register("AppUser", "prove"' in generated:
-            raise AssertionError("factotum signing method leaked into the 9P method table")
+        for method in ("prove", "responseTab"):
+            if f'o9_method_register("AppUser", "{method}"' in generated:
+                raise AssertionError(f"factotum signing method {method} leaked into the 9P method table")
         if 'o9_method_register("AppUserRSASignRaw", "run"' in generated:
             raise AssertionError("factotum signing helper leaked into the 9P method table")
         disk = work / "test.img"
@@ -116,10 +117,15 @@ def main():
                                       ("PROVIDER_REPLACED_CONSUMED", "1"),
                                       ("PROVIDER_BINDING", "1"),
                                       ("PROVIDER_BINDING_OK", "1"), ("PROVIDER_BAD_SIG", "1"),
-                                      ("PROVIDER_BAD_RETRY", "1"), ("PROVIDER_EXPIRED", "1")):
+                                      ("PROVIDER_BAD_RETRY", "1"),
+                                      ("TAB_CHALLENGE", "1"), ("TAB_RESPONSE", "1"),
+                                      ("TAB_WRONG_BINDING", "1"), ("TAB_ANSWER", "1"),
+                                      ("TAB_REPLAY", "1"), ("TAB_WRONG_APP", "1"),
+                                      ("TAB_WRONG_SERVICE", "1"),
+                                      ("PROVIDER_EXPIRED", "1")):
                     if not re.search(rf"^{label} {wanted}\r?$", transcript, re.MULTILINE):
                         raise AssertionError(f"missing {label} {wanted}")
-                print("APPUSER RSA PROVIDER VM PASS: enrolled keys, bound nonces, expiry, one-time answers")
+                print("APPUSER RSA TABULA VM PASS: factotum, serialized records, bound nonces, expiry, replay rejection")
             except Exception:
                 log.flush()
                 print(logpath.read_text(errors="replace")[-14000:])

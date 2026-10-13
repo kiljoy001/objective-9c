@@ -673,13 +673,6 @@ typed_member_lookup_in(Node *cnode, TypeBind *bindings, char *name, int method, 
     if(cnode == nil || name == nil)
         return 0;
     for(m = cnode->left; m; m = m->next){
-        if(m->type == NInherit){
-            pt = inherit_type_with_bindings(m, bindings);
-            p = type_decl_node(pt);
-            pb = type_bindings_for(p, pt);
-            if(typed_member_lookup_in(p, pb, name, method, out))
-                return 1;
-        }
         if(m->name == nil || strcmp(m->name, name) != 0)
             continue;
         if(method && m->type == NMethod){
@@ -704,6 +697,17 @@ typed_member_lookup_in(Node *cnode, TypeBind *bindings, char *name, int method, 
             }
             return 1;
         }
+    }
+    /* An implementation's method body overrides its interface declaration.
+     * Resolve local members first so self-calls mark the body for codegen. */
+    for(m = cnode->left; m; m = m->next){
+        if(m->type != NInherit)
+            continue;
+        pt = inherit_type_with_bindings(m, bindings);
+        p = type_decl_node(pt);
+        pb = type_bindings_for(p, pt);
+        if(typed_member_lookup_in(p, pb, name, method, out))
+            return 1;
     }
     return 0;
 }
