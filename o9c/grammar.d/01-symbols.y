@@ -96,6 +96,7 @@ static Builtin builtins[] = {
     {"readline",  "o9_readline",  0, "string", {nil, nil}},
     {"serve",     "o9_serve",     0, "void",   {nil, nil}},
     {"serveMultiuser", "o9_serve", 0, "void", {nil, nil}},
+    {"serveAppUsers", "o9_appuser_serve", 1, "void", {"object", nil}},
     {"viewController", "o9_view_register_controller", 1, "int64", {"object", nil}},
     {"listen",    "o9_app_listen", 1, "void",  {"string", nil}},
     /* export(name, tab): publish a tabula into the served-tree exports/

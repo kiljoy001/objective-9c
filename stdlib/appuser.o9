@@ -439,7 +439,7 @@ class AppUserRSAProvider {
         Task<bool> keyValid = spawn AppUserRSAKeyValidRaw(modulus, exponent);
         bool principalOk = valid.await();
         bool keyOk = keyValid.await();
-        if(!principalOk || !keyOk) {
+        if(!principalOk || len(principal) >= 64 || !keyOk) {
             return false;
         }
         bool duplicate = false;

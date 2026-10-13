@@ -12,12 +12,14 @@ typedef struct O9ViewFid O9ViewFid;
 typedef struct O9SessionView O9SessionView;
 struct O9View {
 	char id[65];
+	char principal[64];
 	O9FileTree *tree;
 	int active;
 	int refs;
 };
 struct O9ViewFid {
 	int magic;
+	char binding[65];
 	int kind;
 	uvlong generation;
 	O9View *view;
@@ -134,18 +136,28 @@ view_session_lookup(File *dir)
 int
 o9_view_session_start(Req *r, File *dir)
 {
+	return o9_view_session_start_as(r, dir, nil);
+}
+
+int
+o9_view_session_start_as(Req *r, File *dir, char *principal)
+{
 	O9SessionView *s, *fresh;
 	O9View *v;
 	O9FileTree *tree;
 	O9String *id, *caller;
 	vlong args[2];
 	char *username;
-	if(!view_session_mode || !view_has_controller || r == nil ||
-	   r->fid == nil || dir == nil) return -1;
-	if(r->srv == nil || r->srv->auth == nil || r->srv->authok ||
-	   r->fid->uid == nil ||
-	   strcmp(r->fid->uid, "none") == 0) return -1;
-	username = r->fid->uid;
+	if(!view_session_mode || !view_has_controller || dir == nil) return -1;
+	if(principal != nil){
+		if(principal[0] == 0 || strlen(principal) >= 64) return -1;
+		username = principal;
+	}else{
+		if(r == nil || r->fid == nil || r->srv == nil ||
+		   r->srv->auth == nil || r->srv->authok ||
+		   r->fid->uid == nil || strcmp(r->fid->uid, "none") == 0) return -1;
+		username = r->fid->uid;
+	}
 	id = o9_keygen();
 	caller = o9_string_from_c(username);
 	if(id == nil || caller == nil){
@@ -155,10 +167,11 @@ o9_view_session_start(Req *r, File *dir)
 	}
 	args[0] = (vlong)(uintptr)id;
 	args[1] = (vlong)(uintptr)caller;
-	view_identity(r);
-	if(r->srv != nil) srvrelease(r->srv);
+	if(principal != nil) o9_set_current_request(principal, 1);
+	else view_identity(r);
+	if(r != nil && r->srv != nil) srvrelease(r->srv);
 	tree = obj9_msgSendN(&view_controller, "display", o9_hash("display"), args, 2);
-	if(r->srv != nil) srvacquire(r->srv);
+	if(r != nil && r->srv != nil) srvacquire(r->srv);
 	o9_set_current_request(nil, 0);
 	if(tree == nil || !o9_filetree_alive(tree) ||
 	   o9_filetree_owner(tree) != view_controller.dispatch_chan){
@@ -176,6 +189,7 @@ o9_view_session_start(Req *r, File *dir)
 		return -1;
 	}
 	snprint(v->id, sizeof v->id, "%s", o9_string_data(id));
+	if(principal != nil) snprint(v->principal, sizeof v->principal, "%s", principal);
 	v->tree = tree;
 	v->active = 1;
 	v->refs = 1;
@@ -269,6 +283,10 @@ o9_view_attach(Req *r)
 	if(r == nil || r->fid == nil || view_root == nil) return -1;
 	c = view_ctx(VF_FIXED);
 	if(c == nil) return -1;
+	id = o9_keygen();
+	if(id == nil || o9_string_len(id) != 64){ o9_string_release(id); view_ctx_free(c); return -1; }
+	snprint(c->binding, sizeof c->binding, "%s", o9_string_data(id));
+	o9_string_release(id);
 	c->fixed = r->fid->file;
 	r->fid->file = nil;
 	r->fid->aux = c;
@@ -314,6 +332,7 @@ o9_view_clone(Fid *fid, Fid *newfid)
 	dst = view_ctx(src->kind);
 	if(dst == nil) return "no memory";
 	dst->view = src->view;
+	snprint(dst->binding, sizeof dst->binding, "%s", src->binding);
 	dst->generation = src->generation;
 	if(dst->view != nil){ qlock(&view_lock); dst->view->refs++; qunlock(&view_lock); }
 	dst->fixed = src->fixed;
@@ -515,11 +534,37 @@ o9_view_request_file(Req *r)
 static void
 view_identity(Req *r)
 {
+	O9ViewFid *c;
+	c = r != nil && r->fid != nil ? r->fid->aux : nil;
+	if(c != nil && c->magic == VIEW_FID_MAGIC && c->view != nil &&
+	   c->view->principal[0] != 0){
+		o9_set_current_request(c->view->principal, 1);
+		return;
+	}
 	if(r != nil && r->srv != nil && r->srv->auth != nil &&
 	   !r->srv->authok && r->fid != nil &&
 	   r->fid->uid != nil && strcmp(r->fid->uid, "none") != 0)
 		o9_set_current_request(r->fid->uid, 1);
 	else o9_set_current_request("anonymous", 0);
+}
+
+char*
+o9_view_binding(Fid *f)
+{
+	O9ViewFid *c;
+	if(f == nil || (c = f->aux) == nil || c->magic != VIEW_FID_MAGIC)
+		return nil;
+	return c->binding;
+}
+
+char*
+o9_view_binding_context(void *context)
+{
+	O9ViewFid *c;
+	c = context;
+	if(c == nil || c->magic != VIEW_FID_MAGIC)
+		return nil;
+	return c->binding;
 }
 
 static O9String*

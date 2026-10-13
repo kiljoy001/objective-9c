@@ -35,13 +35,13 @@ to the application ID. Display fields can change without changing identity.
 An email address is unverified unless the application separately verifies it.
 
 The server issues a fresh, single-use challenge bound to its application ID,
-service identity, and connection. The client signs a versioned, unambiguous
-encoding of that challenge. After verification, the generated 9P server binds
-the resulting `app:key-id` principal to the attach and uses it for every owned
-clone check. The client must not be able to supply or replace that principal
-through a 9P username, `ctl` command, or IRC nickname. Authentication does not
-provide transport confidentiality; remote private data needs a protected
-channel as well.
+service identity, and a server-generated attach binding. The client signs a
+versioned, unambiguous encoding of that challenge. After verification, the
+generated 9P server binds the enrolled application principal to that session.
+The client may name the enrolled principal it wants to prove, but cannot set
+the verified identity through a 9P username, `ctl` command, or IRC nickname.
+Authentication does not provide transport confidentiality; remote private data
+needs a protected channel as well.
 
 `stdlib/appuser.o9` now provides the public profile, scoped challenge,
 factotum signing, and RSA verification. The disposable 9front VM check is
@@ -88,13 +88,32 @@ principal. The provider returns `""` for a failed exchange, and consumes a
 well-formed attempted answer once.
 
 `challengeTab`, `responseTab`, and `answerTab` are internal methods, absent
-from the generated 9P method table. The file transport must keep each
-challenge and response in a server-created session, cap a response at 4096
-bytes before parsing, and stage split 9P writes until the record is complete.
+from the generated 9P method table. `serveAppUsers(provider)` now creates a
+server where an unauthenticated attach can read `clone` to allocate its own
+session, then:
+
+```text
+echo auth alice > /n/app/0/ctl
+cat /n/app/0/challenge.tab
+# Sign that challenge through AppUser.responseTab, then write its .tab bytes:
+cat response.tab > /n/app/0/response.tab
+cat /n/app/0/status.tab
+cat /n/app/0/view/caller
+```
+
+The files are scoped to the attach's random server-generated binding. Split
+9P writes to `response.tab` are staged on the open fid and processed at clunk.
+The response is capped at 4096 bytes before tabula parsing. One completed
+response write consumes that challenge's attempt, including a malformed
+response; the client can issue a new `auth` request to try again. The verified
+principal is passed to the private view controller and used for its calls.
+The unauthenticated session pool is capped at 128 slots; unused, unverified
+sessions with no open file handles can be reused after ten minutes.
 The signing method and raw factotum helper are internal to the supplicant;
 they are absent from a served application's 9P method table.
 
-The generated application facade does not yet create those per-session auth
-files or bind the verified principal to its 9P attach/private view. A caller
-supplied username must never stand in for the server-generated binding. This
-proof authenticates an application identity; it does not encrypt the transport.
+The VM integration check is `python3 o9c/test/test_appuser_files_qemu.py
+/path/to/9front.img`. Enrollment remains the application's responsibility: it
+must load public keys from a trusted source before calling `serveAppUsers`.
+The proof authenticates an application identity; it does not encrypt the
+transport.

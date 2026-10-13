@@ -1,0 +1,9 @@
+import "process.o9";
+
+main {
+    Task<string> patharg = spawn ProcessArgRaw(2);
+    tabula status = new tabula(patharg.await());
+    print("AUTH STATUS ", status.schema(), " ", status.value("status", "state"),
+          " ", status.value("status", "principal"), "\n");
+    status.close();
+}

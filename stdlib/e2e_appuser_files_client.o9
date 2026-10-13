@@ -1,0 +1,17 @@
+import "appuser.o9";
+import "process.o9";
+
+main {
+    Task<string> narg = spawn ProcessArgRaw(2);
+    Task<string> earg = spawn ProcessArgRaw(3);
+    Task<string> patharg = spawn ProcessArgRaw(4);
+    AppUser user = new AppUser("o9irc", "Alice", "alice", "", narg.await(), earg.await());
+    tabula challenge = new tabula(patharg.await());
+    string response = user.responseTab(challenge, "ircfs");
+    challenge.close();
+    if(len(response) == 0) {
+        print("RESPONSE FAILED\n");
+    }
+    writefile("/tmp/appuser-files-answer.tab", response);
+    print("RESPONSE READY\n");
+}

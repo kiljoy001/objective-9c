@@ -1,0 +1,36 @@
+import "appuser.o9";
+import "view.o9";
+import "process.o9";
+import "net.o9";
+
+class AppUserTestView {
+    ViewController;
+
+    internal method FileTree display(string id, string caller) {
+        FileTree tree = new FileTree();
+        Factotum fact = new Factotum();
+        tree.text("caller", caller, false);
+        tree.text("identity", fact.caller(), false);
+        return tree;
+    }
+
+    internal method string readText(string id, string path) {
+        return "";
+    }
+
+    internal method int64 writeText(string id, string path, int64 offset, string text, bool truncate) {
+        return -1;
+    }
+}
+
+main {
+    Task<string> narg = spawn ProcessArgRaw(2);
+    Task<string> earg = spawn ProcessArgRaw(3);
+    AppUserRSAProvider provider = new AppUserRSAProvider("o9irc", "ircfs", 60);
+    if(!provider.enroll("alice", narg.await(), earg.await())) {
+        print("ENROLL FAILED\n");
+    }
+    AppUserTestView view = new AppUserTestView();
+    viewController(view);
+    serveAppUsers(provider);
+}
