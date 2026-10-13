@@ -27,6 +27,7 @@ import "process.o9";
 import "random.o9";
 import "time.o9";
 import "draw.o9";
+import "rtext.o9";
 import "view.o9";
 ```
 
@@ -597,6 +598,40 @@ For manual batching, call `setReactive(false)` on the window or on a specific
 widget, then call `update()` or `repaint()` when the batch is ready.
 `DrawMenu` wraps Plan 9's button-menu primitive for live windows, and
 `DrawClipboard` reads/writes the rio snarf buffer through `/dev/snarf`.
+
+`rtext.o9` adds `DrawRichText` for a laid-out stream of colored text, links,
+Plan 9 draw image files, and inline `DrawWidget`s. Text wraps at spaces and
+splits overwide words at UTF-8 rune boundaries. `linkAt(x, y)` resolves a
+link under the pointer. `handleMouse(x, y, buttons)` routes clicks to inline
+widgets and records clicked links for `takeLink()`.
+`hitCell` and `byteAt` map pointer positions to UTF-8 byte boundaries.
+`selectText` and `selectedText` support partial-word selection; `select`
+selects whole laid-out cells. `addTextFont` and `addLinkFont` accept a 9front
+font path for individual spans. Layout uses each font's width, ascent, and
+height; paths that cannot be opened use the active libdraw font. Repeated
+paths share a cached font. Call `closeFonts()` before closing the display.
+`fontAvailable(canvas, path)` reports whether a path opened successfully.
+9front includes, for example, `lucidasans/unicode.10.font`,
+`lucidasans/italicunicode.10.font`, `lucidasans/boldunicode.13.font`, and
+`lucidasans/typeunicode.12.font` under `/lib/font/bit/`.
+
+```o9
+import "rtext.o9";
+
+main {
+    DrawRichText text = new DrawRichText(16, 16, 320, 160);
+    text.addText("Read ", 0x203040);
+    text.addLinkFont("the guide", "https://example.com/guide", 0x2244cc,
+        "/lib/font/bit/lucidasans/boldunicode.10.font");
+    text.breakLine();
+    text.addImage("/tmp/icon.img", 16, 16);
+    DrawWindow window = new DrawWindow("rich text", 360, 200);
+    if(window.open()) {
+        window.add(text);
+        window.update();
+    }
+}
+```
 
 ```o9
 import "draw.o9";

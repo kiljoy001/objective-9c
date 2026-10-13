@@ -1266,7 +1266,8 @@ annotate_msg_send_expr(Node *e, Node *scope_class)
     annotate_expr_list(e->right, scope_class);
     if(type_is_function_placeholder(lt) || type_is_function_object(lt))
         return set_expr_type(e, nil);
-    if(type_apply_named(lt, "Task") && expr_name_is(e, "await"))
+    if(type_apply_named(lt, "Task") &&
+       (expr_name_is(e, "await") || expr_name_is(e, "take")))
         return set_expr_type(e, type_list_at(lt->args, 0));
     if(o9_type_is_tabula(lt) && expr_name_is(e, "row")){
         if(type_is_typed_tabula(lt))
@@ -2454,14 +2455,14 @@ typecheck_task_msg(Node *e, Node *scope_class, Type *lt, int *errs)
     (void)scope_class;
     if(!type_apply_named(lt, "Task"))
         return 0;
-    if(!expr_name_is(e, "await")){
-        fprint(2, "o9c: error: line %d: Task has no method '%s' (only await)\n",
+    if(!expr_name_is(e, "await") && !expr_name_is(e, "take")){
+        fprint(2, "o9c: error: line %d: Task has no method '%s' (only await and take)\n",
             sem_line, e->name);
         (*errs)++;
         return 1;
     }
     if(node_list_len(e->right) != 0){
-        fprint(2, "o9c: error: line %d: Task.await takes no arguments\n", sem_line);
+        fprint(2, "o9c: error: line %d: Task.%s takes no arguments\n", sem_line, e->name);
         (*errs)++;
     }
     return 1;

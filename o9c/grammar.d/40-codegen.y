@@ -472,14 +472,14 @@ gen_task_msg(Node *e, Type *lt)
 
     if(!type_apply_named(lt, "Task"))
         return 0;
-    if(!expr_name_is(e, "await"))
+    if(!expr_name_is(e, "await") && !expr_name_is(e, "take"))
         return 0;
     at = type_list_at(lt->args, 0);
     rt = type_storage_for_codegen(at);
     if(type_is_double(at))
-        cprint("o9_task_await_double(");
+        cprint(expr_name_is(e, "take") ? "o9_task_take_double(" : "o9_task_await_double(");
     else
-        cprint("(%s)o9_task_await(", rt);
+        cprint("(%s)%s(", rt, expr_name_is(e, "take") ? "o9_task_take" : "o9_task_await");
     gen_expr(e->left);
     cprint(")");
     return 1;
@@ -4118,6 +4118,8 @@ gen_class_cleanup_impl(Node *c, int has_destruct)
     cprint("\to9_state_close(self->state);\n");
     cprint("\to9_dag_actor_exit(self->dispatch_chan);\n");
     cprint("\tchanclose(self->dispatch_chan);\n");
+    if((c->flags & NFFunction) != 0)
+        cprint("\tchanfree(self->dispatch_chan);\n");
     cprint("\tfree(self);\n");
     cprint("}\n\n");
 }
@@ -4160,7 +4162,7 @@ gen_class_dispatch_loop(Node *c)
     cprint("\t\tswitch(m->sel){\n");
     num_emitted = 0;
     gen_dispatch_cases(c, c->name);
-    cprint("\t\tcase 0x%lux: o9_cleanup_%s(self); if(m->replyc != nil){ O9Reply *__dr;\n\t__dr = mallocz(sizeof(O9Reply), 1); __dr->ok = 1; sendp(m->replyc, __dr); } threadexits(nil); break;\n", o9_hash("destroy"), c->name);
+    cprint("\t\tcase 0x%lux: o9_cleanup_%s(self); if(m->replyc != nil){ O9Reply *__dr;\n\t__dr = mallocz(sizeof(O9Reply), 1); __dr->ok = 1; sendp(m->replyc, __dr); } o9_proc_ctx_clear(); threadexits(nil); break;\n", o9_hash("destroy"), c->name);
     cprint("\t\tdefault: if(m->replyc != nil){ O9Reply *r;\n\tr = mallocz(sizeof(O9Reply), 1); r->err = \"bad selector\"; sendp(m->replyc, r); } break;\n");
     cprint("\t\t}\n\t}\n}\n\n");
 }
@@ -4613,9 +4615,9 @@ static void
 gen_spawn_context_type(Node *c)
 {
     cprint("typedef struct O9SpawnCtx_%s O9SpawnCtx_%s;\n", c->name, c->name);
-    cprint("struct O9SpawnCtx_%s {\n\tChannel *replyc;\n\tO9Task *task;\n\t%s_Internal *inst;\n\tint tid;\n};\n", c->name, c->name);
+    cprint("struct O9SpawnCtx_%s {\n\tChannel *replyc;\n\tO9Task *task;\n\tO9Msg *msg;\n\t%s_Internal *inst;\n\tint tid;\n};\n", c->name, c->name);
     cprint("typedef struct O9SpawnCallCtx_%s O9SpawnCallCtx_%s;\n", c->name, c->name);
-    cprint("struct O9SpawnCallCtx_%s {\n\tChannel *replyc;\n\tO9Task *task;\n};\n", c->name);
+    cprint("struct O9SpawnCallCtx_%s {\n\tChannel *replyc;\n\tO9Task *task;\n\tO9Msg *msg;\n};\n", c->name);
 }
 
 static void
@@ -4643,13 +4645,14 @@ gen_spawn_forward_proc(Node *c)
     cprint("\t\to9_dag_actor_exit(ctx->inst->dispatch_chan);\n");
     cprint("\t\tchanfree(ctx->inst->dispatch_chan); free(ctx->inst);\n");
     cprint("\t}\n");
-    cprint("\tchanfree(ctx->replyc); free(ctx);\n");
+    cprint("\tfree(ctx->msg->args); free(ctx->msg);\n");
+    cprint("\tchanfree(ctx->replyc); o9_task_close(ctx->task); free(ctx);\n");
     cprint("}\n");
     cprint("static void\no9_spawn_call_forward_%s(void *v)\n{\n", c->name);
     cprint("\tO9SpawnCallCtx_%s *ctx;\n\tctx = v;\n", c->name);
     cprint("\tO9Reply *__r;\n\t__r = recvp(ctx->replyc);\n");
     cprint("\tsendp((Channel*)o9_task_chan(ctx->task), __r);\n");
-    cprint("\tchanfree(ctx->replyc); free(ctx);\n");
+    cprint("\tchanfree(ctx->replyc); o9_task_close(ctx->task); free(ctx);\n");
     cprint("}\n");
     cprint("static int o9_spawn_id_%s;\n", c->name);
 }
@@ -4681,14 +4684,19 @@ gen_spawn_instance_setup(Node *c)
     cprint("\tmemset(__inst, 0, sizeof(%s_Internal));\n", c->name);
     cprint("\t__inst->dispatch_chan = chancreate(sizeof(void*), 10);\n");
     cprint("\t__inst->distance = -1;\n");
-    cprint("\t__inst->state = o9_state_create_path(o9app_root, \"%s\", __nm, o9_state_cols_%s, %d);\n",
-        c->name, c->name, count_state_cols(c));
+    /* One-shot function instances have no persistent identity or state file.
+     * Their run method and task own their lifetime. Avoid creating a tabula
+     * on every helper call; explicit new still initializes object state. */
+    cprint("\t__inst->state = nil;\n");
     snprint(ptr, sizeof ptr, "__inst");
     gen_init_internal_state(c, ptr);
     cprint("\t__inst->__spawn_index = __id;\n");
     cprint("\t__inst->__spawn_state = 1;\t/* running */\n");
     cprint("\tint __tid;\n\t__tid = proccreate(%s_loop, __inst, 65536);\n", c->name);
-    cprint("\t%s_record_instance(__nm, __inst);\n", c->name);
+    /* A spawned function is owned by its Task. Publishing every invocation
+     * creates permanent object-store tombstones and namespace recipes for
+     * work that cannot be addressed by another client. Its zeroed oid makes
+     * forget_instance a no-op; explicit 'new' still uses record_instance. */
     cprint("\tChannel *__replyc;\n\t__replyc = chancreate(sizeof(void*), 1);\n");
 }
 
@@ -4714,19 +4722,19 @@ gen_spawn_arg_pack(Node *rm, int np)
 static void
 gen_spawn_run_send(int np)
 {
-    cprint("\t{ O9Msg *__wm;\n\t__wm = mallocz(sizeof(O9Msg), 1);\n");
+    cprint("\tO9Msg *__wm;\n\t__wm = mallocz(sizeof(O9Msg), 1);\n");
     cprint("\t  __wm->sel = 0x%lux; __wm->args = %s; __wm->nargs = %d; __wm->replyc = __replyc;\n",
         o9_hash("run"), np > 0 ? "__args" : "nil", np);
     cprint("\t  __wm->caller = o9_current_user_c();\n");
     cprint("\t  __wm->blessed = o9_current_user_blessed();\n");
-    cprint("\t  sendp(__inst->dispatch_chan, __wm); }\n");
+    cprint("\tsendp(__inst->dispatch_chan, __wm);\n");
 }
 
 static void
 gen_spawn_forward_start(Node *c)
 {
     cprint("\t{ O9SpawnCtx_%s *__ctx;\n\t__ctx = mallocz(sizeof(O9SpawnCtx_%s), 1);\n", c->name, c->name);
-    cprint("\t  __ctx->replyc = __replyc; __ctx->task = __task; __ctx->inst = __inst; __ctx->tid = __tid;\n");
+    cprint("\t  __ctx->replyc = __replyc; __ctx->task = __task; __ctx->msg = __wm; __ctx->inst = __inst; __ctx->tid = __tid;\n");
     cprint("\t  proccreate(o9_spawn_forward_%s, __ctx, 32*1024); }\n", c->name);
 }
 
@@ -4751,14 +4759,14 @@ gen_spawn_call_body(Node *c, Node *rm, int np)
     cprint("\tO9Task *__task;\n\t__task = o9_task_new(__id);\n");
     cprint("\tChannel *__replyc;\n\t__replyc = chancreate(sizeof(void*), 1);\n");
     gen_spawn_arg_pack(rm, np);
-    cprint("\t{ O9Msg *__wm;\n\t__wm = mallocz(sizeof(O9Msg), 1);\n");
+    cprint("\tO9Msg *__wm;\n\t__wm = mallocz(sizeof(O9Msg), 1);\n");
     cprint("\t  __wm->sel = 0x%lux; __wm->args = %s; __wm->nargs = %d; __wm->replyc = __replyc;\n",
         o9_hash("run"), np > 0 ? "__args" : "nil", np);
     cprint("\t  __wm->caller = o9_current_user_c();\n");
     cprint("\t  __wm->blessed = o9_current_user_blessed();\n");
-    cprint("\t  sendp(__fn->dispatch_chan, __wm); }\n");
+    cprint("\tsendp(__fn->dispatch_chan, __wm);\n");
     cprint("\t{ O9SpawnCallCtx_%s *__ctx;\n\t__ctx = mallocz(sizeof(O9SpawnCallCtx_%s), 1);\n", c->name, c->name);
-    cprint("\t  __ctx->replyc = __replyc; __ctx->task = __task;\n");
+    cprint("\t  __ctx->replyc = __replyc; __ctx->task = __task; __ctx->msg = __wm;\n");
     cprint("\t  proccreate(o9_spawn_call_forward_%s, __ctx, 32*1024); }\n", c->name);
     cprint("\treturn __task;\n}\n");
 }

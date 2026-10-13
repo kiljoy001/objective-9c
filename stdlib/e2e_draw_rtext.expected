@@ -1,0 +1,9 @@
+layout 54 cells 3
+link https://example.com
+click 1 https://example.com
+selection [hello world ]
+partial it byte 2
+mixed 72 cells 6 widget 26 78 20 10
+frame 1 commands 7
+reset 18 cells 1 hit draw://new
+styled fallback 18 cells 2

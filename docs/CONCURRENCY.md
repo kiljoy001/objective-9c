@@ -110,6 +110,10 @@ main {
 }
 ```
 
+Use `t.take()` for a one-time result when the task handle is no longer
+needed. It waits, returns the value, and releases the task's reply channel.
+`t.await()` remains repeatable until the handle is released.
+
 The earlier "numbered channel" idea survives only as internal machinery:
 spawned work needs an internal per-instance result path, but user code
 does not name or receive from that channel directly.

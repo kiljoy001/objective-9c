@@ -487,7 +487,10 @@ extern O9Task*   o9_task_new(int id);
 extern void*     o9_task_chan(O9Task *t);	/* internal: the done Channel* (as void*) */
 extern vlong     o9_task_await(O9Task *t);	/* block; value, or per-proc err + 0 */
 extern double    o9_task_await_double(O9Task *t);
+extern vlong     o9_task_take(O9Task *t);	/* await once and release the task */
+extern double    o9_task_take_double(O9Task *t);
 extern void      o9_task_close(O9Task *t);
+extern void      o9_proc_ctx_clear(void);	/* generated thread teardown */
 
 /* Vault - encrypted storage and isolated memory arena. */
 typedef struct O9KeySlot O9KeySlot;

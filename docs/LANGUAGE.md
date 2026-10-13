@@ -452,6 +452,8 @@ main {
 
 `spawn f(args)` returns immediately with `Task<T>`. `Task<T>.await()` waits for
 completion and returns the value or propagates the task error through `try`.
+For a one-time result, `t.take()` waits and releases the task handle. Do not
+use `t` after `take()`; use `await()` when the result must be read again.
 
 Nested function example:
 

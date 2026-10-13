@@ -265,6 +265,7 @@ stdlibcase e2e_draw_textview
 stdlibcase e2e_draw_scrolltext
 stdlibcase e2e_draw_table
 stdlibcase e2e_draw_panel
+stdlibcase e2e_draw_rtext
 stdlibcase e2e_draw_menu
 stdlibcase e2e_draw_scrollbar
 stdlibcase e2e_class_return
