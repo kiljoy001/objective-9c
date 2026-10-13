@@ -602,7 +602,7 @@ view_live_write(Req *r, O9ViewFid *c, vlong offset, O9String *data, int truncate
 	args[4] = truncate;
 	view_identity(r);
 	if(r->srv != nil) srvrelease(r->srv);
-	result = (vlong)(uintptr)obj9_msgSendN(&view_controller, "writeText", o9_hash("writeText"), args, 5);
+	result = obj9_msgSendValueN(&view_controller, "writeText", o9_hash("writeText"), args, 5);
 	if(r->srv != nil) srvacquire(r->srv);
 	o9_set_current_request(nil, 0);
 	o9_string_release(id);

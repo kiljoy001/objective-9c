@@ -4772,31 +4772,31 @@ o9_tab_sync(O9Tabula *t)
 	return 0;
 }
 
-void*
-obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int nargs)
+vlong
+obj9_msgSendValueN(void *receiver, char *method, ulong selector, void *args, int nargs)
 {
     o9_Object *obj = receiver;
     O9Handle h;
     O9Msg *m;
     O9Reply *r;
-    void *ret;
+    vlong ret;
 
     if(obj->dispatch_chan != nil){
         if(chanclosing(obj->dispatch_chan) >= 0){
             werrstr("stale object handle");
             o9_set_call_err("stale object handle");
-            return nil;
+            return 0;
         }
         if(obj->oid[0] != '\0' && obj->gen != 0){
             if(o9_registry_lookup(obj->oid, &h) < 0 ||
                h.gen != obj->gen || h.chan != obj->dispatch_chan){
                 werrstr("stale object handle");
                 o9_set_call_err("stale object handle");
-                return nil;
+                return 0;
             }
         }
         if(o9_dag_call_begin(obj->dispatch_chan, obj->oid, method) < 0)
-            return nil;
+            return 0;
         m = mallocz(sizeof(O9Msg), 1);
         m->sel = selector;
         m->args = args;
@@ -4810,21 +4810,21 @@ obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int narg
             free(m);
             werrstr("stale object handle");
             o9_set_call_err("stale object handle");
-            return nil;
+            return 0;
         }
         r = recvp(m->replyc);
         o9_dag_call_end(obj->dispatch_chan);
         if(r == nil){
             werrstr("object method produced no reply");
             o9_set_call_err("object method produced no reply");
-            ret = nil;
+            ret = 0;
         } else if(r->err != nil){
             werrstr("%s", r->err);
             o9_set_call_err(r->err);	/* for try: last-call error signal */
-            ret = nil;
+            ret = 0;
         } else {
             o9_set_call_err(nil);
-            ret = (void*)r->ret;
+            ret = r->ret;
         }
         chanfree(m->replyc);
         o9_reply_free(r);
@@ -4834,7 +4834,13 @@ obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int narg
 
     werrstr("object method dispatch is local-only");
     o9_set_call_err("object method dispatch is local-only");
-    return nil;
+    return 0;
+}
+
+void*
+obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int nargs)
+{
+	return (void*)(uintptr)obj9_msgSendValueN(receiver, method, selector, args, nargs);
 }
 
 double
@@ -5043,7 +5049,7 @@ o9_send(void *client, O9String *line)
 		args[nargs] = strtoll(v != nil ? v+1 : f[i], nil, 0);
 		nargs++;
 	}
-	rv = (vlong)(uintptr)obj9_msgSendN(obj, f[2], o9_hash(f[2]),
+	rv = obj9_msgSendValueN(obj, f[2], o9_hash(f[2]),
 		nargs > 0 ? args : nil, nargs);
 	ret = o9_method_ret_type(f[2]);
 	if(ret != nil && (strcmp(ret, "string") == 0 || strcmp(ret, "O9String*") == 0)){

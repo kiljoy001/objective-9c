@@ -1,0 +1,27 @@
+import "property.o9";
+
+class AtMostTen {
+    IntProperty;
+
+    method bool holds(int64 value) {
+        return value <= 10;
+    }
+}
+
+class AtLeastMinusTen {
+    IntProperty;
+
+    method bool holds(int64 value) {
+        return value >= -10;
+    }
+}
+
+main {
+    Property property = new Property("property_fail");
+    AtMostTen positive = new AtMostTen();
+    AtLeastMinusTen negative = new AtLeastMinusTen();
+    property.runInt("positive threshold", positive, 20, 200);
+    property.runInt("negative threshold", negative, -200, -20);
+    property.report();
+    property.finish();
+}

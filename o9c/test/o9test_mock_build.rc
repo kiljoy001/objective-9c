@@ -11,6 +11,8 @@ case *test_timeout.o9
 	cp /tmp/o9fixture_timeout $2
 case *test_fail.o9
 	cp /tmp/o9fixture_fail $2
+case *test_env.o9
+	cp /tmp/o9fixture_env $2
 case *
 	cp /tmp/o9fixture_pass $2
 }

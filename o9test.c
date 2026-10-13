@@ -18,6 +18,8 @@ static Testfile tests[Maxtests];
 static int ntests;
 static char *pattern;
 static char *builder;
+static char *seedarg;
+static char *trialsarg;
 static int timeout = Defaulttimeout;
 static int buildtimeout = Defaultbuildtimeout;
 static int verbose;
@@ -31,7 +33,7 @@ static char scratch[Maxpath];
 static void
 usage(void)
 {
-	fprint(2, "usage: o9test [-vqsx] [-k text] [-t seconds] [--build-timeout seconds] [--builder path] [--list] [--keep] [path ...]\n");
+	fprint(2, "usage: o9test [-vqsx] [-k text] [-t seconds] [--seed n] [--trials n] [--build-timeout seconds] [--builder path] [--list] [--keep] [path ...]\n");
 	exits("usage");
 }
 
@@ -47,6 +49,32 @@ seconds(char *s)
 	if(*end != 0 || n < 1 || n > 3600)
 		usage();
 	return n;
+}
+
+static int
+positive(char *s, int max)
+{
+	char *end;
+	long n;
+
+	if(s == nil || *s == 0)
+		usage();
+	n = strtol(s, &end, 10);
+	if(*end != 0 || n < 1 || n > max)
+		usage();
+	return n;
+}
+
+static void
+validseed(char *s)
+{
+	int i;
+
+	if(s == nil || *s == 0 || strlen(s) > 18)
+		usage();
+	for(i = 0; s[i] != 0; i++)
+		if(s[i] < '0' || s[i] > '9')
+			usage();
 }
 
 static int
@@ -198,7 +226,7 @@ runphase(char *program, char *arg1, char *arg2, char *logpath,
 		snprint(status, nstatus, "cannot create log: %r");
 		return -1;
 	}
-	pid = rfork(RFPROC|RFFDG|RFNOTEG);
+	pid = rfork(RFPROC|RFFDG|RFNOTEG|RFENVG);
 	if(pid < 0){
 		close(fd);
 		snprint(status, nstatus, "cannot start process: %r");
@@ -209,6 +237,12 @@ runphase(char *program, char *arg1, char *arg2, char *logpath,
 		dup(fd, 2);
 		if(fd > 2)
 			close(fd);
+		if(arg2 == nil){
+			if(seedarg != nil)
+				putenv("O9TEST_SEED", seedarg);
+			if(trialsarg != nil)
+				putenv("O9TEST_TRIALS", trialsarg);
+		}
 		if(arg2 != nil){
 			execl(program, program, arg1, arg2, nil);
 			execl("/bin/rc", "rc", program, arg1, arg2, nil);
@@ -338,6 +372,7 @@ main(int argc, char **argv)
 			print("-x stops after the first failure; -t sets each test's run timeout (default 30s).\n");
 			print("--build-timeout sets the build timeout (default 180s); --list prints discovered files.\n");
 			print("--builder selects a build script; --keep retains scratch files.\n");
+			print("--seed replays property input generation; --trials sets cases per property (default 100).\n");
 			exits(nil);
 		}
 		if(!endopts && strcmp(argv[i], "-v") == 0) verbose = 1;
@@ -350,6 +385,14 @@ main(int argc, char **argv)
 		else if(!endopts && strcmp(argv[i], "-t") == 0 && ++i < argc) timeout = seconds(argv[i]);
 		else if(!endopts && strcmp(argv[i], "--build-timeout") == 0 && ++i < argc) buildtimeout = seconds(argv[i]);
 		else if(!endopts && strcmp(argv[i], "--builder") == 0 && ++i < argc) builder = argv[i];
+		else if(!endopts && strcmp(argv[i], "--seed") == 0 && ++i < argc){
+			validseed(argv[i]);
+			seedarg = argv[i];
+		}
+		else if(!endopts && strcmp(argv[i], "--trials") == 0 && ++i < argc){
+			positive(argv[i], 100000);
+			trialsarg = argv[i];
+		}
 		else if(!endopts && argv[i][0] == '-') usage();
 		else paths[npath++] = argv[i];
 	}

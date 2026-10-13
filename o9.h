@@ -17,7 +17,7 @@ struct O9Msg {
 
 struct O9Reply {
     int ok;
-    uintptr ret;
+    vlong ret;
     double dret;
     void *retbuf;
     uintptr retsz;
@@ -96,6 +96,7 @@ extern long  o9_ledger_value(void *client, ulong id);
 extern void  o9_clunk(int fd);
 extern void* obj9_msgSend(void *receiver, char *method, ulong selector, void *args);
 extern void* obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int nargs);
+extern vlong obj9_msgSendValueN(void *receiver, char *method, ulong selector, void *args, int nargs);
 extern double obj9_msgSendDoubleN(void *receiver, char *method, ulong selector, void *args, int nargs);
 extern int   obj9_msgSendObjectN(void *receiver, char *method, ulong selector, void *args, int nargs, void *out, uintptr outsiz);
 extern void  o9_reply_free(O9Reply *r);

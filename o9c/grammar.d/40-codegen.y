@@ -1029,7 +1029,7 @@ gen_msg_return_suffix(int retptr, int retdouble)
 static void
 gen_msg_fallback_call(Node *e, int d, int nargs, int retdouble)
 {
-    cprint(retdouble ? "obj9_msgSendDoubleN(&" : "(vlong)obj9_msgSendN(&");
+    cprint(retdouble ? "obj9_msgSendDoubleN(&" : "obj9_msgSendValueN(&");
     gen_msg_receiver_ref(e->left);
     if(msg_receiver_candidate(e->left))
         cprint(", \"%s/%s\", 0x%lux, __o9fr[%d]+1, %d))",
@@ -2275,9 +2275,14 @@ gen_return_stmt(Node *s)
         } else if(is_try(s->left)){
             cprint("\t{ vlong __rv;\n\t__rv = (vlong)("); gen_expr(s->left); cprint(");\n");
             cprint("\t{ char *__ce;\n\t__ce = o9_get_call_err(); if(__ce != nil){ __o9r->err = __ce; goto done; } }\n");
-            cprint("\t__o9r->ret = (uintptr)__rv; }\n\tgoto done;\n");
+            cprint("\t__o9r->ret = __rv; }\n\tgoto done;\n");
         } else {
-            cprint("\t__o9r->ret = (uintptr)("); gen_expr(s->left); cprint(");\n\tgoto done;\n");
+            if(type_storage_pointerish(gen_return_type))
+                cprint("\t__o9r->ret = (vlong)(uintptr)(");
+            else
+                cprint("\t__o9r->ret = (vlong)(");
+            gen_expr(s->left);
+            cprint(");\n\tgoto done;\n");
         }
     } else {
         cprint("\treturn "); gen_expr(s->left); cprint(";\n");
@@ -4444,7 +4449,7 @@ gen_ctrl_reply_store(Node *m)
     if(type_is_double(m->typeinfo))
         cprint("\telse{ o9_set_call_err(nil); ((vlong*)__a)[0] = o9_double_pack(__r->dret); }\n");
     else
-        cprint("\telse{ o9_set_call_err(nil); ((vlong*)__a)[0] = (vlong)(uintptr)__r->ret; }\n");
+        cprint("\telse{ o9_set_call_err(nil); ((vlong*)__a)[0] = __r->ret; }\n");
     cprint("\to9_reply_free(__r); }\n");
 }
 

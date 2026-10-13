@@ -1,0 +1,31 @@
+import "property.o9";
+
+class IntegerIdentity {
+    IntProperty;
+
+    method bool holds(int64 value) {
+        return value - value == 0;
+    }
+}
+
+main {
+    Test test = new Test("property_basics");
+    PropertyRandom a = new PropertyRandom(77);
+    PropertyRandom b = new PropertyRandom(77);
+    int64 i = 0;
+    while(i < 100) {
+        int64 left = a.between(-1000, 1000);
+        int64 right = b.between(-1000, 1000);
+        test.eqInt("seed replay", left, right);
+        test.ok("range", left >= -1000 && left <= 1000);
+        i = i + 1;
+    }
+    Property property = new Property("property_pass");
+    IntegerIdentity identity = new IntegerIdentity();
+    property.configure(77, 100);
+    property.runInt("subtract self", identity, -1000, 1000);
+    property.report();
+    property.finish();
+    test.report();
+    test.finish();
+}

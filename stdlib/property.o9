@@ -1,0 +1,185 @@
+// Native property tests: deterministic generation, replay, and integer shrinking.
+import "testing.o9";
+
+function PropertyNextRaw(int64 current) int64 {
+    int64 out;
+    c {
+        uvlong x;
+
+        x = (uvlong)current;
+        if(x == 0)
+            x = 0x9e3779b97f4a7c15ULL;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        out = (vlong)x;
+    }
+    return out;
+}
+
+function PropertyBetweenRaw(int64 current, int64 low, int64 high) int64 {
+    int64 out;
+    c {
+        uvlong bits, span;
+
+        bits = (uvlong)current * 0x2545f4914f6cdd1dULL;
+        span = (uvlong)high - (uvlong)low + 1;
+        out = (vlong)((uvlong)low + (span == 0 ? bits : bits % span));
+    }
+    return out;
+}
+
+function PropertyEnvRaw(string name, int64 fallback, int64 upper) int64 {
+    int64 out;
+    c {
+        char *n, *s, *end;
+        vlong parsed;
+
+        out = fallback;
+        n = o9_string_cstr(name);
+        s = n != nil ? getenv(n) : nil;
+        if(s != nil && *s != 0){
+            parsed = strtoll(s, &end, 10);
+            if(*end == 0 && parsed >= 0 && parsed <= upper)
+                out = parsed;
+        }
+        free(s);
+        free(n);
+    }
+    return out;
+}
+
+function PropertyTextRaw(int64 value) string {
+    string out;
+    c {
+        char buf[64];
+
+        snprint(buf, sizeof buf, "%lld", (vlong)value);
+        out = o9_string_from_c(buf);
+    }
+    return out;
+}
+
+interface IntProperty {
+    method bool holds(int64 value);
+}
+
+class PropertyRandom {
+    prop int64 current;
+
+    method PropertyRandom(int64 seed) {
+        current = seed;
+    }
+
+    method int64 next() {
+        Task<int64> t = spawn PropertyNextRaw(current);
+        current = t.take();
+        return current;
+    }
+
+    method int64 between(int64 low, int64 high) {
+        if(low > high) {
+            return low;
+        }
+        int64 bits = next();
+        Task<int64> t = spawn PropertyBetweenRaw(bits, low, high);
+        return t.take();
+    }
+}
+
+class Property {
+    prop Test assertions;
+    prop PropertyRandom random;
+    prop int64 seedValue;
+    prop int64 trialCount;
+
+    method Property(string name) {
+        assertions = new Test(name);
+        Task<int64> s = spawn PropertyEnvRaw("O9TEST_SEED", 9009, 999999999999999999);
+        Task<int64> n = spawn PropertyEnvRaw("O9TEST_TRIALS", 100, 100000);
+        seedValue = s.take();
+        trialCount = n.take();
+        random = new PropertyRandom(seedValue);
+    }
+
+    method void configure(int64 seed, int64 trials) {
+        if(seed >= 0 && trials > 0 && trials <= 100000) {
+            seedValue = seed;
+            trialCount = trials;
+            random = new PropertyRandom(seedValue);
+        }
+    }
+
+    method int64 seed() {
+        return seedValue;
+    }
+
+    method int64 trials() {
+        return trialCount;
+    }
+
+    private method string number(int64 value) {
+        Task<string> t = spawn PropertyTextRaw(value);
+        return t.take();
+    }
+
+    private method int64 shrinkInt(IntProperty check, int64 value) {
+        int64 current = value;
+        if(current == 0) {
+            return current;
+        }
+        if(!check.holds(0)) {
+            return 0;
+        }
+        int64 steps = 0;
+        while(steps < 256 && current != 0) {
+            int64 candidate = current / 2;
+            steps = steps + 1;
+            if(candidate != current && !check.holds(candidate)) {
+                current = candidate;
+            } else {
+                if(current > 0) {
+                    candidate = current - 1;
+                } else {
+                    candidate = current + 1;
+                }
+                steps = steps + 1;
+                if(!check.holds(candidate)) {
+                    current = candidate;
+                } else {
+                    steps = 256;
+                }
+            }
+        }
+        return current;
+    }
+
+    method bool runInt(string name, IntProperty check, int64 low, int64 high) {
+        if(low > high) {
+            return assertions.fail(name, "invalid generator range");
+        }
+        int64 i = 0;
+        while(i < trialCount) {
+            int64 value = random.between(low, high);
+            if(!check.holds(value)) {
+                int64 smallest = shrinkInt(check, value);
+                string detail = cat("seed=", number(seedValue));
+                detail = cat(detail, cat(" trial=", number(i)));
+                detail = cat(detail, cat(" original=", number(value)));
+                detail = cat(detail, cat(" shrunk=", number(smallest)));
+                detail = cat(detail, cat("; replay: o9test --seed ", number(seedValue)));
+                return assertions.fail(name, detail);
+            }
+            i = i + 1;
+        }
+        return assertions.ok(name, true);
+    }
+
+    method bool report() {
+        return assertions.report();
+    }
+
+    method void finish() {
+        assertions.finish();
+    }
+}

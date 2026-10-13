@@ -1603,3 +1603,38 @@ An explicit `.o9` file runs even if its name does not match the discovery
 patterns. The runner exits with a failure status for test failures, build
 errors, timeouts, or an empty selection.
 
+### Native property tests
+
+`property.o9` adds seeded integer generation and shrinking. Define an
+`IntProperty` whose `holds` method returns a boolean without recording an
+assertion, then ask `Property` to try generated values:
+
+```o9
+import "property.o9";
+
+class AddZero {
+    IntProperty;
+
+    method bool holds(int64 value) {
+        return value + 0 == value;
+    }
+}
+
+main {
+    Property p = new Property("arithmetic");
+    AddZero check = new AddZero();
+    p.runInt("add zero", check, -1000000, 1000000);
+    p.report();
+    p.finish();
+}
+```
+
+The default is 100 trials from seed 9009. Set `--seed` and `--trials` in
+`o9test` to replay or expand a run, for example
+`o9test --seed 123 --trials 1000 tests/test_arithmetic.o9`. A failure
+prints its seed, trial number, original value, and a smaller failing value.
+The integer shrinker tries zero, repeated halving, and steps toward zero;
+it stops after 256 candidates. `PropertyRandom` provides an independent
+deterministic stream for handwritten generators. `Property.configure(seed,
+trials)` overrides the environment settings for a particular suite.
+

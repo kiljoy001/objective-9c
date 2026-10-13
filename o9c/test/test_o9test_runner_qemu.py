@@ -16,6 +16,12 @@ FIXTURES = {
     "pass": 'print("fixture pass\\n"); exits(nil);',
     "fail": 'fprint(2, "fixture failed\\n"); exits("fixture failure");',
     "timeout": 'sleep(5000); exits(nil);',
+    "env": 'char *seed, *trials; seed = getenv("O9TEST_SEED"); '
+           'trials = getenv("O9TEST_TRIALS"); '
+           'if(seed == nil && trials == nil) exits(nil); '
+           'if(seed == nil || trials == nil || strcmp(seed, "123") != 0 '
+           '|| strcmp(trials, "7") != 0) exits("property config"); '
+           'free(seed); free(trials); exits(nil);',
 }
 
 
@@ -41,7 +47,7 @@ def main():
                            ("mockbuild.rc", ROOT / "o9c/test/o9test_mock_build.rc")):
             subprocess.run(["mcopy", "-i", fat, str(path),
                             f"::o9runner/{name}"], check=True)
-        for name in ("test_pass.o9", "test_fail.o9", "test_build.o9",
+        for name in ("test_pass.o9", "test_fail.o9", "test_build.o9", "test_env.o9",
                      "test_timeout.o9", "ordinary.o9"):
             path = work / name
             path.write_text("// runner discovery fixture\n")
@@ -112,6 +118,8 @@ def main():
                     "8l -o /tmp/o9fixture_fail /tmp/fixture_fail.8",
                     "8c -o /tmp/fixture_timeout.8 /tmp/o9runner/fixture_timeout.c",
                     "8l -o /tmp/o9fixture_timeout /tmp/fixture_timeout.8",
+                    "8c -o /tmp/fixture_env.8 /tmp/o9runner/fixture_env.c",
+                    "8l -o /tmp/o9fixture_env /tmp/fixture_env.8",
                     "rc /tmp/o9runner/o9proj /tmp/runnerapp",
                 ):
                     guest(command)
@@ -125,7 +133,7 @@ def main():
                 if "1 passed" not in scaffold_run:
                     raise AssertionError(f"project scaffold test did not run:\n{scaffold_run}")
                 listing = guest("/tmp/o9test --list /tmp/o9runner/tests")
-                if (listing.count(".o9\n") != 5 or
+                if (listing.count(".o9\n") != 6 or
                     "ordinary.o9\n" in listing):
                     raise AssertionError(f"discovery mismatch:\n{listing}")
                 explicit = guest("/tmp/o9test --list /tmp/o9runner/tests/ordinary.o9")
@@ -134,14 +142,17 @@ def main():
                 filtered = guest("/tmp/o9test /tmp/o9runner/tests -k pass --builder /tmp/mockbuild.rc -v")
                 if "PASS /tmp/o9runner/tests/test_pass.o9" not in filtered or "1 passed" not in filtered:
                     raise AssertionError(f"filter/run mismatch:\n{filtered}")
+                configured = guest("/tmp/o9test --seed 123 --trials 7 --builder /tmp/mockbuild.rc /tmp/o9runner/tests/test_env.o9")
+                if "1 passed" not in configured:
+                    raise AssertionError(f"property configuration was not forwarded:\n{configured}")
                 stopped = guest("/tmp/o9test -x --builder /tmp/mockbuild.rc /tmp/o9runner/tests",
                                 success=False)
-                if "1 passed" not in stopped or "3 not run" not in stopped:
+                if "1 passed" not in stopped or "4 not run" not in stopped:
                     raise AssertionError(f"fail fast did not stop:\n{stopped}")
                 all_tests = guest("/tmp/o9test -t 1 --builder /tmp/mockbuild.rc /tmp/o9runner/tests",
                                   success=False, timeout=90)
                 for expected in ("1 failed", "1 build errors", "1 timed out",
-                                 "2 passed", "fixture failed", "deliberate build failure"):
+                                 "3 passed", "fixture failed", "deliberate build failure"):
                     if expected not in all_tests:
                         raise AssertionError(f"missing {expected}:\n{all_tests}")
                 print("O9 TEST RUNNER VM PASS: discovery, filtering, build, failure, timeout")
