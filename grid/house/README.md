@@ -110,3 +110,15 @@ stock factotum, mounts an AppUser session, parses `assigned.tab` with libtab,
 renews the lease, submits a result, and checks an unauthenticated session. It
 also runs the automatic worker against a three second failing gate and checks
 the local executor log, renewed lease, and submitted result.
+
+For a two machine check, run:
+
+```sh
+python3 grid/house/test_house_multivm.py /path/to/9front.img
+```
+
+This makes disposable sparse disk copies and starts separate 9front VMs on
+an isolated virtual Ethernet link. The server VM exports its mounted house
+view over TCP; the worker VM mounts it with `srv`, signs into a new clone,
+runs the gate, and submits its result. The check verifies the gate log in the
+worker VM and the claim, renewal, and result in the server VM's journal.
