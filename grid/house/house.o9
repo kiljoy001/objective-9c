@@ -1,0 +1,500 @@
+import "stdlib/collections.o9";
+import "stdlib/file.o9";
+import "stdlib/string.o9";
+import "stdlib/time.o9";
+import "stdlib/view.o9";
+import "stdlib/net.o9";
+
+// The small raw helpers validate and serialize wire fields. Scheduling and
+// ownership stay in the Objective-9C actor below.
+internal function HouseFieldRaw(string value, int64 maxlen, bool path) bool {
+    bool out;
+    c {
+        char *s;
+        int i, n;
+
+        s = o9_string_data(value);
+        n = o9_string_len(value);
+        out = s != nil && n > 0 && n <= maxlen;
+        if(out) for(i = 0; i < n; i++)
+            if(!((s[i] >= 'a' && s[i] <= 'z') ||
+                 (s[i] >= 'A' && s[i] <= 'Z') ||
+                 (s[i] >= '0' && s[i] <= '9') ||
+                 s[i] == '.' || s[i] == '_' || s[i] == '-' ||
+                 (path && s[i] == '/'))){
+                out = 0;
+                break;
+            }
+    }
+    return out;
+}
+
+internal function HouseDigitsRaw(string value) bool {
+    bool out;
+    c {
+        char *s;
+        int i, n;
+
+        s = o9_string_data(value);
+        n = o9_string_len(value);
+        out = s != nil && n > 0 && n <= 18;
+        if(out) for(i = 0; i < n; i++)
+            if(s[i] < '0' || s[i] > '9'){
+                out = 0;
+                break;
+            }
+    }
+    return out;
+}
+
+internal function HouseNumberRaw(int64 n) string {
+    string out;
+    c {
+        char buf[32];
+
+        snprint(buf, sizeof buf, "%lld", n);
+        out = o9_string_from_c(buf);
+    }
+    return out;
+}
+
+internal function HouseRecordRaw(string test, string mutant, string owner, string attempt, string deadline, string stateText, string result) string {
+    string out;
+    c {
+        char *s;
+
+        s = smprint("%s\t%s\t%s\t%s\t%s\t%s\t%s",
+            o9_string_data(test), o9_string_data(mutant),
+            o9_string_data(owner), o9_string_data(attempt),
+            o9_string_data(deadline), o9_string_data(stateText),
+            o9_string_data(result));
+        out = s != nil ? o9_string_take(s) : nil;
+    }
+    return out;
+}
+
+internal function HouseSpecRaw(string id, string record) string {
+    string out;
+    c {
+        char *s, *copy, *f[7], *p;
+        int i;
+
+        copy = o9_string_cstr(record);
+        out = o9_string_from_c("");
+        if(copy != nil){
+            f[0] = copy;
+            i = 1;
+            for(p = copy; *p != 0 && i < 7; p++)
+                if(*p == '\t'){
+                    *p = 0;
+                    f[i++] = p+1;
+                }
+            if(i == 7){
+                s = smprint("schema=mutation_assignment_v1\n\tcol=task_id\n\tcol=test\n\tcol=mutant\n\tcol=attempt\n\tcol=lease_until\n\ntask_id=%s\n\ttest=%s\n\tmutant=%s\n\tattempt=%s\n\tlease_until=%s\n",
+                    o9_string_data(id), f[0], f[1], f[3], f[4]);
+                if(s != nil){
+                    o9_string_release(out);
+                    out = o9_string_take(s);
+                }
+            }
+            free(copy);
+        }
+    }
+    return out;
+}
+
+class HouseCodec {
+    method bool field(string value, int64 maxlen, bool path) {
+        Task<bool> t = spawn HouseFieldRaw(value, maxlen, path);
+        return t.await();
+    }
+
+    method string number(int64 n) {
+        Task<string> t = spawn HouseNumberRaw(n);
+        return t.await();
+    }
+
+    method bool digits(string value) {
+        Task<bool> t = spawn HouseDigitsRaw(value);
+        return t.await();
+    }
+
+    method string record(string test, string mutant, string owner, string attempt, string deadline, string stateText, string result) {
+        Task<string> t = spawn HouseRecordRaw(test, mutant, owner, attempt, deadline, stateText, result);
+        return t.await();
+    }
+
+    method string spec(string id, string row) {
+        Task<string> t = spawn HouseSpecRaw(id, row);
+        return t.await();
+    }
+}
+
+// The journal is the work truth. Clone numbers and FileTree instances are
+// deliberately absent from its records.
+class MutationHouse {
+    private dictionary<string> jobs;
+    private list<string> order;
+    private File journal;
+    private HouseCodec codec;
+    private Time clock;
+    private bool healthy;
+
+    method MutationHouse(string path) {
+        jobs = new dictionary<string>();
+        order = new list<string>();
+        journal = new File(path);
+        codec = new HouseCodec();
+        clock = new Time();
+        healthy = true;
+        if(!journal.exists()) {
+            if(journal.write("") < 0 || !journal.exists()) {
+                healthy = false;
+            }
+        }
+        String data = new String(journal.read());
+        int64 bytes = journal.size();
+        if(bytes < 0 || bytes != data.length()) {
+            healthy = false;
+        }
+        int64 n = data.count("\n");
+        if(data.length() > 0 && !data.endsWith("\n")) {
+            int64 last = data.lastIndexOf("\n");
+            if(last < 0) {
+                if(journal.write("") < 0) {
+                    healthy = false;
+                }
+            } else {
+                if(journal.write(data.slice(0, last + 1)) < 0) {
+                    healthy = false;
+                }
+            }
+        }
+        int64 i = 0;
+        while(i < n && healthy) {
+            healthy = apply(data.line(i));
+            i = i + 1;
+        }
+    }
+
+    private method string field(string record, int64 index) {
+        String row = new String(record);
+        return row.field("\t", index);
+    }
+
+    private method bool apply(string line) {
+        String raw = new String(line);
+        string op = field(line, 0);
+        string id = field(line, 1);
+        if((cmp(op, "A") == 0 && raw.count("\t") != 3) ||
+           (cmp(op, "A") != 0 && raw.count("\t") != 4)) {
+            return false;
+        }
+        if(cmp(op, "A") == 0 && !jobs.has(id)) {
+            string test = field(line, 2);
+            string mutant = field(line, 3);
+            if(!codec.field(id, 64, false) || !codec.field(test, 256, true) ||
+               !codec.field(mutant, 64, false)) {
+                return false;
+            }
+            jobs.set(id, codec.record(test, mutant, "", "0", "0", "p", ""));
+            order.add(id);
+        } else if(cmp(op, "L") == 0 && jobs.has(id)) {
+            string prior = jobs.get(id);
+            string who = field(line, 2);
+            string attempt = field(line, 3);
+            string deadline = field(line, 4);
+            bool valid = codec.field(who, 64, false);
+            if(!codec.digits(attempt)) {
+                valid = false;
+            }
+            if(!codec.digits(deadline)) {
+                valid = false;
+            }
+            int64 next = clock.parse(field(prior, 3)) + 1;
+            if(clock.parse(attempt) != next || cmp(field(prior, 5), "d") == 0) {
+                valid = false;
+            }
+            if(!valid) {
+                return false;
+            }
+            jobs.set(id, codec.record(field(prior, 0), field(prior, 1),
+                who, attempt, deadline, "a", ""));
+        } else if(cmp(op, "H") == 0 && jobs.has(id)) {
+            string prior = jobs.get(id);
+            string who = field(line, 2);
+            string attempt = field(line, 3);
+            string deadline = field(line, 4);
+            bool valid = cmp(field(prior, 5), "a") == 0;
+            if(cmp(field(prior, 2), who) != 0 ||
+               cmp(field(prior, 3), attempt) != 0) {
+                valid = false;
+            }
+            if(!codec.digits(deadline)) {
+                valid = false;
+            }
+            int64 oldDeadline = clock.parse(field(prior, 4));
+            if(clock.parse(deadline) < oldDeadline || !valid) {
+                return false;
+            }
+            jobs.set(id, codec.record(field(prior, 0), field(prior, 1),
+                who, attempt, deadline, "a", ""));
+        } else if(cmp(op, "R") == 0 && jobs.has(id)) {
+            string prior = jobs.get(id);
+            string outcome = field(line, 4);
+            if(cmp(field(prior, 5), "a") != 0 ||
+               cmp(field(prior, 2), field(line, 2)) != 0 ||
+               cmp(field(prior, 3), field(line, 3)) != 0 ||
+               !(cmp(outcome, "killed") == 0 || cmp(outcome, "survived") == 0 ||
+                 cmp(outcome, "timeout") == 0 || cmp(outcome, "build_error") == 0)) {
+                return false;
+            }
+            jobs.set(id, codec.record(field(prior, 0), field(prior, 1),
+                field(prior, 2), field(prior, 3), field(prior, 4), "d", outcome));
+        } else {
+            return false;
+        }
+        return true;
+    }
+
+    private method bool record(string line) {
+        if(!healthy) {
+            return false;
+        }
+        int64 wrote = journal.append(cat(line, "\n"));
+        if(wrote != len(line) + 1) {
+            healthy = false;
+            return false;
+        }
+        return true;
+    }
+
+    internal method bool add(string id, string test, string mutant) {
+        if(!codec.field(id, 64, false) || !codec.field(test, 256, true) ||
+           !codec.field(mutant, 64, false) || jobs.has(id)) {
+            return false;
+        }
+        if(!record(cat(cat(cat(cat(cat("A\t", id), "\t"), test), "\t"), mutant))) {
+            return false;
+        }
+        jobs.set(id, codec.record(test, mutant, "", "0", "0", "p", ""));
+        order.add(id);
+        return true;
+    }
+
+    internal method string assigned(string principal, int64 now) {
+        int64 i = 0;
+        while(i < order.length()) {
+            string id = order.get(i);
+            string rec = jobs.get(id);
+            if(cmp(field(rec, 5), "a") == 0 &&
+               cmp(field(rec, 2), principal) == 0 &&
+               now < clock.parse(field(rec, 4))) {
+                return codec.spec(id, rec);
+            }
+            i = i + 1;
+        }
+        return "schema=mutation_assignment_v1\n\tcol=task_id\n\tcol=test\n\tcol=mutant\n\tcol=attempt\n\tcol=lease_until\n";
+    }
+
+    internal method bool assign(string principal, int64 now, int64 leaseSeconds) {
+        if(!codec.field(principal, 64, false) || now < 1 ||
+           leaseSeconds < 1 || leaseSeconds > 3600) {
+            return false;
+        }
+        if(cmp(assigned(principal, now),
+            "schema=mutation_assignment_v1\n\tcol=task_id\n\tcol=test\n\tcol=mutant\n\tcol=attempt\n\tcol=lease_until\n") != 0) {
+            return true;
+        }
+        int64 i = 0;
+        while(i < order.length()) {
+            string id = order.get(i);
+            string rec = jobs.get(id);
+            if(cmp(field(rec, 5), "p") == 0 ||
+               (cmp(field(rec, 5), "a") == 0 && now >= clock.parse(field(rec, 4)))) {
+                string attempt = codec.number(clock.parse(field(rec, 3)) + 1);
+                string deadline = codec.number(now + leaseSeconds);
+                string event = cat(cat(cat(cat(cat(cat(cat(cat("L\t", id), "\t"),
+                    principal), "\t"), attempt), "\t"), deadline), "");
+                if(!record(event)) {
+                    return false;
+                }
+                jobs.set(id, codec.record(field(rec, 0), field(rec, 1),
+                    principal, attempt, deadline, "a", ""));
+                return true;
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    internal method bool complete(string principal, string id, int64 attempt, string outcome, int64 now) {
+        if(!jobs.has(id) || !codec.field(principal, 64, false) ||
+           !(cmp(outcome, "killed") == 0 || cmp(outcome, "survived") == 0 ||
+             cmp(outcome, "timeout") == 0 || cmp(outcome, "build_error") == 0)) {
+            return false;
+        }
+        string rec = jobs.get(id);
+        if(cmp(field(rec, 5), "a") != 0 || cmp(field(rec, 2), principal) != 0 ||
+           clock.parse(field(rec, 3)) != attempt || now >= clock.parse(field(rec, 4))) {
+            return false;
+        }
+        string event = cat(cat(cat(cat(cat(cat(cat(cat("R\t", id), "\t"),
+            principal), "\t"), codec.number(attempt)), "\t"), outcome), "");
+        if(!record(event)) {
+            return false;
+        }
+        jobs.set(id, codec.record(field(rec, 0), field(rec, 1),
+            principal, codec.number(attempt), field(rec, 4), "d", outcome));
+        return true;
+    }
+
+    internal method bool renew(string principal, string id, int64 attempt, int64 now, int64 leaseSeconds) {
+        if(!jobs.has(id) || !codec.field(principal, 64, false) ||
+           leaseSeconds < 1 || leaseSeconds > 3600) {
+            return false;
+        }
+        string rec = jobs.get(id);
+        if(cmp(field(rec, 5), "a") != 0 || cmp(field(rec, 2), principal) != 0 ||
+           clock.parse(field(rec, 3)) != attempt || now >= clock.parse(field(rec, 4))) {
+            return false;
+        }
+        string deadline = codec.number(now + leaseSeconds);
+        if(now + leaseSeconds <= clock.parse(field(rec, 4))) {
+            return true;
+        }
+        string event = cat(cat(cat(cat(cat(cat(cat(cat("H\t", id), "\t"),
+            principal), "\t"), codec.number(attempt)), "\t"), deadline), "");
+        if(!record(event)) {
+            return false;
+        }
+        jobs.set(id, codec.record(field(rec, 0), field(rec, 1), principal,
+            codec.number(attempt), deadline, "a", ""));
+        return true;
+    }
+
+    internal method string recordState(string id) {
+        if(!jobs.has(id)) {
+            return "";
+        }
+        return jobs.get(id);
+    }
+
+    internal method bool matchesSpec(string id, string test, string mutant) {
+        if(!jobs.has(id)) {
+            return false;
+        }
+        string rec = jobs.get(id);
+        return cmp(field(rec, 0), test) == 0 && cmp(field(rec, 1), mutant) == 0;
+    }
+
+    internal method bool isHealthy() {
+        return healthy;
+    }
+}
+
+class MutationHouseView {
+    ViewController;
+    private MutationHouse house;
+    private HouseCodec codec;
+    private Time clock;
+    private Factotum fact;
+
+    method MutationHouseView(MutationHouse source) {
+        house = source;
+        codec = new HouseCodec();
+        clock = new Time();
+        fact = new Factotum();
+    }
+
+    internal method FileTree display(string id, string caller) {
+        if(!codec.field(caller, 64, false)) {
+            return nil;
+        }
+        FileTree tree = new FileTree();
+        tree.text("machine", caller, false);
+        tree.live("assigned.tab", false);
+        tree.live("ready", true);
+        tree.live("renew.tab", true);
+        tree.live("result.tab", true);
+        return tree;
+    }
+
+    internal method string readText(string id, string path) {
+        if(!fact.blessed()) {
+            return "";
+        }
+        if(cmp(path, "assigned.tab") == 0) {
+            return house.assigned(fact.caller(), clock.now());
+        }
+        return "";
+    }
+
+    internal method int64 writeText(string id, string path, int64 offset, string text, bool truncate) {
+        if(!fact.blessed() || offset != 0 || len(text) > 256) {
+            return -1;
+        }
+        // OTRUNC sends an empty write during open, before the command bytes.
+        if(truncate && len(text) == 0 &&
+           (cmp(path, "ready") == 0 || cmp(path, "renew.tab") == 0 ||
+            cmp(path, "result.tab") == 0)) {
+            return 0;
+        }
+        string principal = fact.caller();
+        if(cmp(path, "ready") == 0 && cmp(text, "1\n") == 0) {
+            if(house.assign(principal, clock.now(), 120)) {
+                return len(text);
+            }
+            return -1;
+        }
+        if(cmp(path, "renew.tab") == 0) {
+            String row = new String(text);
+            if(cmp(row.line(0), "schema=mutation_renew_v1") != 0 ||
+               cmp(row.line(1), "\tcol=task_id") != 0 ||
+               cmp(row.line(2), "\tcol=attempt") != 0 ||
+               cmp(row.line(3), "") != 0) {
+                return -1;
+            }
+            String taskLine = new String(row.line(4));
+            String attemptLine = new String(row.line(5));
+            if(!taskLine.startsWith("task_id=") ||
+               !attemptLine.startsWith("\tattempt=") || row.count("\n") != 6) {
+                return -1;
+            }
+            string task = taskLine.after("=");
+            string attempt = attemptLine.after("=");
+            if(codec.field(task, 64, false) && codec.digits(attempt) &&
+               house.renew(principal, task, clock.parse(attempt), clock.now(), 120)) {
+                return len(text);
+            }
+            return -1;
+        }
+        if(cmp(path, "result.tab") == 0) {
+            String row = new String(text);
+            String attemptLine = new String(row.line(6));
+            String outcomeLine = new String(row.line(7));
+            if(cmp(row.line(0), "schema=mutation_result_v1") != 0 ||
+               cmp(row.line(1), "\tcol=task_id") != 0 ||
+               cmp(row.line(2), "\tcol=attempt") != 0 ||
+               cmp(row.line(3), "\tcol=outcome") != 0 ||
+               !row.startsWith("schema=mutation_result_v1\n\tcol=task_id\n\tcol=attempt\n\tcol=outcome\n\ntask_id=") ||
+               !attemptLine.startsWith("\tattempt=") ||
+               !outcomeLine.startsWith("\toutcome=") ||
+               row.count("\n") != 8) {
+                return -1;
+            }
+            String taskLine = new String(row.line(5));
+            string task = taskLine.after("=");
+            string attempt = attemptLine.after("=");
+            string outcome = outcomeLine.after("=");
+            if(!codec.field(task, 64, false) || !codec.digits(attempt)) {
+                return -1;
+            }
+            if(house.complete(principal, task, clock.parse(attempt),
+                outcome, clock.now())) {
+                return len(text);
+            }
+        }
+        return -1;
+    }
+}

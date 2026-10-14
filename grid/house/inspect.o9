@@ -1,0 +1,17 @@
+import "stdlib/process.o9";
+
+main {
+    Process args = new Process();
+    if(args.argc() == 3) {
+        tabula assignment = new tabula(args.arg(2));
+        if(cmp(assignment.schema(), "mutation_assignment_v1") == 0 &&
+           cmp(assignment.value("m1", "test"), "suite/test.o9") == 0 &&
+           cmp(assignment.value("m1", "mutant"), "mut-1") == 0 &&
+           cmp(assignment.value("m1", "attempt"), "1") == 0) {
+            print("HOUSE ASSIGNMENT TABULA PASS\n");
+        } else {
+            print("HOUSE ASSIGNMENT TABULA FAIL\n");
+        }
+        assignment.close();
+    }
+}

@@ -1,0 +1,20 @@
+import "stdlib/appuser.o9";
+import "stdlib/process.o9";
+
+// Sign a VM test challenge using an ordinary stock 9front factotum RSA key.
+main {
+    Process args = new Process();
+    if(args.argc() != 7) {
+        print("usage: house-client appname principal modulus exponent challenge.tab answer.tab\n");
+    } else {
+        AppUser machine = new AppUser("o9mut", "Machine", args.arg(2), "", args.arg(3), args.arg(4));
+        tabula challenge = new tabula(args.arg(5));
+        string answer = machine.responseTab(challenge, "house");
+        challenge.close();
+        if(len(answer) == 0 || writefile(args.arg(6), answer) < 0) {
+            print("HOUSE CLIENT FAIL\n");
+        } else {
+            print("HOUSE CLIENT SIGNED\n");
+        }
+    }
+}

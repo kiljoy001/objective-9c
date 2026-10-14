@@ -1,0 +1,68 @@
+import "house.o9";
+import "stdlib/appuser.o9";
+import "stdlib/process.o9";
+
+// Usage: house-server <srvname> <journal> <machines.tsv> <jobs.tsv>
+// The two TSV files are trusted local administrator input, never worker files.
+main {
+    Process args = new Process();
+    if(args.argc() != 5) {
+        print("usage: house-server srvname journal machines.tsv jobs.tsv\n");
+    } else {
+        File keysFile = new File(args.arg(3));
+        File jobsFile = new File(args.arg(4));
+        if(!keysFile.exists() || !jobsFile.exists()) {
+            print("house: missing machines or jobs file\n");
+        } else {
+            AppUserRSAProvider provider = new AppUserRSAProvider("o9mut", "house", 60);
+            MutationHouse house = new MutationHouse(args.arg(2));
+            String keys = new String(keysFile.read());
+            String work = new String(jobsFile.read());
+            bool valid = true;
+            int64 enrolled = 0;
+            int64 i = 0;
+            while(i <= keys.count("\n")) {
+                String row = new String(keys.line(i));
+                if(row.length() > 0 && !row.startsWith("#")) {
+                    if(row.count("\t") != 2 ||
+                       !provider.enroll(row.field("\t", 0), row.field("\t", 1), row.field("\t", 2))) {
+                        print("house: rejected machine entry ", i, "\n");
+                        valid = false;
+                    } else {
+                        enrolled = enrolled + 1;
+                    }
+                }
+                i = i + 1;
+            }
+            i = 0;
+            while(i <= work.count("\n")) {
+                String row = new String(work.line(i));
+                if(row.length() > 0 && !row.startsWith("#")) {
+                    if(row.count("\t") != 2) {
+                        print("house: malformed job entry ", i, "\n");
+                        valid = false;
+                    } else {
+                        string id = row.field("\t", 0);
+                        if((len(house.recordState(id)) == 0 &&
+                            !house.add(id, row.field("\t", 1), row.field("\t", 2))) ||
+                           (len(house.recordState(id)) > 0 &&
+                            !house.matchesSpec(id, row.field("\t", 1), row.field("\t", 2)))) {
+                            print("house: rejected job entry ", i, " id=", id,
+                                  " test=", row.field("\t", 1), " mutant=", row.field("\t", 2), "\n");
+                            valid = false;
+                        }
+                    }
+                }
+                i = i + 1;
+            }
+            if(!valid || enrolled == 0 || !house.isHealthy()) {
+                print("house: invalid machine key or job manifest\n");
+            } else {
+                MutationHouseView view = new MutationHouseView(house);
+                viewController(view);
+                print("house: serving authenticated machine views\n");
+                serveAppUsers(provider);
+            }
+        }
+    }
+}

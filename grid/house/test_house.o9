@@ -1,0 +1,56 @@
+import "house.o9";
+import "stdlib/process.o9";
+
+main {
+    Process args = new Process();
+    if(args.argc() != 3) {
+        print("usage: test_house appname journal\n");
+    } else {
+        File journal = new File(args.arg(2));
+        journal.write("");
+        MutationHouse house = new MutationHouse(args.arg(2));
+        bool ok = true;
+        bool addA = house.add("m1", "suite/test.o9", "mut-1");
+        bool addB = house.add("m2", "suite/test.o9", "mut-2");
+        ok = addA && addB && ok;
+        bool claimA = house.assign("machine-a", 100, 10);
+        bool claimB = house.assign("machine-b", 101, 10);
+        ok = claimA && claimB && ok;
+        String a = new String(house.assigned("machine-a", 102));
+        String b = new String(house.assigned("machine-b", 102));
+        ok = a.contains("task_id=m1") && b.contains("task_id=m2") && ok;
+        ok = !house.complete("machine-b", "m1", 1, "killed", 103) && ok;
+        ok = house.complete("machine-a", "m1", 1, "killed", 103) && ok;
+        ok = !house.complete("machine-a", "m1", 1, "survived", 104) && ok;
+        ok = !house.renew("machine-c", "m2", 1, 109, 10) && ok;
+        ok = house.renew("machine-b", "m2", 1, 109, 10) && ok;
+        ok = !house.assign("machine-c", 112, 10) && ok;
+        ok = house.assign("machine-c", 120, 10) && ok;
+        String c = new String(house.assigned("machine-c", 121));
+        ok = c.contains("task_id=m2") && c.contains("attempt=2") && ok;
+        ok = !house.renew("machine-b", "m2", 1, 121, 10) && ok;
+        ok = !house.complete("machine-b", "m2", 1, "killed", 122) && ok;
+        ok = house.complete("machine-c", "m2", 2, "survived", 122) && ok;
+        MutationHouse recovered = new MutationHouse(args.arg(2));
+        String r1 = new String(recovered.recordState("m1"));
+        String r2 = new String(recovered.recordState("m2"));
+        ok = r1.contains("\td\tkilled") && r2.contains("\td\tsurvived") && ok;
+        ok = !recovered.assign("machine-d", 132, 10) && ok;
+        journal.append("H\tm2\tmachine-z\t99\t999");
+        MutationHouse repaired = new MutationHouse(args.arg(2));
+        String tail = new String(journal.read());
+        String r3 = new String(repaired.recordState("m2"));
+        ok = repaired.isHealthy() && tail.endsWith("\n") &&
+             r3.contains("\td\tsurvived") && ok;
+        journal.append("broken\n");
+        MutationHouse corrupt = new MutationHouse(args.arg(2));
+        ok = !corrupt.isHealthy() && !corrupt.add("m3", "suite/test.o9", "mut-3") && ok;
+        if(ok) {
+            print("HOUSE LEDGER PASS: two workers, ownership, renewal, expiry, stale result, restart, corrupt journal\n");
+        } else {
+            print("HOUSE LEDGER FAIL\n");
+            print("m1=", recovered.recordState("m1"), "\n");
+            print("m2=", recovered.recordState("m2"), "\n");
+        }
+    }
+}
