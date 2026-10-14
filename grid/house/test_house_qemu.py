@@ -24,14 +24,21 @@ def main():
     spec.loader.exec_module(builder)
     with tempfile.TemporaryDirectory(prefix="o9house-qemu-") as tmp:
         work = Path(tmp)
-        for kind in ("server", "client", "test_house", "inspect"):
+        for kind in ("server", "client", "test_house", "inspect", "worker"):
             subprocess.run([str(ROOT / "grid/house/build.sh"), kind,
                             str(work / f"{kind}.c")], cwd=ROOT, check=True)
         disk = work / "test.img"
         subprocess.run(["cp", "--sparse=always", sys.argv[1], disk], check=True)
         fat = f"{disk}@@{builder.ninefat_offset(disk)}"
         (work / "plan9.ini").write_text(builder.BUILD_PLAN9INI)
-        (work / "jobs.tsv").write_text("m1\tsuite/test.o9\tmut-1\n")
+        (work / "jobs.tsv").write_text(
+            "m1\tsuite/test.o9\tmut-1\n"
+            "m2\tsuite/test.o9\t/tmp/mutant.o9\n")
+        (work / "gate.rc").write_text(
+            "#!/bin/rc\n"
+            "echo gate-source: $O9MUT_SOURCE gate-mutant: $O9MUT_MUTANT\n"
+            "sleep 3\n"
+            "exit failed\n")
         (work / "result.tab").write_text(
             "schema=mutation_result_v1\n\tcol=task_id\n\tcol=attempt\n"
             "\tcol=outcome\n\ntask_id=m1\n\tattempt=1\n\toutcome=killed\n")
@@ -42,13 +49,13 @@ def main():
         subprocess.run(["mmd", "-i", fat, "::o9house"], check=True)
         subprocess.run(["mmd", "-i", fat, "::o9lib"], check=True)
         sources = [(f"{kind}.c", work / f"{kind}.c")
-                   for kind in ("server", "client", "test_house", "inspect")]
+                   for kind in ("server", "client", "test_house", "inspect", "worker")]
         sources.extend((name, ROOT / name) for name in RUNTIME)
         for name, path in sources:
             subprocess.run(["mcopy", "-i", fat, str(path), f"::o9house/{name}"], check=True)
         for path in (ROOT / "libtab").glob("*.[ch]"):
             subprocess.run(["mcopy", "-i", fat, str(path), f"::o9lib/{path.name}"], check=True)
-        for name in ("jobs.tsv", "result.tab", "renew.tab"):
+        for name in ("jobs.tsv", "result.tab", "renew.tab", "gate.rc"):
             subprocess.run(["mcopy", "-i", fat, str(work / name), f"::{name}"], check=True)
 
         qemu = ["qemu-system-i386", "-m", "1024", "-display", "none",
@@ -85,9 +92,9 @@ def main():
                     "bind -b /usr/glenda/bin/386 /bin",
                     "cd /tmp/o9house; mk libo9.a",
                     *("8c -FV -DO9_HAVE_SRVRELEASE -I/tmp/o9house -o /tmp/o9house/" + k + ".8 /tmp/o9house/" + k + ".c"
-                      for k in ("server", "client", "test_house", "inspect")),
+                      for k in ("server", "client", "test_house", "inspect", "worker")),
                     *("8l -o /tmp/house-" + k + " /tmp/o9house/" + k + ".8 /tmp/o9house/libo9.a /386/lib/libndb.a /386/lib/libauth.a /386/lib/libmp.a /386/lib/libsec.a"
-                      for k in ("server", "client", "test_house", "inspect")),
+                      for k in ("server", "client", "test_house", "inspect", "worker")),
                     "/tmp/house-test_house housetest /tmp/house-ledger",
                     "auth/rsagen -b 2048 -t 'service=appuser app=o9mut hash=sha256' >/tmp/house-key",
                     "cat /tmp/house-key >/mnt/factotum/ctl",
@@ -115,8 +122,13 @@ def main():
                     "cat /tmp/house-result.tab >/tmp/housemnt/0/view/result.tab",
                     "cat /tmp/housemnt/0/view/assigned.tab",
                     "cat /tmp/house-journal",
+                    "cp /n/9fat/gate.rc /tmp/house-gate.rc",
+                    "/tmp/house-worker houseworker /tmp/housemnt machine-a $n $e 'rc /tmp/house-gate.rc' /tmp/house-local 10000 1 100 1000",
+                    "cat /tmp/house-journal",
+                    "cat /tmp/house-local/m2.1.*.*/results/m2.tab",
+                    "cat /tmp/house-local/m2.1.*.*/logs/m2.machine-a.log",
                     "cat /tmp/housemnt/clone",
-                    "cat /tmp/housemnt/1/view/machine >[2=1]",
+                    "cat /tmp/housemnt/2/view/machine >[2=1]",
                 )
                 for command in commands:
                     guest(command, 300 if "mk libo9" in command else 180)
@@ -131,12 +143,16 @@ def main():
                                  "HOUSE ASSIGNMENT TABULA PASS",
                                  "H\tm1\tmachine-a\t1\t",
                                  "R\tm1\tmachine-a\t1\tkilled",
-                                 "file does not exist: '/tmp/housemnt/1/view'"):
+                                 "HOUSE WORKER RESULT m2 killed attempt 1",
+                                 "H\tm2\tmachine-a\t1\t",
+                                 "R\tm2\tmachine-a\t1\tkilled",
+                                 "gate-source: suite/test.o9 gate-mutant: /tmp/mutant.o9",
+                                 "file does not exist: '/tmp/housemnt/2/view'"):
                     if expected not in transcript:
                         raise AssertionError(f"missing {expected!r}")
                 if "house: invalid machine key" in transcript:
                     raise AssertionError("server rejected machine manifest")
-                print("HOUSE VM PASS: durable ledger and AppUser-gated 9P work view")
+                print("HOUSE VM PASS: ledger, AppUser 9P view, and automatic mutation worker")
             except Exception:
                 log.flush()
                 print(logpath.read_text(errors="replace")[-7000:])

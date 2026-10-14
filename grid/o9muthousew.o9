@@ -1,0 +1,234 @@
+import "o9mutlib.o9";
+import "stdlib/appuser.o9";
+import "stdlib/file.o9";
+import "stdlib/process.o9";
+import "stdlib/string.o9";
+import "stdlib/time.o9";
+
+// The house owns leases. This loop keeps one lease alive while the existing
+// o9mut worker runs its gate. A failed renewal is reported to the caller.
+function HouseRenewLoopRaw(string path, string record, string stop, int64 intervalMs) int64 {
+    int64 ok;
+    c {
+        char *p, *r, *s;
+        int fd, n, wanted, waited, step;
+
+        ok = 1;
+        p = o9_string_cstr(path);
+        r = o9_string_cstr(record);
+        s = o9_string_cstr(stop);
+        wanted = r != nil ? strlen(r) : 0;
+        if(p == nil || r == nil || s == nil || wanted == 0)
+            ok = 0;
+        waited = 0;
+        while(ok && access(s, 0) < 0){
+            step = intervalMs - waited;
+            if(step > 1000)
+                step = 1000;
+            sleep(step);
+            if(access(s, 0) == 0)
+                break;
+            waited += step;
+            if(waited < intervalMs)
+                continue;
+            waited = 0;
+            fd = create(p, OWRITE, 0666);
+            if(fd < 0){
+                ok = 0;
+                break;
+            }
+            n = write(fd, r, wanted);
+            if(close(fd) < 0 || n != wanted)
+                ok = 0;
+        }
+        free(p);
+        free(r);
+        free(s);
+    }
+    return ok;
+}
+
+function HouseWorkerNumberRaw(int64 value) string {
+    string out;
+    c {
+        char buf[32];
+
+        snprint(buf, sizeof buf, "%lld", value);
+        out = o9_string_from_c(buf);
+    }
+    return out;
+}
+
+class HouseMutationWorker {
+    private O9Mut grid;
+    private Time clock;
+    private Process process;
+
+    method HouseMutationWorker() {
+        grid = new O9Mut();
+        clock = new Time();
+        process = new Process();
+    }
+
+    private method string number(int64 value) {
+        Task<string> t = spawn HouseWorkerNumberRaw(value);
+        return t.await();
+    }
+
+    private method string resultWire(string task, string attempt, string outcome) {
+        return cat(cat(cat(cat(cat(cat(
+            "schema=mutation_result_v1\n\tcol=task_id\n\tcol=attempt\n\tcol=outcome\n\ntask_id=",
+            task), "\n\tattempt="), attempt), "\n\toutcome="), outcome), "\n");
+    }
+
+    private method string renewWire(string task, string attempt) {
+        return cat(cat(cat(cat("schema=mutation_renew_v1\n\tcol=task_id\n\tcol=attempt\n\ntask_id=",
+            task), "\n\tattempt="), attempt), "\n");
+    }
+
+    method bool run(string mountPath, string principal, string modulus, string exponent,
+                    string gate, string localBase, int64 timeoutMs, int64 maxJobs,
+                    int64 idleMs, int64 renewMs) {
+        File base = new File(localBase);
+        if(!base.mkdirAll() || timeoutMs < 1 || maxJobs < 0 || idleMs < 1 ||
+           renewMs < 1 || renewMs >= 120000 || len(gate) == 0) {
+            print("HOUSE WORKER FAIL: invalid local configuration\n");
+            return false;
+        }
+        AppUser machine = new AppUser("o9mut", "Machine", principal, "", modulus, exponent);
+        File clone = new File(cat(mountPath, "/clone"));
+        String numberText = new String(clone.read());
+        string session = numberText.trim();
+        if(len(session) == 0) {
+            print("HOUSE WORKER FAIL: clone unavailable\n");
+            return false;
+        }
+        string sessionPath = cat(cat(mountPath, "/"), session);
+        File ctl = new File(cat(sessionPath, "/ctl"));
+        string authCommand = cat(cat("auth ", principal), "\n");
+        if(ctl.write(authCommand) != 0) {
+            print("HOUSE WORKER FAIL: auth request\n");
+            return false;
+        }
+        tabula challenge = new tabula(cat(sessionPath, "/challenge.tab"));
+        string answer = machine.responseTab(challenge, "house");
+        challenge.close();
+        File response = new File(cat(sessionPath, "/response.tab"));
+        if(len(answer) == 0 || response.write(answer) != 0) {
+            print("HOUSE WORKER FAIL: RSA response\n");
+            return false;
+        }
+        File status = new File(cat(sessionPath, "/status.tab"));
+        String statusText = new String(status.read());
+        if(!statusText.contains("state=verified") ||
+           !statusText.contains(cat("principal=", principal))) {
+            print("HOUSE WORKER FAIL: identity not verified\n");
+            return false;
+        }
+        string view = cat(sessionPath, "/view");
+        File ready = new File(cat(view, "/ready"));
+        File resultFile = new File(cat(view, "/result.tab"));
+        int64 completed = 0;
+        while(maxJobs == 0 || completed < maxJobs) {
+            if(ready.write("1\n") != 0) {
+                String statusNow = new String(status.read());
+                if(!statusNow.contains("state=verified")) {
+                    print("HOUSE WORKER FAIL: house session lost\n");
+                    return false;
+                }
+                clock.sleep(idleMs);
+            } else {
+            string assignmentPath = cat(view, "/assigned.tab");
+            tabula assignment = new tabula(assignmentPath);
+            if(cmp(assignment.schema(), "mutation_assignment_v1") != 0 ||
+               assignment.first() == 0) {
+                assignment.close();
+                print("HOUSE WORKER FAIL: claimed assignment missing\n");
+                return false;
+            }
+            File assignedFile = new File(assignmentPath);
+            String assignedText = new String(assignedFile.read());
+            String taskLine = new String(assignedText.line(7));
+            string task = "";
+            if(taskLine.startsWith("task_id=")) {
+                task = taskLine.after("=");
+            }
+            string source = assignment.get("test");
+            string mutant = assignment.get("mutant");
+            string attempt = assignment.get("attempt");
+            bool single = assignment.next() == 0;
+            assignment.close();
+            if(!single || len(task) == 0 || len(source) == 0 ||
+               len(mutant) == 0 || len(attempt) == 0) {
+                print("HOUSE WORKER FAIL: invalid assignment task=", task,
+                    " source=", source, " mutant=", mutant, " attempt=", attempt,
+                    " single=", single, "\n");
+                return false;
+            }
+            string localRoot = cat(cat(cat(cat(cat(cat(cat(cat(localBase, "/"), task), "."),
+                attempt), "."), number(process.pid())), "."), number(clock.now()));
+            if(!grid.init(localRoot)) {
+                print("HOUSE WORKER FAIL: local queue initialization\n");
+                return false;
+            }
+            string queued = grid.enqueue(localRoot, task, source, mutant, gate,
+                number(timeoutMs), "0");
+            if(cmp(queued, cat(cat("enqueued ", task), "\n")) != 0) {
+                print("HOUSE WORKER FAIL: local enqueue ", queued);
+                return false;
+            }
+            string stopPath = cat(localRoot, "/house-heartbeat.stop");
+            Task<int64> heartbeat = spawn HouseRenewLoopRaw(
+                cat(view, "/renew.tab"), renewWire(task, attempt), stopPath, renewMs);
+            string execution = grid.runWorker(localRoot, principal, 1, 100);
+            File stop = new File(stopPath);
+            stop.write("stop\n");
+            bool leaseOk = heartbeat.await() == 1;
+            File localResult = new File(cat(cat(cat(localRoot, "/results/"), task), ".tab"));
+            if(!localResult.exists()) {
+                print("HOUSE WORKER FAIL: executor produced no result: ", execution);
+                return false;
+            }
+            String report = new String(localResult.read());
+            String row = new String(report.line(1));
+            if(!report.startsWith("task_id\tworker_id\tsource\tmutant_path\tresult\t") ||
+               cmp(row.field("\t", 0), task) != 0 ||
+               cmp(row.field("\t", 2), source) != 0 ||
+               cmp(row.field("\t", 3), mutant) != 0) {
+                print("HOUSE WORKER FAIL: executor result mismatch\n");
+                return false;
+            }
+            string outcome = row.field("\t", 4);
+            if(!(cmp(outcome, "killed") == 0 || cmp(outcome, "survived") == 0 ||
+                 cmp(outcome, "timeout") == 0 || cmp(outcome, "setup_error") == 0 ||
+                 cmp(outcome, "infra_fail") == 0)) {
+                print("HOUSE WORKER FAIL: unsupported executor outcome ", outcome, "\n");
+                return false;
+            }
+            string record = resultWire(task, attempt, outcome);
+            if(!leaseOk || resultFile.write(record) != 0) {
+                print("HOUSE WORKER FAIL: lease lost or result rejected for ", task, "\n");
+                return false;
+            }
+            print("HOUSE WORKER RESULT ", task, " ", outcome, " attempt ", attempt, "\n");
+            completed = completed + 1;
+            }
+        }
+        return true;
+    }
+}
+
+main {
+    Process args = new Process();
+    Time clock = new Time();
+    if(args.argc() != 12) {
+        print("usage: o9muthousew appname mount principal modulus exponent gate local-base timeout-ms max-jobs idle-ms renew-ms\n");
+    } else {
+        HouseMutationWorker worker = new HouseMutationWorker();
+        if(worker.run(args.arg(2), args.arg(3), args.arg(4), args.arg(5),
+            args.arg(6), args.arg(7), clock.parse(args.arg(8)),
+            clock.parse(args.arg(9)), clock.parse(args.arg(10)), clock.parse(args.arg(11)))) {
+            print("HOUSE WORKER PASS\n");
+        }
+    }
+}

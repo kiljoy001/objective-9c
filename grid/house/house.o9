@@ -194,7 +194,7 @@ class MutationHouse {
             string test = field(line, 2);
             string mutant = field(line, 3);
             if(!codec.field(id, 64, false) || !codec.field(test, 256, true) ||
-               !codec.field(mutant, 64, false)) {
+               !codec.field(mutant, 256, true)) {
                 return false;
             }
             jobs.set(id, codec.record(test, mutant, "", "0", "0", "p", ""));
@@ -246,7 +246,8 @@ class MutationHouse {
                cmp(field(prior, 2), field(line, 2)) != 0 ||
                cmp(field(prior, 3), field(line, 3)) != 0 ||
                !(cmp(outcome, "killed") == 0 || cmp(outcome, "survived") == 0 ||
-                 cmp(outcome, "timeout") == 0 || cmp(outcome, "build_error") == 0)) {
+                 cmp(outcome, "timeout") == 0 || cmp(outcome, "build_error") == 0 ||
+                 cmp(outcome, "setup_error") == 0 || cmp(outcome, "infra_fail") == 0)) {
                 return false;
             }
             jobs.set(id, codec.record(field(prior, 0), field(prior, 1),
@@ -271,7 +272,7 @@ class MutationHouse {
 
     internal method bool add(string id, string test, string mutant) {
         if(!codec.field(id, 64, false) || !codec.field(test, 256, true) ||
-           !codec.field(mutant, 64, false) || jobs.has(id)) {
+           !codec.field(mutant, 256, true) || jobs.has(id)) {
             return false;
         }
         if(!record(cat(cat(cat(cat(cat("A\t", id), "\t"), test), "\t"), mutant))) {
@@ -331,7 +332,8 @@ class MutationHouse {
     internal method bool complete(string principal, string id, int64 attempt, string outcome, int64 now) {
         if(!jobs.has(id) || !codec.field(principal, 64, false) ||
            !(cmp(outcome, "killed") == 0 || cmp(outcome, "survived") == 0 ||
-             cmp(outcome, "timeout") == 0 || cmp(outcome, "build_error") == 0)) {
+             cmp(outcome, "timeout") == 0 || cmp(outcome, "build_error") == 0 ||
+             cmp(outcome, "setup_error") == 0 || cmp(outcome, "infra_fail") == 0)) {
             return false;
         }
         string rec = jobs.get(id);

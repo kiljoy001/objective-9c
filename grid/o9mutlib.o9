@@ -1689,7 +1689,9 @@ function O9MutWorkerRaw(string root, string worker, int64 maxJobs, int64 idleMs)
 	                            gateinfra = 1;
                         if(timeoutms > 0 && (nsec() - start) / 1000000LL >= timeoutms)
                             timedout = 1;
-                        if(wm->msg != nil && strstr(wm->msg, "kill") != nil)
+	                        if(wm->msg != nil &&
+	                           (strcmp(wm->msg, "kill") == 0 ||
+	                            strstr(wm->msg, "sys: killed") != nil))
                             timedout = 1;
 	                        childdone = 1;
 	                    } else if(wm->pid == timerpid) {
