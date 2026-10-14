@@ -1,4 +1,5 @@
 // Vault: encrypted fileserver, isolated memory arena, and secret integration
+import "stdlib/bytes.o9";
 class SecretBox {
     secret string token;
 }
@@ -15,6 +16,15 @@ main {
     string blob = v1.seal("hello world from arena");
     string opened = v2.open(blob);
     print("opened: ", opened, "\n");
+
+    Bytes binary = new Bytes("mail");
+    binary.append(0);
+    binary.append(255);
+    binary.append(42);
+    string binaryBlob = v2.seal(binary.text());
+    Bytes binaryOpened = new Bytes(v2.open(binaryBlob));
+    print("binary roundtrip: ", binaryOpened.length(), " ",
+          binaryOpened.hex(), "\n");
 
     // Tampered blob must fail to open
     string badblob = cat("0", blob);
