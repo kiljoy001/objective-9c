@@ -1,6 +1,7 @@
 v1 valid: 1
 v2 valid: 1
 opened: hello world from arena
+binary roundtrip: 7 6d61696c00ff2a
 tamper: rejected
 has token: 1
 get token: vault-slot-payload-42

@@ -728,6 +728,7 @@ o9_vault_open(O9Vault *v, O9String *blob)
 	uchar nonce[24], mac[16], *buf;
 	char *pt, *cblob;
 	long nb, n;
+	O9String *result;
 
 	if(v == nil || v->arena == nil || !v->arena->valid || blob == nil)
 		return nil;
@@ -751,8 +752,10 @@ o9_vault_open(O9Vault *v, O9String *blob)
 		return nil;
 	}
 	free(buf);
-	pt[n - 40] = '\0';
-	return o9_string_take(pt);
+	result = o9_string_new(pt, n - 40);
+	crypto_wipe(pt, n - 40);
+	free(pt);
+	return result;
 }
 
 vlong
