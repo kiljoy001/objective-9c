@@ -433,6 +433,7 @@ extern int o9_filetree_remove(O9FileTree *t, O9String *path);
 extern int o9_filetree_register(O9FileTree *t, O9String *id);
 extern int o9_filetree_apply(O9FileTree *t, O9MountTable *m);
 extern void o9_filetree_close(O9FileTree *t);
+extern int o9_filetree_destroy(O9FileTree *t);
 extern O9FTEntry* o9_filetree_root(O9FileTree *t);
 extern O9FTEntry* o9_filetree_lookup(O9FileTree *t, O9FTEntry *parent, char *name);
 extern int o9_filetree_kind(O9FTEntry *e);

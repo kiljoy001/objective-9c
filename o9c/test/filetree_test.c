@@ -52,7 +52,7 @@ recipe(char *target, char *source, int mode)
 void
 threadmain(int argc, char **argv)
 {
-	O9FileTree *a, *b, *c, *d;
+	O9FileTree *a, *b, *c, *d, *x, *y;
 	O9FTEntry *root, *first, **listing;
 	O9MountTable *m, *loaded;
 	O9String *bytes;
@@ -153,6 +153,25 @@ threadmain(int argc, char **argv)
 	copy = contents(b, o9_filetree_root(b), "shared");
 	want(copy != nil && strcmp(copy, "B") == 0, "other tree survives revoke");
 	free(copy);
+	want(o9_filetree_destroy(a) == 0, "destroy revoked tree");
+	x = o9_filetree_new();
+	y = o9_filetree_new();
+	want(x != nil && y != nil, "new disposable trees");
+	want(o9_filetree_destroy(x) < 0, "live tree cannot be destroyed");
+	want(o9_filetree_text(x, s("leaf"), s("value"), 0) == 0, "disposable text");
+	want(o9_filetree_register(x, s("disposable")) == 0, "register disposable source");
+	m = recipe(".", "disposable", 0);
+	want(o9_filetree_apply(y, m) == 0, "mount disposable source");
+	o9_mount_table_close(m);
+	o9_filetree_close(x);
+	want(o9_filetree_destroy(x) < 0, "mounted source cannot be destroyed");
+	m = o9_mount_table_new(nil);
+	want(o9_mount_table_unmount(m, s(".")) == 0, "unmount disposable source");
+	want(o9_filetree_apply(y, m) == 0, "apply disposable unmount");
+	o9_mount_table_close(m);
+	want(o9_filetree_destroy(x) == 0, "destroy unmounted source");
+	o9_filetree_close(y);
+	want(o9_filetree_destroy(y) == 0, "destroy disposable target");
 	print("filetree: OK\n");
 	threadexitsall(nil);
 }

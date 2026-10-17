@@ -48,8 +48,11 @@ interface ViewController {
 
 `FileTree` supports `dir(path)`, `text(path, value, writable)`,
 `live(path, writable)`, `remove(path)`, `register(sourceId)`,
-`apply(mountTable)`, and `close()`. Paths are relative to the tree root.
-Only the actor that created a tree may change its shape. A directory uses a
+`apply(mountTable)`, `close()`, and `destroy()`. Paths are relative to the tree root.
+Only the actor that created a tree may change its shape. After the final view
+fid is clunked, call `close()` followed by `destroy()` to release the tree
+and its entries. `destroy()` fails while the tree is live or still mounted
+into another tree. Do not use the handle after destruction. A directory uses a
 hash table of names. Replacing a text value keeps that entry's 9P ID;
 removing and recreating a name gives it a new ID.
 

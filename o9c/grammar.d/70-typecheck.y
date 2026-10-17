@@ -2575,6 +2575,7 @@ typecheck_filetree_msg(Node *e, Node *scope_class, Type *lt, int *errs)
         {"remove", 1, 1, 0, -1, 0},
         {"register", 1, 1, 0, -1, 0},
         {"close", 0, 0, 0, -1, 0},
+        {"destroy", 0, 0, 0, -1, 0},
     };
     MsgRule *r;
     if(!type_named(lt, "FileTree"))

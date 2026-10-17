@@ -678,6 +678,7 @@ gen_filetree_msg(Node *e, Type *lt)
         {"register", "o9_filetree_register"},
         {"apply", "o9_filetree_apply"},
         {"close", "o9_filetree_close"},
+        {"destroy", "o9_filetree_destroy"},
     };
     return gen_mapped_handle_msg(e, lt, "FileTree", map, nelem(map));
 }
