@@ -1,0 +1,36 @@
+import "dir.o9";
+
+main {
+    string root = "/tmp/o9_e2e_dir";
+    string copy = "/tmp/o9_e2e_dir_copy";
+    DirTree old = new DirTree(root);
+    old.removeTree();
+    DirTree oldCopy = new DirTree(copy);
+    oldCopy.removeTree();
+
+    mkdir(root);
+    writefile(cat(root, "/b"), "B");
+    writefile(cat(root, "/a"), "A");
+    mkdir(cat(root, "/sub"));
+    writefile(cat(cat(root, "/sub"), "/c"), "C");
+
+    Dir d = new Dir(root);
+    DirList xs = d.entries();
+    print("count ", xs.length(), "\n");
+    int64 i = 0;
+    while(i < xs.length()) {
+        DirEntry e = xs.get(i);
+        print(e.name, " ", e.isdir, " ", e.size, "\n");
+        i = i + 1;
+    }
+
+    DirTree tree = new DirTree(root);
+    DirList all = tree.walk();
+    print("walk ", all.length(), "\n");
+    print("copy ", tree.copyTree(copy), " ",
+          readfile(cat(cat(copy, "/sub"), "/c")), "\n");
+    print("remove ", tree.removeTree(), " ", fileexists(root), "\n");
+
+    DirTree copied = new DirTree(copy);
+    copied.removeTree();
+}

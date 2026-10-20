@@ -1,9 +1,24 @@
 #!/bin/rc
 # Execute-and-assert: transpile, compile, link, RUN, compare stdout.
-# 9front only (needs 6c/6l and a running namespace).
+# 9front only (needs $CC/$LD for $objtype and a running namespace).
 
 tool=./o9c/o9c
 fail=0
+
+# mk builds libo9.a with the compiler for $objtype, so the harness must
+# link with that same toolchain.  Mixing 6l with an 8c archive makes 6l
+# read 386 objects as amd64 and report "opcode out of range 0".
+switch($objtype){
+case 386
+	cc=8c
+	ld=8l
+case amd64
+	cc=6c
+	ld=6l
+case *
+	echo 'run_e2e: unsupported $objtype:' $objtype >[1=2]
+	exit objtype
+}
 
 fn depincs {
 	awk '/^\/\* o9: include / { print "-I" $4 }' $1
@@ -22,20 +37,25 @@ fn buildprog {
 	archs=`{deparchs $cfile}
 	cerr=$ofile^.err
 
-	6c -FVw -I. $incs -o $ofile $cfile > $cerr >[2=1]
+	$cc -FVw -I. $incs -o $ofile $cfile > $cerr >[2=1]
 	if(! ~ $status ''){
+		echo $name': '$cc' compile failed' >[1=2]
 		cat $cerr >[1=2]
 		rm -f $cerr
-		return fail
+		~ 0 1	# function returns false
 	}
-	if(grep -s 'warning:' $cerr){
-		echo $name': 6c warning treated as error' >[1=2]
-		cat $cerr >[1=2]
-		rm -f $cerr
-		return fail
+	if not {
+		if(grep -s 'warning:' $cerr){
+			echo $name': '$cc' warning treated as error' >[1=2]
+			cat $cerr >[1=2]
+			rm -f $cerr
+			~ 0 1	# function returns false
+		}
+		if not {
+			rm -f $cerr
+			$ld -o $bin $ofile libo9.a /$objtype/lib/libndb.a $archs
+		}
 	}
-	rm -f $cerr
-	6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a $archs
 }
 
 fn runcase {
@@ -55,31 +75,32 @@ fn runcase {
 		fail=1
 		rm -f $cfile $ofile $bin $out
 		broke | rc
-		return
 	}
-	if(buildprog $name $cfile $ofile $bin){
-		$bin > $out >[2=1]
-		if(! ~ $status ''){
-			echo $name': run failed:' $status >[1=2]
+	if not {
+		if(buildprog $name $cfile $ofile $bin){
+			$bin > $out >[2=1]
+			if(! ~ $status ''){
+				echo $name': run failed:' $status >[1=2]
+				fail=1
+			}
+			if not if(! cmp -s $out $expected){
+				echo $name': output mismatch' >[1=2]
+				echo '--- expected ---' >[1=2]
+				cat $expected >[1=2]
+				echo '--- actual ---' >[1=2]
+				cat $out >[1=2]
+				fail=1
+			}
+			if not
+				echo $name: OK
+		}
+		if not{
+			echo $name': build failed' >[1=2]
 			fail=1
 		}
-		if not if(! cmp -s $out $expected){
-			echo $name': output mismatch' >[1=2]
-			echo '--- expected ---' >[1=2]
-			cat $expected >[1=2]
-			echo '--- actual ---' >[1=2]
-			cat $out >[1=2]
-			fail=1
-		}
-		if not
-			echo $name: OK
+		rm -f $cfile $ofile $bin $out
+		broke | rc
 	}
-	if not{
-		echo $name': build failed' >[1=2]
-		fail=1
-	}
-	rm -f $cfile $ofile $bin $out
-	broke | rc
 }
 
 # Like runcase but passes the source PATH (not stdin) so imports resolve
@@ -98,24 +119,25 @@ fn importcase {
 		fail=1
 		rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name
 		broke | rc
-		return
 	}
-	if(buildprog $name $cfile $ofile $bin){
-		$bin > $out >[2=1]
-		if(! cmp -s $out $expected){
-			echo $name': output mismatch' >[1=2]
-			cat $expected $out >[1=2]
+	if not {
+		if(buildprog $name $cfile $ofile $bin){
+			$bin > $out >[2=1]
+			if(! cmp -s $out $expected){
+				echo $name': output mismatch' >[1=2]
+				cat $expected $out >[1=2]
+				fail=1
+			}
+			if not
+				echo $name: OK
+		}
+		if not{
+			echo $name': build failed' >[1=2]
 			fail=1
 		}
-		if not
-			echo $name: OK
+		rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name
+		broke | rc
 	}
-	if not{
-		echo $name': build failed' >[1=2]
-		fail=1
-	}
-	rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name
-	broke | rc
 }
 
 fn stdlibcase {
@@ -132,24 +154,25 @@ fn stdlibcase {
 		fail=1
 		rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name
 		broke | rc
-		return
 	}
-	if(buildprog $name $cfile $ofile $bin){
-		$bin > $out >[2=1]
-		if(! cmp -s $out $expected){
-			echo $name': output mismatch' >[1=2]
-			cat $expected $out >[1=2]
+	if not {
+		if(buildprog $name $cfile $ofile $bin){
+			$bin > $out >[2=1]
+			if(! cmp -s $out $expected){
+				echo $name': output mismatch' >[1=2]
+				cat $expected $out >[1=2]
+				fail=1
+			}
+			if not
+				echo $name: OK
+		}
+		if not{
+			echo $name': build failed' >[1=2]
 			fail=1
 		}
-		if not
-			echo $name: OK
+		rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name
+		broke | rc
 	}
-	if not{
-		echo $name': build failed' >[1=2]
-		fail=1
-	}
-	rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name
-	broke | rc
 }
 
 if(! test -e $tool){
@@ -229,6 +252,7 @@ runcase e2e_dict_typed
 runcase e2e_hash_collision
 runcase e2e_plan9ctypes
 runcase spawn_task
+runcase e2e_task_take_race
 runcase e2e_actor_exit
 runcase e2e_nested_function
 runcase e2e_rawc_function
@@ -240,6 +264,21 @@ importcase e2e_import_strip_main
 stdlibcase e2e_string
 stdlibcase e2e_bytes
 stdlibcase e2e_buffer
+stdlibcase e2e_builtins
+stdlibcase e2e_cli
+stdlibcase e2e_config
+stdlibcase e2e_service
+stdlibcase e2e_format
+stdlibcase e2e_log
+stdlibcase e2e_io_lines
+stdlibcase e2e_dir
+stdlibcase e2e_result
+stdlibcase e2e_sync
+stdlibcase e2e_process_kit
+stdlibcase e2e_import_stdlib
+stdlibcase e2e_net_lines
+stdlibcase e2e_9p
+stdlibcase e2e_rune
 stdlibcase e2e_collections
 stdlibcase e2e_math
 stdlibcase e2e_random
@@ -265,9 +304,12 @@ stdlibcase e2e_draw_textview
 stdlibcase e2e_draw_scrolltext
 stdlibcase e2e_draw_table
 stdlibcase e2e_draw_panel
+stdlibcase e2e_draw_pack
+stdlibcase e2e_draw_rtext
 stdlibcase e2e_draw_menu
 stdlibcase e2e_draw_scrollbar
 stdlibcase e2e_class_return
+stdlibcase e2e_testing
 runcase e2e_hard_recursion
 runcase e2e_hard_nesttry
 runcase e2e_hard_defer

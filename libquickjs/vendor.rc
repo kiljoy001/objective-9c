@@ -1,0 +1,101 @@
+#!/bin/rc
+# Vendor the QuickJS 2026-06-04 engine from a generated9 checkout.
+#
+# Usage:
+#   rc vendor.rc [-f] /path/to/generated9/sys/src/cmd/quickjs
+#
+# Only the engine files needed by libquickjs.a are copied.  qjs.c, qjsc.c,
+# quickjs-libc.c, the APE plan9.c/poll9.c, tests, examples, and release
+# tooling are deliberately not copied.
+#
+# The native build must not use generated9's APE-oriented getTimezoneOffset
+# branch: Plan 9's libc has Tm gmtime/localtime, not struct tm versions.  One
+# line is changed so the engine uses localtime_r()/tm_gmtoff from p9time.c.
+# The exact delta is documented in patches/0001-native-time.patch.
+
+rfork e
+
+force=0
+src=$1
+if(~ $1 -f){
+	force=1
+	src=$2
+}
+
+if(~ $#src 0){
+	echo 'usage: rc vendor.rc [-f] /path/to/generated9/sys/src/cmd/quickjs' >[1=2]
+	exit 'usage'
+}
+if(! test -f $src/quickjs.c){
+	echo 'vendor.rc: no quickjs.c under '^$src >[1=2]
+	exit 'source'
+}
+if(test -f engine/quickjs.c){
+	if(! ~ $force 1){
+		echo 'vendor.rc: engine/ is already populated; use -f to replace it' >[1=2]
+		exit 'exists'
+	}
+}
+
+if(! test -d engine)
+	mkdir engine
+if(! test -d math)
+	mkdir math
+
+# Engine sources, already carrying generated9's PLAN9/compiler adaptations.
+for(f in quickjs.h quickjs-atom.h quickjs-opcode.h cutils.c cutils.h \
+         libregexp.c libregexp.h libregexp-opcode.h \
+         libunicode.c libunicode.h libunicode-table.h dtoa.c dtoa.h list.h){
+	cp $src/$f engine/$f
+	if(! ~ $status '')
+		exit $status
+}
+
+# quickjs.c gets the one-line native time delta.  Refuse if the expected
+# generated9 pattern is absent (for example, a different upstream version).
+n=`{awk 'index($0, "defined(_WIN32) || defined(PLAN9)") { c++ } END { print c+0 }' $src/quickjs.c}
+if(! ~ $n 1){
+	echo 'vendor.rc: expected exactly one generated9 PLAN9 time branch, found '^$n >[1=2]
+	exit 'patch'
+}
+awk 'index($0, "defined(_WIN32) || defined(PLAN9)") { print "#if defined(_WIN32)" } !index($0, "defined(_WIN32) || defined(PLAN9)") { print }' \
+	$src/quickjs.c > engine/quickjs.c.new
+if(! ~ $status '')
+	exit $status
+mv engine/quickjs.c.new engine/quickjs.c
+
+# Provenance files.
+cp $src/LICENSE engine/LICENSE
+cp $src/VERSION engine/VERSION
+
+# musl 1.2.5 double-precision math and its tables.
+cp $src/math/*.c $src/math/*.h math/
+if(! ~ $status '')
+	exit $status
+cp $src/math/COPYRIGHT math/COPYRIGHT
+if(! ~ $status '')
+	exit $status
+
+# Native 6c has no long double.  The double-only math set does not use the
+# long-double helpers musl's shared libm.h declares; keep the header parseable.
+sed 's/long double/double/g' math/libm.h > math/libm.h.new
+if(! ~ $status '')
+	exit $status
+mv math/libm.h.new math/libm.h
+
+if(test -f patches/SOURCES.sha256)
+	cp patches/SOURCES.sha256 engine/SOURCES.sha256
+if(test -f patches/0001-native-time.patch)
+	cp patches/0001-native-time.patch engine/native-time.patch
+
+echo 'QuickJS 2026-06-04 (MIT)' > engine/PROVENANCE
+echo 'upstream: https://bellard.org/quickjs/quickjs-2026-06-04.tar.xz' >> engine/PROVENANCE
+echo 'upstream sha256: b376e839b322978313d929fd20663b11ba58b75df5a46c126dd19ea2fa70ad2a' >> engine/PROVENANCE
+echo 'vendored from: '^$src >> engine/PROVENANCE
+echo 'native delta: patches/0001-native-time.patch' >> engine/PROVENANCE
+echo 'native delta: patches/0002-native-libm-no-long-double.patch' >> engine/PROVENANCE
+when=`{date}
+echo 'vendored: '^$"when >> engine/PROVENANCE
+
+echo 'vendored engine into engine/ and musl math into math/'
+exit

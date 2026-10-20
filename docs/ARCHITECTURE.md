@@ -129,7 +129,7 @@ cat-able string whose payload is sealed.
 
 ### Primitives And Custody
 
-- **Attestation**: Ed25519 (`sign`, `verify`) and BLAKE2b-256 (`hash`, `mac`).
+- **Attestation**: Monocypher EdDSA-BLAKE2b (`sign`, `verify`) and BLAKE2b-256 (`hash`, `mac`).
 - **Confidentiality**: XChaCha20-Poly1305 AEAD (`encrypt`, `decrypt`) and
   X25519 (`exchange`, `xpubkey`).
 - **Key Derivation**: Argon2id (`passkey`) matching `libtab` parameters (64 MiB RAM,

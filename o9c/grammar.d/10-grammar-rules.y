@@ -661,6 +661,15 @@ stmtbody:
         note_var_class_type($3->name, $2->typeinfo);
     }
     | expr ';' { $$ = $1; }
+    | TRETURN ';' {
+        /* o9 has no bare return statement.  Emit a specific diagnostic
+         * instead of a generic yacc "syntax error". */
+        fprint(2, "o9c: error: line %d: bare 'return;' is not supported; "
+            "omit it at the end of a void method or return a value\n",
+            token_line);
+        semantic_errors++;
+        $$ = mk(NReturn, nil, nil, nil, nil);
+    }
     | TRETURN expr ';' { $$ = mk(NReturn, nil, nil, $2, nil); }
     | TDEFER expr ';' { $$ = mk(NDefer, nil, nil, $2, nil); }
     | TDELETE TIDENT ';' { $$ = mk(NDelete, $2->name, nil, $2, nil); }

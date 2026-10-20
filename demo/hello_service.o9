@@ -1,0 +1,32 @@
+// A minimal 9P service: no raw C, no manual serve() sequence.
+//
+//   o9build demo/hello_service.o9
+//   ./hello_service helloservice
+//   mount /srv/helloservice /n/hello
+//   cat /n/hello/status
+import "stdlib/service.o9";
+
+class HelloViews {
+    ViewController;
+
+    internal method FileTree display(string id, string caller) {
+        FileTree root = new FileTree();
+        root.text("status", "hello from o9\n", false);
+        return root;
+    }
+
+    internal method string readText(string id, string path) {
+        return "";
+    }
+
+    internal method int64 writeText(string id, string path, int64 offset,
+                                    string text, bool truncate) {
+        return -1;
+    }
+}
+
+main {
+    HelloViews views = new HelloViews();
+    Service service = new Service("helloservice");
+    service.run(views);
+}

@@ -248,6 +248,10 @@ intptr uintptr
 Use `intptr` and `uintptr` inside raw-C `function` interop when Plan 9 C needs
 that storage shape. They are not the normal way to expose object state.
 
+`string` values are UTF-8 and may contain arbitrary bytes. String literals are
+emitted into generated C byte-for-byte, including non-ASCII UTF-8; use
+`rune.o9` when indexing or slicing by code point rather than by byte.
+
 Object and library types:
 
 ```text
@@ -288,6 +292,31 @@ Structs are plain data aggregates:
 struct Point {
     prop int64 x;
     prop int64 y;
+}
+```
+
+A struct is **not an actor**. Its instances are owned data: they live in an
+actor's fields, arrays, or arena, and the owner's methods operate on them.
+Structs cannot be spawned, served, or used as entry points. An actor method
+may return a struct by value; the caller receives a private copy. Returning
+an internal struct pointer is not allowed.
+
+```o9
+struct Button {
+    Point origin;
+    string text;
+}
+
+class Ui {
+    Button buttons[32];
+
+    method Button makeButton(string text, int64 x, int64 y) {
+        Button b;
+        b.text = text;
+        b.origin.x = x;
+        b.origin.y = y;
+        return b;
+    }
 }
 ```
 
@@ -449,6 +478,12 @@ main {
 
 `spawn f(args)` returns immediately with `Task<T>`. `Task<T>.await()` waits for
 completion and returns the value or propagates the task error through `try`.
+For a one-time result, `t.take()` waits and releases the task handle. Do not
+use `t` after `take()`; use `await()` when the result must be read again.
+
+An owned `string` can be released with `value.dispose()` after its contents
+have been copied or retained by a collection or file tree. Do not read the
+string after disposal, or dispose a borrowed value.
 
 Nested function example:
 
@@ -531,8 +566,29 @@ cryptography. A class method of the same name shadows any built-in function.
 - `cmp(string a, string b) int64`: Lexicographic comparison (0 if equal, -1 if `a < b`, 1 if `a > b`).
 - `cat(string a, string b) string`: Concatenates two strings.
 - `readfile(string path) string`: Reads complete file contents at `path` as text.
-- `writefile(string path, string s) int64`: Writes string `s` to `path`. Returns byte count or -1 on error.
+- `writefile(string path, string s) int64`: Writes string `s` to `path`. Returns 0 or -1 on error.
+- `appendfile(string path, string s) int64`: Appends `s` to `path`, creating it if needed.
+- `fileexists(string path) int64`: Returns 1 if `path` exists, else 0.
+- `filesize(string path) int64`: Returns file size, or -1.
+- `isdir(string path) int64`: Returns 1 if `path` is a directory, else 0.
+- `mkdir(string path) int64`: Creates one directory with mode 0755. Returns 0 or -1.
+- `removefile(string path) int64`: Removes a file or empty directory. Returns 0 or -1.
 - `readline() string`: Reads one line from standard input.
+- `intstr(int64 n) string`: Formats an integer as decimal text.
+- `intvalue(string s, int64 def) int64`: Parses an integer (base 0) or returns `def`.
+- `sleep(int64 ms) void`: Sleeps for `ms` milliseconds.
+
+### Process And Environment
+
+- `argc() int64`: Number of process arguments, including `argv[0]`.
+- `arg(int64 i) string`: Process argument `i`, or `""`.
+- `getenv(string name) string`: Environment value, or `""`.
+- `setenv(string name, string value) int64`: Sets an environment value.
+- `unsetenv(string name) int64`: Removes an environment value.
+- `getpid() int64`: Current process id.
+- `getuser() string`: Current user name.
+- `cwd() string`: Current working directory.
+- `chdir(string path) int64`: Changes directory. Returns 0 or -1.
 
 ### Application And 9P Facade
 
@@ -554,9 +610,9 @@ travel inside `.tab` cells, `ctl` lines, 9P messages, and text files without
 escaping, base64 corruption, or binary truncation.
 
 - `keygen() string`: Generates 32 random bytes from `/dev/random` as a 64-character lowercase hex seed. The seed is the secret key.
-- `pubkey(string sec) string`: Derives the 64-hex Ed25519 public key from the secret seed `sec`.
-- `sign(string sec, string msg) string`: Signs string `msg` with secret seed `sec` using Ed25519. Returns a 128-hex signature string.
-- `verify(string pub, string msg, string sig) int64`: Verifies Ed25519 signature `sig` for string `msg` against public key `pub`. Returns 1 if valid, 0 if invalid, -1 on malformed input.
+- `pubkey(string sec) string`: Derives the 64-hex Monocypher EdDSA-BLAKE2b public key from the secret seed `sec`.
+- `sign(string sec, string msg) string`: Signs string `msg` with secret seed `sec` using Monocypher EdDSA-BLAKE2b. Returns a 128-hex signature string.
+- `verify(string pub, string msg, string sig) int64`: Verifies a Monocypher EdDSA-BLAKE2b signature against `pub`. Returns 1 if valid, 0 if invalid, -1 on malformed input. This is not RFC 8032 Ed25519 and cannot be verified with a standard Ed25519 implementation.
 - `hash(string msg) string`: Computes BLAKE2b-256 digest of string `msg`. Returns a 64-hex string.
 - `mac(string key, string msg) string`: Computes keyed BLAKE2b-256 Message Authentication Code. `key` is 64 hex characters (32 bytes). Returns a 64-hex string.
 - `passkey(string pass, string salt) string`: Key derivation via Argon2id (64 MiB RAM, 3 passes, 1 lane, matching `libtab`). `salt` must be at least 8 characters. Returns a deterministic 64-hex key.

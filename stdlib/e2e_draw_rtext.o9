@@ -1,0 +1,39 @@
+import "rtext.o9";
+
+main {
+    DrawRichText view = new DrawRichText(10, 20, 64, 100);
+    DrawCanvas canvas = new DrawCanvas();
+    view.addText("hello world ", 0x102030);
+    view.addLink("site", "https://example.com", 0x0022cc);
+    print("layout ", view.layout(canvas), " cells ", view.count(), "\n");
+    print("link ", view.linkAt(11, 56), "\n");
+    print("click ", view.handleMouse(11, 56, 1), " ", view.takeLink(), "\n");
+    view.select(0, 1);
+    print("selection ", view.selectedText(), "\n");
+    view.selectText(2, 1, 2, 3);
+    print("partial ", view.selectedText(), " byte ", view.byteAt(canvas, 26, 56), "\n");
+    DrawBox embedded = new DrawBox(0, 0, 4, 4);
+    view.breakLine();
+    view.addImage("/tmp/missing-rich-image", 16, 12);
+    view.addWidget(embedded, 20, 10);
+    print("mixed ", view.layout(canvas), " cells ", view.count(),
+          " widget ", embedded.x(), " ", embedded.y(), " ",
+          embedded.width(), " ", embedded.height(), "\n");
+    DrawCanvas active = new DrawCanvas();
+    active.attach(1);
+    DrawFrame frame = new DrawFrame();
+    frame.attach(active);
+    print("frame ", view.drawFrame(frame), " commands ", frame.count(), "\n");
+    view.reset();
+    view.addLinkFont("new", "draw://new", 0x2244cc,
+        "/lib/font/bit/lucidasans/boldunicode.13.font");
+    print("reset ", view.layout(canvas), " cells ", view.count(),
+          " hit ", view.linkAt(11, 20), "\n");
+    view.reset();
+    view.addTextFont("A ", 0x102030,
+        "/lib/font/bit/lucidasans/italicunicode.10.font");
+    view.addTextFont("B", 0x102030,
+        "/lib/font/bit/lucidasans/italicunicode.10.font");
+    print("styled fallback ", view.layout(canvas), " cells ", view.count(), "\n");
+    view.closeFonts();
+}

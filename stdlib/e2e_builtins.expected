@@ -1,0 +1,21 @@
+write 0
+append 0
+text ab
+size 2
+exists 1
+isdir 1 0
+mkdir 0
+mkdirisdir 1
+rmdir 0
+remove 0
+pid 1
+user 1
+cwd 1
+chdir 0
+intstr 42
+intvalue 17 9
+setenv 0
+getenv ok
+unsetenv 0
+cleared 0
+sleep 1

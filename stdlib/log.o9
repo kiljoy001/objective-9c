@@ -1,0 +1,82 @@
+// Small application logger with levels and optional file output.
+//
+// Replaces hand-rolled fprint(2, "tool: ...")/sysfatal shapes. The default
+// level is INFO (1); DEBUG is 0, WARN is 2, ERROR is 3.
+import "format.o9";
+import "time.o9";
+
+class Log {
+    prop string name;
+    prop int64 threshold;
+    prop string path;
+    prop bool useStamp;
+
+    method Log(string n) {
+        name = n;
+        threshold = 1;
+        path = "";
+        useStamp = true;
+    }
+
+    method void level(int64 l) {
+        threshold = l;
+    }
+
+    method void toFile(string p) {
+        path = p;
+    }
+
+    method void timestamps(bool enabled) {
+        useStamp = enabled;
+    }
+
+    private method void emit(int64 l, string label, string text) {
+        Format f;
+        string line;
+
+        if(l >= threshold) {
+            f = new Format();
+            if(useStamp) {
+                DateTime dt = new DateTime();
+                dt.setNow();
+                f.str(dt.stamp());
+                f.str(" ");
+            }
+            f.str(name);
+            f.str(" ");
+            f.str(label);
+            f.str(" ");
+            f.str(text);
+            f.nl();
+            line = f.text();
+            if(len(path) > 0) {
+                appendfile(path, line);
+            } else {
+                print(line);
+            }
+        }
+    }
+
+    method void debug(string text) {
+        emit(0, "DEBUG", text);
+    }
+
+    method void info(string text) {
+        emit(1, "INFO", text);
+    }
+
+    method void warn(string text) {
+        emit(2, "WARN", text);
+    }
+
+    method void error(string text) {
+        emit(3, "ERROR", text);
+    }
+
+    // Log at ERROR and raise the o9 call error. Callers that want a hard stop
+    // should return from main after calling fatal.
+    method void fatal(string text) {
+        emit(3, "FATAL", text);
+        fail(text);
+    }
+}

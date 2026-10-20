@@ -940,7 +940,7 @@ string pt = decrypt(k, blob);</td>
           <li>• <code>secret string</code> desugars to AEAD blob + seal/open</li>
           <li>• Plaintext never exists as stored state</li>
           <li>• Key custody stays with caller (passkey/exchange/keygen)</li>
-          <li>• Crypto: monocypher (Ed25519, X25519, BLAKE2b, AEAD)</li>
+          <li>• Crypto: Monocypher (EdDSA-BLAKE2b, X25519, BLAKE2b, AEAD)</li>
           <li>• <code>private</code> members not reachable through 9P</li>
           <li>• <code>use { bio }</code> constrains raw C dependencies</li>
           <li>• Address-sized values stay out of object method surfaces</li>

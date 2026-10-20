@@ -1,0 +1,874 @@
+// Rich text galley for libdraw. The edge packer lives in draw.o9.
+// Layout and interaction are o9; these helpers only measure/draw Plan 9 data.
+import "draw.o9";
+import "string.o9";
+
+function DrawRichOpenFontRaw(int64 canvas, string path) int64 {
+    use { draw }
+    int64 out;
+    c {
+        char *name;
+        Font *f;
+
+        out = 0;
+        name = o9_string_cstr(path);
+        if(canvas > 0 && display != nil && name != nil && *name != 0){
+            f = openfont(display, name);
+            if(f != nil)
+                out = (vlong)(uintptr)f;
+        }
+        free(name);
+    }
+    return out;
+}
+
+function DrawRichCloseFontRaw(int64 handle) int64 {
+    use { draw }
+    int64 out;
+    c {
+        out = 0;
+        if(handle != 0){
+            freefont((Font*)(uintptr)handle);
+            out = 1;
+        }
+    }
+    return out;
+}
+
+// High 16 bits are height; low 16 bits are ascent.
+function DrawRichFontMetricsRaw(int64 canvas, int64 handle) int64 {
+    use { draw }
+    int64 out;
+    c {
+        Font *f;
+
+        out = (18 << 16) | 14;
+        if(canvas > 0 && display != nil){
+            f = handle != 0 ? (Font*)(uintptr)handle : font;
+            if(f != nil)
+                out = ((vlong)f->height << 16) | (f->ascent & 0xffff);
+        }
+    }
+    return out;
+}
+
+function DrawRichTextWidthRaw(int64 canvas, int64 handle, string value) int64 {
+    use { draw }
+    int64 out;
+    c {
+        Font *f;
+        char *s;
+
+        out = o9_string_len(value) * 8;
+        if(canvas > 0 && display != nil){
+            f = handle != 0 ? (Font*)(uintptr)handle : font;
+            s = o9_string_cstr(value);
+            if(f != nil && s != nil)
+                out = stringwidth(f, s);
+            free(s);
+        }
+    }
+    return out;
+}
+
+function DrawRichTextRaw(int64 canvas, int64 handle, string value,
+                         int64 x, int64 y, int64 color) int64 {
+    use { draw }
+    int64 out;
+    c {
+        Font *f;
+        Image *ink;
+        ulong col;
+        char *s;
+
+        out = 0;
+        if(canvas > 0 && display != nil && screen != nil){
+            f = handle != 0 ? (Font*)(uintptr)handle : font;
+            s = o9_string_cstr(value);
+            if(f != nil && s != nil){
+                col = (ulong)color;
+                if((col & 0xff000000UL) == 0)
+                    col = ((col & 0xffffffUL) << 8) | 0xffUL;
+                ink = allocimage(display, Rect(0, 0, 1, 1), screen->chan, 1, col);
+                if(ink != nil){
+                    string(screen, Pt(screen->r.min.x+x, screen->r.min.y+y),
+                        ink, ZP, f, s);
+                    freeimage(ink);
+                    out = 1;
+                }
+            }
+            free(s);
+        }
+    }
+    return out;
+}
+
+function DrawRichNextRaw(string value, int64 start) int64 {
+    int64 end;
+    c {
+        char *s;
+        vlong n;
+
+        s = o9_string_data(value);
+        n = o9_string_len(value);
+        end = start;
+        if(s != nil && start >= 0 && start < n){
+            if(s[start] == '\n')
+                end++;
+            else {
+                while(end < n && s[end] != '\n' && s[end] != ' ' && s[end] != '\t')
+                    end++;
+                while(end < n && (s[end] == ' ' || s[end] == '\t'))
+                    end++;
+            }
+        }
+    }
+    return end;
+}
+
+// Return a byte boundary; a wide word can be split without splitting UTF-8.
+function DrawRichFitRaw(int64 canvas, int64 handle, string value,
+                        int64 start, int64 width) int64 {
+    use { draw }
+    int64 end;
+    c {
+        char *s;
+        vlong n;
+        Rune r;
+        Font *f;
+        int bytes, pixels, advance;
+
+        s = o9_string_data(value);
+        n = o9_string_len(value);
+        end = start;
+        pixels = 0;
+        f = handle != 0 ? (Font*)(uintptr)handle : font;
+        if(s != nil && start >= 0 && start < n){
+            while(end < n){
+                bytes = chartorune(&r, s + end);
+                if(bytes < 1 || bytes > n - end){
+                    bytes = 1;
+                    r = Runeerror;
+                }
+                advance = canvas > 0 && display != nil && f != nil ?
+                    runestringnwidth(f, &r, 1) : 8;
+                if(pixels + advance > width && end > start)
+                    break;
+                pixels += advance;
+                end += bytes;
+                if(pixels > width)
+                    break;
+            }
+        }
+    }
+    return end;
+}
+
+function DrawRichOffsetRaw(int64 canvas, int64 handle, string value, int64 x) int64 {
+    use { draw }
+    int64 out;
+    c {
+        char *s;
+        vlong n;
+        Rune r;
+        Font *f;
+        int bytes, pixels, advance;
+
+        s = o9_string_data(value);
+        n = o9_string_len(value);
+        out = 0;
+        pixels = 0;
+        f = handle != 0 ? (Font*)(uintptr)handle : font;
+        if(s != nil)
+            while(out < n){
+                bytes = chartorune(&r, s + out);
+                if(bytes < 1 || bytes > n - out){
+                    bytes = 1;
+                    r = Runeerror;
+                }
+                advance = canvas > 0 && display != nil && f != nil ?
+                    runestringnwidth(f, &r, 1) : 8;
+                if(x < pixels + advance / 2)
+                    break;
+                pixels += advance;
+                out += bytes;
+            }
+    }
+    return out;
+}
+
+function DrawRichImageRaw(int64 canvas, string path, int64 x, int64 y,
+                          int64 width, int64 height) int64 {
+    use { draw }
+    int64 out;
+    c {
+        char *name;
+        Image *image;
+        Rectangle clip, oldclip;
+        int fd;
+
+        out = 0;
+        name = o9_string_cstr(path);
+        if(canvas > 0 && display != nil && screen != nil && name != nil &&
+           width > 0 && height > 0){
+            fd = open(name, OREAD);
+            if(fd >= 0){
+                image = readimage(display, fd, 0);
+                close(fd);
+                if(image != nil){
+                    clip = Rect(screen->r.min.x+x, screen->r.min.y+y,
+                        screen->r.min.x+x+width, screen->r.min.y+y+height);
+                    oldclip = screen->clipr;
+                    if(rectclip(&clip, screen->r)){
+                        replclipr(screen, 0, clip);
+                        draw(screen, clip, image, nil, image->r.min);
+                        replclipr(screen, 0, oldclip);
+                        out = 1;
+                    }
+                    freeimage(image);
+                }
+            }
+        }
+        free(name);
+    }
+    return out;
+}
+
+struct DrawRichSpan {
+    int64 kind;           // 0 text, 1 image, 2 widget, 3 hard break
+    string text;
+    string target;        // nonempty for a clickable link
+    string fontPath;      // empty selects the active libdraw font
+    int64 color;
+    int64 width;
+    int64 height;
+    int64 slot;
+}
+
+struct DrawRichCell {
+    int64 span;
+    string text;
+    int64 x;
+    int64 y;
+    int64 width;
+    int64 height;
+    int64 ascent;
+}
+
+class DrawRichText {
+    DrawWidget;
+    prop List<DrawRichSpan> spans;
+    prop List<DrawRichCell> cells;
+    prop List<DrawWidget> widgets;
+    prop List<string> fontPaths;
+    prop List<int64> fontHandles;
+    prop int64 fontCount;
+    prop int64 spanCount;
+    prop int64 cellCount;
+    prop int64 widgetCount;
+    prop int64 lineHeight;
+    prop int64 selectionFirst;
+    prop int64 selectionLast;
+    prop int64 selectionFirstByte;
+    prop int64 selectionLastByte;
+    prop string clickedLink;
+
+    method DrawRichText(int64 x, int64 y, int64 width, int64 height) {
+        super(x, y, width, height);
+        spanCount = 0;
+        cellCount = 0;
+        widgetCount = 0;
+        fontCount = 0;
+        lineHeight = 18;
+        selectionFirst = -1;
+        selectionLast = -1;
+        selectionFirstByte = 0;
+        selectionLastByte = 0;
+        clickedLink = "";
+        wrole = "richtext";
+    }
+
+    method void reset() {
+        spanCount = 0;
+        cellCount = 0;
+        widgetCount = 0;
+        selectionFirst = -1;
+        selectionLast = -1;
+        selectionFirstByte = 0;
+        selectionLastByte = 0;
+        clickedLink = "";
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    private method string part(string value, int64 start, int64 count) {
+        Task<string> slice = spawn StringSliceRaw(value, start, count);
+        return slice.take();
+    }
+
+    private method int64 fontHandle(DrawCanvas canvas, string path) {
+        int64 i = 0;
+        if(len(path) == 0 || !canvas.ready()) { return 0; }
+        while(i < fontCount) {
+            if(cmp(fontPaths[i], path) == 0) { return fontHandles[i]; }
+            i = i + 1;
+        }
+        Task<int64> opened = spawn DrawRichOpenFontRaw(canvas.id(), path);
+        int64 handle = opened.take();
+        if(handle != 0) {
+            if(fontCount < fontPaths.Length()) {
+                fontPaths[fontCount] = path;
+                fontHandles[fontCount] = handle;
+            } else {
+                fontPaths.Add(path);
+                fontHandles.Add(handle);
+            }
+            fontCount = fontCount + 1;
+        }
+        return handle;
+    }
+
+    method bool fontAvailable(DrawCanvas canvas, string path) {
+        if(len(path) == 0) { return canvas.ready(); }
+        return fontHandle(canvas, path) != 0;
+    }
+
+    // Release loaded fonts before closing the libdraw display. reset() keeps
+    // them cached because editors reuse their styles on every update.
+    method void closeFonts() {
+        int64 i = 0;
+        while(i < fontCount) {
+            Task<int64> closed = spawn DrawRichCloseFontRaw(fontHandles[i]);
+            closed.take();
+            fontPaths[i] = "";
+            fontHandles[i] = 0;
+            i = i + 1;
+        }
+        fontCount = 0;
+    }
+
+    private method int64 textWidth(DrawCanvas canvas, int64 handle, string value) {
+        Task<int64> measure = spawn DrawRichTextWidthRaw(canvas.id(), handle, value);
+        return measure.take();
+    }
+
+    private method void append(int64 kind, string value, string target,
+                               string fontPath, int64 color, int64 width, int64 height,
+                               int64 slot) {
+        DrawRichSpan span;
+        span.kind = kind;
+        span.text = value;
+        span.target = target;
+        span.fontPath = fontPath;
+        span.color = color;
+        span.width = width;
+        span.height = height;
+        span.slot = slot;
+        if(spanCount < spans.Length()) {
+            spans[spanCount] = span;
+        } else {
+            spans.Add(span);
+        }
+        spanCount = spanCount + 1;
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method void addText(string value, int64 color) {
+        append(0, value, "", "", color, 0, 0, 0);
+    }
+
+    method void addLink(string value, string target, int64 color) {
+        append(0, value, target, "", color, 0, 0, 0);
+    }
+
+    method void addTextFont(string value, int64 color, string fontPath) {
+        append(0, value, "", fontPath, color, 0, 0, 0);
+    }
+
+    method void addLinkFont(string value, string target, int64 color,
+                            string fontPath) {
+        append(0, value, target, fontPath, color, 0, 0, 0);
+    }
+
+    // The file must be in Plan 9 draw image format. Its native size is used;
+    // width and height reserve and clip the inline rectangle.
+    method void addImage(string path, int64 width, int64 height) {
+        append(1, path, "", "", 0, width, height, 0);
+    }
+
+    method void addWidget(DrawWidget widget, int64 width, int64 height) {
+        int64 slot = widgetCount;
+        if(slot < widgets.Length()) {
+            widgets[slot] = widget;
+        } else {
+            widgets.Add(widget);
+        }
+        widgetCount = widgetCount + 1;
+        append(2, "", "", "", 0, width, height, slot);
+    }
+
+    method void breakLine() {
+        append(3, "", "", "", 0, 0, 0, 0);
+    }
+
+    private method void put(int64 spanIndex, string value, int64 x, int64 y,
+                            int64 width, int64 height, int64 ascent) {
+        DrawRichCell cell;
+        cell.span = spanIndex;
+        cell.text = value;
+        cell.x = x;
+        cell.y = y;
+        cell.width = width;
+        cell.height = height;
+        cell.ascent = ascent;
+        if(cellCount < cells.Length()) {
+            cells[cellCount] = cell;
+        } else {
+            cells.Add(cell);
+        }
+        cellCount = cellCount + 1;
+    }
+
+    private method void alignRow(int64 first, int64 ascent) {
+        int64 i = first;
+        DrawRichCell cell;
+        DrawRichSpan span;
+        DrawWidget widget;
+        while(i < cellCount) {
+            cell = cells[i];
+            cell.y = cell.y + ascent - cell.ascent;
+            cells[i] = cell;
+            span = spans[cell.span];
+            if(span.kind == 2) {
+                widget = widgets[span.slot];
+                int64 oldWidth = widget.preferredWidth();
+                int64 oldHeight = widget.preferredHeight();
+                widget.position(cell.x, cell.y);
+                widget.size(cell.width, cell.height);
+                widget.preferred(oldWidth, oldHeight);
+            }
+            i = i + 1;
+        }
+    }
+
+    // Runs reserve only the space they need. Extra width wraps at whitespace;
+    // a single overwide word is divided at a UTF-8 rune boundary.
+    method int64 layout(DrawCanvas canvas) {
+        int64 i;
+        int64 pos;
+        int64 next;
+        int64 fit;
+        int64 right;
+        int64 cx;
+        int64 cy;
+        int64 rowHeight;
+        int64 rowAscent;
+        int64 rowDescent;
+        int64 rowStart;
+        int64 baseAscent;
+        int64 baseDescent;
+        int64 baseHeight;
+        int64 cellWidth;
+        int64 spanHeight;
+        int64 spanAscent;
+        int64 handle;
+        int64 metrics;
+        string token;
+        DrawRichSpan span;
+
+        cellCount = 0;
+        cx = wx;
+        cy = wy;
+        right = wx + ww;
+        Task<int64> defaultMetrics = spawn DrawRichFontMetricsRaw(canvas.id(), 0);
+        metrics = defaultMetrics.take();
+        baseAscent = metrics & 65535;
+        baseDescent = (metrics >> 16) - baseAscent;
+        if(baseAscent < 0) { baseAscent = 0; }
+        if(baseDescent < 0) { baseDescent = 0; }
+        baseHeight = lineHeight;
+        if(baseHeight < baseAscent + baseDescent) {
+            baseHeight = baseAscent + baseDescent;
+        }
+        rowAscent = baseAscent;
+        rowDescent = baseDescent;
+        rowHeight = baseHeight;
+        rowStart = 0;
+        i = 0;
+        while(i < spanCount) {
+            span = spans[i];
+            if(span.kind == 3) {
+                put(i, "\n", cx, cy, 0, rowHeight, rowAscent);
+                alignRow(rowStart, rowAscent);
+                cx = wx;
+                cy = cy + rowHeight;
+                rowStart = cellCount;
+                rowAscent = baseAscent;
+                rowDescent = baseDescent;
+                rowHeight = baseHeight;
+            } else if(span.kind == 1 || span.kind == 2) {
+                if(cx > wx && cx + span.width > right) {
+                    alignRow(rowStart, rowAscent);
+                    cx = wx;
+                    cy = cy + rowHeight;
+                    rowStart = cellCount;
+                    rowAscent = baseAscent;
+                    rowDescent = baseDescent;
+                    rowHeight = baseHeight;
+                }
+                put(i, "", cx, cy, span.width, span.height, span.height);
+                cx = cx + span.width;
+                if(span.height > rowAscent) { rowAscent = span.height; }
+                if(rowHeight < rowAscent + rowDescent) {
+                    rowHeight = rowAscent + rowDescent;
+                }
+            } else {
+                handle = fontHandle(canvas, span.fontPath);
+                Task<int64> styledMetrics = spawn DrawRichFontMetricsRaw(canvas.id(), handle);
+                metrics = styledMetrics.take();
+                spanHeight = metrics >> 16;
+                spanAscent = metrics & 65535;
+                pos = 0;
+                while(pos < len(span.text)) {
+                    Task<int64> boundary = spawn DrawRichNextRaw(span.text, pos);
+                    next = boundary.take();
+                    if(next <= pos) { next = pos + 1; }
+                    token = part(span.text, pos, next - pos);
+                    if(cmp(token, "\n") == 0) {
+                        put(i, "\n", cx, cy, 0, rowHeight, rowAscent);
+                        alignRow(rowStart, rowAscent);
+                        cx = wx;
+                        cy = cy + rowHeight;
+                        rowStart = cellCount;
+                        rowAscent = baseAscent;
+                        rowDescent = baseDescent;
+                        rowHeight = baseHeight;
+                    } else {
+                        cellWidth = textWidth(canvas, handle, token);
+                        if(cx > wx && cx + cellWidth > right) {
+                            alignRow(rowStart, rowAscent);
+                            cx = wx;
+                            cy = cy + rowHeight;
+                            rowStart = cellCount;
+                            rowAscent = baseAscent;
+                            rowDescent = baseDescent;
+                            rowHeight = baseHeight;
+                        }
+                        if(cellWidth > ww && ww > 0) {
+                            Task<int64> fitted = spawn DrawRichFitRaw(canvas.id(), handle,
+                                                                       span.text, pos, ww);
+                            fit = fitted.take();
+                            if(fit > pos && fit < next) {
+                                next = fit;
+                                token = part(span.text, pos, next - pos);
+                                cellWidth = textWidth(canvas, handle, token);
+                            }
+                        }
+                        put(i, token, cx, cy, cellWidth, spanHeight, spanAscent);
+                        if(spanAscent > rowAscent) { rowAscent = spanAscent; }
+                        if(spanHeight - spanAscent > rowDescent) {
+                            rowDescent = spanHeight - spanAscent;
+                        }
+                        if(rowHeight < rowAscent + rowDescent) {
+                            rowHeight = rowAscent + rowDescent;
+                        }
+                        cx = cx + cellWidth;
+                    }
+                    pos = next;
+                }
+            }
+            i = i + 1;
+        }
+        alignRow(rowStart, rowAscent);
+        wlayoutdirty = false;
+        return cy + rowHeight - wy;
+    }
+
+    method int64 count() { return cellCount; }
+
+    method string linkAt(int64 x, int64 y) {
+        int64 i;
+        DrawRichCell cell;
+        DrawRichSpan span;
+
+        i = 0;
+        while(i < cellCount) {
+            cell = cells[i];
+            if(x >= cell.x && x < cell.x + cell.width &&
+               y >= cell.y && y < cell.y + cell.height) {
+                span = spans[cell.span];
+                return span.target;
+            }
+            i = i + 1;
+        }
+        return "";
+    }
+
+    method bool routeMouse(int64 x, int64 y, int64 buttons) {
+        int64 i;
+        DrawRichCell cell;
+        DrawRichSpan span;
+        DrawWidget widget;
+
+        i = 0;
+        while(i < cellCount) {
+            cell = cells[i];
+            if(x >= cell.x && x < cell.x + cell.width &&
+               y >= cell.y && y < cell.y + cell.height) {
+                span = spans[cell.span];
+                if(span.kind == 2) {
+                    widget = widgets[span.slot];
+                    return widget.handleMouse(x, y, buttons);
+                }
+                if(span.kind == 0 && len(span.target) > 0 && (buttons & 1) != 0) {
+                    clickedLink = span.target;
+                    wdirty = true;
+                    return true;
+                }
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    method bool handleMouse(int64 x, int64 y, int64 buttons) {
+        return routeMouse(x, y, buttons);
+    }
+
+    method string takeLink() {
+        string target = clickedLink;
+        clickedLink = "";
+        return target;
+    }
+
+    // Select whole laid-out cells. Cell indices can be obtained from hitCell.
+    method int64 hitCell(int64 x, int64 y) {
+        int64 i;
+        DrawRichCell cell;
+
+        i = 0;
+        while(i < cellCount) {
+            cell = cells[i];
+            if(x >= cell.x && x < cell.x + cell.width &&
+               y >= cell.y && y < cell.y + cell.height) { return i; }
+            i = i + 1;
+        }
+        return -1;
+    }
+
+    method int64 byteAt(DrawCanvas canvas, int64 x, int64 y) {
+        int64 index = hitCell(x, y);
+        DrawRichCell cell;
+        DrawRichSpan span;
+        if(index < 0) { return -1; }
+        cell = cells[index];
+        span = spans[cell.span];
+        Task<int64> offset = spawn DrawRichOffsetRaw(canvas.id(),
+            fontHandle(canvas, span.fontPath), cell.text, x - cell.x);
+        return offset.take();
+    }
+
+    method void select(int64 first, int64 last) {
+        selectionFirst = first;
+        selectionLast = last;
+        selectionFirstByte = 0;
+        selectionLastByte = 0;
+        if(last >= 0 && last < cellCount) {
+            DrawRichCell endCell = cells[last];
+            selectionLastByte = len(endCell.text);
+        }
+        wdirty = true;
+    }
+
+    // Endpoints are UTF-8 byte boundaries returned by byteAt or the caller.
+    method void selectText(int64 firstCell, int64 firstByte,
+                           int64 lastCell, int64 lastByte) {
+        selectionFirst = firstCell;
+        selectionLast = lastCell;
+        selectionFirstByte = firstByte;
+        selectionLastByte = lastByte;
+        wdirty = true;
+    }
+
+    method string selectedText() {
+        int64 i;
+        int64 first;
+        int64 last;
+        int64 firstByte;
+        int64 lastByte;
+        int64 start;
+        int64 end;
+        string out;
+        DrawRichCell cell;
+
+        first = selectionFirst;
+        last = selectionLast;
+        firstByte = selectionFirstByte;
+        lastByte = selectionLastByte;
+        if(first > last || (first == last && firstByte > lastByte)) {
+            first = selectionLast;
+            last = selectionFirst;
+            firstByte = selectionLastByte;
+            lastByte = selectionFirstByte;
+        }
+        out = "";
+        i = first;
+        while(i >= 0 && i <= last && i < cellCount) {
+            cell = cells[i];
+            start = 0;
+            end = len(cell.text);
+            if(i == first) { start = firstByte; }
+            if(i == last) { end = lastByte; }
+            if(start < 0) { start = 0; }
+            if(end > len(cell.text)) { end = len(cell.text); }
+            if(end > start) { out = cat(out, part(cell.text, start, end - start)); }
+            i = i + 1;
+        }
+        return out;
+    }
+
+    method bool draw(DrawCanvas canvas) {
+        int64 i;
+        int64 first;
+        int64 last;
+        int64 firstByte;
+        int64 lastByte;
+        int64 start;
+        int64 end;
+        int64 highlightX;
+        int64 highlightWidth;
+        int64 handle;
+        string prefix;
+        string selected;
+        DrawRichCell cell;
+        DrawRichSpan span;
+        DrawWidget widget;
+
+        if(!wshown || !canvas.ready()) { return false; }
+        layout(canvas);
+        first = selectionFirst;
+        last = selectionLast;
+        firstByte = selectionFirstByte;
+        lastByte = selectionLastByte;
+        if(first > last || (first == last && firstByte > lastByte)) {
+            first = selectionLast;
+            last = selectionFirst;
+            firstByte = selectionLastByte;
+            lastByte = selectionFirstByte;
+        }
+        i = 0;
+        while(i < cellCount) {
+            cell = cells[i];
+            span = spans[cell.span];
+            handle = fontHandle(canvas, span.fontPath);
+            if(cell.y + cell.height > wy && cell.y < wy + wh) {
+                if(i >= first && i <= last && first >= 0) {
+                    start = 0;
+                    end = len(cell.text);
+                    if(i == first) { start = firstByte; }
+                    if(i == last) { end = lastByte; }
+                    if(start < 0) { start = 0; }
+                    if(end > len(cell.text)) { end = len(cell.text); }
+                    if(end > start) {
+                        prefix = part(cell.text, 0, start);
+                        selected = part(cell.text, start, end - start);
+                        highlightX = cell.x + textWidth(canvas, handle, prefix);
+                        highlightWidth = textWidth(canvas, handle, selected);
+                        Task<int64> highlight = spawn DrawCanvasFillRectRaw(canvas.id(),
+                            highlightX, cell.y, highlightWidth, cell.height, 0xbad7ff);
+                        highlight.take();
+                    }
+                }
+                if(span.kind == 0 && cmp(cell.text, "\n") != 0) {
+                    Task<int64> text = spawn DrawRichTextRaw(canvas.id(), handle,
+                        cell.text, cell.x, cell.y, span.color);
+                    text.take();
+                }
+                if(span.kind == 1) {
+                    Task<int64> image = spawn DrawRichImageRaw(canvas.id(), span.text,
+                                                               cell.x, cell.y,
+                                                               cell.width, cell.height);
+                    image.take();
+                }
+                if(span.kind == 2) {
+                    widget = widgets[span.slot];
+                    widget.draw(canvas);
+                }
+            }
+            i = i + 1;
+        }
+        wdirty = false;
+        return true;
+    }
+
+    method bool drawFrame(DrawFrame frame) {
+        DrawCanvas canvas = frame.canvas();
+        int64 i;
+        int64 first;
+        int64 last;
+        int64 firstByte;
+        int64 lastByte;
+        int64 start;
+        int64 end;
+        int64 highlightX;
+        int64 highlightWidth;
+        int64 handle;
+        string prefix;
+        string selected;
+        DrawRichCell cell;
+        DrawRichSpan span;
+        DrawWidget widget;
+
+        if(!wshown || !canvas.ready()) { return false; }
+        layout(canvas);
+        first = selectionFirst;
+        last = selectionLast;
+        firstByte = selectionFirstByte;
+        lastByte = selectionLastByte;
+        if(first > last || (first == last && firstByte > lastByte)) {
+            first = selectionLast;
+            last = selectionFirst;
+            firstByte = selectionLastByte;
+            lastByte = selectionFirstByte;
+        }
+        i = 0;
+        while(i < cellCount) {
+            cell = cells[i];
+            span = spans[cell.span];
+            handle = fontHandle(canvas, span.fontPath);
+            if(cell.y + cell.height > wy && cell.y < wy + wh) {
+                if(i >= first && i <= last && first >= 0) {
+                    start = 0;
+                    end = len(cell.text);
+                    if(i == first) { start = firstByte; }
+                    if(i == last) { end = lastByte; }
+                    if(start < 0) { start = 0; }
+                    if(end > len(cell.text)) { end = len(cell.text); }
+                    if(end > start) {
+                        prefix = part(cell.text, 0, start);
+                        selected = part(cell.text, start, end - start);
+                        highlightX = cell.x + textWidth(canvas, handle, prefix);
+                        highlightWidth = textWidth(canvas, handle, selected);
+                        frame.fillRect(highlightX, cell.y, highlightWidth,
+                                       cell.height, 0xbad7ff);
+                    }
+                }
+                if(span.kind == 0 && cmp(cell.text, "\n") != 0) {
+                    frame.textFont(cell.text, cell.x, cell.y, span.color, handle);
+                }
+                if(span.kind == 1) {
+                    frame.image(span.text, cell.x, cell.y,
+                                cell.width, cell.height);
+                }
+                if(span.kind == 2) {
+                    widget = widgets[span.slot];
+                    widget.drawFrame(frame);
+                }
+            }
+            i = i + 1;
+        }
+        wdirty = false;
+        return true;
+    }
+}

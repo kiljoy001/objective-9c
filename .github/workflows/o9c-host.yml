@@ -1,0 +1,106 @@
+name: o9c host tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: o9c-host-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host:
+    name: host / ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: normal
+            sanitize: "0"
+            tsan: "0"
+            coverage: "0"
+            fuzz: "100"
+          - name: asan-ubsan
+            sanitize: "1"
+            tsan: "0"
+            coverage: "0"
+            fuzz: "25"
+          - name: tsan
+            sanitize: "0"
+            tsan: "1"
+            coverage: "0"
+            fuzz: "10"
+          - name: coverage
+            sanitize: "0"
+            tsan: "0"
+            coverage: "1"
+            fuzz: "0"
+    env:
+      O9_SANITIZE: ${{ matrix.sanitize }}
+      O9_TSAN: ${{ matrix.tsan }}
+      O9_COVERAGE: ${{ matrix.coverage }}
+      O9_FUZZ_ITER: ${{ matrix.fuzz }}
+      O9_HOST_BUILD: ${{ runner.temp }}/o9-host-${{ matrix.name }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git
+          if [ "${{ matrix.coverage }}" = "1" ]; then
+            sudo apt-get install -y clang-18 llvm-18 libclang-rt-18-dev || \
+              sudo apt-get install -y clang llvm libclang-rt-dev
+          fi
+
+      - name: Cache plan9port
+        id: cache-plan9port
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/plan9port
+          key: ${{ runner.os }}-ubuntu-24.04-plan9port-nowsys-v2
+
+      - name: Build plan9port
+        if: steps.cache-plan9port.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth=1 https://github.com/9fans/plan9port "$HOME/.cache/plan9port"
+          printf 'WSYSTYPE=nowsys\n' > "$HOME/.cache/plan9port/LOCAL.config"
+          cd "$HOME/.cache/plan9port"
+          ./INSTALL
+
+      - name: Add plan9port to PATH
+        run: |
+          echo "PLAN9=$HOME/.cache/plan9port" >> "$GITHUB_ENV"
+          echo "$HOME/.cache/plan9port/bin" >> "$GITHUB_PATH"
+
+      - name: Show toolchain
+        run: |
+          command -v 9c
+          command -v 9l
+          command -v 9ar
+          command -v mk
+          command -v yacc
+          command -v python3
+          test -x "$PLAN9/bin/topng"
+          test -f "$PLAN9/lib/libdraw.a"
+          test -f "$PLAN9/lib/libmemdraw.a"
+
+      - name: Host tests
+        run: sh tools/host_test.sh
+
+      - name: Upload coverage report
+        if: matrix.coverage == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: o9c-coverage
+          path: ${{ env.O9_HOST_BUILD }}/coverage.txt
+          if-no-files-found: error

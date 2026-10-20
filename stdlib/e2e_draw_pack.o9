@@ -1,0 +1,38 @@
+import "draw.o9";
+
+main {
+    DrawPanel panel = new DrawPanel(0, 0, 300, 200);
+    DrawBox header = new DrawBox(0, 0, 40, 20);
+    DrawBox footer = new DrawBox(0, 0, 40, 20);
+    DrawBox left = new DrawBox(0, 0, 50, 10);
+    DrawBox right = new DrawBox(0, 0, 30, 10);
+    DrawBox body = new DrawBox(0, 0, 40, 30);
+
+    panel.pack(header, 0, false, true, false, 0);
+    panel.pack(footer, 1, false, true, false, 0);
+    panel.pack(left, 3, false, false, true, 0);
+    panel.pack(right, 2, false, false, true, 0);
+    panel.pack(body, 0, true, true, true, 0);
+    panel.layoutPack(10, 4);
+    print("header ", header.x(), " ", header.y(), " ", header.width(), " ", header.height(), "\n");
+    print("footer ", footer.x(), " ", footer.y(), " ", footer.width(), " ", footer.height(), "\n");
+    print("left ", left.x(), " ", left.y(), " ", left.width(), " ", left.height(), "\n");
+    print("right ", right.x(), " ", right.y(), " ", right.width(), " ", right.height(), "\n");
+    print("body ", body.x(), " ", body.y(), " ", body.width(), " ", body.height(), "\n");
+    print("preferred ", body.preferredWidth(), " ", body.preferredHeight(), "\n");
+
+    panel.size(400, 250);
+    panel.layoutPack(10, 4);
+    print("resized ", footer.y(), " ", left.height(), " ", body.width(), " ", body.height(), "\n");
+    print("preferred2 ", body.preferredWidth(), " ", body.preferredHeight(), "\n");
+
+    DrawWindow window = new DrawWindow("packed", 100, 50);
+    DrawBox label = new DrawBox(0, 0, 10, 10);
+    window.pack(label, 0, false, true, false, 0);
+    window.layoutPack(5, 0);
+    print("window ", label.x(), " ", label.y(), " ", label.width(),
+          " ", label.height(), " preferred ", label.preferredWidth(), "\n");
+    window.resize(120, 50);
+    print("window resized ", label.x(), " ", label.y(), " ",
+          label.width(), " ", label.height(), "\n");
+}

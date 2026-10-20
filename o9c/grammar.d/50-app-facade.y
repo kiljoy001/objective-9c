@@ -181,7 +181,7 @@ codegen(Node *root)
     cprint("\tif(p == nil || p == o9app_tree->root){\n");
     cprint("\t\tif(file == o9app_tree->root) return 1;\n");
     cprint("\t\treturn file != nil && file->parent == o9app_tree->root &&\n");
-    cprint("\t\t       (strcmp(file->name, \"clone\") == 0 || strcmp(file->name, \"methods\") == 0);\n\t}\n");
+    cprint("\t\t       (strcmp(o9_file_name(file), \"clone\") == 0 || strcmp(o9_file_name(file), \"methods\") == 0);\n\t}\n");
     cprint("\ts = p->aux;\n\tqlock(&o9app_pool_lock);\n");
     cprint("\tok = s->inuse && s->owner != nil && fid != nil && fid->uid != nil &&\n");
     cprint("\t     strcmp(fid->uid, s->owner) == 0 && (oldgen == 0 || oldgen == s->generation);\n");
@@ -352,7 +352,7 @@ codegen(Node *root)
     cprint("\t\timp->data = st->data;\n");
     cprint("\t\timp->ndata = st->ndata;\n");
     cprint("\t\tst->data = nil;\n");
-    cprint("\t\tif(f->file != nil) f->file->length = imp->ndata;\n");
+    cprint("\t\tif(f->file != nil) o9_file_length(f->file) = imp->ndata;\n");
     cprint("\t\tqunlock(&imp->lock);\n");
     cprint("\t\tfree(old);\n");
     cprint("\t}\n");
@@ -445,21 +445,21 @@ codegen(Node *root)
     cprint("\tif(st == nil){ removefile(f); respond(r, \"no memory\"); return; }\n");
     cprint("\tst->commit = 1;\n");
     cprint("\tr->fid->file = f;\n");
-    cprint("\tr->fid->qid = f->qid;\n");
+    cprint("\tr->fid->qid = o9_file_qid(f);\n");
     cprint("\tr->fid->aux = st;\n");
-    cprint("\tr->ofcall.qid = f->qid;\n");
+    cprint("\tr->ofcall.qid = o9_file_qid(f);\n");
     cprint("\trespond(r, nil);\n");
     cprint("}\n");
     cprint("static void\no9app_remove(Req *r)\n{\n");
     cprint("\tFile *f;\n\tf = o9_view_request_file(r);\n");
     cprint("\tif(f != nil && f->parent == o9app_imports_dir){\n");
-    cprint("\t\tincref(f);\n\t\tif(removefile(f) < 0){ respond(r, \"remove failed\"); return; }\n");
+    cprint("\t\to9_file_incref(f);\n\t\tif(removefile(f) < 0){ respond(r, \"remove failed\"); return; }\n");
     cprint("\t\trespond(r, nil); return;\n\t}\n");
     cprint("\to9_view_remove(r);\n}\n");
     cprint("static void\no9app_root_read(Req *r)\n{\n");
     cprint("\tif(r != nil && r->fid != nil && (r->fid->qid.type & QTAUTH)){ authread(r); return; }\n");
     cprint("\tif(o9_view_read(r)) return;\n");
-    cprint("\tchar *name;\n\tname = r->fid->file->name;\n");
+    cprint("\tchar *name;\n\tname = o9_file_name(r->fid->file);\n");
     cprint("\tchar buf[8192]; char *p;\n\tp = buf; int i;\n");
     /* clone: reading allocates a session and returns its id. */
     cprint("\tif(strcmp(name, \"clone\") == 0){\n");
@@ -555,7 +555,7 @@ codegen(Node *root)
     cprint("static void\no9app_root_write(Req *r)\n{\n");
     cprint("\tif(r != nil && r->fid != nil && (r->fid->qid.type & QTAUTH)){ authwrite(r); return; }\n");
     cprint("\tif(o9_view_write(r)) return;\n");
-    cprint("\tchar *name;\n\tname = r->fid->file->name;\n");
+    cprint("\tchar *name;\n\tname = o9_file_name(r->fid->file);\n");
     cprint("\tchar cmd[1024], *f[16]; int nf; char inst[64]; O9ClassH *ch;\n");
     cprint("\tif(r->fid != nil && r->fid->file != nil && r->fid->file->aux != nil && *(int*)r->fid->file->aux == O9AUX_IMPORT){ o9app_import_write(r); return; }\n");
     cprint("\tif(strcmp(name, \"ctl\") != 0){ respond(r, \"read only\"); return; }\n");
@@ -659,7 +659,7 @@ codegen(Node *root)
     cprint("\tqlock(&ex->lock);\n");
     cprint("\told = ex->data;\n");
     cprint("\tex->data = cbytes; ex->ndata = bytes != nil ? o9_string_len(bytes) : 0;\n");
-    cprint("\tf->length = ex->ndata;\n");
+    cprint("\to9_file_length(f) = ex->ndata;\n");
     cprint("\tqunlock(&ex->lock);\n");
     cprint("\tfree(old);\n");
     cprint("\tfree(cname); o9_string_release(bytes);\n");
@@ -689,12 +689,19 @@ codegen(Node *root)
     emit_tabula_helpers_node(root);
     for(n = mono_list; n; n = n->next)
         emit_tabula_helpers_node(n);
+    /* Every class's state columns and Internal layout must precede every
+     * method body.  Otherwise a constructor that uses a class emitted
+     * later refers to an undeclared type/array. */
+    gen_class_shared_decls_tree(mono_list);
+    gen_class_shared_decls_tree(function_expr_classes);
+    gen_class_shared_decls_tree(root);
     for(n = mono_list; n; n = n->next)
         if(n->type == NClass && (n->flags & NFAbstract) == 0)
             gen_class_server(n);
     gen_classes(function_expr_classes);
     last = gen_classes(root);
 
+    if(!o9_no_facade){
     /* Per-app facade: one Srv/tree for the whole program.  o9_app_start
      * sets the app names, allocates the shared tree, and posts the single
      * /srv/o9.<app>; each class then registers INTO it. */
@@ -716,7 +723,7 @@ codegen(Node *root)
     cprint("\to9app_srv.read = o9app_read_dispatch;\n\to9app_srv.write = o9app_write_dispatch;\n");
     cprint("\tif(o9app_auth_required){\n");
     cprint("\t\to9app_srv.auth = o9app_auth;\n");
-    cprint("\t\to9app_srv.keyspec = \"proto=p9any role=server\";\n");
+    cprint("\t\to9_srv_set_keyspec(&o9app_srv, \"proto=p9any role=server\");\n");
     cprint("\t}\n");
     cprint("\to9app_srv.attach = o9app_attach;\n");
     cprint("\to9app_srv.create = o9app_create_dispatch;\n");
@@ -798,5 +805,18 @@ codegen(Node *root)
          * variables map to which classes. This is a TODO for now. */
     }
     cprint("\tthreadexitsall(nil);\n}\n");
+    } else if(main_func){
+        /* Facade-free host/test entry point.  The test harness supplies a
+         * C main() and calls this to run the o9 program's main block. */
+        cprint("int\no9_host_main(int argc, char **argv)\n{\n");
+        cprint("\tvlong __o9fr[%d][12];\n", O9_MSG_FRAMES);
+        cprint("\tUSED(argc); USED(argv); USED(__o9fr);\n");
+        num_locals = 0;
+        mark_locals(main_func->left);
+        in_class_context = 0;
+        for(n = main_func->left; n; n = n->next)
+            gen_stmt(nil, n);
+        cprint("\treturn 0;\n}\n");
+    }
     source_comments();
 }

@@ -1,0 +1,35 @@
+QuickJS 2026-06-04 engine sources, generated9 port
+=================================================
+
+These hashes identify the files copied by vendor.rc BEFORE the one-line
+native time delta in patches/0001-native-time.patch is applied to quickjs.c.
+Source directory: generated9 sys/src/cmd/quickjs (branch gen).
+
+031687956bb8da9ee7bf258dde2510741e0adcdc83c6c0991edc529c55a01958  quickjs.c
+7ee8b3352ea580acfc01ebdca545a5ba99ceac93144cf07c119ce12eab693e90  quickjs.h
+342194359417664e652f54e7d682ee2ef91dd982e91f74decbde992a2c848236  quickjs-atom.h
+a9c60a8c9366820733d9d2acbb805f48b2e9e2778df526e6bcb845fdb6b47834  quickjs-opcode.h
+b73a403a59da30726257ddbdf5e399298941c1def997782ee0d4d33f796a80a2  cutils.c
+91ac6acdcf6c1ba6ae7d48e2e248e418d88bc0ead7dee1980eb67654c76d888d  cutils.h
+63648c990ad5b7e3a4a08bfb1ad974eda603d964091c585e8c14175901a031ab  libregexp.c
+f5c5ef1899f224dcc718422a22c789ef9d8b5b837b622818fcfaf681ae793446  libregexp.h
+2a98d646089f3a72f25480116297c5fdb5b28fd9f815447273951f4ade4a115e  libregexp-opcode.h
+26203ae888c0582e7d0e2113f13db0c9b39dc7b0b3836d68fa308c54f7a0898c  libunicode.c
+ce310152bc80d7415dcb657e23abd9a40bf83e393c0d05d325dae384bb01d259  libunicode.h
+cf782bc7a07549e976f606bd3cb8555858482b279574554dcb8d46412986006c  libunicode-table.h
+af5abd68fa9806d1a19bdd5f2daef00d5fd0990ae56311382dfed4700343f074  dtoa.c
+462070f7678a894b9f3612422f280f4dce412eb360a5cc585a513f407fc23114  dtoa.h
+181c6b25d9d0e4853315d36a6e6fab3b2c3554271693d898a439384ba0f67c2b  list.h
+598fd7fc928e4350abce36e337ba5a1346923c5c692f5be92c3d8e29ddd7c18d  LICENSE
+
+d811ed3b807af0c44d9e0b6f1f8337995617c3a6029f933e88131bfa0473aeed  math/libm.h
+f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af  math/COPYRIGHT
+
+The 49 math/*.c files and five remaining math/*.h tables are copied as a
+set; see README.md for the musl 1.2.5 provenance and license.  They are
+intentionally not listed individually here because generated9's own
+UPSTREAM file already records the musl SHA-256:
+a9a118bbe84d8764da0ea0d28b3ab3fae8477fc7e4085d90102b8596fc7c75e4
+
+Upstream QuickJS tarball SHA-256:
+b376e839b322978313d929fd20663b11ba58b75df5a46c126dd19ea2fa70ad2a

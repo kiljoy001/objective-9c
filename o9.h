@@ -11,13 +11,15 @@ struct O9Msg {
     void *args;
     int nargs;
     void *replyc;		/* Channel* */
+    void *task;			/* O9Task* for direct spawn replies; nil otherwise */
+    void *sync;			/* O9SyncWait* for direct synchronous replies; nil otherwise */
     char *caller;		/* authenticated/request user, copied by actor */
     int blessed;		/* caller completed factotum-backed auth */
 };
 
 struct O9Reply {
     int ok;
-    uintptr ret;
+    vlong ret;
     double dret;
     void *retbuf;
     uintptr retsz;
@@ -88,16 +90,16 @@ extern int   o9_ns_ensure_app(char *root);
 extern int   o9_init_client(void *client, char *srvname, int size);
 extern int   o9_init_client_path(void *client, char *path, char *srvname, int size);
 extern int   o9_connect(void *client, char *addr, char *srvname, int distance);	/* Tabula transport: near=0 IL, far=1 TCP */
-extern void* o9_dispatch_data(void *client, ulong hash);
-extern void* o9_dispatch_call(void *client, ulong hash, void *args);
+extern void* o9_dispatch_call_checked(void *client, ulong hash, void *args);
 extern void  o9_cache_fill(void *client, ulong hash, int is_ctrl);
 extern void  o9_ledger_update(void *client, ulong id, int delta);
 extern long  o9_ledger_value(void *client, ulong id);
 extern void  o9_clunk(int fd);
 extern void* obj9_msgSend(void *receiver, char *method, ulong selector, void *args);
-extern void* obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int nargs);
+extern vlong obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int nargs);
 extern double obj9_msgSendDoubleN(void *receiver, char *method, ulong selector, void *args, int nargs);
 extern int   obj9_msgSendObjectN(void *receiver, char *method, ulong selector, void *args, int nargs, void *out, uintptr outsiz);
+extern int   obj9_msgSendStructN(void *receiver, char *method, ulong selector, void *args, int nargs, void *out, uintptr outsiz);
 extern void  o9_reply_free(O9Reply *r);
 extern vlong o9_double_pack(double d);
 extern double o9_double_unpack(vlong v);
@@ -154,6 +156,7 @@ struct O9String {
 };
 
 extern O9String* o9_string_new(char *data, vlong len);
+extern O9String* o9_string_literal(char *data, vlong len);
 extern O9String* o9_string_from_c(char *s);
 extern O9String* o9_string_take(char *s);
 extern O9String* o9_string_retain(O9String *s);
@@ -304,7 +307,7 @@ extern void o9_ns_recipe(char *root, char *app, char *line);
 extern int  o9_ns_bind_obj(char *mount, char *root, char *inst);
 
 /* Crypto stdlib — full practical monocypher surface: attestation
- * (Ed25519 sign/verify, BLAKE2b hash/mac) plus confidentiality
+ * (Monocypher EdDSA-BLAKE2b sign/verify, BLAKE2b hash/mac) plus confidentiality
  * (XChaCha20-Poly1305 encrypt/decrypt, X25519 exchange).  Every
  * boundary value is lowercase hex — an encrypted value is still one
  * cat-able string, only its content is sealed. */
@@ -332,6 +335,35 @@ extern vlong     o9_str_cmp(O9String *a, O9String *b);
 extern O9String* o9_str_cat(O9String *a, O9String *b);
 extern O9String* o9_readfile(O9String *path);
 extern vlong     o9_writefile(O9String *path, O9String *s);
+extern vlong     o9_appendfile(O9String *path, O9String *s);
+extern vlong     o9_fileexists(O9String *path);
+extern vlong     o9_filesize(O9String *path);
+extern vlong     o9_isdir(O9String *path);
+extern vlong     o9_mkdir(O9String *path);
+extern vlong     o9_removefile(O9String *path);
+extern O9String* o9_getenv(O9String *name);
+extern vlong     o9_setenv(O9String *name, O9String *value);
+extern vlong     o9_unsetenv(O9String *name);
+extern vlong     o9_getpid(void);
+extern O9String* o9_getuser(void);
+extern O9String* o9_cwd(void);
+extern vlong     o9_chdir(O9String *path);
+extern O9String* o9_intstr(vlong n);
+extern vlong     o9_intvalue(O9String *s, vlong def);
+extern void      o9_sleepms(vlong ms);
+extern vlong     o9_sync_mutex_new(void);
+extern vlong     o9_sync_mutex_lock(vlong h);
+extern vlong     o9_sync_mutex_unlock(vlong h);
+extern vlong     o9_sync_mutex_free(vlong h);
+extern vlong     o9_sync_wg_new(void);
+extern vlong     o9_sync_wg_add(vlong h, vlong delta);
+extern vlong     o9_sync_wg_done(vlong h);
+extern vlong     o9_sync_wg_wait(vlong h);
+extern vlong     o9_sync_wg_free(vlong h);
+extern vlong     o9_sync_sem_new(vlong count);
+extern vlong     o9_sync_sem_acquire(vlong h);
+extern vlong     o9_sync_sem_release(vlong h);
+extern vlong     o9_sync_sem_free(vlong h);
 extern O9String* o9_readline(void);
 extern void   o9_serve(void);	/* block forever, yielding, so the app keeps serving */
 
@@ -465,6 +497,8 @@ extern void o9_view_session_close(File *dir);
 extern int o9_view_authorize(Req *r);
 extern int o9_view_register_controller(void *object);
 extern int o9_view_close(Req *r);
+extern void o9_view_set_close_notify(int enabled);
+extern int o9_view_dispatch_busy(void);
 extern int o9_view_attach(Req *r);
 extern char* o9_view_clone(Fid *fid, Fid *newfid);
 extern char* o9_view_walk1(Fid *fid, char *name, Qid *qid);
@@ -485,7 +519,13 @@ extern O9Task*   o9_task_new(int id);
 extern void*     o9_task_chan(O9Task *t);	/* internal: the done Channel* (as void*) */
 extern vlong     o9_task_await(O9Task *t);	/* block; value, or per-proc err + 0 */
 extern double    o9_task_await_double(O9Task *t);
+extern vlong     o9_task_take(O9Task *t);	/* await once and release the task */
+extern double    o9_task_take_double(O9Task *t);
 extern void      o9_task_close(O9Task *t);
+extern void      o9_msg_reply(O9Msg *msg, O9Reply *r);	/* reply, completing a spawn task */
+extern int       o9_pending_register(int tid, void *replyc, void *dispatch_chan,
+                                     void *inst, int one_shot, void *task, void *sync);
+extern void      o9_proc_ctx_clear(void);	/* generated thread teardown */
 
 /* Vault - encrypted storage and isolated memory arena. */
 typedef struct O9KeySlot O9KeySlot;
@@ -551,6 +591,7 @@ struct O9RouterOp {
 	char			caller[64];	/* Authenticated caller user */
 	int			blessed;	/* Privilege bit */
 	void			*replyc;	/* Channel *replyc */
+	void			*sync;		/* O9SyncWait* for the reply lifetime */
 	void			*dispatch_chan;	/* Channel *dispatch_chan */
 	O9RouterCompleteFn	complete;	/* Completion callback */
 	void			*aux;		/* Context info */
@@ -562,5 +603,31 @@ extern int  o9_router_submit(void *r, char *target_class, char *target_oid, void
 	char *caller, int blessed, O9RouterCompleteFn complete, void *aux);
 extern void o9_router_unregister_actor(char *target_class, char *oid);
 extern int  o9_router_dump(char *buf, int nbuf);
+
+/* Host/UI latency probe hooks (monotonic nsec, process-local). */
+extern void  o9_lat_begin(void);
+extern vlong o9_lat_end(void);
+
+/* lib9p compatibility.  9front exposes File.name/qid/length and Srv.authok
+ * directly; plan9port keeps them in File.dir and has no authok/keyspec.
+ * Generated code and the view facade use these accessors so the object
+ * model can be built and tested on both. */
+#ifdef O9_PLAN9PORT
+#define o9_file_name(f)		((f)->dir.name)
+#define o9_file_qid(f)		((f)->dir.qid)
+#define o9_file_length(f)	((f)->dir.length)
+#define o9_file_dir(f)		((f)->dir)
+#define o9_file_incref(f)	incref(&(f)->ref)
+#define o9_srv_authok(s)	(0)
+#define o9_srv_set_keyspec(s, v)	((void)(s), (void)(v))
+#else
+#define o9_file_name(f)		((f)->name)
+#define o9_file_qid(f)		((f)->qid)
+#define o9_file_length(f)	((f)->length)
+#define o9_file_dir(f)		((f)->Dir)
+#define o9_file_incref(f)	incref(f)
+#define o9_srv_authok(s)	((s)->authok)
+#define o9_srv_set_keyspec(s, v)	((s)->keyspec = (v))
+#endif
 
 #endif

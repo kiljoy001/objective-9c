@@ -297,6 +297,30 @@ function O9StreamReadRaw(int64 h, int64 n) string {
     return out;
 }
 
+function O9StreamReadLineRaw(int64 h) string {
+    use { bio }
+
+    string out;
+    c {
+        Biobuf *b;
+        char *line;
+        int n;
+
+        out = o9_string_new("", 0);
+        b = (Biobuf*)(uintptr)h;
+        if(b != nil){
+            line = Brdline(b, '\n');
+            if(line != nil){
+                n = Blinelen(b);
+                while(n > 0 && (line[n-1] == '\n' || line[n-1] == '\r'))
+                    n--;
+                out = o9_string_new(line, n);
+            }
+        }
+    }
+    return out;
+}
+
 function O9StreamWriteRaw(int64 h, string data) int64 {
     use { bio }
 
@@ -394,6 +418,70 @@ function O9StreamCloseRaw(int64 h) int64 {
         b = (Biobuf*)(uintptr)h;
         if(b != nil)
             out = Bterm(b);
+    }
+    return out;
+}
+
+function IOReadAtRaw(string path, int64 offset, int64 n) string {
+    string out;
+    c {
+        char *p, *buf;
+        int fd;
+        vlong nr;
+
+        out = o9_string_new("", 0);
+        if(offset < 0)
+            offset = 0;
+        if(n < 0)
+            n = 0;
+        if(n > 65536)
+            n = 65536;
+        p = o9_string_cstr(path);
+        if(p != nil){
+            fd = open(p, OREAD);
+            free(p);
+            if(fd >= 0){
+                if(seek(fd, offset, 0) >= 0){
+                    buf = malloc(n > 0 ? n : 1);
+                    if(buf != nil){
+                        nr = read(fd, buf, n);
+                        if(nr > 0)
+                            out = o9_string_new(buf, nr);
+                        free(buf);
+                    }
+                }
+                close(fd);
+            }
+        }
+    }
+    return out;
+}
+
+function IOWriteAtRaw(string path, int64 offset, string data) int64 {
+    int64 out;
+    c {
+        char *p;
+        int fd;
+        vlong n;
+
+        out = -1;
+        if(offset < 0)
+            offset = 0;
+        p = o9_string_cstr(path);
+        if(p != nil){
+            fd = open(p, OWRITE);
+            if(fd < 0)
+                fd = create(p, OWRITE, 0644);
+            free(p);
+            if(fd >= 0){
+                if(seek(fd, offset, 0) >= 0){
+                    n = o9_string_len(data);
+                    if(write(fd, o9_string_data(data), n) == n)
+                        out = n;
+                }
+                close(fd);
+            }
+        }
     }
     return out;
 }
@@ -659,12 +747,39 @@ class StreamReader {
         closed = 0;
     }
 
+    method bool isOpen() {
+        return closed == 0 && h != 0;
+    }
+
     method string read(int64 n) {
         if(closed == 1) {
             return "";
         }
         Task<string> t = spawn O9StreamReadRaw(h, n);
         return t.await();
+    }
+
+    method string readLine() {
+        if(closed == 1) {
+            return "";
+        }
+        Task<string> t = spawn O9StreamReadLineRaw(h);
+        return t.await();
+    }
+
+    method int64 copyTo(StreamWriter w) {
+        int64 total = 0;
+        while(true) {
+            string chunk = read(8192);
+            if(len(chunk) == 0) {
+                w.flush();
+                return total;
+            }
+            if(w.write(chunk) < 0) {
+                return -1;
+            }
+            total = total + len(chunk);
+        }
     }
 
     method int64 position() {
@@ -705,6 +820,10 @@ class StreamWriter {
         closed = 0;
     }
 
+    method bool isOpen() {
+        return closed == 0 && h != 0;
+    }
+
     method int64 write(string data) {
         if(closed == 1) {
             return -1;
@@ -734,5 +853,27 @@ class StreamWriter {
             h = 0;
         }
         closed = 1;
+    }
+}
+
+// Line-at-a-time reader over a file. next() returns "" at EOF, so check
+// eof() when empty lines are meaningful.
+class Lines {
+    private StreamReader reader;
+
+    method Lines(string path) {
+        reader = new StreamReader(path);
+    }
+
+    method string next() {
+        return reader.readLine();
+    }
+
+    method bool eof() {
+        return reader.endOfStream();
+    }
+
+    method void close() {
+        reader.close();
     }
 }

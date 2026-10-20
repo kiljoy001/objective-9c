@@ -1,0 +1,32 @@
+// Service bootstrap for 9P view applications.
+//
+// A service normally does three things: register a view controller, start
+// serving, and stay in serve() forever. Service keeps that order in one place
+// so applications do not repeat it.
+import "view.o9";
+
+class Service {
+    prop string serviceName;
+
+    method Service(string name) {
+        serviceName = name;
+    }
+
+    method string name() {
+        return serviceName;
+    }
+
+    // Start a 9P view service. run() blocks in serve().
+    method int64 run(ViewController view) {
+        viewController(view);
+        serve();
+        return 0;
+    }
+
+    // Start a service with no view controller (for example a small auth
+    // facade). start() blocks in serve().
+    method int64 start() {
+        serve();
+        return 0;
+    }
+}

@@ -1,0 +1,13 @@
+import "9p.o9";
+
+main {
+    NineP n = new NineP();
+    string e = n.error(7, "bad");
+    print("type ", n.type(e), " tag ", n.tag(e), " len ", len(e), "\n");
+
+    string r = n.readReply(9, "hi");
+    print("rread ", n.type(r), " tag ", n.tag(r), "\n");
+
+    string v = n.versionReply(11, 8192, "9P2000");
+    print("rver ", n.type(v), " tag ", n.tag(v), "\n");
+}

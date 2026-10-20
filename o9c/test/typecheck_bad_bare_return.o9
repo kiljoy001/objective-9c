@@ -1,0 +1,9 @@
+// o9 has no bare return statement; this must fail with a targeted
+// diagnostic rather than a generic parser error.
+class A {
+    method void done() {
+        return;
+    }
+}
+
+main { }

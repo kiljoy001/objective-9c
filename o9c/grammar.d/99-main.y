@@ -2,9 +2,13 @@
  * COMPILER MAIN
  * ======================================================================== */
 
+#define O9C_VERSION "0.2.0"
+
 typedef struct CompilerOptions CompilerOptions;
 struct CompilerOptions {
     int dumpast;
+    int version;
+    int no_facade;
     char *srcpath;
 };
 
@@ -15,10 +19,16 @@ parse_compiler_options(int argc, char **argv)
     int i;
 
     opt.dumpast = 0;
+    opt.version = 0;
+    opt.no_facade = 0;
     opt.srcpath = nil;
     for(i = 1; i < argc; i++){
         if(strcmp(argv[i], "-ast") == 0)
             opt.dumpast = 1;
+        else if(strcmp(argv[i], "--no-facade") == 0)
+            opt.no_facade = 1;
+        else if(strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "-V") == 0)
+            opt.version = 1;
         else if(argv[i][0] != '-')
             opt.srcpath = argv[i];	/* optional source file (else stdin) */
     }
@@ -121,6 +131,11 @@ main(int argc, char **argv)
     int fd;
 
     opt = parse_compiler_options(argc, argv);
+    if(opt.version){
+        print("o9c %s\n", O9C_VERSION);
+        exits(nil);
+    }
+    o9_no_facade = opt.no_facade;
     fd = open_source_and_set_import_base(opt.srcpath);
     read_source_into_input(fd);
     source_capture(opt.srcpath != nil ? opt.srcpath : "<stdin>", input_buf, input_len);

@@ -1,0 +1,159 @@
+// Low-level 9P2000 framing and reply helpers for custom servers.
+//
+// Most applications should use Service + ViewController + FileTree. This
+// module is for a server that needs to speak 9P itself.
+function NinePReadRaw(int64 fd, int64 max) string {
+    string out;
+    c {
+        char *buf;
+        int n;
+
+        out = o9_string_new("", 0);
+        if(max <= 0)
+            max = 8192;
+        if(max > 65536)
+            max = 65536;
+        buf = malloc(max);
+        if(buf != nil){
+            n = read9pmsg(fd, buf, max);
+            if(n > 0)
+                out = o9_string_new(buf, n);
+            free(buf);
+        }
+    }
+    return out;
+}
+
+function NinePWriteRaw(int64 fd, string packet) int64 {
+    int64 out;
+    c {
+        vlong n;
+
+        out = -1;
+        n = o9_string_len(packet);
+        if(n > 0 && write(fd, o9_string_data(packet), n) == n)
+            out = n;
+    }
+    return out;
+}
+
+function NinePTypeRaw(string packet) int64 {
+    int64 out;
+    c {
+        uchar *p;
+
+        out = 0;
+        if(o9_string_len(packet) >= 5){
+            p = (uchar*)o9_string_data(packet);
+            out = p[4];
+        }
+    }
+    return out;
+}
+
+function NinePTagRaw(string packet) int64 {
+    int64 out;
+    c {
+        uchar *p;
+
+        out = 0;
+        if(o9_string_len(packet) >= 7){
+            p = (uchar*)o9_string_data(packet);
+            out = GBIT16(p + 5);
+        }
+    }
+    return out;
+}
+
+function NinePFidRaw(string packet) int64 {
+    int64 out;
+    c {
+        uchar *p;
+
+        out = 0;
+        if(o9_string_len(packet) >= 11){
+            p = (uchar*)o9_string_data(packet);
+            out = GBIT32(p + 7);
+        }
+    }
+    return out;
+}
+
+function NinePEncodeRaw(int64 type, int64 tag, int64 fid, int64 msize, string text) string {
+    string out;
+    c {
+        Fcall f;
+        char *s;
+        uchar *buf;
+        uint n, sz;
+
+        out = o9_string_new("", 0);
+        memset(&f, 0, sizeof f);
+        f.type = type;
+        f.tag = tag;
+        f.fid = fid;
+        s = o9_string_cstr(text);
+        if(type == Rerror){
+            f.ename = s;
+        } else if(type == Rread){
+            f.count = o9_string_len(text);
+            f.data = s;
+        } else if(type == Rversion){
+            f.msize = msize;
+            f.version = s;
+        }
+        sz = sizeS2M(&f);
+        buf = malloc(sz);
+        if(buf != nil){
+            n = convS2M(&f, buf, sz);
+            if(n > 0)
+                out = o9_string_new((char*)buf, n);
+            free(buf);
+        }
+        free(s);
+    }
+    return out;
+}
+
+class NineP {
+    method string read(int64 fd, int64 max) {
+        Task<string> t = spawn NinePReadRaw(fd, max);
+        return t.await();
+    }
+
+    method int64 write(int64 fd, string packet) {
+        Task<int64> t = spawn NinePWriteRaw(fd, packet);
+        return t.await();
+    }
+
+    method int64 type(string packet) {
+        Task<int64> t = spawn NinePTypeRaw(packet);
+        return t.await();
+    }
+
+    method int64 tag(string packet) {
+        Task<int64> t = spawn NinePTagRaw(packet);
+        return t.await();
+    }
+
+    method int64 fid(string packet) {
+        Task<int64> t = spawn NinePFidRaw(packet);
+        return t.await();
+    }
+
+    // 9P2000 message types: Rerror 107, Rread 117, Rversion 101.
+    method string error(int64 tag, string text) {
+        Task<string> t = spawn NinePEncodeRaw(107, tag, 0, 0, text);
+        return t.await();
+    }
+
+    method string readReply(int64 tag, string data) {
+        Task<string> t = spawn NinePEncodeRaw(117, tag, 0, 0, data);
+        return t.await();
+    }
+
+    method string versionReply(int64 tag, int64 msize, string version) {
+        Task<string> t = spawn NinePEncodeRaw(101, tag, 0, msize, version);
+        return t.await();
+    }
+}

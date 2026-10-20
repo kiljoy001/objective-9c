@@ -2,6 +2,10 @@
 
 This walks through building and running a first o9 app on 9front.
 
+For application-oriented quickstarts (CLI, 9P service, config, UI) and an
+index of existing programs, see
+[APP_DEVELOPER.md](APP_DEVELOPER.md).
+
 ## Prerequisites
 
 Run these commands from the repository root on 9front:
@@ -167,6 +171,8 @@ exercises the other auth checks and reports that positive branch as skipped.
 
 Run `o9plumb` once to make plumbing an `.o9` file start an `o9build` build.
 
+- [Application Developer Guide](APP_DEVELOPER.md)
 - [Language Guide](LANGUAGE.md)
 - [Examples](EXAMPLES.md)
 - [Standard Library](../stdlib/README.md)
+- [Changelog](../CHANGELOG.md)

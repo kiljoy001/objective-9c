@@ -1,0 +1,11 @@
+# Host-only TSan suppressions.
+#
+# plan9port's libthread lazily initializes per-proc pthread mutexes
+# (`lockinit`/`_threadlock`/`chanlock`) while another proc is already
+# locking the same global.  TSan reports that initialization as a race even
+# though libthread's own locking protocol is what makes it safe.  Keep the
+# suppression narrow: o9 actor/channel races should still be reported.
+race:*_threadlock*
+race:*lockinit*
+race:*chanlock*
+race:*procmain*

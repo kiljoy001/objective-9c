@@ -1,0 +1,79 @@
+// Run inside Rio to verify real 9front font metrics and frame rendering.
+import "rtext.o9";
+
+function FontProbeLogRaw(int64 stage, int64 plain, int64 styled,
+                         int64 cells, int64 drawn, bool bold,
+                         bool italic, bool typewriter) int64 {
+    int64 out;
+    c {
+        int fd;
+
+        out = 0;
+        fd = open("/n/9fat/o9font-result", OWRITE|OTRUNC);
+        if(fd >= 0){
+            fprint(fd, "font probe %lld %lld %lld %lld %lld %d %d %d\n",
+                stage, plain, styled, cells, drawn,
+                bold, italic, typewriter);
+            close(fd);
+            out = 1;
+        }
+    }
+    return out;
+}
+
+function FontProbeSleepRaw() int64 {
+    int64 out;
+    c {
+        sleep(8000);
+        out = 0;
+    }
+    return out;
+}
+
+main {
+    Task<int64> mark = spawn FontProbeLogRaw(1, 0, 0, 0, 0, false, false, false);
+    mark.take();
+    DrawWindow window = new DrawWindow("rich font probe", 460, 120);
+    window.background(0xffffff);
+    if(!window.open()) {
+        mark = spawn FontProbeLogRaw(-1, 0, 0, 0, 0, false, false, false);
+        mark.take();
+    } else {
+        mark = spawn FontProbeLogRaw(2, 0, 0, 0, 0, false, false, false);
+        mark.take();
+        DrawCanvas canvas = window.canvas();
+        DrawRichText plain = new DrawRichText(10, 10, 430, 60);
+        plain.addText("Plain text", 0x203040);
+        int64 plainHeight = plain.layout(canvas);
+        mark = spawn FontProbeLogRaw(3, plainHeight, 0, 0, 0, false, false, false);
+        mark.take();
+
+        DrawRichText styled = new DrawRichText(10, 10, 430, 60);
+        styled.addTextFont("Bold ", 0x203040,
+            "/lib/font/bit/lucidasans/boldunicode.13.font");
+        styled.addTextFont("italic ", 0x203040,
+            "/lib/font/bit/lucidasans/italicunicode.10.font");
+        styled.addLinkFont("link", "draw://font", 0x2244cc,
+            "/lib/font/bit/lucidasans/typeunicode.12.font");
+        int64 styledHeight = styled.layout(canvas);
+        mark = spawn FontProbeLogRaw(4, plainHeight, styledHeight,
+            styled.count(), 0, false, false, false);
+        mark.take();
+        bool bold = styled.fontAvailable(canvas,
+            "/lib/font/bit/lucidasans/boldunicode.13.font");
+        bool italic = styled.fontAvailable(canvas,
+            "/lib/font/bit/lucidasans/italicunicode.10.font");
+        bool typewriter = styled.fontAvailable(canvas,
+            "/lib/font/bit/lucidasans/typeunicode.12.font");
+        window.add(styled);
+        int64 drawn = 0;
+        if(window.repaint()) { drawn = 1; }
+        mark = spawn FontProbeLogRaw(5, plainHeight, styledHeight,
+            styled.count(), drawn, bold, italic, typewriter);
+        mark.take();
+        Task<int64> pause = spawn FontProbeSleepRaw();
+        pause.take();
+        styled.closeFonts();
+        window.close();
+    }
+}

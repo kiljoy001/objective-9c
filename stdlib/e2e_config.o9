@@ -1,0 +1,37 @@
+import "config.o9";
+
+main {
+    string path = "/tmp/o9_e2e_config";
+    string tab = "/tmp/o9_e2e_config_tab";
+
+    removefile(path);
+    removefile(tab);
+
+    Config c = new Config(path);
+    c.set("name", "alice");
+    c.set("port", "6667");
+    c.set("empty", "");
+    print("count ", c.count(), "\n");
+    print("save ", c.save(), "\n");
+    print("exists ", fileexists(path), "\n");
+
+    Config d = new Config(path);
+    print("name ", d.get("name", "?"), "\n");
+    print("port ", d.get("port", "?"), "\n");
+    print("missing ", d.get("missing", "fallback"), "\n");
+    print("has ", d.has("name"), " ", d.has("missing"), "\n");
+    print("remove ", d.remove("port"), "\n");
+    print("count2 ", d.count(), "\n");
+    print("save2 ", d.save(), "\n");
+
+    Config t = new Config(tab);
+    t.setSeparator("\t");
+    t.set("name", "bob");
+    t.save();
+    Config u = new Config(tab);
+    u.setSeparator("\t");
+    print("tab ", u.get("name", "?"), "\n");
+
+    removefile(path);
+    removefile(tab);
+}

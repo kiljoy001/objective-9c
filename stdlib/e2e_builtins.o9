@@ -1,0 +1,35 @@
+main {
+    string path = "/tmp/o9_e2e_builtins";
+    string dir = "/tmp/o9_e2e_builtins_dir";
+
+    removefile(path);
+    removefile(dir);
+
+    print("write ", writefile(path, "a"), "\n");
+    print("append ", appendfile(path, "b"), "\n");
+    print("text ", readfile(path), "\n");
+    print("size ", filesize(path), "\n");
+    print("exists ", fileexists(path), "\n");
+    print("isdir ", isdir("/tmp"), " ", isdir(path), "\n");
+
+    print("mkdir ", mkdir(dir), "\n");
+    print("mkdirisdir ", isdir(dir), "\n");
+    print("rmdir ", removefile(dir), "\n");
+    print("remove ", removefile(path), "\n");
+
+    print("pid ", getpid() > 0, "\n");
+    print("user ", len(getuser()) > 0, "\n");
+    print("cwd ", len(cwd()) > 0, "\n");
+    print("chdir ", chdir("/tmp"), "\n");
+
+    print("intstr ", intstr(42), "\n");
+    print("intvalue ", intvalue("17", 0), " ", intvalue("bad", 9), "\n");
+
+    print("setenv ", setenv("O9_E2E_ENV", "ok"), "\n");
+    print("getenv ", getenv("O9_E2E_ENV"), "\n");
+    print("unsetenv ", unsetenv("O9_E2E_ENV"), "\n");
+    print("cleared ", len(getenv("O9_E2E_ENV")), "\n");
+
+    sleep(1);
+    print("sleep 1\n");
+}

@@ -1,0 +1,17 @@
+import "log.o9";
+
+main {
+    string path = "/tmp/o9_e2e_log";
+    removefile(path);
+    Log log = new Log("app");
+    log.timestamps(false);
+    log.level(1);
+    log.debug("hidden");
+    log.info("hello");
+    log.warn("careful");
+    log.error("broken");
+    log.toFile(path);
+    log.info("file");
+    print(readfile(path));
+    removefile(path);
+}

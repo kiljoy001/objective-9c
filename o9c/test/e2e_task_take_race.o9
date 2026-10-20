@@ -1,0 +1,20 @@
+function taskValue() int64 {
+    return 1;
+}
+
+main {
+    int64 failed = 0;
+    int64 i = 0;
+    while(i < 2000) {
+        Task<int64> work = spawn taskValue();
+        if(work.take() != 1) {
+            failed = failed + 1;
+        }
+        i = i + 1;
+    }
+    if(failed == 0) {
+        print("TASK_TAKE_RACE_PASS\n");
+    } else {
+        print("TASK_TAKE_RACE_FAIL\n");
+    }
+}

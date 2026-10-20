@@ -2,7 +2,7 @@
  * CODEGEN
  * ======================================================================== */
 
-char *local_vars[128];
+char *local_vars[512];
 int num_locals = 0;
 int in_class_context = 1;		/* 0 when generating top-level main() */
 int in_method_body = 0;		/* 1 when generating inside a method impl */
@@ -65,7 +65,7 @@ mark_locals(Node *n)
 {
     if(n == nil) return;
     if(n->type == NLocalVar && n->name) {
-        if(num_locals < 128) local_vars[num_locals++] = n->name;
+        if(num_locals < (int)nelem(local_vars)) local_vars[num_locals++] = n->name;
     }
     mark_locals(n->left);
     mark_locals(n->right);
@@ -85,6 +85,19 @@ is_local(char *name)
 void gen_expr(Node *e);
 static char *node_kind(int type);
 
+/* Emit one byte of a C string literal.  Bytes >= 0x80 must be escaped:
+ * cprint's %c path treats a signed negative byte as an invalid rune and
+ * silently drops it, which used to strip UTF-8 from o9 string literals. */
+static void
+gen_c_string_byte(int c)
+{
+    c = (uchar)c;
+    if(c >= 0x20 && c < 0x7f)
+        cprint("%c", c);
+    else
+        cprint("\\%3.3o", c);
+}
+
 static void
 gen_c_string_literal(char *text)
 {
@@ -96,7 +109,7 @@ gen_c_string_literal(char *text)
         else if(*s == '\t') cprint("\\t");
         else if(*s == '\\') cprint("\\\\");
         else if(*s == '"') cprint("\\\"");
-        else cprint("%c", *s);
+        else gen_c_string_byte(*s);
     }
     cprint("\"");
 }
@@ -244,7 +257,7 @@ gen_name_expr(Node *e)
 static void
 gen_string_lit_expr(Node *e)
 {
-    cprint("o9_string_new(");
+    cprint("o9_string_literal(");
     gen_c_string_literal(e->name);
     cprint(", %d)", strlen(e->name));
 }
@@ -472,14 +485,25 @@ gen_task_msg(Node *e, Type *lt)
 
     if(!type_apply_named(lt, "Task"))
         return 0;
-    if(!expr_name_is(e, "await"))
+    if(!expr_name_is(e, "await") && !expr_name_is(e, "take"))
         return 0;
     at = type_list_at(lt->args, 0);
     rt = type_storage_for_codegen(at);
     if(type_is_double(at))
-        cprint("o9_task_await_double(");
+        cprint(expr_name_is(e, "take") ? "o9_task_take_double(" : "o9_task_await_double(");
     else
-        cprint("(%s)o9_task_await(", rt);
+        cprint("(%s)%s(", rt, expr_name_is(e, "take") ? "o9_task_take" : "o9_task_await");
+    gen_expr(e->left);
+    cprint(")");
+    return 1;
+}
+
+static int
+gen_string_msg(Node *e, Type *lt)
+{
+    if(!type_is_string(lt) || !expr_name_is(e, "dispose"))
+        return 0;
+    cprint("o9_string_release(");
     gen_expr(e->left);
     cprint(")");
     return 1;
@@ -1043,7 +1067,7 @@ gen_msg_fallback_call(Node *e, int d, int nargs, int retdouble)
 static void
 gen_msg_dispatch_tail(Node *e, int d, int nargs, int retdouble)
 {
-    cprint(", o9_dispatch_call(&");
+    cprint(", o9_dispatch_call_checked(&");
     gen_msg_receiver_ref(e->left);
     if(retdouble)
         cprint(", 0x%lux, __o9fr[%d]) != nil ? o9_double_unpack(__o9fr[%d][0]) : ",
@@ -1080,6 +1104,7 @@ gen_object_msg_send(Node *e)
 
 static GenMsgFn gen_msg_handlers[] = {
     gen_task_msg,
+    gen_string_msg,
     gen_tabula_typed_msg,
     gen_tabula_msg,
     gen_mounttable_msg,
@@ -1281,7 +1306,7 @@ gen_print_escaped_literal(char *s)
         else if(*p == '\t') cprint("\\t");
         else if(*p == '\\') cprint("\\\\");
         else if(*p == '"') cprint("\\\"");
-        else cprint("%c", *p);
+        else gen_c_string_byte(*p);
     }
 }
 
@@ -1375,6 +1400,99 @@ static void
 gen_func_call_expr(Node *e)
 {
     gen_print_expr(e);
+}
+
+/* print(...) is emitted as fprint(1, ...).  C leaves argument evaluation
+ * order unspecified, so a call such as print("a", f(), g()) can run g()
+ * before f() (gcc evaluates right-to-left).  Evaluate every argument into
+ * a temporary in source order, then pass the temporaries to fprint. */
+static void
+gen_print_temp_decl(Node *a, int id)
+{
+    if(type_is_string(a->typeinfo))
+        cprint("\t\tchar *__o9p%d;\n", id);
+    else if(type_is_double(a->typeinfo))
+        cprint("\t\tdouble __o9p%d;\n", id);
+    else
+        cprint("\t\tvlong __o9p%d;\n", id);
+}
+
+static void
+gen_print_temp_assign(Node *a, int id)
+{
+    cprint("\t\t__o9p%d = ", id);
+    if(type_is_string(a->typeinfo)){
+        cprint("o9_string_data(");
+        gen_expr(a);
+        cprint(")");
+    }else if(type_is_double(a->typeinfo)){
+        cprint("(double)(");
+        gen_expr(a);
+        cprint(")");
+    }else{
+        cprint("(vlong)(");
+        gen_expr(a);
+        cprint(")");
+    }
+    cprint(";\n");
+}
+
+static void
+gen_print_stmt(Node *e)
+{
+    Node *a, *x;
+    int base, n, i, explicit;
+
+    a = e->left;
+    if(a == nil){
+        cprint("\tfprint(1, \"\");\n");
+        return;
+    }
+    if(print_single_literal(a)){
+        cprint("\tfprint(1, ");
+        gen_c_string_literal(a->name);
+        cprint(");\n");
+        return;
+    }
+
+    explicit = print_explicit_format(a);
+    n = 0;
+    for(x = explicit ? a->next : a; x != nil; x = x->next)
+        if(explicit || x->type != NStringLit)
+            n++;
+
+    base = new_tmp_id;
+    new_tmp_id += n;
+    cprint("\t{\n");
+    i = 0;
+    for(x = explicit ? a->next : a; x != nil; x = x->next){
+        if(!explicit && x->type == NStringLit)
+            continue;
+        gen_print_temp_decl(x, base + i);
+        i++;
+    }
+    i = 0;
+    for(x = explicit ? a->next : a; x != nil; x = x->next){
+        if(!explicit && x->type == NStringLit)
+            continue;
+        gen_print_temp_assign(x, base + i);
+        i++;
+    }
+
+    cprint("\t\tfprint(1, ");
+    if(explicit){
+        gen_c_string_literal(a->name);
+        for(i = 0; i < n; i++)
+            cprint(", __o9p%d", base + i);
+    }else{
+        cprint("\"");
+        for(x = a; x != nil; x = x->next)
+            gen_print_format_piece(x);
+        cprint("\"");
+        for(i = 0; i < n; i++)
+            cprint(", __o9p%d", base + i);
+    }
+    cprint(");\n\t}\n");
 }
 
 static int
@@ -1562,6 +1680,10 @@ discard_expr_is_cvoid(Node *e)
     ve = discard_value_expr(e);
     if(ve == nil)
         return 1;
+    if(ve->type == NMsgSend &&
+       type_is_string(ve->left != nil ? ve->left->typeinfo : nil) &&
+       expr_name_is(ve, "dispose"))
+        return 1;
     if(ve->type == NMsgSend)
         return discard_msgsend_is_cvoid(ve);
     return type_is_void(ve->typeinfo);
@@ -1585,6 +1707,10 @@ gen_discard_expr_stmt(Node *e)
         cprint("\t;\n");
         return;
     }
+    if(e->type == NFuncCall){
+        gen_print_stmt(e);
+        return;
+    }
     if(discard_expr_is_cvoid(e)){
         cprint("\t");
         gen_expr(e);
@@ -1602,6 +1728,7 @@ void gen_assign_new_to(char *varname, char *target, int is_field, char *lhs_type
 void gen_state_store_typed(char *stateexpr, char *fieldexpr, char *name, Type *type);
 void gen_state_store_flagged(char *stateexpr, char *fieldexpr, char *name, Type *type, int flags);
 static void gen_msgsend_pack_arg(Node *a);
+static void gen_msgsend_struct_call(Node *call, char *dest);
 
 void
 gen_assign_new(char *varname, char *lhs_type, Node *n)
@@ -1638,7 +1765,7 @@ gen_vlong_arg_array(char *tabs, char *array, Node *args, int nargs)
 
 static void
 gen_assign_alloc_local(char *varname, char *target, char *lhs_type,
-    char *cn, char *tbl, int dval, Node *args, int nctor)
+    char *cn, int dval, Node *args, int nctor)
 {
     int id;
     char ptr[64], argname[96];
@@ -1653,12 +1780,12 @@ gen_assign_alloc_local(char *varname, char *target, char *lhs_type,
     snprint(ptr, sizeof ptr, "__o9n%d", id);
     gen_init_internal_state(find_class(cn), ptr);
     cprint("\tmemset(&%s, 0, sizeof(%s_Client));\n", target, lhs_type);
-    cprint("\tmemset(&%s, 0, sizeof(o9_AsmTable));\n", tbl);
     cprint("\t%s.shm_base = __o9n%d;\n", target, id);
     cprint("\t%s.dispatch_chan = __o9n%d->dispatch_chan;\n", target, id);
-    cprint("\t%s.table = &%s;\n", target, tbl);
+    cprint("\t%s.table = &__o9n%d->o9_dispatch_table;\n", target, id);
     cprint("\t%s.distance = %d;\n", target, dval >= 0 ? dval : -1);
-    cprint("\tproccreate(%s_loop, __o9n%d, 65536);\n", cn, id);
+    cprint("\tsnprint(__o9n%d->oid, sizeof __o9n%d->oid, \"%%s\", \"%s\");\n", id, id, varname);
+    cprint("\t__o9n%d->tid = proccreate(%s_loop, __o9n%d, 65536);\n", id, cn, id);
     cprint("\t%s_create_instance(__o9n%d, \"%s\");\n", cn, id, varname);
     if(nctor > 0){
         snprint(argname, sizeof argname, "__args_%s_%d", varname, id);
@@ -1671,38 +1798,25 @@ gen_assign_alloc_local(char *varname, char *target, char *lhs_type,
     cprint("\t(void)obj9_msgSendN(&%s, \"%s\", 0x%lux, nil, 0);\n", target, cn, o9_hash(cn));
 }
 
-static void
-gen_assign_table_name(char *tbl, int ntbl, char *varname, int is_field)
-{
-    if(is_field)
-        snprint(tbl, ntbl, "__o9tbl%d", new_tmp_id);
-    else
-        snprint(tbl, ntbl, "%s_tbl", varname);
-}
-
 /* target is the C lvalue to store the client into (e.g. "motor" for a
- * local, "self->motor" for a field).  is_field: don't declare a local
- * client/tbl; use a temp AsmTable and store into the field.  varname is
- * still the instance NAME (for create_instance and state). */
+ * local, "self->motor" for a field).  The client's dispatch table lives in
+ * the heap-allocated Internal so actor callbacks never point at stack
+ * storage.  varname is still the instance NAME (for create_instance and
+ * state). */
 void
 gen_assign_new_to(char *varname, char *target, int is_field, char *lhs_type, Node *n)
 {
     char *cn;
     int dval, nctor;
-    char tbl[96];
 
+    USED(is_field);
     if(varname == nil || target == nil || lhs_type == nil || n == nil || n->name == nil)
         return;
-    /* field target: its client struct is embedded in the Internal; use a
-     * temp AsmTable rather than a `<var>_tbl` local. */
-    gen_assign_table_name(tbl, sizeof tbl, varname, is_field);
     cn = n->name;
     dval = -1;
     nctor = node_arg_count(n->right);
 
-    if(is_field)
-        cprint("\to9_AsmTable %s;\n", tbl);
-    gen_assign_alloc_local(varname, target, lhs_type, cn, tbl, dval, n->right, nctor);
+    gen_assign_alloc_local(varname, target, lhs_type, cn, dval, n->right, nctor);
     if(n->flags & NFDial)
         cprint("\t(void)obj9_msgSendN(&%s, \"dial\", 0x%lux, nil, 0);\n",
             target, o9_hash("dial"));
@@ -1720,12 +1834,10 @@ gen_local_new(Node *s, char *cn, int distance)
     cprint("\tmemset(__%s, 0, sizeof(%s_Internal));\n", s->name, cn);
     cprint("\t__%s->dispatch_chan = chancreate(sizeof(void*), 10);\n", s->name);
     cprint("\t%s_Client %s;\n", cn, s->name);
-    cprint("\to9_AsmTable %s_tbl;\n", s->name);
     cprint("\tmemset(&%s, 0, sizeof(%s_Client));\n", s->name, cn);
-    cprint("\tmemset(&%s_tbl, 0, sizeof(o9_AsmTable));\n", s->name);
     cprint("\t%s.shm_base = __%s;\n", s->name, s->name);
     cprint("\t%s.dispatch_chan = __%s->dispatch_chan;\n", s->name, s->name);
-    cprint("\t%s.table = &%s_tbl;\n", s->name, s->name);
+    cprint("\t%s.table = &__%s->o9_dispatch_table;\n", s->name, s->name);
     cprint("\t__%s->distance = %d;\n", s->name, distance);
     cprint("\t%s.distance = %d;\n", s->name, distance);
     cprint("\t__%s->state = o9_state_create_path(o9app_root, \"%s\", \"%s\", o9_state_cols_%s, %d);\n",
@@ -1736,7 +1848,8 @@ gen_local_new(Node *s, char *cn, int distance)
         snprint(ptr, sizeof ptr, "__%s", s->name);
         gen_init_internal_state(cnode, ptr);
     }
-    cprint("\tproccreate(%s_loop, __%s, 65536);\n", cn, s->name);
+    cprint("\tsnprint(__%s->oid, sizeof __%s->oid, \"%%s\", \"%s\");\n", s->name, s->name, s->name);
+    cprint("\t__%s->tid = proccreate(%s_loop, __%s, 65536);\n", s->name, cn, s->name);
     cprint("\t%s_create_instance(__%s, \"%s\");\n", cn, s->name, s->name);
     if(nctor > 0){
         cprint("\t{ ");
@@ -2276,9 +2389,15 @@ gen_return_stmt(Node *s)
         } else if(is_try(s->left)){
             cprint("\t{ vlong __rv;\n\t__rv = (vlong)("); gen_expr(s->left); cprint(");\n");
             cprint("\t{ char *__ce;\n\t__ce = o9_get_call_err(); if(__ce != nil){ __o9r->err = __ce; goto done; } }\n");
-            cprint("\t__o9r->ret = (uintptr)__rv; }\n\tgoto done;\n");
+            cprint("\t__o9r->ret = (vlong)__rv; }\n\tgoto done;\n");
         } else {
-            cprint("\t__o9r->ret = (uintptr)("); gen_expr(s->left); cprint(");\n\tgoto done;\n");
+            if(s->left != nil && (type_storage_pointerish(s->left->typeinfo) ||
+               type_is_string(s->left->typeinfo)))
+                cprint("\t__o9r->ret = (vlong)(uintptr)(");
+            else
+                cprint("\t__o9r->ret = (vlong)(");
+            gen_expr(s->left);
+            cprint(");\n\tgoto done;\n");
         }
     } else {
         cprint("\treturn "); gen_expr(s->left); cprint(";\n");
@@ -2431,6 +2550,14 @@ gen_local_direct_storage_stmt(Node *s)
     }
     if(s->left != nil && !type_is_collection(s->typeinfo, "List") &&
        !type_is_collection(s->typeinfo, "Dict")){
+        Node *d = type_decl_node(s->typeinfo);
+        Node *rv = try_value_expr(s->left);
+        if(d != nil && d->type == NStruct && rv != nil && rv->type == NMsgSend){
+            gen_msgsend_struct_call(rv, s->name);
+            if(is_try(s->left))
+                gen_try_check();
+            return 1;
+        }
         cprint("\t%s = ", s->name);
         gen_expr(s->left);
         cprint(";\n");
@@ -2476,8 +2603,17 @@ gen_local_object_return_stmt(Node *s, Node *cdecl, char *cname, int is_new)
 static void
 gen_local_plain_decl_stmt(Node *s, int is_new)
 {
+    Node *rv;
+    Node *d;
+
     cprint("\t%s %s;\n", type_storage_for_codegen(s->typeinfo), s->name);
     if(s->left != nil && !is_new){
+        d = type_decl_node(s->typeinfo);
+        rv = try_value_expr(s->left);
+        if(d != nil && d->type == NStruct && rv != nil && rv->type == NMsgSend){
+            gen_msgsend_struct_call(rv, s->name);
+            return;
+        }
         cprint("\t%s = ", s->name);
         gen_expr(s->left);
         cprint(";\n");
@@ -2757,6 +2893,55 @@ gen_assign_array(Node *c, Node *s)
     return 1;
 }
 
+static void
+gen_msgsend_struct_call(Node *call, char *dest)
+{
+    int id, nargs;
+    char argbuf[64], *argexpr;
+
+    id = new_tmp_id++;
+    nargs = msg_arg_count(call->right);
+    cprint("\t{\n");
+    argexpr = gen_msgsend_arg_array(call->right, id, nargs, argbuf, sizeof argbuf);
+    cprint("\t\tobj9_msgSendStructN(&");
+    gen_expr(call->left);
+    if(call->left != nil && call->left->type == NIdent)
+        cprint(", \"%s/%s\", 0x%lux, %s, %d, &%s, sizeof(%s));\n",
+            call->left->name, call->name, o9_hash(call->name),
+            argexpr, nargs, dest, dest);
+    else
+        cprint(", \"%s\", 0x%lux, %s, %d, &%s, sizeof(%s));\n",
+            call->name, o9_hash(call->name), argexpr, nargs, dest, dest);
+    cprint("\t}\n");
+}
+
+static int
+gen_assign_struct_result(Node *c, Node *s)
+{
+    Type *ltinfo;
+    Node *rv;
+    char dest[160];
+
+    (void)c;
+    if(!assign_ident(s->left))
+        return 0;
+    ltinfo = assign_ident_type(s->left);
+    if(ltinfo == nil || type_decl_node(ltinfo) == nil ||
+       type_decl_node(ltinfo)->type != NStruct)
+        return 0;
+    rv = try_value_expr(s->right);
+    if(rv == nil || rv->type != NMsgSend)
+        return 0;
+    if(assign_current_field(s->left))
+        snprint(dest, sizeof dest, "self->%s", s->left->name);
+    else
+        snprint(dest, sizeof dest, "%s", s->left->name);
+    gen_msgsend_struct_call(rv, dest);
+    if(is_try(s->right))
+        gen_try_check();
+    return 1;
+}
+
 static int
 gen_assign_object_result(Node *c, Node *s)
 {
@@ -2936,6 +3121,7 @@ gen_assign_default(Node *c, Node *s)
 static GenAssignFn gen_assign_handlers[] = {
     gen_assign_tuple,
     gen_assign_array,
+    gen_assign_struct_result,
     gen_assign_object_result,
     gen_assign_new_class,
     gen_assign_subclass_copy,
@@ -4068,12 +4254,17 @@ void gen_cleanup_props(Node *c, char *childname) {
     }
 }
 
+/* Declarations shared by every class implementation.  These must be
+ * emitted for all classes before any method body: a constructor may
+ * allocate its own class or a class declared later, and the generated C
+ * then needs the state-column array and the complete Internal struct at
+ * that point.  Emitting them per class made the result depend on source
+ * order and produced "unknown type name '<C>_Internal'" in larger apps. */
 static void
-gen_class_state_layout(Node *c)
+gen_class_shared_decls(Node *c)
 {
     int nstatecols;
 
-    cprint("/* Implementation for class %s (Tiered CSP/9P Model) */\n", c->name);
     nstatecols = count_state_cols(c);
     cprint("static char *o9_state_cols_%s[] = { ", c->name);
     if(nstatecols > 0)
@@ -4082,10 +4273,40 @@ gen_class_state_layout(Node *c)
         cprint("nil ");
     cprint("};\n\n");
     cprint("typedef struct %s_Internal %s_Internal;\n", c->name, c->name);
-    cprint("struct %s_Internal {\n\tArcLedger ledger;\n\tlong ref;\t/* ARC reference count */\n\tint distance;\t/* -1=same, 0=near/IL, 1=far/TCP */\n\tO9State *state;\n\tchar data[4096];\n\tchar error[256];\n\tchar oid[64];\t/* instance name, for reap */\n\tvoid *objdir;\t/* File* of /<Class>/<oid>/, removed on reap */\n", c->name);
+    cprint("struct %s_Internal {\n\tArcLedger ledger;\n\tlong ref;\t/* ARC reference count */\n\tint distance;\t/* -1=same, 0=near/IL, 1=far/TCP */\n\tint tid;\t/* libthread tid for the exit watchdog */\n\tO9State *state;\n\tchar data[4096];\n\tchar error[256];\n\tchar oid[64];\t/* instance name, for reap */\n\tvoid *objdir;\t/* File* of /<Class>/<oid>/, removed on reap */\n", c->name);
     gen_internal_fields(c);
+    cprint("\to9_AsmTable o9_dispatch_table;\t/* client dispatch cache; actor-owned */\n");
     cprint("\tChannel *dispatch_chan;\n");
     cprint("};\n\n");
+    /* 'new <C>' in any method emits these calls; both are defined later
+     * in the class section. */
+    cprint("static void %s_loop(void *v);\n", c->name);
+    cprint("int %s_create_instance(%s_Internal *inst, char *name);\n\n",
+        c->name, c->name);
+}
+
+static void
+gen_class_shared_decls_tree(Node *root)
+{
+    Node *n;
+
+    for(n = root; n; n = n->next){
+        if(n->type == NModule){
+            gen_class_shared_decls_tree(n->left);
+            continue;
+        }
+        if(n->type == NClass && (n->flags & NFAbstract) == 0 && n->params == nil){
+            gen_class_shared_decls(n);
+            /* mirror gen_classes, which descends into a class body */
+            gen_class_shared_decls_tree(n->left);
+        }
+    }
+}
+
+static void
+gen_class_self_decls(Node *c)
+{
+    cprint("/* Implementation for class %s (Tiered CSP/9P Model) */\n", c->name);
 }
 
 static void
@@ -4119,6 +4340,8 @@ gen_class_cleanup_impl(Node *c, int has_destruct)
     cprint("\to9_state_close(self->state);\n");
     cprint("\to9_dag_actor_exit(self->dispatch_chan);\n");
     cprint("\tchanclose(self->dispatch_chan);\n");
+    if((c->flags & NFFunction) != 0)
+        cprint("\tchanfree(self->dispatch_chan);\n");
     cprint("\tfree(self);\n");
     cprint("}\n\n");
 }
@@ -4161,9 +4384,20 @@ gen_class_dispatch_loop(Node *c)
     cprint("\t\tswitch(m->sel){\n");
     num_emitted = 0;
     gen_dispatch_cases(c, c->name);
-    cprint("\t\tcase 0x%lux: o9_cleanup_%s(self); if(m->replyc != nil){ O9Reply *__dr;\n\t__dr = mallocz(sizeof(O9Reply), 1); __dr->ok = 1; sendp(m->replyc, __dr); } threadexits(nil); break;\n", o9_hash("destroy"), c->name);
+    cprint("\t\tcase 0x%lux: o9_cleanup_%s(self); if(m->replyc != nil){ O9Reply *__dr;\n\t__dr = mallocz(sizeof(O9Reply), 1); __dr->ok = 1; sendp(m->replyc, __dr); } o9_proc_ctx_clear(); threadexits(nil); break;\n", o9_hash("destroy"), c->name);
     cprint("\t\tdefault: if(m->replyc != nil){ O9Reply *r;\n\tr = mallocz(sizeof(O9Reply), 1); r->err = \"bad selector\"; sendp(m->replyc, r); } break;\n");
-    cprint("\t\t}\n\t}\n}\n\n");
+    cprint("\t\t}\n");
+    /* A one-shot function actor answers exactly one run and then reaps
+     * itself. Persistent actors keep their dispatch loop. */
+    if((c->flags & NFFunction) != 0){
+        cprint("\t\tif(self->__spawn_state == 1 && m->sel == 0x%lux){\n", o9_hash("run"));
+        cprint("\t\t\tfree(m->args); free(m);\n");
+        cprint("\t\t\to9_cleanup_%s(self);\n", c->name);
+        cprint("\t\t\to9_proc_ctx_clear();\n");
+        cprint("\t\t\tthreadexits(nil);\n");
+        cprint("\t\t}\n");
+    }
+    cprint("\t}\n}\n\n");
 }
 
 static void
@@ -4250,7 +4484,7 @@ gen_class_record_instance(Node *c)
     cprint("\t%s_instances[%s_ninstances].inst = inst;\n", c->name, c->name);
     cprint("\t%s_ninstances++;\n", c->name);
     cprint("\to9_registry_register(name, \"%s\", inst->dispatch_chan, inst);\n", c->name);
-    cprint("\tstrncpy(inst->oid, name, sizeof inst->oid - 1);\n");
+    cprint("\tif(inst->oid[0] == '\\0') strncpy(inst->oid, name, sizeof inst->oid - 1);\n");
     cprint("\tif(o9_ns_bind_obj(o9_mount_%s, o9_app_root_%s, name) >= 0){\n", c->name, c->name);
     cprint("\t\tchar __ln[300];\n");
     cprint("\t\tsnprint(__ln, sizeof __ln, \"bind %%s/%%s %%s/obj/%%s\", o9_mount_%s, name, o9_app_root_%s, name);\n", c->name, c->name);
@@ -4319,7 +4553,7 @@ gen_method_scope_locals(Node *m)
     num_locals = 0;
     mark_locals(m->left);
     for(p = m->right; p; p = p->next)
-        if(num_locals < 128)
+        if(num_locals < (int)nelem(local_vars))
             local_vars[num_locals++] = p->name;
 }
 
@@ -4390,7 +4624,7 @@ gen_method_impl_artifact(Node *c, Node *m)
     cprint("\tvlong __o9fr[%d][12];\n\tUSED(__o9fr);\n", O9_MSG_FRAMES);
     gen_method_unpack_params(m);
     gen_method_body_emit(c, m);
-    cprint("\t__o9r->ok = 1;\n\tsendp(msg->replyc, __o9r);\n}\n\n");
+    cprint("\t__o9r->ok = 1;\n\to9_msg_reply(msg, __o9r);\n}\n\n");
 }
 
 static void
@@ -4443,7 +4677,7 @@ gen_ctrl_reply_store(Node *m)
     if(type_is_double(m->typeinfo))
         cprint("\telse{ o9_set_call_err(nil); ((vlong*)__a)[0] = o9_double_pack(__r->dret); }\n");
     else
-        cprint("\telse{ o9_set_call_err(nil); ((vlong*)__a)[0] = (vlong)(uintptr)__r->ret; }\n");
+        cprint("\telse{ o9_set_call_err(nil); ((vlong*)__a)[0] = (vlong)__r->ret; }\n");
     cprint("\to9_reply_free(__r); }\n");
 }
 
@@ -4524,7 +4758,7 @@ gen_method_self_artifact(Node *c, Node *m, int np)
     cprint(")\n{\n");
     if(np > 0)
         cprint("\tvlong __args[%d];\n", np);
-    cprint("\tO9Msg __m;\n\tO9Reply *__r;\n");
+    cprint("\tO9Msg __m;\n\tO9Reply *__r;\n\tmemset(&__m, 0, sizeof __m);\n");
     if(!isvoid)
         cprint("\t%s __v;\n", rst);
     gen_self_args(m);
@@ -4611,56 +4845,12 @@ spawn_method_param_count(Node *m)
 }
 
 static void
-gen_spawn_context_type(Node *c)
-{
-    cprint("typedef struct O9SpawnCtx_%s O9SpawnCtx_%s;\n", c->name, c->name);
-    cprint("struct O9SpawnCtx_%s {\n\tChannel *replyc;\n\tO9Task *task;\n\t%s_Internal *inst;\n\tint tid;\n};\n", c->name, c->name);
-    cprint("typedef struct O9SpawnCallCtx_%s O9SpawnCallCtx_%s;\n", c->name, c->name);
-    cprint("struct O9SpawnCallCtx_%s {\n\tChannel *replyc;\n\tO9Task *task;\n};\n", c->name);
-}
-
-static void
-gen_spawn_forward_proc(Node *c)
-{
-    cprint("static void\no9_spawn_forward_%s(void *v)\n{\n", c->name);
-    cprint("\tO9SpawnCtx_%s *ctx;\n\tctx = v;\n", c->name);
-    cprint("\tO9Reply *__r;\n");
-    cprint("\tint __abnormal;\n\t__abnormal = 0;\n");
-    cprint("\twhile((__r = nbrecvp(ctx->replyc)) == nil){\n");
-    cprint("\t\tif(ctx->tid > 0 && threadpid(ctx->tid) < 0){\n");
-    cprint("\t\t\t__r = mallocz(sizeof(O9Reply), 1);\n");
-    cprint("\t\t\t__r->err = \"actor exited without reply\";\n");
-    cprint("\t\t\t__abnormal = 1;\n");
-    cprint("\t\t\tbreak;\n");
-    cprint("\t\t}\n");
-    cprint("\t\tsleep(5);\n");
-    cprint("\t}\n");
-    cprint("\tsendp((Channel*)o9_task_chan(ctx->task), __r);\t/* deliver value+error to the Task */\n");
-    cprint("\t/* reap the one-shot instance */\n");
-    cprint("\tif(!__abnormal){\n");
-    cprint("\t\tO9Msg *__dm;\n\t\t__dm = mallocz(sizeof(O9Msg), 1); __dm->sel = 0x%lux; __dm->replyc = nil;\n", o9_hash("destroy"));
-    cprint("\t\tsendp(ctx->inst->dispatch_chan, __dm);\n");
-    cprint("\t} else {\n");
-    cprint("\t\to9_dag_actor_exit(ctx->inst->dispatch_chan);\n");
-    cprint("\t\tchanfree(ctx->inst->dispatch_chan); free(ctx->inst);\n");
-    cprint("\t}\n");
-    cprint("\tchanfree(ctx->replyc); free(ctx);\n");
-    cprint("}\n");
-    cprint("static void\no9_spawn_call_forward_%s(void *v)\n{\n", c->name);
-    cprint("\tO9SpawnCallCtx_%s *ctx;\n\tctx = v;\n", c->name);
-    cprint("\tO9Reply *__r;\n\t__r = recvp(ctx->replyc);\n");
-    cprint("\tsendp((Channel*)o9_task_chan(ctx->task), __r);\n");
-    cprint("\tchanfree(ctx->replyc); free(ctx);\n");
-    cprint("}\n");
-    cprint("static int o9_spawn_id_%s;\n", c->name);
-}
-
-static void
 gen_spawn_signature(Node *c, Node *rm, int np)
 {
     Node *pn;
     int pi;
 
+    cprint("static int o9_spawn_id_%s;\n", c->name);
     cprint("O9Task*\no9_spawn_%s(", c->name);
     for(pn = (rm ? rm->right : nil), pi = 0; pn; pn = pn->next, pi++){
         if(pi) cprint(", ");
@@ -4682,15 +4872,22 @@ gen_spawn_instance_setup(Node *c)
     cprint("\tmemset(__inst, 0, sizeof(%s_Internal));\n", c->name);
     cprint("\t__inst->dispatch_chan = chancreate(sizeof(void*), 10);\n");
     cprint("\t__inst->distance = -1;\n");
-    cprint("\t__inst->state = o9_state_create_path(o9app_root, \"%s\", __nm, o9_state_cols_%s, %d);\n",
-        c->name, c->name, count_state_cols(c));
+    /* One-shot function instances have no persistent identity or state file.
+     * Their run method and task own their lifetime. Avoid creating a tabula
+     * on every helper call; explicit new still initializes object state. */
+    cprint("\t__inst->state = nil;\n");
     snprint(ptr, sizeof ptr, "__inst");
     gen_init_internal_state(c, ptr);
     cprint("\t__inst->__spawn_index = __id;\n");
     cprint("\t__inst->__spawn_state = 1;\t/* running */\n");
-    cprint("\tint __tid;\n\t__tid = proccreate(%s_loop, __inst, 65536);\n", c->name);
-    cprint("\t%s_record_instance(__nm, __inst);\n", c->name);
-    cprint("\tChannel *__replyc;\n\t__replyc = chancreate(sizeof(void*), 1);\n");
+    cprint("\t__inst->tid = proccreate(%s_loop, __inst, 65536);\n", c->name);
+    /* A spawned function is owned by its Task. Publishing every invocation
+     * creates permanent object-store tombstones and namespace recipes for
+     * work that cannot be addressed by another client. Its zeroed oid makes
+     * forget_instance a no-op; explicit 'new' still uses record_instance. */
+    cprint("\tChannel *__replyc;\n\t__replyc = (Channel*)o9_task_chan(__task);\n");
+    cprint("\tif(o9_pending_register(__inst->tid, __replyc, __inst->dispatch_chan, __inst, 1, __task, nil) < 0)\n");
+    cprint("\t\to9_task_close(__task);\t/* drop the pending-table reference */\n");
 }
 
 static void
@@ -4715,20 +4912,12 @@ gen_spawn_arg_pack(Node *rm, int np)
 static void
 gen_spawn_run_send(int np)
 {
-    cprint("\t{ O9Msg *__wm;\n\t__wm = mallocz(sizeof(O9Msg), 1);\n");
-    cprint("\t  __wm->sel = 0x%lux; __wm->args = %s; __wm->nargs = %d; __wm->replyc = __replyc;\n",
+    cprint("\tO9Msg *__wm;\n\t__wm = mallocz(sizeof(O9Msg), 1);\n");
+    cprint("\t  __wm->sel = 0x%lux; __wm->args = %s; __wm->nargs = %d; __wm->replyc = __replyc; __wm->task = __task;\n",
         o9_hash("run"), np > 0 ? "__args" : "nil", np);
     cprint("\t  __wm->caller = o9_current_user_c();\n");
     cprint("\t  __wm->blessed = o9_current_user_blessed();\n");
-    cprint("\t  sendp(__inst->dispatch_chan, __wm); }\n");
-}
-
-static void
-gen_spawn_forward_start(Node *c)
-{
-    cprint("\t{ O9SpawnCtx_%s *__ctx;\n\t__ctx = mallocz(sizeof(O9SpawnCtx_%s), 1);\n", c->name, c->name);
-    cprint("\t  __ctx->replyc = __replyc; __ctx->task = __task; __ctx->inst = __inst; __ctx->tid = __tid;\n");
-    cprint("\t  proccreate(o9_spawn_forward_%s, __ctx, 32*1024); }\n", c->name);
+    cprint("\tsendp(__inst->dispatch_chan, __wm);\n");
 }
 
 static void
@@ -4750,17 +4939,16 @@ gen_spawn_call_body(Node *c, Node *rm, int np)
     (void)rm;
     cprint("\tint __id;\n\t__id = o9_spawn_id_%s++;\n", c->name);
     cprint("\tO9Task *__task;\n\t__task = o9_task_new(__id);\n");
-    cprint("\tChannel *__replyc;\n\t__replyc = chancreate(sizeof(void*), 1);\n");
+    cprint("\tChannel *__replyc;\n\t__replyc = (Channel*)o9_task_chan(__task);\n");
     gen_spawn_arg_pack(rm, np);
-    cprint("\t{ O9Msg *__wm;\n\t__wm = mallocz(sizeof(O9Msg), 1);\n");
-    cprint("\t  __wm->sel = 0x%lux; __wm->args = %s; __wm->nargs = %d; __wm->replyc = __replyc;\n",
+    cprint("\tO9Msg *__wm;\n\t__wm = mallocz(sizeof(O9Msg), 1);\n");
+    cprint("\t  __wm->sel = 0x%lux; __wm->args = %s; __wm->nargs = %d; __wm->replyc = __replyc; __wm->task = __task;\n",
         o9_hash("run"), np > 0 ? "__args" : "nil", np);
     cprint("\t  __wm->caller = o9_current_user_c();\n");
     cprint("\t  __wm->blessed = o9_current_user_blessed();\n");
-    cprint("\t  sendp(__fn->dispatch_chan, __wm); }\n");
-    cprint("\t{ O9SpawnCallCtx_%s *__ctx;\n\t__ctx = mallocz(sizeof(O9SpawnCallCtx_%s), 1);\n", c->name, c->name);
-    cprint("\t  __ctx->replyc = __replyc; __ctx->task = __task;\n");
-    cprint("\t  proccreate(o9_spawn_call_forward_%s, __ctx, 32*1024); }\n", c->name);
+    cprint("\tif(o9_pending_register(0, __replyc, __fn->dispatch_chan, nil, 0, __task, nil) < 0)\n");
+    cprint("\t\to9_task_close(__task);\t/* drop the pending-table reference */\n");
+    cprint("\tsendp(__fn->dispatch_chan, __wm);\n");
     cprint("\treturn __task;\n}\n");
 }
 
@@ -4774,13 +4962,10 @@ gen_class_spawn_helper(Node *c)
         return;
     rm = spawn_run_method(c);
     np = spawn_method_param_count(rm);
-    gen_spawn_context_type(c);
-    gen_spawn_forward_proc(c);
     gen_spawn_signature(c, rm, np);
     gen_spawn_instance_setup(c);
     gen_spawn_arg_pack(rm, np);
     gen_spawn_run_send(np);
-    gen_spawn_forward_start(c);
     cprint("\treturn __task;\n}\n");
     gen_spawn_call_signature(c, rm, np);
     gen_spawn_call_body(c, rm, np);
@@ -4843,7 +5028,9 @@ gen_class_fsread_method_files(Node *c)
             cprint("\t\tif(__o9rep->err != nil)\n");
             cprint("\t\t\tsnprint(buf, sizeof buf, \"error: %%s\\n\", __o9rep->err);\n");
             cprint("\t\telse\n");
-            if(type_is_string(m->typeinfo)){
+            if(type_is_struct_value(m->typeinfo)){
+                cprint("\t\tsnprint(buf, sizeof buf, \"error: struct return not exposed over 9P\\n\");\n");
+            } else if(type_is_string(m->typeinfo)){
                 cprint("\t\tsnprint(buf, sizeof buf, \"%%s\\n\", o9_string_data((O9String*)__o9rep->ret));\n");
             } else if(type_is_double(m->typeinfo)){
                 cprint("\t\tsnprint(buf, sizeof buf, \"%%g\\n\", __o9rep->dret);\n");
@@ -4915,7 +5102,7 @@ gen_class_fsread(Node *c)
     cprint("\tchar buf[1024], *name;\n");
     cprint("\t%s_Internal *inst;\n\n", c->name);
     cprint("\tUSED(buf);\n");
-    cprint("\tname = r->fid->file->name;\n\tinst = instv;\n");
+    cprint("\tname = o9_file_name(r->fid->file);\n\tinst = instv;\n");
     gen_class_fsread_status(c);
     cprint("\tif(strcmp(name, \"methods\") == 0){\n");
     cprint("\t\tchar mbuf[8192];\n");
@@ -4947,7 +5134,7 @@ gen_class_ctl_new(Node *c)
         gen_init_internal_state(c, ptr);
     }
     cprint("\t\t\t\t%s_record_instance(f[1], target);\n", c->name);
-    cprint("\t\t\t\tproccreate(%s_loop, target, 65536);\n", c->name);
+    cprint("\t\t\t\ttarget->tid = proccreate(%s_loop, target, 65536);\n", c->name);
     cprint("\t\t\t}\n");
     cprint("\t\t\t{ char __nb[128]; snprint(__nb, sizeof __nb, \"ok new %%s\\n\", f[1]); o9app_put_status(r, __nb); o9app_put_result(r, __nb); }\n");
     cprint("\t\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t\t}\n");
@@ -5005,9 +5192,11 @@ static int
 ctl_method_supported(Node *m)
 {
     Node *p;
+    int np;
 
+    np = 0;
     for(p = m->right; p; p = p->next)
-        if(!ctl_param_supported(p))
+        if(++np > 61 || !ctl_param_supported(p))
             return 0;
     return 1;
 }
@@ -5066,7 +5255,9 @@ gen_class_ctl_result_value(Node *m)
     fmt = type_fmt_for_codegen(m->typeinfo);
     cast = type_cast_for_codegen(m->typeinfo);
     cprint("\t\t\t{\n\t\t\t\tchar __rb[4096];\n");
-    if(type_is_string(m->typeinfo))
+    if(type_is_struct_value(m->typeinfo))
+        cprint("\t\t\t\tsnprint(__rb, sizeof __rb, \"error: struct return not exposed over 9P\\n\");\n");
+    else if(type_is_string(m->typeinfo))
         cprint("\t\t\t\tsnprint(__rb, sizeof __rb, \"%%s\\n\", o9_string_data((O9String*)__o9rep->ret));\n");
     else if(type_is_double(m->typeinfo))
         cprint("\t\t\t\tsnprint(__rb, sizeof __rb, \"%%g\\n\", __o9rep->dret);\n");
@@ -5317,10 +5508,11 @@ static void
 gen_class_fswrite(Node *c)
 {
     cprint("static void\nfswrite_%s(Req *r, void *instv)\n{\n", c->name);
-    cprint("\tchar *name;\n\tname = r->fid->file->name;\n");
+    cprint("\tchar *name;\n\tname = o9_file_name(r->fid->file);\n");
     cprint("\t%s_Internal *inst;\n\tinst = instv;\n", c->name);
     cprint("\tif(strcmp(name, \"ctl\") == 0){\n");
-    cprint("\t\tchar cmd[1024], *f[16], *v;\n\t\tint nf;\n\t\t%s_Internal *target;\n", c->name);
+    /* Three fixed fields plus up to 61 method arguments. */
+    cprint("\t\tchar cmd[1024], *f[64], *v;\n\t\tint nf;\n\t\t%s_Internal *target;\n", c->name);
     cprint("\t\tUSED(&v);\n");
     cprint("\t\tsnprint(cmd, sizeof cmd, \"%%.*s\", (int)r->ifcall.count, (char*)r->ifcall.data);\n");
     cprint("\t\tnf = tokenize(cmd, f, nelem(f));\n");
@@ -5345,7 +5537,7 @@ gen_class_fswrite(Node *c)
 void
 gen_class_server(Node *c)
 {
-    gen_class_state_layout(c);
+    gen_class_self_decls(c);
     gen_self_call_prototypes(c);
 
     int has_destruct = gen_class_method_artifacts(c);

@@ -1,0 +1,280 @@
+// Typed directory listing and tree helpers.
+import "collections.o9";
+import "file.o9";
+import "string.o9";
+
+class DirEntry {
+    prop string name;
+    prop string path;
+    prop bool isdir;
+    prop int64 size;
+    prop int64 mode;
+    prop int64 mtime;
+    prop string owner;
+
+    method DirEntry(string n, string p, bool d, int64 sz, int64 md,
+                    int64 mt, string ow) {
+        name = n;
+        path = p;
+        isdir = d;
+        size = sz;
+        mode = md;
+        mtime = mt;
+        owner = ow;
+    }
+}
+
+class DirList {
+    prop list<DirEntry> items;
+
+    method DirList() {
+        items = new list<DirEntry>();
+    }
+
+    method int64 length() {
+        return items.length();
+    }
+
+    method DirEntry get(int64 index) {
+        return items.get(index);
+    }
+
+    method void set(int64 index, DirEntry value) {
+        items.set(index, value);
+    }
+
+    method void add(DirEntry value) {
+        items.add(value);
+    }
+}
+
+function DirListRaw(string path) string {
+    string out;
+    c {
+        char *p, *buf, *nb;
+        Dir *d;
+        int fd, i;
+        long n, need, cap, len;
+
+        out = o9_string_new("", 0);
+        p = o9_string_cstr(path);
+        if(p != nil){
+            fd = open(p, OREAD);
+            free(p);
+            if(fd >= 0){
+                d = nil;
+                n = dirreadall(fd, &d);
+                close(fd);
+                if(n >= 0 && d != nil){
+                    cap = n * 128 + 1;
+                    buf = malloc(cap);
+                    if(buf != nil){
+                        len = 0;
+                        for(i = 0; i < n; i++){
+                            need = snprint(buf + len, cap - len,
+                                "%d\t%lld\t%lud\t%lld\t%s\t%s\n",
+                                (d[i].mode & DMDIR) != 0,
+                                (vlong)d[i].length,
+                                (ulong)d[i].mode,
+                                (vlong)d[i].mtime,
+                                d[i].uid != nil ? d[i].uid : "",
+                                d[i].name != nil ? d[i].name : "");
+                            if(need >= cap - len){
+                                cap = cap * 2 + need + 1;
+                                nb = realloc(buf, cap);
+                                if(nb == nil)
+                                    break;
+                                buf = nb;
+                                need = snprint(buf + len, cap - len,
+                                    "%d\t%lld\t%lud\t%lld\t%s\t%s\n",
+                                    (d[i].mode & DMDIR) != 0,
+                                    (vlong)d[i].length,
+                                    (ulong)d[i].mode,
+                                    (vlong)d[i].mtime,
+                                    d[i].uid != nil ? d[i].uid : "",
+                                    d[i].name != nil ? d[i].name : "");
+                            }
+                            if(need < 0 || need >= cap - len)
+                                break;
+                            len += need;
+                        }
+                        out = o9_string_new(buf, len);
+                        free(buf);
+                    }
+                    free(d);
+                }
+            }
+        }
+    }
+    return out;
+}
+
+class Dir {
+    prop string path;
+
+    method Dir(string p) {
+        path = p;
+    }
+
+    method string file() {
+        return path;
+    }
+
+    method DirList entries() {
+        DirList out = new DirList();
+        Task<string> listTask = spawn DirListRaw(path);
+        string data = listTask.await();
+        String s = new String(data);
+        int64 n = s.count("\n");
+        int64 i = 0;
+        while(i < n) {
+            string line = s.line(i);
+            if(len(line) > 0) {
+                String l;
+                bool isdir;
+                int64 size;
+                int64 mode;
+                int64 mtime;
+                string owner;
+                string name;
+                DirEntry entry;
+
+                l = new String(line);
+                isdir = intvalue(l.field("\t", 0), 0) != 0;
+                size = intvalue(l.field("\t", 1), 0);
+                mode = intvalue(l.field("\t", 2), 0);
+                mtime = intvalue(l.field("\t", 3), 0);
+                owner = l.field("\t", 4);
+                name = l.field("\t", 5);
+                if(owner == nil) { owner = ""; }
+                if(name == nil) { name = ""; }
+                entry = new DirEntry(name, cat(cat(path, "/"), name), isdir,
+                                     size, mode, mtime, owner);
+                out.add(entry);
+            }
+            i = i + 1;
+        }
+        // Stable insertion sort by name for predictable callers and tests.
+        i = 1;
+        while(i < out.length()) {
+            DirEntry key = out.get(i);
+            int64 j = i - 1;
+            bool move = j >= 0;
+            while(move) {
+                DirEntry left = out.get(j);
+                if(cmp(left.name, key.name) > 0) {
+                    out.set(j + 1, left);
+                    j = j - 1;
+                    move = j >= 0;
+                } else {
+                    move = false;
+                }
+            }
+            out.set(j + 1, key);
+            i = i + 1;
+        }
+        return out;
+    }
+}
+
+// Recursive helpers are iterative so a directory tree does not create a
+// recursive actor chain.
+class DirTree {
+    prop string root;
+
+    method DirTree(string p) {
+        root = p;
+    }
+
+    method DirList walk() {
+        DirList out = new DirList();
+        list<string> pending = new list<string>();
+        pending.add(root);
+        while(pending.length() > 0) {
+            string p = pending.pop();
+            Dir d = new Dir(p);
+            DirList here = d.entries();
+            int64 i = 0;
+            while(i < here.length()) {
+                DirEntry e = here.get(i);
+                out.add(e);
+                if(e.isdir) {
+                    pending.add(e.path);
+                }
+                i = i + 1;
+            }
+        }
+        return out;
+    }
+
+    method bool copyTree(string dest) {
+        list<string> srcs = new list<string>();
+        list<string> dsts = new list<string>();
+        srcs.add(root);
+        dsts.add(dest);
+        while(srcs.length() > 0) {
+            string src = srcs.pop();
+            string dst = dsts.pop();
+            mkdir(dst);
+            Dir d = new Dir(src);
+            DirList here = d.entries();
+            int64 i = 0;
+            while(i < here.length()) {
+                DirEntry e = here.get(i);
+                string target = cat(cat(dst, "/"), e.name);
+                if(e.isdir) {
+                    srcs.add(e.path);
+                    dsts.add(target);
+                } else {
+                    File f = new File(e.path);
+                    if(f.copyTo(target) < 0) {
+                        return false;
+                    }
+                }
+                i = i + 1;
+            }
+        }
+        return true;
+    }
+
+    method bool removeTree() {
+        DirList all = walk();
+        list<string> dirs = new list<string>();
+        int64 i = 0;
+        while(i < all.length()) {
+            DirEntry e = all.get(i);
+            if(e.isdir) {
+                dirs.add(e.path);
+            } else {
+                removefile(e.path);
+            }
+            i = i + 1;
+        }
+        // Deepest paths first.
+        i = 1;
+        while(i < dirs.length()) {
+            string key = dirs.get(i);
+            int64 j = i - 1;
+            bool move = j >= 0;
+            while(move) {
+                string left = dirs.get(j);
+                if(len(left) < len(key)) {
+                    dirs.set(j + 1, left);
+                    j = j - 1;
+                    move = j >= 0;
+                } else {
+                    move = false;
+                }
+            }
+            dirs.set(j + 1, key);
+            i = i + 1;
+        }
+        i = 0;
+        while(i < dirs.length()) {
+            removefile(dirs.get(i));
+            i = i + 1;
+        }
+        removefile(root);
+        return true;
+    }
+}

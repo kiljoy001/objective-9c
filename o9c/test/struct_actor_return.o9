@@ -1,0 +1,27 @@
+// A struct is owned data, not an actor.  An actor method may return it by
+// value, and the caller receives a private copy.
+struct Button {
+    int64 x;
+    string text;
+}
+
+class Ui {
+    prop Button b;
+
+    method Button make(string text, int64 x) {
+        Button n;
+        n.text = text;
+        n.x = x;
+        return n;
+    }
+
+    method int64 get() {
+        return b.x;
+    }
+}
+
+main {
+    Ui u = new Ui();
+    Button c = u.make("ok", 7);
+    print("made ", c.text, " ", c.x, "\n");
+}

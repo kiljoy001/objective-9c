@@ -91,6 +91,17 @@ function DrawToPngRaw(string imagePath, string pngPath) int64 {
                 dup(fd, 1);
                 close(fd);
                 execl("/bin/topng", "topng", img, nil);
+                /* plan9port installs topng outside /bin; CI sets $PLAN9. */
+                {
+                    char topng[512];
+                    char *p9;
+                    p9 = getenv("PLAN9");
+                    if(p9 != nil && p9[0] != '\0'){
+                        snprint(topng, sizeof topng, "%s/bin/topng", p9);
+                        execl(topng, "topng", img, nil);
+                    }
+                }
+                execl("/usr/local/plan9/bin/topng", "topng", img, nil);
                 exits("exec");
             }
             if(pid > 0){
@@ -972,11 +983,12 @@ function DrawFrameFlush2Raw(int64 handle, bool clearFirst, bool flushNow, int64 
         vlong xs[2], ys[2], ws[2], hs[2], ns[2], colors[2];
         O9String *texts[2];
         char *text;
-        Image *img;
+        Image *img, *inlineImg;
+        Font *styled;
         Rectangle r, clip, oldclip;
         Point p;
         ulong col;
-        int i, lim, tw, thick;
+        int i, lim, tw, thick, fd;
 
         out = 0;
         if(handle > 0 && display != nil && screen != nil){
@@ -1023,6 +1035,13 @@ function DrawFrameFlush2Raw(int64 handle, bool clearFirst, bool flushNow, int64 
                         string(screen, Pt(screen->r.min.x + xs[i], screen->r.min.y + ys[i]), img, ZP, font, text);
                         free(text);
                     }
+                } else if(kind[i] == 7){
+                    styled = ns[i] != 0 ? (Font*)(uintptr)ns[i] : font;
+                    text = o9_string_cstr(texts[i]);
+                    if(styled != nil && text != nil)
+                        string(screen, Pt(screen->r.min.x + xs[i],
+                            screen->r.min.y + ys[i]), img, ZP, styled, text);
+                    free(text);
                 } else if(kind[i] == 4 && font != nil){
                     text = o9_string_cstr(texts[i]);
                     if(text != nil){
@@ -1053,6 +1072,26 @@ function DrawFrameFlush2Raw(int64 handle, bool clearFirst, bool flushNow, int64 
                                 p.y = r.min.y;
                             string(screen, p, img, ZP, font, text);
                             replclipr(screen, 0, oldclip);
+                        }
+                        free(text);
+                    }
+                } else if(kind[i] == 6){
+                    text = o9_string_cstr(texts[i]);
+                    if(text != nil){
+                        fd = open(text, OREAD);
+                        if(fd >= 0){
+                            inlineImg = readimage(display, fd, 0);
+                            close(fd);
+                            if(inlineImg != nil){
+                                clip = r;
+                                oldclip = screen->clipr;
+                                if(rectclip(&clip, screen->r)){
+                                    replclipr(screen, 0, clip);
+                                    draw(screen, clip, inlineImg, nil, inlineImg->r.min);
+                                    replclipr(screen, 0, oldclip);
+                                }
+                                freeimage(inlineImg);
+                            }
                         }
                         free(text);
                     }
@@ -1396,6 +1435,7 @@ struct DrawCommand {
 }
 
 class DrawFrame {
+    prop DrawCanvas target;
     prop bool clearPending;
     prop int64 clearColor;
     prop int64 ncmd;
@@ -1412,6 +1452,15 @@ class DrawFrame {
         clearPending = false;
         clearColor = 0x203040;
         ncmd = 0;
+        target = new DrawCanvas();
+    }
+
+    method void attach(DrawCanvas canvas) {
+        target = canvas;
+    }
+
+    method DrawCanvas canvas() {
+        return target;
     }
 
     method void reset(int64 color) {
@@ -1460,12 +1509,22 @@ class DrawFrame {
         return addRaw(3, x, y, 1, 1, 0, color, value);
     }
 
+    // The handle belongs to a live libdraw font and must outlive flush().
+    method bool textFont(string value, int64 x, int64 y, int64 color,
+                         int64 fontHandle) {
+        return addRaw(7, x, y, 1, 1, fontHandle, color, value);
+    }
+
     method bool textBox(string value, int64 x, int64 y, int64 width, int64 height, int64 color) {
         return addRaw(4, x, y, width, height, 0, color, value);
     }
 
     method bool textLeft(string value, int64 x, int64 y, int64 width, int64 height, int64 color) {
         return addRaw(5, x, y, width, height, 0, color, value);
+    }
+
+    method bool image(string path, int64 x, int64 y, int64 width, int64 height) {
+        return addRaw(6, x, y, width, height, 0, 0, path);
     }
 
     private method int64 kindAt(int64 index) {
@@ -4421,9 +4480,22 @@ class DrawScrollText {
     }
 }
 
+// Edge and gravity values follow the layout concepts in libpanel's pack.c.
+// side: 0 north, 1 south, 2 east, 3 west.
+// gravity: 0 center, 1 north, 2 south, 3 east, 4 west,
+//          5 northeast, 6 northwest, 7 southeast, 8 southwest.
+struct DrawPackRule {
+    int64 side;
+    bool expand;
+    bool fillx;
+    bool filly;
+    int64 gravity;
+}
+
 class DrawPanel {
     DrawWidget;
     prop List<DrawWidget> children;
+    prop List<DrawPackRule> packRules;
     prop tabula routes;
     prop int64 focusSlot;
     prop bool paintBackground;
@@ -4442,8 +4514,55 @@ class DrawPanel {
     }
 
     method bool add(DrawWidget child) {
+        DrawPackRule rule;
+
+        rule.side = 0;
+        rule.expand = false;
+        rule.fillx = false;
+        rule.filly = false;
+        rule.gravity = 0;
         children.Add(child);
+        packRules.Add(rule);
         routesDirty = true;
+        wdirty = true;
+        return true;
+    }
+
+    method bool pack(DrawWidget child, int64 side, bool expand, bool fillx,
+                     bool filly, int64 gravity) {
+        DrawPackRule rule;
+
+        if(side < 0 || side > 3 || gravity < 0 || gravity > 8) {
+            return false;
+        }
+        rule.side = side;
+        rule.expand = expand;
+        rule.fillx = fillx;
+        rule.filly = filly;
+        rule.gravity = gravity;
+        children.Add(child);
+        packRules.Add(rule);
+        routesDirty = true;
+        wlayoutdirty = true;
+        wdirty = true;
+        return true;
+    }
+
+    method bool setPack(int64 index, int64 side, bool expand, bool fillx,
+                        bool filly, int64 gravity) {
+        DrawPackRule rule;
+
+        if(!valid(index) || side < 0 || side > 3 || gravity < 0 || gravity > 8) {
+            return false;
+        }
+        rule = packRules[index];
+        rule.side = side;
+        rule.expand = expand;
+        rule.fillx = fillx;
+        rule.filly = filly;
+        rule.gravity = gravity;
+        packRules[index] = rule;
+        wlayoutdirty = true;
         wdirty = true;
         return true;
     }
@@ -4763,6 +4882,141 @@ class DrawPanel {
         wdirty = true;
     }
 
+    // Reserve strips in child order, then place each child within its strip.
+    // Extra room is divided among expanding children on the corresponding axis.
+    method void layoutPack(int64 padding, int64 spacing) {
+        int64 i;
+        int64 left;
+        int64 top;
+        int64 spacew;
+        int64 spaceh;
+        int64 needw;
+        int64 needh;
+        int64 groww;
+        int64 growh;
+        int64 extraw;
+        int64 extrah;
+        int64 stripx;
+        int64 stripy;
+        int64 stripw;
+        int64 striph;
+        int64 cw;
+        int64 ch;
+        int64 cx;
+        int64 cy;
+        int64 prefw;
+        int64 prefh;
+        DrawWidget child;
+        DrawPackRule rule;
+
+        if(padding < 0) { padding = 0; }
+        if(spacing < 0) { spacing = 0; }
+        left = wx + padding;
+        top = wy + padding;
+        spacew = ww - padding - padding;
+        spaceh = wh - padding - padding;
+        if(spacew < 0) { spacew = 0; }
+        if(spaceh < 0) { spaceh = 0; }
+        needw = 0;
+        needh = 0;
+        groww = 0;
+        growh = 0;
+        i = 0;
+        while(i < count()) {
+            child = children[i];
+            rule = packRules[i];
+            if(child.visible()) {
+                if(rule.side == 0 || rule.side == 1) {
+                    needh = needh + child.preferredHeight() + spacing;
+                    if(rule.expand) { growh = growh + 1; }
+                } else {
+                    needw = needw + child.preferredWidth() + spacing;
+                    if(rule.expand) { groww = groww + 1; }
+                }
+            }
+            i = i + 1;
+        }
+        extraw = spacew - needw;
+        extrah = spaceh - needh;
+        if(extraw < 0) { extraw = 0; }
+        if(extrah < 0) { extrah = 0; }
+        i = 0;
+        while(i < count()) {
+            child = children[i];
+            rule = packRules[i];
+            if(child.visible()) {
+                stripx = left;
+                stripy = top;
+                stripw = spacew;
+                striph = spaceh;
+                if(rule.side == 0 || rule.side == 1) {
+                    striph = child.preferredHeight();
+                    if(rule.expand && growh > 0) {
+                        ch = extrah / growh;
+                        striph = striph + ch;
+                        extrah = extrah - ch;
+                        growh = growh - 1;
+                    }
+                    if(striph > spaceh) { striph = spaceh; }
+                    if(striph < 0) { striph = 0; }
+                    if(rule.side == 1) { stripy = top + spaceh - striph; }
+                    ch = striph + spacing;
+                    if(ch > spaceh) { ch = spaceh; }
+                    if(rule.side == 0) { top = top + ch; }
+                    spaceh = spaceh - ch;
+                } else {
+                    stripw = child.preferredWidth();
+                    if(rule.expand && groww > 0) {
+                        cw = extraw / groww;
+                        stripw = stripw + cw;
+                        extraw = extraw - cw;
+                        groww = groww - 1;
+                    }
+                    if(stripw > spacew) { stripw = spacew; }
+                    if(stripw < 0) { stripw = 0; }
+                    if(rule.side == 2) { stripx = left + spacew - stripw; }
+                    cw = stripw + spacing;
+                    if(cw > spacew) { cw = spacew; }
+                    if(rule.side == 3) { left = left + cw; }
+                    spacew = spacew - cw;
+                }
+                cw = child.preferredWidth();
+                ch = child.preferredHeight();
+                if(rule.fillx) { cw = stripw; }
+                if(rule.filly) { ch = striph; }
+                if(cw > stripw) { cw = stripw; }
+                if(ch > striph) { ch = striph; }
+                if(cw < 0) { cw = 0; }
+                if(ch < 0) { ch = 0; }
+                cx = stripx + (stripw - cw) / 2;
+                cy = stripy + (striph - ch) / 2;
+                if(rule.gravity == 3 || rule.gravity == 5 || rule.gravity == 7) {
+                    cx = stripx + stripw - cw;
+                }
+                if(rule.gravity == 4 || rule.gravity == 6 || rule.gravity == 8) {
+                    cx = stripx;
+                }
+                if(rule.gravity == 1 || rule.gravity == 5 || rule.gravity == 6) {
+                    cy = stripy;
+                }
+                if(rule.gravity == 2 || rule.gravity == 7 || rule.gravity == 8) {
+                    cy = stripy + striph - ch;
+                }
+                // Some widgets keep their drawing bounds in child objects.
+                // Their position/size overrides update those bounds too.
+                prefw = child.preferredWidth();
+                prefh = child.preferredHeight();
+                child.position(cx, cy);
+                child.size(cw, ch);
+                child.preferred(prefw, prefh);
+            }
+            i = i + 1;
+        }
+        routesDirty = true;
+        wlayoutdirty = false;
+        wdirty = true;
+    }
+
     method bool draw(DrawCanvas canvas) {
         int64 i;
         DrawWidget child;
@@ -4828,6 +5082,9 @@ class DrawWindow {
     prop DrawFrame frame;
     prop DrawEventLoop loop;
     prop DrawPanel root;
+    prop int64 layoutMode;
+    prop int64 layoutPadding;
+    prop int64 layoutSpacing;
 
     method DrawWindow(string title, int64 width, int64 height) {
         label = title;
@@ -4841,6 +5098,9 @@ class DrawWindow {
         frame = new DrawFrame();
         loop = new DrawEventLoop();
         root = new DrawPanel(0, 0, width, height);
+        layoutMode = 0;
+        layoutPadding = 0;
+        layoutSpacing = 0;
         root.color(bg, 0xffffff);
         root.border(bg);
     }
@@ -4861,6 +5121,10 @@ class DrawWindow {
         w = width;
         h = height;
         root.size(width, height);
+        if(layoutMode == 1) { root.layoutVertical(layoutPadding, layoutSpacing); }
+        if(layoutMode == 2) { root.layoutHorizontal(layoutPadding, layoutSpacing); }
+        if(layoutMode == 3) { root.layoutFlow(layoutPadding, layoutSpacing); }
+        if(layoutMode == 4) { root.layoutPack(layoutPadding, layoutSpacing); }
     }
 
     method void background(int64 rgb) {
@@ -4930,6 +5194,13 @@ class DrawWindow {
         return true;
     }
 
+    method bool pack(DrawWidget widget, int64 side, bool expand, bool fillx,
+                     bool filly, int64 gravity) {
+        bool added = root.pack(widget, side, expand, fillx, filly, gravity);
+        if(added && live && autoRepaint) { update(); }
+        return added;
+    }
+
     method int64 widgets() {
         return root.count();
     }
@@ -4943,6 +5214,7 @@ class DrawWindow {
             return false;
         }
         frame.reset(bg);
+        frame.attach(surface);
         root.drawFrame(frame);
         return frame.flush(surface);
     }
@@ -4997,6 +5269,9 @@ class DrawWindow {
     }
 
     method void layoutVertical(int64 padding, int64 spacing) {
+        layoutMode = 1;
+        layoutPadding = padding;
+        layoutSpacing = spacing;
         root.layoutVertical(padding, spacing);
         if(live && autoRepaint) {
             update();
@@ -5004,6 +5279,9 @@ class DrawWindow {
     }
 
     method void layoutHorizontal(int64 padding, int64 spacing) {
+        layoutMode = 2;
+        layoutPadding = padding;
+        layoutSpacing = spacing;
         root.layoutHorizontal(padding, spacing);
         if(live && autoRepaint) {
             update();
@@ -5011,10 +5289,21 @@ class DrawWindow {
     }
 
     method void layoutFlow(int64 padding, int64 spacing) {
+        layoutMode = 3;
+        layoutPadding = padding;
+        layoutSpacing = spacing;
         root.layoutFlow(padding, spacing);
         if(live && autoRepaint) {
             update();
         }
+    }
+
+    method void layoutPack(int64 padding, int64 spacing) {
+        layoutMode = 4;
+        layoutPadding = padding;
+        layoutSpacing = spacing;
+        root.layoutPack(padding, spacing);
+        if(live && autoRepaint) { update(); }
     }
 
     method int64 poll() {

@@ -9,12 +9,37 @@ inside spawnable `function` blocks.
 
 ## Status
 
+- Release: 0.2.0 ([CHANGELOG.md](CHANGELOG.md)).
 - Target: 9front.
 - Output: generated C; no binary blob.
 - Build: `mk` builds `o9c/o9c` and `libo9.a`.
 - Tests: native 9front e2e tests under `o9c/test/` and `stdlib/e2e_*.o9`.
 - Current focus: keeping the language small while growing useful stdlib
   objects and examples.
+
+## Start Here
+
+If you want to write an application rather than work on the compiler, start
+with [docs/APP_DEVELOPER.md](docs/APP_DEVELOPER.md). It has copy-paste CLIs,
+9P services, settings files, UI examples, and an index of the programs that
+already exist.
+
+The short version: application code does not need raw C or manual
+`spawn`/`await`. Start with `stdlib/cli.o9`, `stdlib/config.o9`, and
+`stdlib/service.o9`; text, logging, files, directories, processes, networking,
+synchronization, runes, and custom 9P helpers live beside them in
+[`stdlib/README.md`](stdlib/README.md). Small complete examples are
+[demo/hello_cli.o9](demo/hello_cli.o9) and
+[demo/hello_service.o9](demo/hello_service.o9).
+
+## Native QuickJS
+
+[`libquickjs/`](libquickjs/README.md) is a native Plan 9 QuickJS embedding
+library for lib9p servers. It intentionally omits the APE `qjs` CLI and the
+`std`/`os` modules, exposes a small `p9js_new`/`p9js_eval` API, and supplies
+memory/stack/interrupt hooks. The native 6c build is verified on generated9
+amd64 after the host-side `preprocess-native.py` bridge; `mk test` prints
+`1+1 = 2`. It is a library scaffold, not a browser runtime.
 
 ## Quick Build
 
@@ -23,6 +48,7 @@ From the repository root on 9front:
 ```rc
 mk
 mk install
+o9c --version
 o9build source.o9
 ```
 
@@ -30,6 +56,8 @@ o9build source.o9
 transpiles the `.o9` file, compiles the generated C, links `libo9.a`, and
 writes an executable next to the source. Use `o9c` directly only when debugging
 the compiler.
+The version printed by `o9c --version` (or `o9c -V`) is defined in
+`o9c/grammar.d/99-main.y` and updated when the compiler's public version changes.
 
 After installation, `o9c`, `o9build`, `o9plumb`, and `o9proj` are on the
 command path. Start a small project with:

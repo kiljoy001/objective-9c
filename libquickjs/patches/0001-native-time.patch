@@ -1,0 +1,27 @@
+Native Plan 9 time delta for QuickJS 2026-06-04 (generated9 port)
+================================================================
+
+generated9's quickjs.c has:
+
+    #if defined(_WIN32) || defined(PLAN9)
+        ... struct tm *tm; gmtime(); mktime(); ...
+
+That fallback was written for APE, which provides POSIX struct tm and
+localtime_r.  Native Plan 9 does not: libc.h exposes Tm *gmtime(long) and
+Tm *localtime(long), so declaring struct-tm gmtime/mktime would collide.
+
+This scaffold's p9time.c supplies localtime_r()/gmtime_r() and a struct tm
+with tm_gmtoff.  The engine therefore uses the POSIX branch instead:
+
+    -#if defined(_WIN32) || defined(PLAN9)
+    +#if defined(_WIN32)
+
+Apply after vendoring from generated9:
+
+    sed 's/#if defined(_WIN32) || defined(PLAN9)/#if defined(_WIN32)/' \
+        quickjs.c > quickjs.c.new
+    mv quickjs.c.new quickjs.c
+
+vendor.rc does this automatically and refuses to run unless the input has
+exactly one matching line.  No other generated9 PLAN9 source delta is
+changed by this scaffold.

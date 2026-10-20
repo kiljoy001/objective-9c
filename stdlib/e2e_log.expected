@@ -1,0 +1,4 @@
+app INFO hello
+app WARN careful
+app ERROR broken
+app INFO file

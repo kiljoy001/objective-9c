@@ -1,0 +1,10 @@
+header 10 10 280 20
+footer 10 170 280 20
+left 10 34 50 132
+right 260 34 30 132
+body 64 34 192 128
+preferred 40 30
+resized 220 182 292 178
+preferred2 40 30
+window 5 5 90 10 preferred 10
+window resized 5 5 110 10

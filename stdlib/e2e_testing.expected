@@ -1,0 +1,6 @@
+SKIP selftest/skips: skip check: testing skip feature
+selftest: 19 passed, 0 failed, 1 skipped
+ok 1 - tap_test/tap_cases: first
+ok 2 - tap_test/tap_cases: second
+ok 3 - tap_test/tap_cases: third # SKIP tap skip
+1..3

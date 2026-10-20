@@ -9,22 +9,31 @@
 
 default:V: o9c libo9.a
 
-VERSION=0.1.0
-
 STDLIB_MODULES=\
+	stdlib/9p.o9\
 	stdlib/buffer.o9\
 	stdlib/bytes.o9\
+	stdlib/cli.o9\
 	stdlib/collections.o9\
+	stdlib/config.o9\
+	stdlib/dir.o9\
 	stdlib/draw.o9\
 	stdlib/file.o9\
+	stdlib/format.o9\
 	stdlib/io.o9\
+	stdlib/log.o9\
 	stdlib/math.o9\
 	stdlib/namespace.o9\
 	stdlib/net.o9\
 	stdlib/path.o9\
 	stdlib/process.o9\
 	stdlib/random.o9\
+	stdlib/result.o9\
+	stdlib/rune.o9\
+	stdlib/service.o9\
 	stdlib/string.o9\
+	stdlib/sync.o9\
+	stdlib/testing.o9\
 	stdlib/time.o9\
 	stdlib/view.o9\
 
@@ -198,6 +207,15 @@ runtime-router-test:V:	libo9.a
 	$LD -o $O9TESTDIR/runtime_router_test runtime_router_test.$O libo9.a
 	$O9TESTDIR/runtime_router_test
 
+# Host/native edge suite: strings, arrays, slices, dicts, channels,
+# FileTree ownership/path rules, and Vault.open_tab temporary-file cleanup.
+# The host-only CI path uses tools/host_test.sh because it excludes
+# o9_view.c (9front File layout); this target is for a native 9front tree.
+runtime-edges-test:V:	libo9.a o9test.$O
+	$CC -I. -I$O9TESTDIR $O9TESTDIR/host_runtime_test.c
+	$LD -o $O9TESTDIR/host_runtime_test host_runtime_test.$O o9test.$O libo9.a
+	$O9TESTDIR/host_runtime_test
+
 # Every native unit suite in one target.
 unit-test:V:
 	mk o9test-selftest
@@ -261,6 +279,19 @@ tab-test:V:	libo9.a
 	$CC -I. -I$LIBTABDIR o9c/test/tab_test.c
 	$LD -o o9c/test/tab_test tab_test.$O libo9.a
 	o9c/test/tab_test
+
+# Host-side gates.  These are separate from `mk verify` because they use
+# plan9port (9c/9l on Linux) and exclude the 9front-only view/facade code;
+# native generated-C, facade, auth, and 9vm/hardware tests still belong to
+# verify.
+compiler-smoke-test:V:	o9c
+	python3 tools/o9c_check.py --compiler o9c/o9c --timeout 5
+
+compiler-fuzz-test:V:	o9c
+	python3 tools/o9c_check.py --compiler o9c/o9c --timeout 3 --fuzz 100
+
+host-test:V:
+	sh tools/host_test.sh
 
 # === runtime library ===
 RUNTIME_OBJ=\

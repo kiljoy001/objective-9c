@@ -46,6 +46,54 @@ static QLock view_lock;
 static int (*view_fixed_guard)(Fid*, File*, uvlong, uvlong*);
 static int view_session_mode;
 static O9SessionView *view_sessions;
+static long view_dispatches;
+static int view_close_notify;
+
+static void
+view_closed(void *arg)
+{
+	char *name;
+	O9String *id;
+	vlong args[1];
+
+	name = arg;
+	id = o9_string_from_c(name);
+	if(id != nil){
+		args[0] = (vlong)(uintptr)id;
+		obj9_msgSendN(&view_controller, "closeView", o9_hash("closeView"), args, 1);
+		o9_string_release(id);
+	}
+	free(name);
+	o9_proc_ctx_clear();
+	threadexits(nil);
+}
+
+static void
+view_queue_close(char *id)
+{
+	int pid;
+	if(id == nil)
+		return;
+	if(!view_close_notify){
+		free(id);
+		return;
+	}
+	pid = proccreate(view_closed, id, 16384);
+	if(pid < 0)
+		free(id);
+}
+
+void
+o9_view_set_close_notify(int enabled)
+{
+	view_close_notify = enabled != 0;
+}
+
+int
+o9_view_dispatch_busy(void)
+{
+	return view_dispatches != 0;
+}
 static void view_identity(Req *r);
 
 static Qid
@@ -53,7 +101,7 @@ view_qid(int kind, O9View *v, O9FTEntry *e)
 {
 	Qid q;
 	memset(&q, 0, sizeof q);
-	if(kind == VF_FIXED) return view_root->root->qid;
+	if(kind == VF_FIXED) return o9_file_qid(view_root->root);
 	q.path = ((uvlong)1 << 62);
 	if(kind == VF_TREE && e != nil) q.path |= o9_filetree_id(e) + 16;
 	if(kind == VF_TREE && e != nil && o9_filetree_kind(e) == O9FT_DIR) q.type = QTDIR;
@@ -73,17 +121,22 @@ view_ctx(int kind)
 static void
 view_ctx_free(O9ViewFid *c)
 {
+	char *closed;
+
 	if(c == nil) return;
+	closed = nil;
 	if(c->rootdir != nil) closedirfile(c->rootdir);
 	if(c->fixed != nil) closefile(c->fixed);
 	if(c->view_parent != nil) closefile(c->view_parent);
 	if(c->view != nil){
 		qlock(&view_lock);
 		if(--c->view->refs == 0){
+			closed = strdup(c->view->id);
 			free(c->view);
 		}
 		qunlock(&view_lock);
 	}
+	view_queue_close(closed);
 	free(c->listing);
 	free(c->stack);
 	free(c->path);
@@ -108,10 +161,17 @@ o9_view_set_session_mode(int enabled)
 	view_session_mode = enabled != 0;
 }
 
-static void
+static char*
 view_release_locked(O9View *v)
 {
-	if(v != nil && --v->refs == 0) free(v);
+	char *closed;
+
+	closed = nil;
+	if(v != nil && --v->refs == 0){
+		closed = strdup(v->id);
+		free(v);
+	}
+	return closed;
 }
 
 static O9View*
@@ -140,9 +200,10 @@ o9_view_session_start(Req *r, File *dir)
 	O9String *id, *caller;
 	vlong args[2];
 	char *username;
+	char *closed;
 	if(!view_session_mode || !view_has_controller || r == nil ||
 	   r->fid == nil || dir == nil) return -1;
-	if(r->srv == nil || r->srv->auth == nil || r->srv->authok ||
+	if(r->srv == nil || r->srv->auth == nil || o9_srv_authok(r->srv) ||
 	   r->fid->uid == nil ||
 	   strcmp(r->fid->uid, "none") == 0) return -1;
 	username = r->fid->uid;
@@ -157,7 +218,9 @@ o9_view_session_start(Req *r, File *dir)
 	args[1] = (vlong)(uintptr)caller;
 	view_identity(r);
 	if(r->srv != nil) srvrelease(r->srv);
-	tree = obj9_msgSendN(&view_controller, "display", o9_hash("display"), args, 2);
+	ainc(&view_dispatches);
+	tree = (O9FileTree*)(uintptr)obj9_msgSendN(&view_controller, "display", o9_hash("display"), args, 2);
+	adec(&view_dispatches);
 	if(r->srv != nil) srvacquire(r->srv);
 	o9_set_current_request(nil, 0);
 	if(tree == nil || !o9_filetree_alive(tree) ||
@@ -180,6 +243,7 @@ o9_view_session_start(Req *r, File *dir)
 	v->active = 1;
 	v->refs = 1;
 	fresh->dir = dir;
+	closed = nil;
 	qlock(&view_lock);
 	for(s = view_sessions; s != nil; s = s->next)
 		if(s->dir == dir) break;
@@ -191,10 +255,11 @@ o9_view_session_start(Req *r, File *dir)
 	}
 	if(s->view != nil){
 		s->view->active = 0;
-		view_release_locked(s->view);
+		closed = view_release_locked(s->view);
 	}
 	s->view = v;
 	qunlock(&view_lock);
+	view_queue_close(closed);
 	free(fresh);
 	o9_string_release(id);
 	o9_string_release(caller);
@@ -205,15 +270,18 @@ void
 o9_view_session_close(File *dir)
 {
 	O9SessionView *s;
+	char *closed;
+	closed = nil;
 	qlock(&view_lock);
 	for(s = view_sessions; s != nil; s = s->next)
 		if(s->dir == dir && s->view != nil){
 			s->view->active = 0;
-			view_release_locked(s->view);
+			closed = view_release_locked(s->view);
 			s->view = nil;
 			break;
 		}
 	qunlock(&view_lock);
+	view_queue_close(closed);
 }
 
 static int
@@ -272,12 +340,12 @@ o9_view_attach(Req *r)
 	c->fixed = r->fid->file;
 	r->fid->file = nil;
 	r->fid->aux = c;
-	r->fid->qid = view_root->root->qid;
+	r->fid->qid = o9_file_qid(view_root->root);
 	r->ofcall.qid = r->fid->qid;
 	if(!view_has_controller || view_session_mode) return 0;
 	id = o9_keygen();
 	username = "anonymous";
-	if(r->srv != nil && r->srv->auth != nil && !r->srv->authok &&
+	if(r->srv != nil && r->srv->auth != nil && !o9_srv_authok(r->srv) &&
 	   r->fid->uid != nil &&
 	   strcmp(r->fid->uid, "none") != 0) username = r->fid->uid;
 	caller = o9_string_from_c(username);
@@ -286,7 +354,9 @@ o9_view_attach(Req *r)
 	args[1] = (vlong)(uintptr)caller;
 	view_identity(r);
 	if(r->srv != nil) srvrelease(r->srv);
-	tree = obj9_msgSendN(&view_controller, "display", o9_hash("display"), args, 2);
+	ainc(&view_dispatches);
+	tree = (O9FileTree*)(uintptr)obj9_msgSendN(&view_controller, "display", o9_hash("display"), args, 2);
+	adec(&view_dispatches);
 	if(r->srv != nil) srvacquire(r->srv);
 	o9_set_current_request(nil, 0);
 	if(tree != nil && o9_filetree_alive(tree) &&
@@ -317,9 +387,9 @@ o9_view_clone(Fid *fid, Fid *newfid)
 	dst->generation = src->generation;
 	if(dst->view != nil){ qlock(&view_lock); dst->view->refs++; qunlock(&view_lock); }
 	dst->fixed = src->fixed;
-	if(dst->fixed != nil) incref(dst->fixed);
+	if(dst->fixed != nil) o9_file_incref(dst->fixed);
 	dst->view_parent = src->view_parent;
-	if(dst->view_parent != nil) incref(dst->view_parent);
+	if(dst->view_parent != nil) o9_file_incref(dst->view_parent);
 	dst->entry = src->entry;
 	free(dst->path);
 	dst->path = strdup(src->path != nil ? src->path : "");
@@ -395,7 +465,7 @@ o9_view_walk1(Fid *fid, char *name, Qid *qid)
 			return "permission denied";
 		if(strcmp(name, "view") == 0 &&
 		   (old == view_root->root || c->generation != 0)){
-			incref(old);
+			o9_file_incref(old);
 			f = walkfile(old, name);
 			if(f == nil) return "not found";
 			if(!view_authorize_fixed(fid, c, f, &generation)){
@@ -413,7 +483,7 @@ o9_view_walk1(Fid *fid, char *name, Qid *qid)
 			return nil;
 		}
 		if(old == nil) return "bad fid";
-		incref(old);
+		o9_file_incref(old);
 		f = walkfile(old, name);
 		if(f == nil) return "not found";
 		if(!view_authorize_fixed(fid, c, f, &generation)){
@@ -440,7 +510,7 @@ o9_view_walk1(Fid *fid, char *name, Qid *qid)
 				c->view = nil;
 			}
 		}
-		*qid = f->qid;
+		*qid = o9_file_qid(f);
 		return nil;
 	}
 	if(c->kind != VF_TREE || c->view == nil || !c->view->active || !o9_filetree_alive(c->view->tree))
@@ -453,7 +523,7 @@ o9_view_walk1(Fid *fid, char *name, Qid *qid)
 			c->entry = nil;
 			c->fixed = c->view_parent;
 			c->view_parent = nil;
-			*qid = c->fixed->qid;
+			*qid = o9_file_qid(c->fixed);
 		}
 		else{ view_pop(c); *qid = view_qid(VF_TREE, c->view, c->entry); }
 		return nil;
@@ -516,7 +586,7 @@ static void
 view_identity(Req *r)
 {
 	if(r != nil && r->srv != nil && r->srv->auth != nil &&
-	   !r->srv->authok && r->fid != nil &&
+	   !o9_srv_authok(r->srv) && r->fid != nil &&
 	   r->fid->uid != nil && strcmp(r->fid->uid, "none") != 0)
 		o9_set_current_request(r->fid->uid, 1);
 	else o9_set_current_request("anonymous", 0);
@@ -534,7 +604,9 @@ view_live_read(Req *r, O9ViewFid *c)
 	args[1] = (vlong)(uintptr)path;
 	view_identity(r);
 	if(r->srv != nil) srvrelease(r->srv);
-	result = obj9_msgSendN(&view_controller, "readText", o9_hash("readText"), args, 2);
+	ainc(&view_dispatches);
+	result = (O9String*)(uintptr)obj9_msgSendN(&view_controller, "readText", o9_hash("readText"), args, 2);
+	adec(&view_dispatches);
 	if(r->srv != nil) srvacquire(r->srv);
 	o9_set_current_request(nil, 0);
 	o9_string_release(id);
@@ -557,7 +629,9 @@ view_live_write(Req *r, O9ViewFid *c, vlong offset, O9String *data, int truncate
 	args[4] = truncate;
 	view_identity(r);
 	if(r->srv != nil) srvrelease(r->srv);
-	result = (vlong)(uintptr)obj9_msgSendN(&view_controller, "writeText", o9_hash("writeText"), args, 5);
+	ainc(&view_dispatches);
+	result = obj9_msgSendN(&view_controller, "writeText", o9_hash("writeText"), args, 5);
+	adec(&view_dispatches);
 	if(r->srv != nil) srvacquire(r->srv);
 	o9_set_current_request(nil, 0);
 	o9_string_release(id);
@@ -607,10 +681,10 @@ view_root_dirgen(int index, Dir *d, void *aux)
 	if(index == 0) name = "clone";
 	else if(index == 1) name = "methods";
 	else return -1;
-	incref(view_root->root);
+	o9_file_incref(view_root->root);
 	f = walkfile(view_root->root, name);
 	if(f == nil) return -1;
-	*d = f->Dir;
+	*d = o9_file_dir(f);
 	d->name = strdup(d->name);
 	d->uid = strdup(d->uid);
 	d->gid = strdup(d->gid);
@@ -627,7 +701,7 @@ o9_view_open(Req *r)
 	O9String *empty;
 	if(r == nil || r->fid == nil || (c = r->fid->aux) == nil || c->magic != VIEW_FID_MAGIC) return 0;
 	if(!o9_view_authorize(r)){ respond(r, "permission denied"); return 1; }
-	if(c->kind == VF_FIXED && !(c->fixed->qid.type & QTDIR)) return 0;
+	if(c->kind == VF_FIXED && !(o9_file_qid(c->fixed).type & QTDIR)) return 0;
 	if(!view_valid(c)){ respond(r, "view closed"); return 1; }
 	mode = r->ifcall.mode & 3;
 	if((c->kind == VF_FIXED ||
@@ -666,7 +740,7 @@ o9_view_read(Req *r)
 	if(r == nil || r->fid == nil || (c = r->fid->aux) == nil || c->magic != VIEW_FID_MAGIC) return 0;
 	if(!o9_view_authorize(r)){ respond(r, "permission denied"); return 1; }
 	if(c->kind == VF_FIXED && c->fixed != view_root->root &&
-	   !(c->fixed->qid.type & QTDIR)) return 0;
+	   !(o9_file_qid(c->fixed).type & QTDIR)) return 0;
 	if(!view_valid(c)){ respond(r, "view closed"); return 1; }
 	if(c->kind == VF_FIXED){
 		if(view_session_mode && c->fixed == view_root->root){
@@ -675,7 +749,11 @@ o9_view_read(Req *r)
 			return 1;
 		}
 		if(c->rootdir == nil){ respond(r, "directory not open"); return 1; }
+#ifdef O9_PLAN9PORT
+		r->ofcall.count = readdirfile(c->rootdir, (uchar*)r->ofcall.data, r->ifcall.count);
+#else
 		r->ofcall.count = readdirfile(c->rootdir, (uchar*)r->ofcall.data, r->ifcall.count, r->ifcall.offset);
+#endif
 		respond(r, nil); return 1;
 	}
 	if(c->kind == VF_TREE && o9_filetree_kind(c->entry) == O9FT_DIR){
@@ -754,7 +832,7 @@ o9_view_stat(Req *r)
 	if(!o9_view_authorize(r)){ respond(r, "permission denied"); return; }
 	if(c == nil || c->magic != VIEW_FID_MAGIC || !view_valid(c)){ respond(r, "view closed"); return; }
 	if(c->kind == VF_FIXED){
-		r->d = c->fixed->Dir;
+		r->d = o9_file_dir(c->fixed);
 		r->d.name = strdup(r->d.name);
 		r->d.uid = strdup(r->d.uid);
 		r->d.gid = strdup(r->d.gid);

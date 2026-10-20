@@ -1,0 +1,7 @@
+count 3
+a 0 1
+b 0 1
+sub 1 0
+walk 4
+copy 1 C
+remove 1 0

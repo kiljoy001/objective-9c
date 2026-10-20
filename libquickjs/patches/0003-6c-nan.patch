@@ -1,0 +1,55 @@
+Native 6c unordered-comparison fix for QuickJS NaN semantics.
+
+Apply from a 9front source root (patch -p0 < this-file) or the equivalent
+generated9 change.  Rebuild and install 6c, then rebuild all QuickJS objects
+from clean.
+
+--- sys/src/cmd/6c/txt.c.orig
++++ sys/src/cmd/6c/txt.c
+@@ -1187,11 +1187,15 @@
+ void
+ gopcode(int o, Type *ty, Node *f, Node *t)
+ {
+-	int a, et;
++	int a, et, true;
++	Node *n;
++	Prog *p1, *p2;
+ 
+ 	et = TLONG;
+ 	if(ty != T)
+ 		et = ty->etype;
++	true = o & BTRUE;
++	o &= ~BTRUE;
+ 	if(debug['M']) {
+ 		if(f != Z && f->type != T)
+ 			print("gop: %O %O[%s],", o, f->op, tnames[et]);
+@@ -1401,7 +1405,29 @@
+ 			a = AUCOMISS;
+ 		if(et == TDOUBLE)
+ 			a = AUCOMISD;
++		/* Select an ordered branch, or its unordered complement. */
++		if(typefd[et] && ((!true && (o == OLO || o == OLS)) ||
++		    (true && (o == OHI || o == OHS)))) {
++			n = f;
++			f = t;
++			t = n;
++			o = invrel[relindex(o)];
++		}
+ 		gins(a, f, t);
++		if(typefd[et] && (o == OEQ || o == ONE)) {
++			/* UCOMIS sets ZF and PF for NaN; ZF alone is not equality. */
++			gins(AJPS, Z, Z);
++			p1 = p;
++			gins(AJEQ, Z, Z);
++			if(o == ONE) {
++				p2 = p;
++				patch(p1, pc);
++				gbranch(OGOTO);
++				patch(p2, pc);
++			} else
++				patch(p1, pc);
++			return;
++		}
+ 		switch(o) {
+ 		case OEQ:	a = AJEQ; break;
+ 		case ONE:	a = AJNE; break;

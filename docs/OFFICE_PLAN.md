@@ -94,7 +94,7 @@ A sheet is a `tabula` (libtab): an ndb-shaped, grepable text file with a
 `schema=` tuple and typed columns. Cells carry inline provenance:
 
 - **`HASHED:`** - BLAKE2b content hash (integrity; content-addressed dedup).
-- **`SIGNED:`** - Ed25519 signature (tamper-evidence + non-repudiation; the
+- **`SIGNED:`** - Monocypher EdDSA-BLAKE2b signature (tamper-evidence and origin verification; the
   cell knows its origin).
 - plain cells stay plain - only the cells that need provenance carry crypto.
 

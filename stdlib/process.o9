@@ -1,3 +1,6 @@
+import "buffer.o9";
+import "collections.o9";
+
 function ProcessArgcRaw() int64 {
     int64 out;
     c {
@@ -221,6 +224,217 @@ function EnvChdirRaw(string path) int64 {
         free(p);
     }
     return out;
+}
+
+// Run an argv vector with stdin/stdout/stderr redirected to memory/files.
+// argvText is NUL-separated: program\0arg0\0arg1\0...
+function ProcessRunCaptureRaw(string argvText, string input, string outPath, string errPath) string {
+    string out;
+    c {
+        char *args, *copy, *p, *end, *op, *ep;
+        char statusbuf[ERRMAX];
+        char **argv;
+        int argc, in[2], ofd, efd, pid, n;
+        vlong len, off;
+        Waitmsg *w;
+
+        out = o9_string_new("", 0);
+        statusbuf[0] = 0;
+        args = o9_string_data(argvText);
+        len = o9_string_len(argvText);
+        copy = malloc(len + 1);
+        if(copy == nil){
+            out = o9_string_from_c("out of memory");
+            goto process_capture_done;
+        }
+        memmove(copy, args, len);
+        copy[len] = 0;
+        argv = malloc(64 * sizeof(char*));
+        if(argv == nil){
+            free(copy);
+            out = o9_string_from_c("out of memory");
+            goto process_capture_done;
+        }
+        argc = 0;
+        p = copy;
+        end = copy + len;
+        while(p < end && argc < 63){
+            argv[argc++] = p;
+            p += strlen(p) + 1;
+        }
+        argv[argc] = nil;
+        if(argc == 0){
+            free(argv);
+            free(copy);
+            out = o9_string_from_c("empty argv");
+            goto process_capture_done;
+        }
+        op = o9_string_cstr(outPath);
+        ep = o9_string_cstr(errPath);
+        ofd = create(op, OWRITE, 0600);
+        efd = create(ep, OWRITE, 0600);
+        free(op);
+        free(ep);
+        if(ofd < 0 || efd < 0 || pipe(in) < 0){
+            if(ofd >= 0) close(ofd);
+            if(efd >= 0) close(efd);
+            free(argv);
+            free(copy);
+            out = o9_string_from_c("cannot set up process");
+            goto process_capture_done;
+        }
+        pid = rfork(RFPROC|RFFDG|RFNOTEG);
+        if(pid == 0){
+            close(in[1]);
+            dup(in[0], 0);
+            close(in[0]);
+            dup(ofd, 1);
+            dup(efd, 2);
+            close(ofd);
+            close(efd);
+            exec(argv[0], argv);
+            exits("exec");
+        }
+        close(in[0]);
+        off = 0;
+        while(off < o9_string_len(input)){
+            n = write(in[1], o9_string_data(input) + off,
+                o9_string_len(input) - off);
+            if(n <= 0)
+                break;
+            off += n;
+        }
+        close(in[1]);
+        close(ofd);
+        close(efd);
+        if(pid > 0){
+            for(;;){
+                w = wait();
+                if(w == nil)
+                    break;
+                if(w->pid == pid){
+                    if(w->msg != nil)
+                        snprint(statusbuf, sizeof statusbuf, "%s", w->msg);
+                    free(w);
+                    break;
+                }
+                free(w);
+            }
+        }
+        out = o9_string_from_c(statusbuf);
+        free(argv);
+        free(copy);
+process_capture_done:
+        ;
+    }
+    return out;
+}
+
+class CmdResult {
+    prop bool ok;
+    prop string status;
+    prop string out;
+    prop string err;
+
+    method CmdResult(bool success, string st, string o, string e) {
+        ok = success;
+        status = st;
+        out = o;
+        err = e;
+    }
+
+    method bool failed() {
+        return !ok;
+    }
+
+    method string output() {
+        return out;
+    }
+
+    method string error() {
+        return err;
+    }
+}
+
+class Cmd {
+    prop string program;
+    prop list<string> args;
+    prop string input;
+
+    method Cmd(string p) {
+        program = p;
+        args = new list<string>();
+        input = "";
+    }
+
+    method void arg(string a) {
+        args.add(a);
+    }
+
+    method void stdin(string data) {
+        input = data;
+    }
+
+    method CmdResult run() {
+        Buffer argv = new Buffer("");
+        int64 i = 0;
+        string base = cat("/tmp/o9cmd-", intstr(getpid()));
+        string outPath = cat(base, "-out");
+        string errPath = cat(base, "-err");
+        argv.append(program);
+        argv.appendByte(0);
+        while(i < args.length()) {
+            argv.append(args.get(i));
+            argv.appendByte(0);
+            i = i + 1;
+        }
+        Task<string> t = spawn ProcessRunCaptureRaw(argv.text(), input,
+                                                    outPath, errPath);
+        string status = t.await();
+        string out = readfile(outPath);
+        string err = readfile(errPath);
+        removefile(outPath);
+        removefile(errPath);
+        CmdResult result = new CmdResult(len(status) == 0, status, out, err);
+        return result;
+    }
+}
+
+// A pipeline is expressed as a shell command string; callers are responsible
+// for quoting arguments. Use Cmd for direct argv execution.
+class Pipeline {
+    prop string command;
+
+    method Pipeline() {
+        command = "";
+    }
+
+    method void add(string cmd) {
+        if(len(command) > 0) {
+            command = cat(command, " | ");
+        }
+        command = cat(command, cmd);
+    }
+
+    method CmdResult run() {
+        string rc;
+        Cmd c;
+
+        rc = "/bin/rc";
+        if(fileexists(rc) == 0) {
+            string p9 = getenv("PLAN9");
+            if(len(p9) > 0) {
+                rc = cat(p9, "/bin/rc");
+            }
+        }
+        if(fileexists(rc) == 0) {
+            rc = "/usr/local/plan9/bin/rc";
+        }
+        c = new Cmd(rc);
+        c.arg("-c");
+        c.arg(command);
+        return c.run();
+    }
 }
 
 class Process {

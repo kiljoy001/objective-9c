@@ -47,12 +47,16 @@ mkdir $dir || exit mkdir
 } >$dir/mkfile
 
 {
-	echo 'import "file.o9";'
+	echo '// A small C-free o9 application. Add a service with service.o9.'
+	echo 'import "cli.o9";'
+	echo 'import "config.o9";'
 	echo ''
 	echo 'main {'
-	echo '    File f = new File("/tmp/o9proj.txt");'
-	echo '    f.append("hello from o9\n");'
-	echo '    print("created /tmp/o9proj.txt\n");'
+	echo '    Args args = new Args(1);'
+	echo '    string configPath = args.opt("config", "/tmp/o9proj.conf");'
+	echo '    Config config = new Config(configPath);'
+	echo '    string name = args.opt("name", config.get("name", "world"));'
+	echo '    print("hello, ", name, "\n");'
 	echo '}'
 } >$dir/app.o9
 

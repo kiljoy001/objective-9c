@@ -1,0 +1,176 @@
+// Rune-aware helpers over o9's UTF-8 strings.
+function RuneCountRaw(string s) int64 {
+    int64 out;
+    c {
+        char *p;
+        vlong n, i;
+        int k;
+        Rune r;
+
+        out = 0;
+        p = o9_string_data(s);
+        n = o9_string_len(s);
+        i = 0;
+        while(i < n){
+            k = chartorune(&r, p + i);
+            if(k < 1)
+                k = 1;
+            i += k;
+            out++;
+        }
+    }
+    return out;
+}
+
+function RuneAtRaw(string s, int64 index) int64 {
+    int64 out;
+    c {
+        char *p;
+        vlong n, i, at;
+        int k;
+        Rune r;
+
+        out = -1;
+        if(index >= 0){
+            p = o9_string_data(s);
+            n = o9_string_len(s);
+            i = 0;
+            at = 0;
+            while(i < n){
+                k = chartorune(&r, p + i);
+                if(k < 1)
+                    k = 1;
+                if(at == index){
+                    out = r;
+                    break;
+                }
+                i += k;
+                at++;
+            }
+        }
+    }
+    return out;
+}
+
+function RuneOffsetRaw(string s, int64 index) int64 {
+    int64 out;
+    c {
+        char *p;
+        vlong n, i, at;
+        int k;
+        Rune r;
+
+        out = -1;
+        if(index >= 0){
+            p = o9_string_data(s);
+            n = o9_string_len(s);
+            i = 0;
+            at = 0;
+            while(i < n){
+                if(at == index){
+                    out = i;
+                    break;
+                }
+                k = chartorune(&r, p + i);
+                if(k < 1)
+                    k = 1;
+                i += k;
+                at++;
+            }
+            if(at == index && i == n)
+                out = n;
+        }
+    }
+    return out;
+}
+
+function RuneSliceRaw(string s, int64 start, int64 count) string {
+    string out;
+    c {
+        char *p;
+        vlong n, i, at, b, e;
+        int k;
+        Rune r;
+
+        out = o9_string_new("", 0);
+        if(start < 0 || count < 0)
+            goto rune_slice_done;
+        p = o9_string_data(s);
+        n = o9_string_len(s);
+        i = 0;
+        at = 0;
+        b = -1;
+        e = -1;
+        while(i <= n){
+            if(at == start && b < 0)
+                b = i;
+            if(at == start + count){
+                e = i;
+                break;
+            }
+            if(i == n)
+                break;
+            k = chartorune(&r, p + i);
+            if(k < 1)
+                k = 1;
+            i += k;
+            at++;
+        }
+        if(b >= 0 && e >= b)
+            out = o9_string_new(p + b, e - b);
+rune_slice_done:
+        ;
+    }
+    return out;
+}
+
+function RuneFromRaw(int64 value) string {
+    string out;
+    c {
+        char buf[UTFmax];
+        Rune r;
+        int n;
+
+        r = (Rune)value;
+        n = runetochar(buf, &r);
+        out = o9_string_new(buf, n);
+    }
+    return out;
+}
+
+class Runes {
+    prop string value;
+
+    method Runes(string s) {
+        value = s;
+    }
+
+    method string text() {
+        return value;
+    }
+
+    method int64 count() {
+        Task<int64> t = spawn RuneCountRaw(value);
+        return t.await();
+    }
+
+    method int64 at(int64 index) {
+        Task<int64> t = spawn RuneAtRaw(value, index);
+        return t.await();
+    }
+
+    method int64 offset(int64 index) {
+        Task<int64> t = spawn RuneOffsetRaw(value, index);
+        return t.await();
+    }
+
+    method string slice(int64 start, int64 count) {
+        Task<string> t = spawn RuneSliceRaw(value, start, count);
+        return t.await();
+    }
+
+    method string fromRune(int64 value2) {
+        Task<string> t = spawn RuneFromRaw(value2);
+        return t.await();
+    }
+}

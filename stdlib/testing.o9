@@ -1,0 +1,558 @@
+// testing.o9 - xUnit-style native test harness for o9
+
+function TestExitRaw(string status) int64 {
+    int64 out;
+    c {
+        char *s;
+        out = 0;
+        s = o9_string_cstr(status);
+        if(s != nil && s[0] != '\0')
+            threadexitsall(s);
+        else
+            threadexitsall(nil);
+        free(s);
+    }
+    return out;
+}
+
+function TestLastErrorRaw() string {
+    string out;
+    c {
+        char *e;
+        e = o9_get_call_err();
+        out = o9_string_from_c(e != nil ? e : "");
+    }
+    return out;
+}
+
+function TestHasErrorRaw() bool {
+    bool out;
+    c {
+        out = o9_get_call_err() != nil;
+    }
+    return out;
+}
+
+function TestClearErrorRaw() int64 {
+    int64 out;
+    c {
+        o9_set_call_err(nil);
+        out = 1;
+    }
+    return out;
+}
+
+function TestFabsRaw(double a, double b) double {
+    double out;
+    c {
+        double d;
+        d = a - b;
+        if(d < 0.0)
+            d = -d;
+        out = d;
+    }
+    return out;
+}
+
+function TestContainsRaw(string haystack, string needle) bool {
+    bool out;
+    c {
+        char *h, *n;
+        out = 0;
+        h = o9_string_cstr(haystack);
+        n = o9_string_cstr(needle);
+        if(h != nil && n != nil){
+            if(strstr(h, n) != nil)
+                out = 1;
+        }
+        free(h);
+        free(n);
+    }
+    return out;
+}
+
+function TestTmpDirRaw(string suite) string {
+    string out;
+    c {
+        char *tmp;
+        char buf[256];
+        int pid;
+
+        pid = getpid();
+        tmp = getenv("TMP");
+        if(tmp == nil || tmp[0] == '\0'){
+            free(tmp);
+            tmp = strdup("/tmp");
+        }
+        snprint(buf, sizeof buf, "%s/o9t_%d", tmp, pid);
+        free(tmp);
+        out = o9_string_from_c(buf);
+    }
+    return out;
+}
+
+function TestMkdirRaw(string dir) int64 {
+    int64 out;
+    c {
+        char *d;
+        int fd;
+        Dir *st;
+
+        out = 0;
+        d = o9_string_cstr(dir);
+        if(d != nil){
+            fd = create(d, OREAD, DMDIR|0775);
+            if(fd >= 0){
+                close(fd);
+                out = 1;
+            } else {
+                st = dirstat(d);
+                if(st != nil){
+                    if(st->qid.type & QTDIR)
+                        out = 1;
+                    free(st);
+                }
+            }
+            free(d);
+        }
+    }
+    return out;
+}
+
+function TestCleanDirRaw(string dir) int64 {
+    int64 out;
+    c {
+        char *d;
+        int pid;
+        Waitmsg *w;
+
+        out = 0;
+        d = o9_string_cstr(dir);
+        if(d != nil){
+            pid = rfork(RFPROC|RFFDG|RFNOTEG);
+            if(pid == 0){
+                execl("/bin/rm", "rm", "-rf", d, nil);
+                exits("rm");
+            }
+            if(pid > 0){
+                for(;;){
+                    w = wait();
+                    if(w == nil)
+                        break;
+                    if(w->pid == pid){
+                        out = (w->msg == nil || w->msg[0] == '\0') ? 1 : 0;
+                        free(w);
+                        break;
+                    }
+                    free(w);
+                }
+            }
+            free(d);
+        }
+    }
+    return out;
+}
+
+function TestIsolateRaw(string cmd) string {
+    string out;
+    c {
+        char *c_cmd;
+        int pid;
+        Waitmsg *w;
+        char *res;
+
+        res = nil;
+        c_cmd = o9_string_cstr(cmd);
+        if(c_cmd != nil){
+            pid = rfork(RFPROC|RFFDG|RFNOTEG);
+            if(pid == 0){
+                execl("/bin/rc", "rc", "-c", c_cmd, nil);
+                exits("exec");
+            }
+            if(pid > 0){
+                for(;;){
+                    w = wait();
+                    if(w == nil)
+                        break;
+                    if(w->pid == pid){
+                        if(w->msg != nil && w->msg[0] != '\0')
+                            res = strdup(w->msg);
+                        free(w);
+                        break;
+                    }
+                    free(w);
+                }
+            }
+            free(c_cmd);
+        }
+        out = o9_string_from_c(res != nil ? res : "");
+        free(res);
+    }
+    return out;
+}
+
+class Test {
+    prop string suite;
+    prop string curCase;
+    prop string curSubcase;
+    prop string tempDir;
+    prop bool tapMode;
+    prop int64 nPass;
+    prop int64 nFail;
+    prop int64 nSkip;
+    prop int64 checkCount;
+
+    method Test(string name) {
+        suite = name;
+        curCase = "";
+        curSubcase = "";
+        tempDir = "";
+        tapMode = false;
+        nPass = 0;
+        nFail = 0;
+        nSkip = 0;
+        checkCount = 0;
+    }
+
+    method void setTAP(bool enabled) {
+        tapMode = enabled;
+    }
+
+    method void testCase(string name) {
+        curCase = name;
+        curSubcase = "";
+    }
+
+    method void caseParam(string name, string param) {
+        curCase = cat(name, cat("[", cat(param, "]")));
+        curSubcase = "";
+    }
+
+    method void subcase(string name) {
+        curSubcase = name;
+    }
+
+    method void endSubcase() {
+        curSubcase = "";
+    }
+
+    private method string formatLabel(string what) {
+        string p;
+        p = "";
+        if(len(curCase) > 0 && len(curSubcase) > 0) {
+            p = cat(curCase, cat("/", curSubcase));
+        } else {
+            if(len(curCase) > 0) {
+                p = curCase;
+            } else {
+                if(len(curSubcase) > 0) {
+                    p = curSubcase;
+                }
+            }
+        }
+        if(len(p) > 0 && len(what) > 0) {
+            return cat(p, cat(": ", what));
+        }
+        if(len(p) > 0) {
+            return p;
+        }
+        return what;
+    }
+
+    private method void emitPass(string what) {
+        checkCount = checkCount + 1;
+        nPass = nPass + 1;
+        if(tapMode) {
+            print("ok ", checkCount, " - ", suite, "/", formatLabel(what), "\n");
+        }
+    }
+
+    private method void emitFail(string what, string detail) {
+        checkCount = checkCount + 1;
+        nFail = nFail + 1;
+        string lbl = formatLabel(what);
+        if(tapMode) {
+            print("not ok ", checkCount, " - ", suite, "/", lbl, " # ", detail, "\n");
+        } else {
+            print("FAIL ", suite, "/", lbl, ": ", detail, "\n");
+        }
+    }
+
+    method bool ok(string what, bool cond) {
+        if(cond) {
+            emitPass(what);
+            return true;
+        }
+        emitFail(what, "condition is false");
+        return false;
+    }
+
+    method bool notOk(string what, bool cond) {
+        if(!cond) {
+            emitPass(what);
+            return true;
+        }
+        emitFail(what, "condition is true (expected false)");
+        return false;
+    }
+
+    method bool eqInt(string what, int64 got, int64 want) {
+        if(got == want) {
+            emitPass(what);
+            return true;
+        }
+        checkCount = checkCount + 1;
+        nFail = nFail + 1;
+        string lbl = formatLabel(what);
+        if(tapMode) {
+            print("not ok ", checkCount, " - ", suite, "/", lbl, " # got ", got, " want ", want, "\n");
+        } else {
+            print("FAIL ", suite, "/", lbl, ": got ", got, " want ", want, "\n");
+        }
+        return false;
+    }
+
+    method bool neInt(string what, int64 got, int64 want) {
+        if(got != want) {
+            emitPass(what);
+            return true;
+        }
+        checkCount = checkCount + 1;
+        nFail = nFail + 1;
+        string lbl = formatLabel(what);
+        if(tapMode) {
+            print("not ok ", checkCount, " - ", suite, "/", lbl, " # unexpected equal ", got, "\n");
+        } else {
+            print("FAIL ", suite, "/", lbl, ": unexpected equal ", got, "\n");
+        }
+        return false;
+    }
+
+    method bool eqStr(string what, string got, string want) {
+        if(cmp(got, want) == 0) {
+            emitPass(what);
+            return true;
+        }
+        checkCount = checkCount + 1;
+        nFail = nFail + 1;
+        string lbl = formatLabel(what);
+        if(tapMode) {
+            print("not ok ", checkCount, " - ", suite, "/", lbl, " # got \"", got, "\" want \"", want, "\"\n");
+        } else {
+            print("FAIL ", suite, "/", lbl, ": got \"", got, "\" want \"", want, "\"\n");
+        }
+        return false;
+    }
+
+    method bool neStr(string what, string got, string want) {
+        if(cmp(got, want) != 0) {
+            emitPass(what);
+            return true;
+        }
+        checkCount = checkCount + 1;
+        nFail = nFail + 1;
+        string lbl = formatLabel(what);
+        if(tapMode) {
+            print("not ok ", checkCount, " - ", suite, "/", lbl, " # unexpected equal \"", got, "\"\n");
+        } else {
+            print("FAIL ", suite, "/", lbl, ": unexpected equal \"", got, "\"\n");
+        }
+        return false;
+    }
+
+    method bool eqBool(string what, bool got, bool want) {
+        if(got == want) {
+            emitPass(what);
+            return true;
+        }
+        checkCount = checkCount + 1;
+        nFail = nFail + 1;
+        string lbl = formatLabel(what);
+        if(tapMode) {
+            print("not ok ", checkCount, " - ", suite, "/", lbl, " # got ", got, " want ", want, "\n");
+        } else {
+            print("FAIL ", suite, "/", lbl, ": got ", got, " want ", want, "\n");
+        }
+        return false;
+    }
+
+    method bool eqDouble(string what, double got, double want, double epsilon) {
+        Task<double> t = spawn TestFabsRaw(got, want);
+        double diff = t.await();
+        if(diff <= epsilon) {
+            emitPass(what);
+            return true;
+        }
+        checkCount = checkCount + 1;
+        nFail = nFail + 1;
+        string lbl = formatLabel(what);
+        if(tapMode) {
+            print("not ok ", checkCount, " - ", suite, "/", lbl, " # got ", got, " want ", want, " diff ", diff, "\n");
+        } else {
+            print("FAIL ", suite, "/", lbl, ": got ", got, " want ", want, " diff ", diff, "\n");
+        }
+        return false;
+    }
+
+    method bool containsStr(string what, string haystack, string needle) {
+        Task<bool> t = spawn TestContainsRaw(haystack, needle);
+        bool found = t.await();
+        if(found) {
+            emitPass(what);
+            return true;
+        }
+        emitFail(what, cat("haystack does not contain \"", cat(needle, "\"")));
+        return false;
+    }
+
+    method bool emptyStr(string what, string s) {
+        if(len(s) == 0) {
+            emitPass(what);
+            return true;
+        }
+        emitFail(what, cat("string is not empty: \"", cat(s, "\"")));
+        return false;
+    }
+
+    method bool notEmptyStr(string what, string s) {
+        if(len(s) > 0) {
+            emitPass(what);
+            return true;
+        }
+        emitFail(what, "string is empty");
+        return false;
+    }
+
+    method bool fail(string what, string msg) {
+        emitFail(what, msg);
+        return false;
+    }
+
+    method void skip(string what, string reason) {
+        checkCount = checkCount + 1;
+        nSkip = nSkip + 1;
+        string lbl = formatLabel(what);
+        if(tapMode) {
+            print("ok ", checkCount, " - ", suite, "/", lbl, " # SKIP ", reason, "\n");
+        } else {
+            print("SKIP ", suite, "/", lbl, ": ", reason, "\n");
+        }
+    }
+
+    method bool assertFail(string what) {
+        Task<bool> t = spawn TestHasErrorRaw();
+        bool hasErr = t.await();
+        if(hasErr) {
+            emitPass(what);
+            return true;
+        }
+        emitFail(what, "expected error, but call succeeded");
+        return false;
+    }
+
+    method bool assertNoFail(string what) {
+        Task<bool> t = spawn TestHasErrorRaw();
+        bool hasErr = t.await();
+        if(!hasErr) {
+            emitPass(what);
+            return true;
+        }
+        Task<string> te = spawn TestLastErrorRaw();
+        string err = te.await();
+        emitFail(what, cat("unexpected error: ", err));
+        return false;
+    }
+
+    method bool assertError(string what, string wantErr) {
+        Task<string> te = spawn TestLastErrorRaw();
+        string err = te.await();
+        if(cmp(err, wantErr) == 0) {
+            emitPass(what);
+            return true;
+        }
+        emitFail(what, cat("got error \"", cat(err, cat("\" want \"", cat(wantErr, "\"")))));
+        return false;
+    }
+
+    method void clearError() {
+        Task<int64> t = spawn TestClearErrorRaw();
+        t.await();
+    }
+
+    method string tmpDir() {
+        if(len(tempDir) == 0) {
+            Task<string> t = spawn TestTmpDirRaw(suite);
+            tempDir = t.await();
+            Task<int64> tm = spawn TestMkdirRaw(tempDir);
+            tm.await();
+        }
+        return tempDir;
+    }
+
+    method string tmpPath(string stem) {
+        string d = tmpDir();
+        return cat(d, cat("/", stem));
+    }
+
+    method void cleanTmp() {
+        if(len(tempDir) > 0) {
+            Task<int64> t = spawn TestCleanDirRaw(tempDir);
+            t.await();
+            tempDir = "";
+        }
+    }
+
+    method bool isolate(string what, string cmd) {
+        Task<string> t = spawn TestIsolateRaw(cmd);
+        string err = t.await();
+        if(len(err) == 0) {
+            emitPass(what);
+            return true;
+        }
+        emitFail(what, cat("isolated process crashed: ", err));
+        return false;
+    }
+
+    method bool isolateFail(string what, string cmd) {
+        Task<string> t = spawn TestIsolateRaw(cmd);
+        string err = t.await();
+        if(len(err) > 0) {
+            emitPass(what);
+            return true;
+        }
+        emitFail(what, "isolated process unexpectedly succeeded");
+        return false;
+    }
+
+    method int64 passed() {
+        return nPass;
+    }
+
+    method int64 failed() {
+        return nFail;
+    }
+
+    method int64 skipped() {
+        return nSkip;
+    }
+
+    method int64 count() {
+        return checkCount;
+    }
+
+    method bool report() {
+        if(tapMode) {
+            print("1..", checkCount, "\n");
+        } else {
+            print(suite, ": ", nPass, " passed, ", nFail, " failed, ", nSkip, " skipped\n");
+        }
+        return nFail == 0;
+    }
+
+    method void finish() {
+        if(nFail > 0) {
+            Task<int64> t = spawn TestExitRaw("test failed");
+            t.await();
+        }
+    }
+}

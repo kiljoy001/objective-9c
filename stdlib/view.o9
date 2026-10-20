@@ -2,6 +2,19 @@
 // application-internal and is never a client path or ctl result.
 interface ViewController {
     internal method FileTree display(string id, string caller);
+    // Return a fresh string: the 9P read path releases the result.
     internal method string readText(string id, string path);
     internal method int64 writeText(string id, string path, int64 offset, string text, bool truncate);
+}
+
+// A controller with internal closeView(string id) may opt into a callback
+// when the last fid for an attached view is clunked. Other controllers keep
+// their existing lifecycle until they opt in.
+function ViewCloseNotificationsRaw(bool enabled) int64 {
+    int64 out;
+    c {
+        o9_view_set_close_notify(enabled);
+        out = 0;
+    }
+    return out;
 }

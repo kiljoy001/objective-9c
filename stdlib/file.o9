@@ -338,6 +338,130 @@ function FileListRaw(string path) string {
     return out;
 }
 
+function FileReadNRaw(string path, int64 n) string {
+    string out;
+    c {
+        char *p, *buf;
+        int fd;
+        vlong nr;
+
+        out = o9_string_new("", 0);
+        if(n < 0)
+            n = 0;
+        if(n > 65536)
+            n = 65536;
+        p = o9_string_cstr(path);
+        if(p != nil){
+            fd = open(p, OREAD);
+            free(p);
+            if(fd >= 0){
+                buf = malloc(n > 0 ? n : 1);
+                if(buf != nil){
+                    nr = read(fd, buf, n);
+                    if(nr > 0)
+                        out = o9_string_new(buf, nr);
+                    free(buf);
+                }
+                close(fd);
+            }
+        }
+    }
+    return out;
+}
+
+function FileReadLineRaw(string path) string {
+    use { bio }
+
+    string out;
+    c {
+        Biobuf *b;
+        char *p, *line;
+        int n;
+
+        out = o9_string_new("", 0);
+        p = o9_string_cstr(path);
+        if(p != nil){
+            b = Bopen(p, OREAD);
+            free(p);
+            if(b != nil){
+                line = Brdline(b, '\n');
+                if(line != nil){
+                    n = Blinelen(b);
+                    while(n > 0 && (line[n-1] == '\n' || line[n-1] == '\r'))
+                        n--;
+                    out = o9_string_new(line, n);
+                }
+                Bterm(b);
+            }
+        }
+    }
+    return out;
+}
+
+function FileReadAtRaw(string path, int64 offset, int64 n) string {
+    string out;
+    c {
+        char *p, *buf;
+        int fd;
+        vlong nr;
+
+        out = o9_string_new("", 0);
+        if(offset < 0)
+            offset = 0;
+        if(n < 0)
+            n = 0;
+        if(n > 65536)
+            n = 65536;
+        p = o9_string_cstr(path);
+        if(p != nil){
+            fd = open(p, OREAD);
+            free(p);
+            if(fd >= 0){
+                if(seek(fd, offset, 0) >= 0){
+                    buf = malloc(n > 0 ? n : 1);
+                    if(buf != nil){
+                        nr = read(fd, buf, n);
+                        if(nr > 0)
+                            out = o9_string_new(buf, nr);
+                        free(buf);
+                    }
+                }
+                close(fd);
+            }
+        }
+    }
+    return out;
+}
+
+function FileWriteAtRaw(string path, int64 offset, string data) int64 {
+    int64 out;
+    c {
+        char *p;
+        int fd;
+        vlong n;
+
+        out = -1;
+        if(offset < 0)
+            offset = 0;
+        p = o9_string_cstr(path);
+        if(p != nil){
+            fd = open(p, OWRITE);
+            if(fd < 0)
+                fd = create(p, OWRITE, 0644);
+            free(p);
+            if(fd >= 0){
+                if(seek(fd, offset, 0) >= 0){
+                    n = o9_string_len(data);
+                    if(write(fd, o9_string_data(data), n) == n)
+                        out = n;
+                }
+                close(fd);
+            }
+        }
+    }
+    return out;
+}
+
 class File {
     prop string path;
 
@@ -347,6 +471,26 @@ class File {
 
     method string read() {
         return readfile(path);
+    }
+
+    method string readn(int64 n) {
+        Task<string> t = spawn FileReadNRaw(path, n);
+        return t.await();
+    }
+
+    method string readLine() {
+        Task<string> t = spawn FileReadLineRaw(path);
+        return t.await();
+    }
+
+    method string readAt(int64 offset, int64 n) {
+        Task<string> t = spawn FileReadAtRaw(path, offset, n);
+        return t.await();
+    }
+
+    method int64 writeAt(int64 offset, string data) {
+        Task<int64> t = spawn FileWriteAtRaw(path, offset, data);
+        return t.await();
     }
 
     method int64 write(string data) {
@@ -422,6 +566,11 @@ class File {
 
     method int64 copyTo(string dest) {
         Task<int64> t = spawn FileCopyRaw(path, dest);
+        return t.await();
+    }
+
+    method int64 copyFrom(string src) {
+        Task<int64> t = spawn FileCopyRaw(src, path);
         return t.await();
     }
 

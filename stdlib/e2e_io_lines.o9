@@ -1,0 +1,24 @@
+import "file.o9";
+import "io.o9";
+
+main {
+    string p = "/tmp/o9_e2e_lines";
+    string q = "/tmp/o9_e2e_lines_copy";
+    removefile(p);
+    removefile(q);
+    writefile(p, "a\nb\nc\n");
+
+    Lines l = new Lines(p);
+    print(l.next(), " ", l.next(), " ", l.next(), "\n");
+    l.close();
+
+    File f = new File(p);
+    print("readn ", f.readn(1), "\n");
+    print("line ", f.readLine(), "\n");
+    f.writeAt(0, "X");
+    print("at ", f.readAt(0, 1), "\n");
+    print("copy ", f.copyTo(q), " ", len(readfile(q)), "\n");
+
+    removefile(p);
+    removefile(q);
+}

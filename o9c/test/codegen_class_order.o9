@@ -1,0 +1,39 @@
+// Regression: class A is emitted before class B, but A's method allocates
+// both B (a later class) and another A.  All Internal structs, state-column
+// arrays and constructor helpers must be declared before any method body.
+class A {
+    prop int64 n;
+
+    method A() {
+        n = 1;
+    }
+
+    method B makeB() {
+        B out = new B(n + 1);
+        return out;
+    }
+
+    method A duplicate() {
+        A copy = new A();
+        return copy;
+    }
+
+    method int64 test() {
+        B b = makeB();
+        A a = duplicate();
+        return a.n + b.value;
+    }
+}
+
+class B {
+    prop int64 value;
+
+    method B(int64 v) {
+        value = v;
+    }
+}
+
+main {
+    A a = new A();
+    print("%lld\n", a.test());
+}
