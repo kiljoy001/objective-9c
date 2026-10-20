@@ -213,8 +213,10 @@ two 6c `abort()` return fallbacks. The result is plain C for 6c. This is a
 build bridge, not the long-term source form; keep the raw engine under
 `vendor.rc`/generated9 as the source of truth.
 
-The APE/pcc build of generated9's original QuickJS tree remains a useful
-reference (`cd /sys/src/cmd/quickjs; mk; ./6.qjs -e 'print(1+1)'`).
+The native library uses `6c`/`6l`, native libc, and native `libstdio`. It
+does **not** use APE headers, APE libraries, or `pcc`. generated9's APE/pcc
+tree is only a reference for engine behavior and provenance; it is not linked
+into this library.
 
 ## Build
 
@@ -234,7 +236,10 @@ mk test
 
 On a native Plan 9 amd64 host with a patched 6c installed.  The generated
 `engine/`, `math/`, `p9*.c`, and `test.c` in the throwaway copy are plain C
-for 6c.  Keep the repository copy as the raw scaffolding.
+for 6c.  Keep the repository copy as the raw scaffolding.  `mk`/`mk test`
+use native `6c`/`6l`, `libc.a`, and `libstdio.a`; no APE library is linked.
+The host `cpp` in `preprocess-native.py` is only a text preprocessor and emits
+plain C before the native build.
 
 The mkfile builds `libquickjs.a` from:
 
