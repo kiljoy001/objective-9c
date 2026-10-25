@@ -460,6 +460,120 @@ test_dispatch_ownership(void)
 	chanfree(other);
 }
 
+int
+threadpid(int tid)
+{
+	if(tid == 999999)
+		return -1;
+	return 1;
+}
+
+typedef struct TeardownActor TeardownActor;
+struct TeardownActor {
+	Channel *dispatch_chan;
+	int delay_ms;
+};
+
+static void
+teardown_oneshot_proc(void *v)
+{
+	TeardownActor *a;
+	O9Msg *m, lm;
+	O9Reply *r;
+
+	a = v;
+	if(a->delay_ms > 0)
+		sleep(a->delay_ms);
+	o9_actor_enter(a->dispatch_chan, "");
+	m = recvp(a->dispatch_chan);
+	if(m != nil){
+		lm = *m;
+		if(lm.sync == nil)
+			free(m);
+		r = mallocz(sizeof(O9Reply), 1);
+		r->ok = 1;
+		r->ret = 77;
+		o9_msg_reply(&lm, r);
+	}
+	o9_dag_actor_exit(a->dispatch_chan);
+	chanclose(a->dispatch_chan);
+	chanfree(a->dispatch_chan);
+	free(a);
+	o9_proc_ctx_clear();
+	threadexits(nil);
+}
+
+static void
+teardown_actor_proc(void *v)
+{
+	Channel *dc;
+	O9Msg *m, lm;
+	O9Reply *r;
+
+	dc = v;
+	o9_actor_enter(dc, "");
+	for(;;){
+		m = recvp(dc);
+		if(m == nil)
+			continue;
+		lm = *m;
+		if(lm.sync == nil)
+			free(m);
+		if(lm.sel == 0x97af1ef){
+			o9_dag_actor_exit(dc);
+			chanclose(dc);
+			if(lm.replyc != nil){
+				r = mallocz(sizeof(O9Reply), 1);
+				r->ok = 1;
+				o9_msg_reply(&lm, r);
+			}
+			o9_proc_ctx_clear();
+			threadexits(nil);
+		}
+		r = mallocz(sizeof(O9Reply), 1);
+		r->ok = 1;
+		r->ret = 123;
+		o9_msg_reply(&lm, r);
+	}
+}
+
+static void
+test_teardown_races(void)
+{
+	int i;
+	o9_Object obj;
+	TeardownActor *a;
+	O9Task *t;
+	O9Msg *wm;
+	Channel *replyc;
+
+	/* 1. Sync msgSend + reply + destroy race under ASan/TSan. */
+	for(i = 0; i < 40; i++){
+		memset(&obj, 0, sizeof obj);
+		obj.dispatch_chan = chancreate(sizeof(void*), 4);
+		proccreate(teardown_actor_proc, obj.dispatch_chan, 32768);
+		o9t_eqint("sync call result", (int)obj9_msgSendN(&obj, "work", 0x1111, nil, 0), 123);
+		o9t_eqint("sync destroy", (int)obj9_msgSendN(&obj, "destroy", 0x97af1ef, nil, 0), 0);
+		chanfree(obj.dispatch_chan);
+	}
+
+	/* 2. One-shot spawn whose tid reports threadpid == -1 before o9_actor_enter
+	 * (simulating Harvey's p->pid == -1 window before _schedinit). */
+	a = mallocz(sizeof *a, 1);
+	a->dispatch_chan = chancreate(sizeof(void*), 4);
+	a->delay_ms = 15;
+	t = o9_task_new(1);
+	replyc = o9_task_chan(t);
+	o9_pending_register(999999, replyc, a->dispatch_chan, a, 1, t, nil);
+	proccreate(teardown_oneshot_proc, a, 32768);
+	wm = mallocz(sizeof(O9Msg), 1);
+	wm->sel = 0x2222;
+	wm->replyc = replyc;
+	wm->task = t;
+	sendp(a->dispatch_chan, wm);
+	o9t_eqint("delayed spawn not prematurely reaped", (int)o9_task_take(t), 77);
+}
+
 void
 threadmain(int, char**)
 {
@@ -473,6 +587,7 @@ threadmain(int, char**)
 	test_dict_model();
 	test_channels();
 	test_dispatch_ownership();
+	test_teardown_races();
 	test_filetree();
 	test_vault_tab();
 #ifdef O9_PROFILE

@@ -21,6 +21,7 @@
 
 int bind(char *name, char *old, int flags);
 int mount(int fd, int afd, char *old, int flags, char *aname);
+int unmount(char *name, char *old);
 int chanclosing(Channel *c);
 void chanclose(Channel *c);
 

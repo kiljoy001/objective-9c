@@ -482,17 +482,19 @@ gen_task_msg(Node *e, Type *lt)
 {
     Type *at;
     char *rt;
+    int take;
 
     if(!type_apply_named(lt, "Task"))
         return 0;
     if(!expr_name_is(e, "await") && !expr_name_is(e, "take"))
         return 0;
+    take = expr_name_is(e, "take") || (e->left != nil && e->left->type == NSpawn);
     at = type_list_at(lt->args, 0);
     rt = type_storage_for_codegen(at);
     if(type_is_double(at))
-        cprint(expr_name_is(e, "take") ? "o9_task_take_double(" : "o9_task_await_double(");
+        cprint(take ? "o9_task_take_double(" : "o9_task_await_double(");
     else
-        cprint("(%s)%s(", rt, expr_name_is(e, "take") ? "o9_task_take" : "o9_task_await");
+        cprint("(%s)%s(", rt, take ? "o9_task_take" : "o9_task_await");
     gen_expr(e->left);
     cprint(")");
     return 1;
@@ -4376,22 +4378,23 @@ static void
 gen_class_dispatch_loop(Node *c)
 {
     cprint("static void\n%s_loop(void *v)\n{\n", c->name);
-    cprint("\t%s_Internal *self;\n\tO9Msg *m;\n\n", c->name);
+    cprint("\t%s_Internal *self;\n\tO9Msg *m, __m;\n\n", c->name);
     cprint("\tself = v;\n");
     cprint("\to9_actor_enter(self->dispatch_chan, self->oid);\n");
     cprint("\tfor(;;){\n\t\tm = recvp(self->dispatch_chan);\n\t\tif(m == nil) continue;\n");
+    cprint("\t\t__m = *m;\n\t\tif(__m.sync == nil) free(m);\n\t\tm = &__m;\n");
     cprint("\t\to9_set_current_request(m->caller, m->blessed);\n");
     cprint("\t\tswitch(m->sel){\n");
     num_emitted = 0;
     gen_dispatch_cases(c, c->name);
-    cprint("\t\tcase 0x%lux: o9_cleanup_%s(self); if(m->replyc != nil){ O9Reply *__dr;\n\t__dr = mallocz(sizeof(O9Reply), 1); __dr->ok = 1; sendp(m->replyc, __dr); } o9_proc_ctx_clear(); threadexits(nil); break;\n", o9_hash("destroy"), c->name);
-    cprint("\t\tdefault: if(m->replyc != nil){ O9Reply *r;\n\tr = mallocz(sizeof(O9Reply), 1); r->err = \"bad selector\"; sendp(m->replyc, r); } break;\n");
+    cprint("\t\tcase 0x%lux: o9_cleanup_%s(self); if(m->replyc != nil){ O9Reply *__dr;\n\t__dr = mallocz(sizeof(O9Reply), 1); __dr->ok = 1; o9_msg_reply(m, __dr); } o9_proc_ctx_clear(); threadexits(nil); break;\n", o9_hash("destroy"), c->name);
+    cprint("\t\tdefault: if(m->replyc != nil){ O9Reply *r;\n\tr = mallocz(sizeof(O9Reply), 1); r->err = \"bad selector\"; o9_msg_reply(m, r); } break;\n");
     cprint("\t\t}\n");
+    cprint("\t\tif(m->task != nil && m->args != nil) free(m->args);\n");
     /* A one-shot function actor answers exactly one run and then reaps
      * itself. Persistent actors keep their dispatch loop. */
     if((c->flags & NFFunction) != 0){
         cprint("\t\tif(self->__spawn_state == 1 && m->sel == 0x%lux){\n", o9_hash("run"));
-        cprint("\t\t\tfree(m->args); free(m);\n");
         cprint("\t\t\to9_cleanup_%s(self);\n", c->name);
         cprint("\t\t\to9_proc_ctx_clear();\n");
         cprint("\t\t\tthreadexits(nil);\n");
@@ -4623,6 +4626,7 @@ gen_method_impl_artifact(Node *c, Node *m)
     cprint("\tO9Reply *__o9r;\n\t__o9r = mallocz(sizeof(O9Reply), 1);\n");
     cprint("\tvlong __o9fr[%d][12];\n\tUSED(__o9fr);\n", O9_MSG_FRAMES);
     gen_method_unpack_params(m);
+    cprint("\tif(msg->task != nil && msg->args != nil){ free(msg->args); msg->args = nil; }\n");
     gen_method_body_emit(c, m);
     cprint("\t__o9r->ok = 1;\n\to9_msg_reply(msg, __o9r);\n}\n\n");
 }

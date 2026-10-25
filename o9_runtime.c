@@ -4556,12 +4556,17 @@ o9_task_await_double(O9Task *t)
 void
 o9_task_close(O9Task *t)
 {
+	O9Reply *r;
+
 	if(t == nil)
 		return;
 	if(o9_atomic_dec(&t->ref) != 0)
 		return;
-	if(t->done != nil)
+	if(t->done != nil){
+		while((r = nbrecvp(t->done)) != nil)
+			o9_reply_free(r);
 		chanfree(t->done);
+	}
 	o9_reply_free(t->reply);
 	free(t);
 }
@@ -4634,18 +4639,24 @@ o9_sync_retain(O9SyncWait *w)
 static void
 o9_sync_release(O9SyncWait *w)
 {
+	O9Reply *r;
+
 	if(w == nil)
 		return;
 	if(o9_atomic_dec(&w->ref) != 0)
 		return;
-	if(w->replyc != nil)
+	if(w->replyc != nil){
+		while((r = nbrecvp(w->replyc)) != nil)
+			o9_reply_free(r);
 		chanfree(w->replyc);
+	}
 	free(w);
 }
 
 typedef struct O9Pending O9Pending;
 struct O9Pending {
 	int active;
+	int started;
 	int one_shot;
 	int tid;
 	Channel *replyc;
@@ -4662,7 +4673,7 @@ static int o9_reaper_started;
 static void
 o9_reaper_proc(void *v)
 {
-	int i, dead, one_shot, tid;
+	int i, j, dead, one_shot, tid;
 	Channel *replyc;
 	void *dispatch_chan, *inst;
 	O9Task *task;
@@ -4685,8 +4696,20 @@ o9_reaper_proc(void *v)
 			for(i = 0; i < O9_MAX_PENDING; i++){
 				if(!o9_pending[i].active)
 					continue;
-				tid = o9_pending[i].tid;
-				if(tid > 0 && threadpid(tid) < 0){
+				/* Only check threadpid after the actor proc has reached
+				 * o9_actor_enter (or if proccreate itself failed with tid < 0).
+				 * On Harvey, a newly forked proc has p->pid == -1 until
+				 * _schedinit runs on the child proc. */
+				tid = o9_tid_for_chan(o9_pending[i].dispatch_chan);
+				if(tid > 0){
+					o9_pending[i].tid = tid;
+					o9_pending[i].started = 1;
+				} else if(o9_pending[i].started || o9_pending[i].tid < 0){
+					tid = o9_pending[i].tid;
+				} else {
+					tid = 0;
+				}
+				if(tid < 0 || (tid > 0 && threadpid(tid) < 0)){
 					dead = 1;
 					one_shot = o9_pending[i].one_shot;
 					replyc = o9_pending[i].replyc;
@@ -4695,11 +4718,21 @@ o9_reaper_proc(void *v)
 					task = o9_pending[i].task;
 					sync = o9_pending[i].sync;
 					o9_pending[i].active = 0;
+					o9_pending[i].started = 0;
+					o9_pending[i].tid = 0;
 					o9_pending[i].replyc = nil;
 					o9_pending[i].dispatch_chan = nil;
 					o9_pending[i].inst = nil;
 					o9_pending[i].task = nil;
 					o9_pending[i].sync = nil;
+					if(dispatch_chan != nil && tid > 0){
+						for(j = 0; j < O9_MAX_PENDING; j++){
+							if(o9_pending[j].active && o9_pending[j].dispatch_chan == dispatch_chan){
+								o9_pending[j].tid = tid;
+								o9_pending[j].started = 1;
+							}
+						}
+					}
 					break;
 				}
 			}
@@ -4748,14 +4781,18 @@ int
 o9_pending_register(int tid, void *replyc, void *dispatch_chan,
                     void *inst, int one_shot, void *task, void *syncv)
 {
-	int i, slot;
+	int i, slot, started, ctid;
 	O9SyncWait *sync;
 
 	if(replyc == nil)
 		return -1;
 	sync = syncv;
-	if(tid <= 0)
-		tid = o9_tid_for_chan(dispatch_chan);
+	started = 0;
+	ctid = o9_tid_for_chan(dispatch_chan);
+	if(ctid > 0){
+		tid = ctid;
+		started = 1;
+	}
 	if(sync != nil)
 		o9_sync_retain(sync);
 	o9_reaper_ensure();
@@ -4765,6 +4802,7 @@ o9_pending_register(int tid, void *replyc, void *dispatch_chan,
 		if(!o9_pending[i].active){
 			slot = i;
 			o9_pending[i].active = 1;
+			o9_pending[i].started = started;
 			o9_pending[i].one_shot = one_shot;
 			o9_pending[i].tid = tid;
 			o9_pending[i].replyc = replyc;
@@ -4782,22 +4820,22 @@ o9_pending_register(int tid, void *replyc, void *dispatch_chan,
 }
 
 static void
-o9_pending_complete(Channel *replyc)
+o9_pending_take(Channel *replyc, O9Task **taskp, O9SyncWait **syncp)
 {
 	int i;
-	O9Task *task;
-	O9SyncWait *sync;
 
+	*taskp = nil;
+	*syncp = nil;
 	if(replyc == nil)
 		return;
-	task = nil;
-	sync = nil;
 	lock(&o9_pending_lock);
 	for(i = 0; i < O9_MAX_PENDING; i++){
 		if(o9_pending[i].active && o9_pending[i].replyc == replyc){
-			task = o9_pending[i].task;
-			sync = o9_pending[i].sync;
+			*taskp = o9_pending[i].task;
+			*syncp = o9_pending[i].sync;
 			o9_pending[i].active = 0;
+			o9_pending[i].started = 0;
+			o9_pending[i].tid = 0;
 			o9_pending[i].replyc = nil;
 			o9_pending[i].dispatch_chan = nil;
 			o9_pending[i].inst = nil;
@@ -4807,6 +4845,15 @@ o9_pending_complete(Channel *replyc)
 		}
 	}
 	unlock(&o9_pending_lock);
+}
+
+static void
+o9_pending_complete(Channel *replyc)
+{
+	O9Task *task;
+	O9SyncWait *sync;
+
+	o9_pending_take(replyc, &task, &sync);
 	if(task != nil)
 		o9_task_close(task);
 	if(sync != nil)
@@ -4816,21 +4863,35 @@ o9_pending_complete(Channel *replyc)
 void
 o9_msg_reply(O9Msg *msg, O9Reply *r)
 {
-	O9Task *task;
+	O9Task *task, *ptask;
+	O9SyncWait *psync;
+	Channel *done, *replyc;
+	void *sync;
 
 	if(msg == nil)
 		return;
 	task = msg->task;
+	replyc = msg->replyc;
+	sync = msg->sync;
 	if(task != nil){
-		if(task->done != nil)
-			sendp(task->done, r);
-		o9_pending_complete(task->done);
-	} else if(msg->sync != nil){
-		if(msg->replyc != nil)
-			sendp(msg->replyc, r);
-		o9_pending_complete(msg->replyc);
-	} else if(msg->replyc != nil){
-		sendp(msg->replyc, r);
+		done = task->done;
+		o9_pending_take(done, &ptask, &psync);
+		if(done != nil)
+			sendp(done, r);
+		if(ptask != nil)
+			o9_task_close(ptask);
+		if(psync != nil)
+			o9_sync_release(psync);
+	} else if(sync != nil){
+		o9_pending_take(replyc, &ptask, &psync);
+		if(replyc != nil)
+			sendp(replyc, r);
+		if(ptask != nil)
+			o9_task_close(ptask);
+		if(psync != nil)
+			o9_sync_release(psync);
+	} else if(replyc != nil){
+		sendp(replyc, r);
 	}
 }
 

@@ -114,7 +114,7 @@ adec(long *r)
 	return __sync_sub_and_fetch(r, 1);
 }
 
-int
+__attribute__((weak)) int
 threadpid(int tid)
 {
 	USED(tid);

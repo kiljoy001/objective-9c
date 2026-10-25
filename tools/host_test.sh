@@ -62,7 +62,20 @@ if [ "${O9_SANITIZE:-0}" = 1 ] && [ "${O9_TSAN:-0}" = 1 ]; then
 fi
 
 if [ "${O9_SANITIZE:-0}" = 1 ]; then
-	CC9FLAGS="${CC9FLAGS:-} -fsanitize=address,undefined -fno-omit-frame-pointer -g"
+	if [ -z "${CC9:-}" ]; then
+		for cand in clang-20 clang-18 clang-17 clang-14 clang; do
+			if ! command -v "$cand" >/dev/null 2>&1; then
+				continue
+			fi
+			rt=$("$cand" -print-file-name=libclang_rt.asan-x86_64.a 2>/dev/null || true)
+			if [ -n "$rt" ] && [ -f "$rt" ]; then
+				CC9=$cand
+				export CC9
+				break
+			fi
+		done
+	fi
+	CC9FLAGS="${CC9FLAGS:-} -fsanitize=address,undefined -fno-omit-frame-pointer -Wno-unknown-warning-option -Wno-unused-function -g"
 	export CC9FLAGS
 	ASAN_OPTIONS=detect_leaks=0
 	UBSAN_OPTIONS=halt_on_error=1
@@ -70,7 +83,20 @@ if [ "${O9_SANITIZE:-0}" = 1 ]; then
 fi
 
 if [ "${O9_TSAN:-0}" = 1 ]; then
-	CC9FLAGS="${CC9FLAGS:-} -fsanitize=thread -g"
+	if [ -z "${CC9:-}" ]; then
+		for cand in clang-20 clang-18 clang-17 clang-14 clang; do
+			if ! command -v "$cand" >/dev/null 2>&1; then
+				continue
+			fi
+			rt=$("$cand" -print-file-name=libclang_rt.tsan-x86_64.a 2>/dev/null || true)
+			if [ -n "$rt" ] && [ -f "$rt" ]; then
+				CC9=$cand
+				export CC9
+				break
+			fi
+		done
+	fi
+	CC9FLAGS="${CC9FLAGS:-} -fsanitize=thread -Wno-unknown-warning-option -Wno-unused-function -g"
 	export CC9FLAGS
 	TSAN_OPTIONS=halt_on_error=1
 	if [ -f "$ROOT/o9c/test/tsan.supp" ]; then
