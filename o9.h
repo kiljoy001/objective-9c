@@ -333,6 +333,8 @@ extern O9String* o9_exchange(O9String *sec, O9String *pub);
 extern vlong     o9_str_len(O9String *s);
 extern vlong     o9_str_cmp(O9String *a, O9String *b);
 extern O9String* o9_str_cat(O9String *a, O9String *b);
+extern O9String* o9_str_chr(vlong c);
+extern O9String* o9_string_slice(O9String *s, vlong start, vlong count);
 extern O9String* o9_readfile(O9String *path);
 extern vlong     o9_writefile(O9String *path, O9String *s);
 extern vlong     o9_appendfile(O9String *path, O9String *s);

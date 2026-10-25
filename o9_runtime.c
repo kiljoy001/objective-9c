@@ -1895,6 +1895,36 @@ o9_str_cat(O9String *a, O9String *b)
 	return out;
 }
 
+O9String*
+o9_str_chr(vlong c)
+{
+	char buf[4];
+	int n;
+
+	if(c < 0 || c > 0x10FFFF)
+		c = 0xFFFD;	/* replacement character */
+	if(c < 0x80){
+		buf[0] = (char)c;
+		n = 1;
+	}else if(c < 0x800){
+		buf[0] = (char)(0xC0 | (c >> 6));
+		buf[1] = (char)(0x80 | (c & 0x3F));
+		n = 2;
+	}else if(c < 0x10000){
+		buf[0] = (char)(0xE0 | (c >> 12));
+		buf[1] = (char)(0x80 | ((c >> 6) & 0x3F));
+		buf[2] = (char)(0x80 | (c & 0x3F));
+		n = 3;
+	}else{
+		buf[0] = (char)(0xF0 | (c >> 18));
+		buf[1] = (char)(0x80 | ((c >> 12) & 0x3F));
+		buf[2] = (char)(0x80 | ((c >> 6) & 0x3F));
+		buf[3] = (char)(0x80 | (c & 0x3F));
+		n = 4;
+	}
+	return o9_string_new(buf, n);
+}
+
 vlong
 o9_string_indexof(O9String *s, O9String *needle)
 {

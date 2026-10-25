@@ -91,6 +91,8 @@ static Builtin builtins[] = {
     {"len",       "o9_str_len",   1, "int64",  {"string", nil}},
     {"cmp",       "o9_str_cmp",   2, "int64",  {"string", "string"}},
     {"cat",       "o9_str_cat",   2, "string", {"string", "string"}},
+    {"chr",       "o9_str_chr",   1, "string", {"int64", nil}},
+    {"slice",     "o9_string_slice", 3, "string", {"string", "int64", "int64"}},
     {"readfile",  "o9_readfile",  1, "string", {"string", nil}},
     {"writefile", "o9_writefile", 2, "int64",  {"string", "string"}},
     {"appendfile", "o9_appendfile", 2, "int64", {"string", "string"}},
