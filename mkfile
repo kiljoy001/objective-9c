@@ -207,6 +207,11 @@ runtime-router-test:V:	libo9.a
 	$LD -o $O9TESTDIR/runtime_router_test runtime_router_test.$O libo9.a
 	$O9TESTDIR/runtime_router_test
 
+runtime-router-bench:V:	libo9.a
+	$CC -I. $O9TESTDIR/runtime_router_bench.c
+	$LD -o $O9TESTDIR/runtime_router_bench runtime_router_bench.$O libo9.a
+	$O9TESTDIR/runtime_router_bench
+
 # Host/native edge suite: strings, arrays, slices, dicts, channels,
 # FileTree ownership/path rules, and Vault.open_tab temporary-file cleanup.
 # The host-only CI path uses tools/host_test.sh because it excludes
@@ -529,6 +534,6 @@ clean:V:
 	rm -f *.[$O] *.9 libo9.a
 	rm -f o9c/test/*.[$O] o9c/test/crypto_test o9c/test/tab_test
 	rm -f o9c/test/o9test_selftest o9c/test/runtime_helpers_test
-	rm -f o9c/test/runtime_registry_test o9c/test/runtime_9p_rpc_test
+	rm -f o9c/test/runtime_registry_test o9c/test/runtime_9p_rpc_test o9c/test/runtime_router_test o9c/test/runtime_router_bench
 	rm -f o9c/test/o9_type_test
 	rm -f o9c/test/artifacts/o9_draw_*.img o9c/test/artifacts/o9_draw_*.png

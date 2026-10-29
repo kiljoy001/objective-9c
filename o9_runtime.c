@@ -7330,7 +7330,7 @@ static struct {
 	O9Mailbox *mailboxes;
 } o9_router;
 
-static int
+int
 o9_tring_submit(O9TRing *ring, const O9Slot *slot)
 {
 	int ret = -1;
@@ -7344,7 +7344,7 @@ o9_tring_submit(O9TRing *ring, const O9Slot *slot)
 	return ret;
 }
 
-static int
+int
 o9_tring_consume(O9TRing *ring, O9Slot *out)
 {
 	int ret = 0;
@@ -7358,7 +7358,7 @@ o9_tring_consume(O9TRing *ring, O9Slot *out)
 	return ret;
 }
 
-static int
+int
 o9_tring_len(O9TRing *ring)
 {
 	int len;
@@ -7368,7 +7368,7 @@ o9_tring_len(O9TRing *ring)
 	return len;
 }
 
-static int
+int
 o9_rring_complete(O9RRing *ring, const O9Comp *comp)
 {
 	int ret = -1;
@@ -7382,7 +7382,7 @@ o9_rring_complete(O9RRing *ring, const O9Comp *comp)
 	return ret;
 }
 
-static int
+int
 o9_rring_poll(O9RRing *ring, O9Comp *out)
 {
 	int ret = 0;
@@ -7463,8 +7463,31 @@ o9_router_worker(void *v)
 		if(mb->closed)
 			break;
 
-		if(!o9_tring_consume(&mb->ring.t_ring, &slot))
-			break;
+		if(!o9_tring_consume(&mb->ring.t_ring, &slot)){
+			int idle;
+			int got = 0;
+			for(idle = 0; idle < 50; idle++){
+				if(mb->closed)
+					break;
+				sleep(0);
+				if(o9_tring_consume(&mb->ring.t_ring, &slot)){
+					got = 1;
+					break;
+				}
+			}
+			if(mb->closed)
+				break;
+			if(!got){
+				qlock(&o9_router.lk);
+				if(o9_tring_len(&mb->ring.t_ring) == 0){
+					mb->worker_running = 0;
+					qunlock(&o9_router.lk);
+					break;
+				}
+				qunlock(&o9_router.lk);
+				continue;
+			}
+		}
 
 		/* Connect descriptor to Object Table */
 		ent = o9_objtab_resolve(slot.handle);

@@ -634,6 +634,12 @@ struct O9RingChannel {
 	O9RRing			r_ring;
 };
 
+extern int  o9_tring_submit(O9TRing *ring, const O9Slot *slot);
+extern int  o9_tring_consume(O9TRing *ring, O9Slot *out);
+extern int  o9_tring_len(O9TRing *ring);
+extern int  o9_rring_complete(O9RRing *ring, const O9Comp *comp);
+extern int  o9_rring_poll(O9RRing *ring, O9Comp *out);
+
 extern int  o9_router_submit(void *r, char *target_class, char *target_oid, void *target_inst,
 	void *dispatch_chan, ulong sel, vlong *args, int nargs,
 	char *caller, int blessed, O9RouterCompleteFn complete, void *aux);
