@@ -578,26 +578,60 @@ extern vlong      o9_vault_drop(O9Vault *v, O9String *name);
 extern void       o9_vault_wipe(O9Vault *v);
 extern void       o9_vault_close(O9Vault *v);
 
-/* Async 9P Router / Mini CSP Backplane */
-typedef struct O9RouterOp O9RouterOp;
+/* Async 9P Router / Mini CSP Backplane (Duplex 9ring) */
+#define O9_RING_SIZE	64
+#define O9_RING_MASK	(O9_RING_SIZE - 1)
+
+typedef struct O9Slot O9Slot;
+typedef struct O9Slot O9RouterOp;
+typedef struct O9Comp O9Comp;
+typedef struct O9TRing O9TRing;
+typedef struct O9RRing O9RRing;
+typedef struct O9RingChannel O9RingChannel;
+
 typedef void (*O9RouterCompleteFn)(O9RouterOp *op, O9Reply *reply);
 
-struct O9RouterOp {
+struct O9Slot {
 	void			*r;		/* Req *r from lib9p */
+	u32int			handle;		/* Object table handle (FID: index + gen) */
+	ulong			sel;		/* Method selector hash */
+	u16int			tag;		/* Tag / request ID */
+	u16int			flags;		/* Flags (1=blessed) */
+	int			nargs;		/* Number of arguments */
+	vlong			args[4];	/* Inline argument storage (0-4 args) */
+	vlong			*extra_args;	/* Fallback for >4 args */
+	char			caller[64];	/* Authenticated caller user */
 	char			target_class[64]; /* Owning class namespace */
 	char			target_oid[64];	/* Target actor instance name */
-	void			*target_inst;	/* Target actor Internal struct */
-	ulong			sel;		/* Method selector */
-	vlong			*args;		/* Packed argument array (heap copy) */
-	int			nargs;		/* Number of arguments */
-	char			caller[64];	/* Authenticated caller user */
-	int			blessed;	/* Privilege bit */
 	void			*replyc;	/* Channel *replyc */
 	void			*sync;		/* O9SyncWait* for the reply lifetime */
-	void			*dispatch_chan;	/* Channel *dispatch_chan */
 	O9RouterCompleteFn	complete;	/* Completion callback */
 	void			*aux;		/* Context info */
-	O9RouterOp		*next;		/* Mailbox queue link */
+};
+
+struct O9Comp {
+	u16int			tag;		/* Matches submission tag */
+	u16int			status;		/* 0=success, >0=error */
+	O9Reply			*reply;		/* Reply */
+};
+
+struct O9TRing {
+	Lock			lk;		/* Producer spinlock */
+	u32int			head;
+	u32int			tail;
+	O9Slot			slots[O9_RING_SIZE];
+};
+
+struct O9RRing {
+	Lock			lk;
+	u32int			head;
+	u32int			tail;
+	O9Comp			comps[O9_RING_SIZE];
+};
+
+struct O9RingChannel {
+	O9TRing			t_ring;
+	O9RRing			r_ring;
 };
 
 extern int  o9_router_submit(void *r, char *target_class, char *target_oid, void *target_inst,

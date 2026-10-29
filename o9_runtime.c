@@ -7199,15 +7199,129 @@ o9_dict_free(O9Dict *d)
  * Async 9P Router / Mini CSP Backplane
  * ========================================================================= */
 
+#define O9_MAX_OBJECTS 256
+
+typedef struct O9ObjEntry O9ObjEntry;
+struct O9ObjEntry {
+	u32int gen;
+	int active;
+	char class[64];
+	char oid[64];
+	void *inst;
+	Channel *dispatch_chan;
+};
+
+static struct {
+	Lock lk;
+	O9ObjEntry entries[O9_MAX_OBJECTS];
+} o9_objtab;
+
+static u32int
+o9_objtab_register(char *class, char *oid, void *inst, Channel *dispatch_chan)
+{
+	int i, free_idx;
+	u32int handle;
+
+	if(class == nil || oid == nil)
+		return 0;
+
+	lock(&o9_objtab.lk);
+	free_idx = -1;
+	for(i = 0; i < O9_MAX_OBJECTS; i++){
+		if(o9_objtab.entries[i].active){
+			if(strcmp(o9_objtab.entries[i].class, class) == 0 &&
+			   strcmp(o9_objtab.entries[i].oid, oid) == 0){
+				if(inst != nil)
+					o9_objtab.entries[i].inst = inst;
+				if(dispatch_chan != nil)
+					o9_objtab.entries[i].dispatch_chan = dispatch_chan;
+				handle = (o9_objtab.entries[i].gen << 16) | (u32int)(i & 0xFFFF);
+				unlock(&o9_objtab.lk);
+				return handle;
+			}
+		}else if(free_idx < 0){
+			free_idx = i;
+		}
+	}
+
+	if(free_idx < 0){
+		unlock(&o9_objtab.lk);
+		return 0;
+	}
+
+	i = free_idx;
+	o9_objtab.entries[i].gen++;
+	if(o9_objtab.entries[i].gen == 0)
+		o9_objtab.entries[i].gen = 1;
+	o9_objtab.entries[i].active = 1;
+	strncpy(o9_objtab.entries[i].class, class, sizeof o9_objtab.entries[i].class - 1);
+	o9_objtab.entries[i].class[sizeof o9_objtab.entries[i].class - 1] = '\0';
+	strncpy(o9_objtab.entries[i].oid, oid, sizeof o9_objtab.entries[i].oid - 1);
+	o9_objtab.entries[i].oid[sizeof o9_objtab.entries[i].oid - 1] = '\0';
+	o9_objtab.entries[i].inst = inst;
+	o9_objtab.entries[i].dispatch_chan = dispatch_chan;
+	handle = (o9_objtab.entries[i].gen << 16) | (u32int)(i & 0xFFFF);
+	unlock(&o9_objtab.lk);
+	return handle;
+}
+
+static O9ObjEntry*
+o9_objtab_resolve(u32int handle)
+{
+	int i;
+	u32int gen;
+
+	if(handle == 0)
+		return nil;
+	i = (int)(handle & 0xFFFF);
+	gen = handle >> 16;
+	if(i < 0 || i >= O9_MAX_OBJECTS)
+		return nil;
+
+	lock(&o9_objtab.lk);
+	if(o9_objtab.entries[i].active && o9_objtab.entries[i].gen == gen){
+		unlock(&o9_objtab.lk);
+		return &o9_objtab.entries[i];
+	}
+	unlock(&o9_objtab.lk);
+	return nil;
+}
+
+static void
+o9_objtab_unregister(char *class, char *oid)
+{
+	int i;
+
+	if(class == nil || oid == nil)
+		return;
+
+	lock(&o9_objtab.lk);
+	for(i = 0; i < O9_MAX_OBJECTS; i++){
+		if(o9_objtab.entries[i].active &&
+		   strcmp(o9_objtab.entries[i].class, class) == 0 &&
+		   strcmp(o9_objtab.entries[i].oid, oid) == 0){
+			o9_objtab.entries[i].active = 0;
+			o9_objtab.entries[i].gen++;
+			o9_objtab.entries[i].dispatch_chan = nil;
+			o9_objtab.entries[i].inst = nil;
+			break;
+		}
+	}
+	unlock(&o9_objtab.lk);
+}
+
 typedef struct O9Mailbox O9Mailbox;
 struct O9Mailbox {
 	char target_class[64];
 	char oid[64];
+	u32int handle;
 	Channel *dispatch_chan;
+	O9RingChannel ring;
+	u16int next_tag;
+	int worker_running;
 	int in_flight;
-	O9RouterOp *qhead;
-	O9RouterOp *qtail;
-	int qlen;
+	int closed;
+	O9SyncWait *active_sync;
 	O9Mailbox *next;
 };
 
@@ -7216,8 +7330,74 @@ static struct {
 	O9Mailbox *mailboxes;
 } o9_router;
 
+static int
+o9_tring_submit(O9TRing *ring, const O9Slot *slot)
+{
+	int ret = -1;
+	lock(&ring->lk);
+	if((ring->head - ring->tail) < O9_RING_SIZE){
+		ring->slots[ring->head & O9_RING_MASK] = *slot;
+		ring->head++;
+		ret = 0;
+	}
+	unlock(&ring->lk);
+	return ret;
+}
+
+static int
+o9_tring_consume(O9TRing *ring, O9Slot *out)
+{
+	int ret = 0;
+	lock(&ring->lk);
+	if(ring->tail != ring->head){
+		*out = ring->slots[ring->tail & O9_RING_MASK];
+		ring->tail++;
+		ret = 1;
+	}
+	unlock(&ring->lk);
+	return ret;
+}
+
+static int
+o9_tring_len(O9TRing *ring)
+{
+	int len;
+	lock(&ring->lk);
+	len = (int)(ring->head - ring->tail);
+	unlock(&ring->lk);
+	return len;
+}
+
+static int
+o9_rring_complete(O9RRing *ring, const O9Comp *comp)
+{
+	int ret = -1;
+	lock(&ring->lk);
+	if((ring->head - ring->tail) < O9_RING_SIZE){
+		ring->comps[ring->head & O9_RING_MASK] = *comp;
+		ring->head++;
+		ret = 0;
+	}
+	unlock(&ring->lk);
+	return ret;
+}
+
+static int
+o9_rring_poll(O9RRing *ring, O9Comp *out)
+{
+	int ret = 0;
+	lock(&ring->lk);
+	if(ring->tail != ring->head){
+		*out = ring->comps[ring->tail & O9_RING_MASK];
+		ring->tail++;
+		ret = 1;
+	}
+	unlock(&ring->lk);
+	return ret;
+}
+
 static O9Mailbox*
-o9_router_get_mailbox_locked(char *target_class, char *oid, Channel *dispatch_chan)
+o9_router_get_mailbox_locked(char *target_class, char *oid, Channel *dispatch_chan, u32int handle)
 {
 	O9Mailbox *mb;
 
@@ -7225,6 +7405,10 @@ o9_router_get_mailbox_locked(char *target_class, char *oid, Channel *dispatch_ch
 		if(strcmp(mb->target_class, target_class) == 0 && strcmp(mb->oid, oid) == 0){
 			if(dispatch_chan != nil)
 				mb->dispatch_chan = dispatch_chan;
+			if(handle != 0){
+				mb->handle = handle;
+				mb->closed = 0;
+			}
 			return mb;
 		}
 	}
@@ -7232,8 +7416,11 @@ o9_router_get_mailbox_locked(char *target_class, char *oid, Channel *dispatch_ch
 	if(mb == nil)
 		return nil;
 	strncpy(mb->target_class, target_class != nil ? target_class : "", sizeof mb->target_class - 1);
+	mb->target_class[sizeof mb->target_class - 1] = '\0';
 	strncpy(mb->oid, oid != nil ? oid : "", sizeof mb->oid - 1);
+	mb->oid[sizeof mb->oid - 1] = '\0';
 	mb->dispatch_chan = dispatch_chan;
+	mb->handle = handle;
 	mb->next = o9_router.mailboxes;
 	o9_router.mailboxes = mb;
 	return mb;
@@ -7250,103 +7437,102 @@ o9_router_error_reply(char *error)
 	return reply;
 }
 
-/* A nil reply tells generated callbacks to complete the 9P request with an
- * error.  This path must work even when allocating a reply has failed. */
-static void
-o9_router_fail_op(O9RouterOp *op)
-{
-	if(op->complete != nil)
-		op->complete(op, nil);
-	if(op->sync != nil)
-		o9_sync_release(op->sync);
-	else if(op->replyc != nil)
-		chanfree((Channel*)op->replyc);
-	free(op->args);
-	free(op);
-}
-
 static void
 o9_router_fail_request(void *r, O9RouterCompleteFn complete)
 {
-	O9RouterOp op;
+	O9Slot slot;
 
-	memset(&op, 0, sizeof op);
-	op.r = r;
+	memset(&slot, 0, sizeof slot);
+	slot.r = r;
 	if(complete != nil)
-		complete(&op, nil);
+		complete(&slot, nil);
 }
 
 static void
 o9_router_worker(void *v)
 {
-	O9RouterOp *op = v;
-	O9RouterOp *failed, *next, *next_op;
-	O9Mailbox *mb;
+	O9Mailbox *mb = v;
+	O9Slot slot;
+	O9ObjEntry *ent;
 	O9Msg m;
 	O9Reply *reply;
+	O9Comp comp;
 	int send_ok;
 
-	memset(&m, 0, sizeof m);
-	m.sel = op->sel;
-	m.args = op->args;
-	m.nargs = op->nargs;
-	m.caller = op->caller;
-	m.blessed = op->blessed;
-	m.replyc = op->replyc;
-	m.sync = op->sync;
+	for(;;){
+		if(mb->closed)
+			break;
 
-	if(op->dispatch_chan == nil || chanclosing((Channel*)op->dispatch_chan) >= 0){
-		reply = o9_router_error_reply("actor terminated");
-	}else{
-		o9_pending_register(0, op->replyc, op->dispatch_chan, nil, 0, nil, op->sync);
-		send_ok = sendp((Channel*)op->dispatch_chan, &m);
+		if(!o9_tring_consume(&mb->ring.t_ring, &slot))
+			break;
+
+		/* Connect descriptor to Object Table */
+		ent = o9_objtab_resolve(slot.handle);
+		if(ent == nil || ent->dispatch_chan == nil || chanclosing(ent->dispatch_chan) >= 0 || mb->closed){
+			reply = o9_router_error_reply("actor terminated");
+			comp.tag = slot.tag;
+			comp.status = 1;
+			comp.reply = reply;
+			o9_rring_complete(&mb->ring.r_ring, &comp);
+			if(slot.complete != nil)
+				slot.complete(&slot, reply);
+			if(slot.sync != nil)
+				o9_sync_release((O9SyncWait*)slot.sync);
+			if(slot.extra_args != nil)
+				free(slot.extra_args);
+			continue;
+		}
+
+		/* Setup message */
+		memset(&m, 0, sizeof m);
+		m.sel = slot.sel;
+		m.args = (slot.nargs > 4 && slot.extra_args != nil) ? slot.extra_args : slot.args;
+		m.nargs = slot.nargs;
+		m.caller = slot.caller;
+		m.blessed = (slot.flags & 1);
+		m.replyc = slot.replyc;
+		m.sync = slot.sync;
+
+		mb->in_flight = 1;
+		mb->active_sync = (O9SyncWait*)slot.sync;
+
+		o9_pending_register(0, slot.replyc, ent->dispatch_chan, ent->inst, 0, nil, slot.sync);
+		send_ok = sendp(ent->dispatch_chan, &m);
 		if(send_ok < 0){
-			o9_pending_complete((Channel*)op->replyc);
+			o9_pending_complete((Channel*)slot.replyc);
 			reply = o9_router_error_reply("actor terminated");
 		}else{
-			reply = recvp((Channel*)op->replyc);
-			o9_pending_complete((Channel*)op->replyc);
+			reply = recvp((Channel*)slot.replyc);
+			o9_pending_complete((Channel*)slot.replyc);
 			if(reply == nil)
 				reply = o9_router_error_reply("actor terminated");
 		}
+
+		mb->in_flight = 0;
+		mb->active_sync = nil;
+
+		/* Push completion to R-ring */
+		comp.tag = slot.tag;
+		comp.status = (reply != nil && reply->err == nil) ? 0 : 1;
+		comp.reply = reply;
+		o9_rring_complete(&mb->ring.r_ring, &comp);
+
+		/* Complete the 9P request */
+		if(slot.complete != nil)
+			slot.complete(&slot, reply);
+		if(slot.sync != nil)
+			o9_sync_release((O9SyncWait*)slot.sync);
+		if(slot.extra_args != nil)
+			free(slot.extra_args);
 	}
 
-	/* Complete the 9P request asynchronously. */
-	if(op->complete != nil)
-		op->complete(op, reply);
-	o9_sync_release((O9SyncWait*)op->sync);
-
-	/* Notify the router that one slot opened up.  If worker creation fails,
-	 * complete every affected queued request instead of leaving it stuck. */
-	failed = nil;
 	qlock(&o9_router.lk);
-	mb = o9_router_get_mailbox_locked(op->target_class, op->target_oid, nil);
-	if(mb != nil){
-		mb->in_flight--;
-		while(mb->qhead != nil && mb->in_flight < 10){
-			next_op = mb->qhead;
-			mb->qhead = next_op->next;
-			if(mb->qhead == nil)
-				mb->qtail = nil;
-			mb->qlen--;
-			next_op->next = nil;
-			if(mb->dispatch_chan == nil ||
-			   proccreate(o9_router_worker, next_op, 32768) < 0){
-				next_op->next = failed;
-				failed = next_op;
-			}else
-				mb->in_flight++;
-		}
+	mb->worker_running = 0;
+	if(!mb->closed && o9_tring_len(&mb->ring.t_ring) > 0){
+		mb->worker_running = 1;
+		proccreate(o9_router_worker, mb, 32768);
 	}
 	qunlock(&o9_router.lk);
-	while(failed != nil){
-		next = failed->next;
-		o9_router_fail_op(failed);
-		failed = next;
-	}
-
-	free(op->args);
-	free(op);
 }
 
 int
@@ -7354,73 +7540,99 @@ o9_router_submit(void *r, char *target_class, char *target_oid, void *target_ins
 	void *dispatch_chan, ulong sel, vlong *args, int nargs,
 	char *caller, int blessed, O9RouterCompleteFn complete, void *aux)
 {
-	O9RouterOp *op;
+	O9Slot slot;
 	O9Mailbox *mb;
 	Channel *dc = dispatch_chan;
+	u32int handle;
 
 	if(dc == nil || chanclosing(dc) >= 0){
 		o9_router_fail_request(r, complete);
 		return -1;
 	}
 
-	op = mallocz(sizeof(O9RouterOp), 1);
-	if(op == nil){
+	handle = o9_objtab_register(target_class, target_oid, target_inst, dc);
+	if(handle == 0){
 		o9_router_fail_request(r, complete);
 		return -1;
 	}
-	op->r = r;
-	op->complete = complete;
-	strncpy(op->target_class, target_class != nil ? target_class : "", sizeof op->target_class - 1);
-	strncpy(op->target_oid, target_oid != nil ? target_oid : "", sizeof op->target_oid - 1);
-	op->target_inst = target_inst;
-	op->sel = sel;
-	op->nargs = nargs;
+
+	memset(&slot, 0, sizeof slot);
+	slot.r = r;
+	slot.handle = handle;
+	slot.sel = sel;
+	slot.flags = blessed ? 1 : 0;
+	slot.nargs = nargs;
 	if(nargs > 0 && args != nil){
-		op->args = mallocz(sizeof(vlong) * nargs, 1);
-		if(op->args == nil){
-			o9_router_fail_op(op);
-			return -1;
+		if(nargs <= 4){
+			memmove(slot.args, args, sizeof(vlong) * nargs);
+		}else{
+			slot.extra_args = mallocz(sizeof(vlong) * nargs, 1);
+			if(slot.extra_args == nil){
+				o9_router_fail_request(r, complete);
+				return -1;
+			}
+			memmove(slot.extra_args, args, sizeof(vlong) * nargs);
 		}
-		memmove(op->args, args, sizeof(vlong) * nargs);
 	}
-	if(caller != nil)
-		strncpy(op->caller, caller, sizeof op->caller - 1);
-	op->blessed = blessed;
-	op->sync = o9_sync_new();
-	if(op->sync == nil){
-		o9_router_fail_op(op);
+	if(caller != nil){
+		strncpy(slot.caller, caller, sizeof slot.caller - 1);
+		slot.caller[sizeof slot.caller - 1] = '\0';
+	}
+	if(target_class != nil){
+		strncpy(slot.target_class, target_class, sizeof slot.target_class - 1);
+		slot.target_class[sizeof slot.target_class - 1] = '\0';
+	}
+	if(target_oid != nil){
+		strncpy(slot.target_oid, target_oid, sizeof slot.target_oid - 1);
+		slot.target_oid[sizeof slot.target_oid - 1] = '\0';
+	}
+	slot.sync = o9_sync_new();
+	if(slot.sync == nil){
+		if(slot.extra_args != nil)
+			free(slot.extra_args);
+		o9_router_fail_request(r, complete);
 		return -1;
 	}
-	op->replyc = ((O9SyncWait*)op->sync)->replyc;
-	op->dispatch_chan = dispatch_chan;
-	op->aux = aux;
+	slot.replyc = ((O9SyncWait*)slot.sync)->replyc;
+	slot.complete = complete;
+	slot.aux = aux;
 
 	qlock(&o9_router.lk);
-	mb = o9_router_get_mailbox_locked(op->target_class, op->target_oid, dc);
-	if(mb == nil){
+	mb = o9_router_get_mailbox_locked(target_class, target_oid, dc, handle);
+	if(mb == nil || mb->closed){
 		qunlock(&o9_router.lk);
-		o9_router_fail_op(op);
+		if(slot.sync != nil)
+			o9_sync_release((O9SyncWait*)slot.sync);
+		if(slot.extra_args != nil)
+			free(slot.extra_args);
+		o9_router_fail_request(r, complete);
 		return -1;
 	}
 
-	/* Cap in-flight concurrent sends to the actor at 10 (the channel buffer size).
-	 * If under 10, dispatch immediately. If at capacity, enqueue into RAM FIFO. */
-	if(mb->in_flight < 10){
-		if(proccreate(o9_router_worker, op, 32768) < 0){
+	slot.tag = mb->next_tag++;
+	if(o9_tring_submit(&mb->ring.t_ring, &slot) < 0){
+		qunlock(&o9_router.lk);
+		if(slot.sync != nil)
+			o9_sync_release((O9SyncWait*)slot.sync);
+		if(slot.extra_args != nil)
+			free(slot.extra_args);
+		o9_router_fail_request(r, complete);
+		return -1;
+	}
+
+	if(!mb->worker_running){
+		mb->worker_running = 1;
+		if(proccreate(o9_router_worker, mb, 32768) < 0){
+			mb->worker_running = 0;
+			o9_tring_consume(&mb->ring.t_ring, &slot);
 			qunlock(&o9_router.lk);
-			o9_router_fail_op(op);
+			if(slot.sync != nil)
+				o9_sync_release((O9SyncWait*)slot.sync);
+			if(slot.extra_args != nil)
+				free(slot.extra_args);
+			o9_router_fail_request(r, complete);
 			return -1;
 		}
-		mb->in_flight++;
-	}else{
-		if(mb->qtail != nil){
-			mb->qtail->next = op;
-			mb->qtail = op;
-		}else{
-			mb->qhead = op;
-			mb->qtail = op;
-		}
-		mb->qlen++;
 	}
 	qunlock(&o9_router.lk);
 	return 0;
@@ -7430,28 +7642,39 @@ void
 o9_router_unregister_actor(char *target_class, char *oid)
 {
 	O9Mailbox *mb;
-	O9RouterOp *pending, *next;
+	O9Slot slot;
+	O9Reply *reply;
+	O9SyncWait *sw;
 
 	if(target_class == nil || oid == nil)
 		return;
-	pending = nil;
+
+	o9_objtab_unregister(target_class, oid);
+
 	qlock(&o9_router.lk);
 	for(mb = o9_router.mailboxes; mb != nil; mb = mb->next){
 		if(strcmp(mb->target_class, target_class) == 0 && strcmp(mb->oid, oid) == 0){
+			mb->closed = 1;
 			mb->dispatch_chan = nil;
-			pending = mb->qhead;
-			mb->qhead = nil;
-			mb->qtail = nil;
-			mb->qlen = 0;
+			sw = mb->active_sync;
+			mb->active_sync = nil;
+			if(sw != nil && sw->replyc != nil){
+				reply = o9_router_error_reply("actor terminated");
+				nbsendp(sw->replyc, reply);
+			}
+			while(o9_tring_consume(&mb->ring.t_ring, &slot)){
+				reply = o9_router_error_reply("actor terminated");
+				if(slot.complete != nil)
+					slot.complete(&slot, reply);
+				if(slot.sync != nil)
+					o9_sync_release((O9SyncWait*)slot.sync);
+				if(slot.extra_args != nil)
+					free(slot.extra_args);
+			}
 			break;
 		}
 	}
 	qunlock(&o9_router.lk);
-	while(pending != nil){
-		next = pending->next;
-		o9_router_fail_op(pending);
-		pending = next;
-	}
 }
 
 int
@@ -7468,7 +7691,7 @@ o9_router_dump(char *buf, int nbuf)
 	qlock(&o9_router.lk);
 	for(mb = o9_router.mailboxes; mb != nil && p < ep; mb = mb->next){
 		p = seprint(p, ep, "%s.%s\tin_flight=%d\tqueued=%d\n",
-			mb->target_class, mb->oid, mb->in_flight, mb->qlen);
+			mb->target_class, mb->oid, mb->in_flight, o9_tring_len(&mb->ring.t_ring));
 	}
 	qunlock(&o9_router.lk);
 	n = (int)(p - buf);
