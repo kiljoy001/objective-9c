@@ -7209,47 +7209,79 @@ struct O9ObjEntry {
 	char oid[64];
 	void *inst;
 	Channel *dispatch_chan;
+	void *mb;
 };
 
 static struct {
 	Lock lk;
 	O9ObjEntry entries[O9_MAX_OBJECTS];
+	int hash_tab[O9_MAX_OBJECTS];
+	int inited;
 } o9_objtab;
 
 static u32int
 o9_objtab_register(char *class, char *oid, void *inst, Channel *dispatch_chan)
 {
-	int i, free_idx;
+	int i, step, h, free_slot, slot_idx;
 	u32int handle;
 
 	if(class == nil || oid == nil)
 		return 0;
 
 	lock(&o9_objtab.lk);
-	free_idx = -1;
-	for(i = 0; i < O9_MAX_OBJECTS; i++){
-		if(o9_objtab.entries[i].active){
-			if(strcmp(o9_objtab.entries[i].class, class) == 0 &&
-			   strcmp(o9_objtab.entries[i].oid, oid) == 0){
-				if(inst != nil)
-					o9_objtab.entries[i].inst = inst;
-				if(dispatch_chan != nil)
-					o9_objtab.entries[i].dispatch_chan = dispatch_chan;
-				handle = (o9_objtab.entries[i].gen << 16) | (u32int)(i & 0xFFFF);
-				unlock(&o9_objtab.lk);
-				return handle;
-			}
-		}else if(free_idx < 0){
-			free_idx = i;
+	if(!o9_objtab.inited){
+		for(i = 0; i < O9_MAX_OBJECTS; i++)
+			o9_objtab.hash_tab[i] = -1;
+		o9_objtab.inited = 1;
+	}
+
+	h = (int)((o9_hash(class) ^ o9_hash(oid)) & (O9_MAX_OBJECTS - 1));
+	free_slot = -1;
+	for(step = 0; step < O9_MAX_OBJECTS; step++){
+		slot_idx = (h + step) & (O9_MAX_OBJECTS - 1);
+		i = o9_objtab.hash_tab[slot_idx];
+		if(i == -1){
+			if(free_slot < 0)
+				free_slot = slot_idx;
+			break;
+		}
+		if(i == -2){
+			if(free_slot < 0)
+				free_slot = slot_idx;
+			continue;
+		}
+		if(o9_objtab.entries[i].active &&
+		   strcmp(o9_objtab.entries[i].class, class) == 0 &&
+		   strcmp(o9_objtab.entries[i].oid, oid) == 0){
+			if(inst != nil)
+				o9_objtab.entries[i].inst = inst;
+			if(dispatch_chan != nil)
+				o9_objtab.entries[i].dispatch_chan = dispatch_chan;
+			handle = (o9_objtab.entries[i].gen << 16) | (u32int)(i & 0xFFFF);
+			unlock(&o9_objtab.lk);
+			return handle;
 		}
 	}
 
-	if(free_idx < 0){
+	if(free_slot < 0){
 		unlock(&o9_objtab.lk);
 		return 0;
 	}
 
-	i = free_idx;
+	/* Find free entry in entries[] */
+	i = -1;
+	for(step = 0; step < O9_MAX_OBJECTS; step++){
+		if(!o9_objtab.entries[step].active){
+			i = step;
+			break;
+		}
+	}
+	if(i < 0){
+		unlock(&o9_objtab.lk);
+		return 0;
+	}
+
+	o9_objtab.hash_tab[free_slot] = i;
 	o9_objtab.entries[i].gen++;
 	if(o9_objtab.entries[i].gen == 0)
 		o9_objtab.entries[i].gen = 1;
@@ -7260,6 +7292,7 @@ o9_objtab_register(char *class, char *oid, void *inst, Channel *dispatch_chan)
 	o9_objtab.entries[i].oid[sizeof o9_objtab.entries[i].oid - 1] = '\0';
 	o9_objtab.entries[i].inst = inst;
 	o9_objtab.entries[i].dispatch_chan = dispatch_chan;
+	o9_objtab.entries[i].mb = nil;
 	handle = (o9_objtab.entries[i].gen << 16) | (u32int)(i & 0xFFFF);
 	unlock(&o9_objtab.lk);
 	return handle;
@@ -7278,32 +7311,40 @@ o9_objtab_resolve(u32int handle)
 	if(i < 0 || i >= O9_MAX_OBJECTS)
 		return nil;
 
-	lock(&o9_objtab.lk);
-	if(o9_objtab.entries[i].active && o9_objtab.entries[i].gen == gen){
-		unlock(&o9_objtab.lk);
+	/* Direct lockless validation: gen check is atomic */
+	if(o9_objtab.entries[i].active && o9_objtab.entries[i].gen == gen)
 		return &o9_objtab.entries[i];
-	}
-	unlock(&o9_objtab.lk);
 	return nil;
 }
 
 static void
 o9_objtab_unregister(char *class, char *oid)
 {
-	int i;
+	int step, h, slot_idx, i;
 
 	if(class == nil || oid == nil)
 		return;
 
 	lock(&o9_objtab.lk);
-	for(i = 0; i < O9_MAX_OBJECTS; i++){
-		if(o9_objtab.entries[i].active &&
+	if(!o9_objtab.inited){
+		unlock(&o9_objtab.lk);
+		return;
+	}
+	h = (int)((o9_hash(class) ^ o9_hash(oid)) & (O9_MAX_OBJECTS - 1));
+	for(step = 0; step < O9_MAX_OBJECTS; step++){
+		slot_idx = (h + step) & (O9_MAX_OBJECTS - 1);
+		i = o9_objtab.hash_tab[slot_idx];
+		if(i == -1)
+			break;
+		if(i >= 0 && o9_objtab.entries[i].active &&
 		   strcmp(o9_objtab.entries[i].class, class) == 0 &&
 		   strcmp(o9_objtab.entries[i].oid, oid) == 0){
 			o9_objtab.entries[i].active = 0;
 			o9_objtab.entries[i].gen++;
 			o9_objtab.entries[i].dispatch_chan = nil;
 			o9_objtab.entries[i].inst = nil;
+			o9_objtab.entries[i].mb = nil;
+			o9_objtab.hash_tab[slot_idx] = -2;
 			break;
 		}
 	}
@@ -7316,12 +7357,12 @@ struct O9Mailbox {
 	char oid[64];
 	u32int handle;
 	Channel *dispatch_chan;
+	Channel *replyc;          /* Dedicated pre-allocated duplex reply channel */
 	O9RingChannel ring;
 	u16int next_tag;
 	int worker_running;
 	int in_flight;
 	int closed;
-	O9SyncWait *active_sync;
 	O9Mailbox *next;
 };
 
@@ -7409,6 +7450,8 @@ o9_router_get_mailbox_locked(char *target_class, char *oid, Channel *dispatch_ch
 				mb->handle = handle;
 				mb->closed = 0;
 			}
+			if(mb->replyc == nil)
+				mb->replyc = chancreate(sizeof(void*), 1);
 			return mb;
 		}
 	}
@@ -7421,6 +7464,7 @@ o9_router_get_mailbox_locked(char *target_class, char *oid, Channel *dispatch_ch
 	mb->oid[sizeof mb->oid - 1] = '\0';
 	mb->dispatch_chan = dispatch_chan;
 	mb->handle = handle;
+	mb->replyc = chancreate(sizeof(void*), 1);
 	mb->next = o9_router.mailboxes;
 	o9_router.mailboxes = mb;
 	return mb;
@@ -7499,40 +7543,34 @@ o9_router_worker(void *v)
 			o9_rring_complete(&mb->ring.r_ring, &comp);
 			if(slot.complete != nil)
 				slot.complete(&slot, reply);
-			if(slot.sync != nil)
-				o9_sync_release((O9SyncWait*)slot.sync);
 			if(slot.extra_args != nil)
 				free(slot.extra_args);
 			continue;
 		}
 
-		/* Setup message */
+		/* Setup message with dedicated mailbox duplex reply channel */
 		memset(&m, 0, sizeof m);
 		m.sel = slot.sel;
 		m.args = (slot.nargs > 4 && slot.extra_args != nil) ? slot.extra_args : slot.args;
 		m.nargs = slot.nargs;
 		m.caller = slot.caller;
 		m.blessed = (slot.flags & 1);
-		m.replyc = slot.replyc;
-		m.sync = slot.sync;
+		m.replyc = mb->replyc;
+		m.sync = nil;
+		m.task = nil;
 
 		mb->in_flight = 1;
-		mb->active_sync = (O9SyncWait*)slot.sync;
 
-		o9_pending_register(0, slot.replyc, ent->dispatch_chan, ent->inst, 0, nil, slot.sync);
 		send_ok = sendp(ent->dispatch_chan, &m);
 		if(send_ok < 0){
-			o9_pending_complete((Channel*)slot.replyc);
 			reply = o9_router_error_reply("actor terminated");
 		}else{
-			reply = recvp((Channel*)slot.replyc);
-			o9_pending_complete((Channel*)slot.replyc);
+			reply = recvp(mb->replyc);
 			if(reply == nil)
 				reply = o9_router_error_reply("actor terminated");
 		}
 
 		mb->in_flight = 0;
-		mb->active_sync = nil;
 
 		/* Push completion to R-ring */
 		comp.tag = slot.tag;
@@ -7543,8 +7581,6 @@ o9_router_worker(void *v)
 		/* Complete the 9P request */
 		if(slot.complete != nil)
 			slot.complete(&slot, reply);
-		if(slot.sync != nil)
-			o9_sync_release((O9SyncWait*)slot.sync);
 		if(slot.extra_args != nil)
 			free(slot.extra_args);
 	}
@@ -7567,6 +7603,7 @@ o9_router_submit(void *r, char *target_class, char *target_oid, void *target_ins
 	O9Mailbox *mb;
 	Channel *dc = dispatch_chan;
 	u32int handle;
+	int idx;
 
 	if(dc == nil || chanclosing(dc) >= 0){
 		o9_router_fail_request(r, complete);
@@ -7609,23 +7646,24 @@ o9_router_submit(void *r, char *target_class, char *target_oid, void *target_ins
 		strncpy(slot.target_oid, target_oid, sizeof slot.target_oid - 1);
 		slot.target_oid[sizeof slot.target_oid - 1] = '\0';
 	}
-	slot.sync = o9_sync_new();
-	if(slot.sync == nil){
-		if(slot.extra_args != nil)
-			free(slot.extra_args);
-		o9_router_fail_request(r, complete);
-		return -1;
-	}
-	slot.replyc = ((O9SyncWait*)slot.sync)->replyc;
 	slot.complete = complete;
 	slot.aux = aux;
 
 	qlock(&o9_router.lk);
-	mb = o9_router_get_mailbox_locked(target_class, target_oid, dc, handle);
+	idx = (int)(handle & 0xFFFF);
+	mb = o9_objtab.entries[idx].mb;
+	if(mb == nil || mb->closed){
+		mb = o9_router_get_mailbox_locked(target_class, target_oid, dc, handle);
+		if(mb != nil)
+			o9_objtab.entries[idx].mb = mb;
+	}else{
+		if(dc != nil)
+			mb->dispatch_chan = dc;
+		mb->handle = handle;
+	}
+
 	if(mb == nil || mb->closed){
 		qunlock(&o9_router.lk);
-		if(slot.sync != nil)
-			o9_sync_release((O9SyncWait*)slot.sync);
 		if(slot.extra_args != nil)
 			free(slot.extra_args);
 		o9_router_fail_request(r, complete);
@@ -7635,8 +7673,6 @@ o9_router_submit(void *r, char *target_class, char *target_oid, void *target_ins
 	slot.tag = mb->next_tag++;
 	if(o9_tring_submit(&mb->ring.t_ring, &slot) < 0){
 		qunlock(&o9_router.lk);
-		if(slot.sync != nil)
-			o9_sync_release((O9SyncWait*)slot.sync);
 		if(slot.extra_args != nil)
 			free(slot.extra_args);
 		o9_router_fail_request(r, complete);
@@ -7649,8 +7685,6 @@ o9_router_submit(void *r, char *target_class, char *target_oid, void *target_ins
 			mb->worker_running = 0;
 			o9_tring_consume(&mb->ring.t_ring, &slot);
 			qunlock(&o9_router.lk);
-			if(slot.sync != nil)
-				o9_sync_release((O9SyncWait*)slot.sync);
 			if(slot.extra_args != nil)
 				free(slot.extra_args);
 			o9_router_fail_request(r, complete);
@@ -7667,7 +7701,6 @@ o9_router_unregister_actor(char *target_class, char *oid)
 	O9Mailbox *mb;
 	O9Slot slot;
 	O9Reply *reply;
-	O9SyncWait *sw;
 
 	if(target_class == nil || oid == nil)
 		return;
@@ -7679,18 +7712,14 @@ o9_router_unregister_actor(char *target_class, char *oid)
 		if(strcmp(mb->target_class, target_class) == 0 && strcmp(mb->oid, oid) == 0){
 			mb->closed = 1;
 			mb->dispatch_chan = nil;
-			sw = mb->active_sync;
-			mb->active_sync = nil;
-			if(sw != nil && sw->replyc != nil){
+			if(mb->in_flight && mb->replyc != nil){
 				reply = o9_router_error_reply("actor terminated");
-				nbsendp(sw->replyc, reply);
+				nbsendp(mb->replyc, reply);
 			}
 			while(o9_tring_consume(&mb->ring.t_ring, &slot)){
 				reply = o9_router_error_reply("actor terminated");
 				if(slot.complete != nil)
 					slot.complete(&slot, reply);
-				if(slot.sync != nil)
-					o9_sync_release((O9SyncWait*)slot.sync);
 				if(slot.extra_args != nil)
 					free(slot.extra_args);
 			}
