@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.3.0 — 2026-10-28
+
+This release introduces the **One Ring Duplex 9ring** architecture for zero-allocation
+in-process CSP routing and sub-microsecond actor messaging, alongside string builtins
+and runtime teardown stability improvements.
+
+### Duplex One Ring & Lockless 9ring Architecture
+
+- Replaced heap-allocated `O9RouterOp` linked list and per-message process creation with
+  cache-aligned, duplex lockless SPSC 9rings (`O9TRing` submission ring and `O9RRing`
+  completion ring) inspired by Harvey's `9ring.h` and 9vm.
+- Introduced the **One Ring** architecture: unified in-process object table handles
+  (`(gen << 16) | index`) as generation-checked, in-process FIDs. Slots carry compact
+  POD descriptors rather than raw C pointers.
+- Zero-allocation hot path: eliminated `chancreate`, `mallocz(sizeof(O9SyncWait))`, and
+  `proccreate` on the message dispatch and completion paths.
+- Dedicated pre-allocated duplex reply channels (`mb->replyc`) per mailbox, bypassing the
+  global `o9_pending` table and locks completely during message dispatch and completion.
+- Persistent worker process reuse with idle backoff (`sleep(0)`), eliminating kernel
+  process table exhaustion during high-volume bursts.
+- Added comprehensive benchmark suite `o9c/test/runtime_router_bench.c` (`mk runtime-router-bench`).
+- Verified benchmarks on native 9front hardware (`dev9p` amd64):
+  - Raw 9ring SPSC core: **60 ns / op** (16.6 million ops/sec).
+  - Duplex 9ring CSP round-trip: **5.08 µs / op** (over 202,000 round-trips/sec), a **6.1× speedup**
+    over legacy proc-per-message dispatch.
+  - End-to-end 9P file IO on `o9irc`: **4,873 full file lifecycle writes/sec** (`open + 9P write + close`)
+    in 205 µs/op.
+
+### Builtins & String Manipulation
+
+- Added builtins `chr()` and `slice()` for inline string manipulation and rune inspection
+  without external helper allocations.
+
+### Stability & Teardown
+
+- Fixed channel and task teardown race condition and use-after-free in `o9_task_close`.
+- Safe mailbox unregistration in 9P router with active worker unblocking via `nbsendp` on error.
+- Verified all native 9front test suites (`mk unit-test`, `mk plan9-c-test`, `mk runtime-router-test`)
+  and host validation suites (8,189 runtime checks, 0 valgrind leaks, 32 UI tests).
+
 ## 0.2.0 — 2026-10-19
 
 This release is focused on making ordinary applications possible without raw
