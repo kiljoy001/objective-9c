@@ -93,6 +93,7 @@ gen_c_string_literal(char *text)
     cprint("\"");
     for(s = text; s != nil && *s; s++){
         if(*s == '\n') cprint("\\n");
+        else if(*s == '\r') cprint("\\r");
         else if(*s == '\t') cprint("\\t");
         else if(*s == '\\') cprint("\\\\");
         else if(*s == '"') cprint("\\\"");
