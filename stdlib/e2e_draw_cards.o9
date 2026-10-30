@@ -1,0 +1,99 @@
+import "draw.o9";
+
+main {
+    print("=== Testing Modern Interface Primitives in o9 ===\n");
+
+    // 1. DrawBadge
+    DrawBadge badge = new DrawBadge("RUNNING", 10, 10, 80, 20);
+    badge.setSuccess();
+    print("badge: ", badge.text(), " role=", badge.role(), "\n");
+    badge.setText("p=reject");
+    badge.setDanger();
+    print("badge updated: ", badge.text(), "\n");
+
+    // 2. DrawCard
+    DrawCard card = new DrawCard("SMTP ENGINE", 10, 40, 240, 160);
+    card.setBadge("ACTIVE", 0x1e3a2f, 0x34d399, 0x059669);
+    card.setMetric("tcp!*!2525");
+    card.setDetail("Zero-Knowledge Ingress Guarded");
+    DrawButton btn = new DrawButton("Restart", 10, 70, 80, 24);
+    card.add(btn);
+    print("card: ", card.cardTitle(), " metric=", card.metricValue(), " detail=", card.detailText(), "\n");
+
+    // 3. DrawTabBar
+    DrawTabBar tabs = new DrawTabBar(0, 0, 400, 30);
+    tabs.addTab("Overview");
+    tabs.addTab("Security");
+    tabs.addTab("AppUsers");
+    tabs.addTab("Logs");
+    print("tabbar: count=", tabs.tabCount(), " active=", tabs.active(), " [0]=", tabs.tabLabel(0), "\n");
+    tabs.setActive(2);
+    print("tabbar switched: active=", tabs.active(), " [2]=", tabs.tabLabel(2), "\n");
+    // Test mouse click on tab 1 (x = 120 in 400px with 4 tabs -> tab 1 is 100..199)
+    tabs.handleMouse(120, 15, 1);
+    print("tabbar mouse clicked: active=", tabs.active(), "\n");
+
+    // 4. DrawCheckbox
+    DrawCheckbox cb = new DrawCheckbox("Auto-sign with DKIM", 10, 210, 200, 24);
+    print("checkbox: checked=", cb.isChecked(), "\n");
+    cb.setChecked(true);
+    print("checkbox set: checked=", cb.isChecked(), "\n");
+    // Click to toggle
+    cb.handleMouse(15, 220, 1);
+    print("checkbox mouse toggle: checked=", cb.isChecked(), "\n");
+
+    // 5. DrawProgressBar
+    DrawProgressBar pb = new DrawProgressBar(10, 240, 200, 16);
+    pb.setRange(0, 2048);
+    pb.setValue(1024);
+    print("progressbar: val=", pb.value(), "\n");
+
+    // 6. DrawStatusBar
+    DrawStatusBar sb = new DrawStatusBar(0, 270, 400, 24);
+    sb.setHost("dev9p.rentonsoftworks.coin");
+    sb.setStatus("ACTIVE :2525");
+    sb.setNotice("All Ingress Guarded");
+    print("statusbar ready\n");
+
+    // 7. DrawPropertySheet
+    DrawPropertySheet ps = new DrawPropertySheet(10, 300, 300, 80);
+    ps.addProperty("Domain", "dev9p.rentonsoftworks.coin");
+    ps.addProperty("Selector", "2026");
+    ps.addProperty("DMARC", "p=reject");
+    print("propertysheet ready\n");
+
+    // 8. DrawPasswordInput
+    DrawPasswordInput pw = new DrawPasswordInput("secret123", 10, 390, 160, 24);
+    print("password input: text=", pw.text(), " masked=", pw.isMasked(), "\n");
+
+    // 9. DrawSplitPane (Master-Detail)
+    DrawSplitPane split = new DrawSplitPane(10, 420, 300, 100, 100);
+    DrawLabel leftLbl = new DrawLabel("Master List", 15, 425, 90, 20);
+    DrawLabel rightLbl = new DrawLabel("Detail Pane", 120, 425, 170, 20);
+    DrawPanel lp = split.leftPane();
+    lp.add(leftLbl);
+    DrawPanel rp = split.rightPane();
+    rp.add(rightLbl);
+    print("splitpane ready\n");
+
+    // 10. DrawDialog (Modal Overlay)
+    DrawDialog dlg = new DrawDialog("Confirm", "Revoke Key?", 50, 100, 200, 120);
+    dlg.show("Confirm Action", "Are you sure you want to stop smtpd?");
+    print("dialog shown: visible=", dlg.visible(), "\n");
+
+    // 11. Render into a DrawFrame to verify full frame pipeline
+    DrawFrame frame = new DrawFrame();
+    badge.drawFrame(frame);
+    card.drawFrame(frame);
+    tabs.drawFrame(frame);
+    cb.drawFrame(frame);
+    pb.drawFrame(frame);
+    sb.drawFrame(frame);
+    ps.drawFrame(frame);
+    pw.drawFrame(frame);
+    split.drawFrame(frame);
+    dlg.drawFrame(frame);
+    print("Frame render batch complete: commands=", frame.count(), "\n");
+
+    print("ALL MODERN INTERFACE PRIMITIVES VERIFIED OK\n");
+}

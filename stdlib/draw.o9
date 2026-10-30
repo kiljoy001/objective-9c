@@ -392,6 +392,22 @@ function DrawTextEraseAtRaw(string value, int64 index) string {
     return out;
 }
 
+function DrawMaskTextRaw(int64 length) string {
+    string out;
+    c {
+        char buf[256];
+        int n;
+
+        n = (int)length;
+        if(n < 0) n = 0;
+        if(n > sizeof(buf) - 1) n = sizeof(buf) - 1;
+        memset(buf, '*', n);
+        buf[n] = 0;
+        out = o9_string_from_c(buf);
+    }
+    return out;
+}
+
 function DrawShowRaw(string title, int64 width, int64 height, int64 background, int64 accent, int64 milliseconds) int64 {
     use { draw }
 
@@ -2644,6 +2660,7 @@ class DrawTextInput {
     prop int64 edits;
     prop int64 pad;
     prop int64 caretColor;
+    prop bool masked;
 
     method DrawTextInput(string text, int64 x, int64 y, int64 width, int64 height) {
         super(x, y, width, height);
@@ -2654,6 +2671,7 @@ class DrawTextInput {
         hint = "";
         enabled = true;
         over = false;
+        masked = false;
         cursor = len(text);
         edits = 0;
         pad = 6;
@@ -2706,6 +2724,15 @@ class DrawTextInput {
 
     method int64 count() {
         return edits;
+    }
+
+    method void setMasked(bool value) {
+        masked = value;
+        wdirty = true;
+    }
+
+    method bool isMasked() {
+        return masked;
     }
 
     method string beforeCursor() {
@@ -2982,7 +3009,13 @@ class DrawTextInput {
             innerw = 1;
         }
         if(len(value) > 0) {
-            frame.textLeft(value, box.x() + pad, box.y(), innerw, box.height(), box.foreground());
+            if(masked) {
+                Task<string> mTask = spawn DrawMaskTextRaw(len(value));
+                string maskText = mTask.await();
+                frame.textLeft(maskText, box.x() + pad, box.y(), innerw, box.height(), box.foreground());
+            } else {
+                frame.textLeft(value, box.x() + pad, box.y(), innerw, box.height(), box.foreground());
+            }
         } else if(len(hint) > 0) {
             frame.textLeft(hint, box.x() + pad, box.y(), innerw, box.height(), box.borderColor());
         }
@@ -5337,5 +5370,786 @@ class DrawVisualProbe {
         rm = spawn DrawRemoveRaw(image);
         rm.await();
         return ok > 0;
+    }
+}
+
+
+// ====================================================================
+// Modern Interface Primitives (O'Reilly Designing Interfaces Patterns)
+// ====================================================================
+
+class DrawBadge {
+    DrawWidget;
+    prop string label;
+    prop int64 badgeBg;
+    prop int64 badgeFg;
+    prop int64 badgeEdge;
+
+    method DrawBadge(string text, int64 x, int64 y, int64 width, int64 height) {
+        super(x, y, width, height);
+        label = text;
+        badgeBg = 0x1e3a2f;
+        badgeFg = 0x34d399;
+        badgeEdge = 0x059669;
+        wbg = badgeBg;
+        wfg = badgeFg;
+        wedge = badgeEdge;
+        wrole = "badge";
+    }
+
+    method void setText(string text) {
+        label = text;
+        wdirty = true;
+    }
+
+    method string text() {
+        return label;
+    }
+
+    method void theme(int64 bg, int64 fg, int64 border) {
+        badgeBg = bg;
+        badgeFg = fg;
+        badgeEdge = border;
+        wbg = bg;
+        wfg = fg;
+        wedge = border;
+        wdirty = true;
+    }
+
+    method void setSuccess() {
+        theme(0x1e3a2f, 0x34d399, 0x059669);
+    }
+
+    method void setWarning() {
+        theme(0x3d3014, 0xfbbf24, 0xb45309);
+    }
+
+    method void setDanger() {
+        theme(0x3b1820, 0xf43f5e, 0xbe123c);
+    }
+
+    method void setInfo() {
+        theme(0x1e293b, 0x38bdf8, 0x0284c7);
+    }
+
+    method void setNeutral() {
+        theme(0x27272a, 0xa1a1aa, 0x52525b);
+    }
+
+    method bool draw(DrawCanvas canvas) {
+        if(!wshown || !canvas.ready()) {
+            return false;
+        }
+        canvas.fillRect(wx, wy, ww, wh, badgeBg);
+        canvas.borderRect(wx, wy, ww, wh, badgeEdge);
+        canvas.textBox(label, wx, wy, ww, wh, badgeFg);
+        wdirty = false;
+        return true;
+    }
+
+    method bool drawFrame(DrawFrame frame) {
+        if(!wshown) {
+            return false;
+        }
+        frame.fillRect(wx, wy, ww, wh, badgeBg);
+        frame.borderRect(wx, wy, ww, wh, badgeEdge);
+        frame.textBox(label, wx, wy, ww, wh, badgeFg);
+        wdirty = false;
+        return true;
+    }
+}
+
+class DrawCard {
+    DrawWidget;
+    prop string title;
+    prop string metric;
+    prop string detail;
+    prop DrawBadge badge;
+    prop DrawPanel content;
+    prop bool hasBadge;
+
+    method DrawCard(string cardTitle, int64 x, int64 y, int64 width, int64 height) {
+        super(x, y, width, height);
+        title = cardTitle;
+        metric = "";
+        detail = "";
+        wbg = 0x1e293b;
+        wfg = 0xf8fafc;
+        wedge = 0x334155;
+        hasBadge = false;
+
+        int64 bw = 70;
+        int64 bh = 18;
+        int64 bx = x + width - bw - 8;
+        int64 by = y + 6;
+        badge = new DrawBadge("", bx, by, bw, bh);
+
+        int64 cx = x + 8;
+        int64 cy = y + 60;
+        int64 cw = width - 16;
+        int64 ch = height - 68;
+        if(ch < 10) {
+            ch = 10;
+        }
+        content = new DrawPanel(cx, cy, cw, ch);
+        wrole = "card";
+    }
+
+    method void setTitle(string text) {
+        title = text;
+        wdirty = true;
+    }
+
+    method string cardTitle() {
+        return title;
+    }
+
+    method void setMetric(string text) {
+        metric = text;
+        wdirty = true;
+    }
+
+    method string metricValue() {
+        return metric;
+    }
+
+    method void setDetail(string text) {
+        detail = text;
+        wdirty = true;
+    }
+
+    method string detailText() {
+        return detail;
+    }
+
+    method void setBadge(string text, int64 bg, int64 fg, int64 border) {
+        badge.setText(text);
+        badge.theme(bg, fg, border);
+        hasBadge = len(text) > 0;
+        wdirty = true;
+    }
+
+    method void clearBadge() {
+        hasBadge = false;
+        wdirty = true;
+    }
+
+    method DrawBadge statusBadge() {
+        return badge;
+    }
+
+    method bool add(DrawWidget child) {
+        content.add(child);
+        wdirty = true;
+        return true;
+    }
+
+    method DrawPanel body() {
+        return content;
+    }
+
+    method bool contains(int64 x, int64 y) {
+        return wshown && x >= wx && x < wx + ww && y >= wy && y < wy + wh;
+    }
+
+    method bool handleMouse(int64 x, int64 y, int64 buttons) {
+        if(!wshown || !wenabled) {
+            return false;
+        }
+        bool ch = content.routeMouse(x, y, buttons);
+        if(ch || content.isDirty()) {
+            wdirty = true;
+            return true;
+        }
+        return false;
+    }
+
+    method bool handleKey(int64 key) {
+        if(!wshown || !wenabled) {
+            return false;
+        }
+        bool ch = content.routeKey(key);
+        if(ch || content.isDirty()) {
+            wdirty = true;
+            return true;
+        }
+        return false;
+    }
+
+    method bool drawFrame(DrawFrame frame) {
+        if(!wshown) {
+            return false;
+        }
+        frame.fillRect(wx, wy, ww, wh, wbg);
+        frame.borderRect(wx, wy, ww, wh, wedge);
+
+        frame.textLeft(title, wx + 8, wy + 6, ww - 90, 20, 0x94a3b8);
+
+        if(hasBadge) {
+            badge.drawFrame(frame);
+        }
+
+        frame.fillRect(wx, wy + 26, ww, 1, wedge);
+
+        if(len(metric) > 0) {
+            frame.textLeft(metric, wx + 8, wy + 30, ww - 16, 16, 0x38bdf8);
+        }
+
+        if(len(detail) > 0) {
+            frame.textLeft(detail, wx + 8, wy + 46, ww - 16, 14, 0x64748b);
+        }
+
+        content.drawFrame(frame);
+        wdirty = false;
+        return true;
+    }
+}
+
+class DrawTabBar {
+    DrawWidget;
+    prop string[] tabs;
+    prop int64 count;
+    prop int64 activeIndex;
+    prop int64 tabH;
+    prop int64 activeBg;
+    prop int64 activeFg;
+    prop int64 inactiveBg;
+    prop int64 inactiveFg;
+    prop int64 lineEdge;
+
+    method DrawTabBar(int64 x, int64 y, int64 width, int64 height) {
+        super(x, y, width, height);
+        count = 0;
+        activeIndex = 0;
+        tabH = height;
+        wbg = 0x0f172a;
+        wfg = 0xf8fafc;
+        wedge = 0x334155;
+        activeBg = 0x1e293b;
+        activeFg = 0x38bdf8;
+        inactiveBg = 0x0f172a;
+        inactiveFg = 0x94a3b8;
+        lineEdge = 0x38bdf8;
+        wrole = "tabbar";
+    }
+
+    method bool addTab(string label) {
+        if(count >= 16) {
+            return false;
+        }
+        tabs[count] = label;
+        count = count + 1;
+        wdirty = true;
+        return true;
+    }
+
+    method int64 tabCount() {
+        return count;
+    }
+
+    method int64 active() {
+        return activeIndex;
+    }
+
+    method void setActive(int64 index) {
+        if(index >= 0 && index < count) {
+            activeIndex = index;
+            wdirty = true;
+        }
+    }
+
+    method string tabLabel(int64 index) {
+        if(index >= 0 && index < count) {
+            return tabs[index];
+        }
+        return "";
+    }
+
+    method bool handleMouse(int64 x, int64 y, int64 buttons) {
+        if(!wshown || !wenabled || count == 0) {
+            return false;
+        }
+        if((buttons & 1) != 0 && contains(x, y)) {
+            int64 tabW = ww / count;
+            if(tabW < 1) {
+                tabW = 1;
+            }
+            int64 clicked = (x - wx) / tabW;
+            if(clicked >= 0 && clicked < count && clicked != activeIndex) {
+                activeIndex = clicked;
+                wdirty = true;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    method bool drawFrame(DrawFrame frame) {
+        if(!wshown) {
+            return false;
+        }
+        frame.fillRect(wx, wy, ww, wh, wbg);
+        frame.borderRect(wx, wy, ww, wh, wedge);
+
+        if(count == 0) {
+            wdirty = false;
+            return true;
+        }
+
+        int64 tabW = ww / count;
+        int64 i = 0;
+        while(i < count) {
+            int64 tx = wx + i * tabW;
+            int64 curW = tabW;
+            if(i == count - 1) {
+                curW = (wx + ww) - tx;
+            }
+            int64 bg = inactiveBg;
+            int64 fg = inactiveFg;
+            if(i == activeIndex) {
+                bg = activeBg;
+                fg = activeFg;
+            }
+
+            frame.fillRect(tx, wy, curW, wh, bg);
+            frame.borderRect(tx, wy, curW, wh, wedge);
+            frame.textBox(tabs[i], tx, wy, curW, wh, fg);
+
+            if(i == activeIndex) {
+                frame.fillRect(tx + 2, wy + wh - 3, curW - 4, 3, lineEdge);
+            }
+            i = i + 1;
+        }
+        wdirty = false;
+        return true;
+    }
+}
+
+class DrawCheckbox {
+    DrawWidget;
+    prop string caption;
+    prop bool checked;
+    prop int64 boxSize;
+    prop int64 checkColor;
+
+    method DrawCheckbox(string text, int64 x, int64 y, int64 width, int64 height) {
+        super(x, y, width, height);
+        caption = text;
+        checked = false;
+        boxSize = 16;
+        wbg = 0x0f172a;
+        wfg = 0xf8fafc;
+        wedge = 0x475569;
+        checkColor = 0x38bdf8;
+        wrole = "checkbox";
+    }
+
+    method void setText(string text) {
+        caption = text;
+        wdirty = true;
+    }
+
+    method string text() {
+        return caption;
+    }
+
+    method void setChecked(bool value) {
+        checked = value;
+        wdirty = true;
+    }
+
+    method bool isChecked() {
+        return checked;
+    }
+
+    method bool toggle() {
+        if(checked) {
+            checked = false;
+        } else {
+            checked = true;
+        }
+        wdirty = true;
+        return checked;
+    }
+
+    method bool handleMouse(int64 x, int64 y, int64 buttons) {
+        if(!wshown || !wenabled) {
+            return false;
+        }
+        if((buttons & 1) != 0 && contains(x, y)) {
+            toggle();
+            return true;
+        }
+        return false;
+    }
+
+    method bool drawFrame(DrawFrame frame) {
+        if(!wshown) {
+            return false;
+        }
+        int64 bx = wx;
+        int64 by = wy + (wh - boxSize) / 2;
+        frame.fillRect(bx, by, boxSize, boxSize, wbg);
+        frame.borderRect(bx, by, boxSize, boxSize, wedge);
+
+        if(checked) {
+            frame.fillRect(bx + 3, by + 3, boxSize - 6, boxSize - 6, checkColor);
+        }
+
+        frame.textLeft(caption, bx + boxSize + 8, wy, ww - boxSize - 8, wh, wfg);
+        wdirty = false;
+        return true;
+    }
+}
+
+class DrawProgressBar {
+    DrawWidget;
+    prop int64 minVal;
+    prop int64 maxVal;
+    prop int64 curVal;
+    prop int64 barColor;
+    prop bool showPercent;
+
+    method DrawProgressBar(int64 x, int64 y, int64 width, int64 height) {
+        super(x, y, width, height);
+        minVal = 0;
+        maxVal = 100;
+        curVal = 0;
+        wbg = 0x0f172a;
+        wfg = 0xffffff;
+        wedge = 0x334155;
+        barColor = 0x34d399;
+        showPercent = true;
+        wrole = "progressbar";
+    }
+
+    method void setRange(int64 low, int64 high) {
+        minVal = low;
+        maxVal = high;
+        if(maxVal <= minVal) {
+            maxVal = minVal + 1;
+        }
+        wdirty = true;
+    }
+
+    method void setValue(int64 val) {
+        curVal = val;
+        if(curVal < minVal) {
+            curVal = minVal;
+        }
+        if(curVal > maxVal) {
+            curVal = maxVal;
+        }
+        wdirty = true;
+    }
+
+    method int64 value() {
+        return curVal;
+    }
+
+    method void setBarColor(int64 rgb) {
+        barColor = rgb;
+        wdirty = true;
+    }
+
+    method bool drawFrame(DrawFrame frame) {
+        if(!wshown) {
+            return false;
+        }
+        frame.fillRect(wx, wy, ww, wh, wbg);
+        frame.borderRect(wx, wy, ww, wh, wedge);
+
+        int64 range = maxVal - minVal;
+        if(range <= 0) {
+            range = 1;
+        }
+        int64 fillW = (curVal - minVal) * (ww - 2) / range;
+        if(fillW > ww - 2) {
+            fillW = ww - 2;
+        }
+        if(fillW > 0) {
+            frame.fillRect(wx + 1, wy + 1, fillW, wh - 2, barColor);
+        }
+        wdirty = false;
+        return true;
+    }
+}
+
+class DrawStatusBar {
+    DrawWidget;
+    prop string host;
+    prop string status;
+    prop string notice;
+
+    method DrawStatusBar(int64 x, int64 y, int64 width, int64 height) {
+        super(x, y, width, height);
+        host = "dev9p";
+        status = "Active";
+        notice = "Ready";
+        wbg = 0x090d16;
+        wfg = 0x94a3b8;
+        wedge = 0x1e293b;
+        wrole = "statusbar";
+    }
+
+    method void setHost(string h) {
+        host = h;
+        wdirty = true;
+    }
+
+    method void setStatus(string s) {
+        status = s;
+        wdirty = true;
+    }
+
+    method void setNotice(string n) {
+        notice = n;
+        wdirty = true;
+    }
+
+    method bool drawFrame(DrawFrame frame) {
+        if(!wshown) {
+            return false;
+        }
+        frame.fillRect(wx, wy, ww, wh, wbg);
+        frame.borderRect(wx, wy, ww, wh, wedge);
+
+        int64 segW = ww / 3;
+        frame.textLeft(cat("node: ", host), wx + 8, wy, segW - 8, wh, 0x38bdf8);
+        frame.textBox(status, wx + segW, wy, segW, wh, 0x34d399);
+        frame.textLeft(notice, wx + segW * 2 + 8, wy, segW - 8, wh, 0x64748b);
+
+        wdirty = false;
+        return true;
+    }
+}
+
+class DrawPropertySheet {
+    DrawWidget;
+    prop string[] pkeys;
+    prop string[] pvals;
+    prop int64 nprops;
+    prop int64 keyWidth;
+    prop int64 rowH;
+
+    method DrawPropertySheet(int64 x, int64 y, int64 width, int64 height) {
+        super(x, y, width, height);
+        nprops = 0;
+        keyWidth = 90;
+        rowH = 20;
+        wbg = 0x1e293b;
+        wfg = 0xf8fafc;
+        wedge = 0x334155;
+        wrole = "propertysheet";
+    }
+
+    method bool addProperty(string key, string val) {
+        if(nprops >= 16) {
+            return false;
+        }
+        pkeys[nprops] = key;
+        pvals[nprops] = val;
+        nprops = nprops + 1;
+        wdirty = true;
+        return true;
+    }
+
+    method void clear() {
+        nprops = 0;
+        wdirty = true;
+    }
+
+    method bool drawFrame(DrawFrame frame) {
+        if(!wshown) {
+            return false;
+        }
+        frame.fillRect(wx, wy, ww, wh, wbg);
+        frame.borderRect(wx, wy, ww, wh, wedge);
+
+        int64 i = 0;
+        while(i < nprops) {
+            int64 ry = wy + 6 + i * rowH;
+            if(ry + rowH <= wy + wh) {
+                frame.textLeft(pkeys[i], wx + 8, ry, keyWidth, rowH, 0x94a3b8);
+                frame.textLeft(pvals[i], wx + keyWidth + 16, ry, ww - keyWidth - 24, rowH, 0x38bdf8);
+            }
+            i = i + 1;
+        }
+        wdirty = false;
+        return true;
+    }
+}
+
+class DrawPasswordInput {
+    DrawTextInput;
+
+    method DrawPasswordInput(string text, int64 x, int64 y, int64 width, int64 height) {
+        super(text, x, y, width, height);
+        setMasked(true);
+        wrole = "password";
+    }
+}
+
+class DrawSplitPane {
+    DrawWidget;
+    prop DrawPanel left;
+    prop DrawPanel right;
+    prop int64 splitWidth;
+    prop int64 splitEdge;
+
+    method DrawSplitPane(int64 x, int64 y, int64 width, int64 height, int64 leftW) {
+        super(x, y, width, height);
+        splitWidth = leftW;
+        if(splitWidth < 50) {
+            splitWidth = 50;
+        }
+        if(splitWidth > width - 50) {
+            splitWidth = width - 50;
+        }
+        wbg = 0x0f172a;
+        wedge = 0x334155;
+        splitEdge = 0x334155;
+
+        left = new DrawPanel(x, y, splitWidth, height);
+        int64 rx = x + splitWidth + 2;
+        int64 rw = width - splitWidth - 2;
+        right = new DrawPanel(rx, y, rw, height);
+        wrole = "splitpane";
+    }
+
+    method DrawPanel leftPane() {
+        return left;
+    }
+
+    method DrawPanel rightPane() {
+        return right;
+    }
+
+    method void setSplit(int64 leftW) {
+        splitWidth = leftW;
+        left.size(splitWidth, wh);
+        int64 rx = wx + splitWidth + 2;
+        int64 rw = ww - splitWidth - 2;
+        right.position(rx, wy);
+        right.size(rw, wh);
+        wdirty = true;
+    }
+
+    method bool handleMouse(int64 x, int64 y, int64 buttons) {
+        if(!wshown || !wenabled) {
+            return false;
+        }
+        bool chL = left.routeMouse(x, y, buttons);
+        bool chR = right.routeMouse(x, y, buttons);
+        if(chL || chR || left.isDirty() || right.isDirty()) {
+            wdirty = true;
+            return true;
+        }
+        return false;
+    }
+
+    method bool handleKey(int64 key) {
+        if(!wshown || !wenabled) {
+            return false;
+        }
+        bool chL = left.routeKey(key);
+        bool chR = right.routeKey(key);
+        if(chL || chR || left.isDirty() || right.isDirty()) {
+            wdirty = true;
+            return true;
+        }
+        return false;
+    }
+
+    method bool drawFrame(DrawFrame frame) {
+        if(!wshown) {
+            return false;
+        }
+        left.drawFrame(frame);
+        frame.fillRect(wx + splitWidth, wy, 2, wh, splitEdge);
+        right.drawFrame(frame);
+        wdirty = false;
+        return true;
+    }
+}
+
+class DrawDialog {
+    DrawWidget;
+    prop string title;
+    prop string message;
+    prop DrawButton okBtn;
+    prop DrawButton cancelBtn;
+    prop int64 result;
+
+    method DrawDialog(string dlgTitle, string dlgMsg, int64 x, int64 y, int64 width, int64 height) {
+        super(x, y, width, height);
+        title = dlgTitle;
+        message = dlgMsg;
+        result = 0;
+        wbg = 0x1e293b;
+        wfg = 0xf8fafc;
+        wedge = 0x38bdf8;
+
+        int64 bw = 70;
+        int64 bh = 24;
+        int64 by = y + height - bh - 10;
+        okBtn = new DrawButton("OK", x + width - bw - 10, by, bw, bh);
+        cancelBtn = new DrawButton("Cancel", x + width - bw - bw - 20, by, bw, bh);
+        cancelBtn.color(0x334155, 0x94a3b8);
+        wshown = false;
+        wrole = "dialog";
+    }
+
+    method void show(string dlgTitle, string dlgMsg) {
+        title = dlgTitle;
+        message = dlgMsg;
+        result = 0;
+        wshown = true;
+        wdirty = true;
+    }
+
+    method void hide() {
+        wshown = false;
+        wdirty = true;
+    }
+
+    method int64 dialogResult() {
+        return result;
+    }
+
+    method bool handleMouse(int64 x, int64 y, int64 buttons) {
+        if(!wshown) {
+            return false;
+        }
+        int64 prevOk = okBtn.count();
+        int64 prevCan = cancelBtn.count();
+        okBtn.handleMouse(x, y, buttons);
+        cancelBtn.handleMouse(x, y, buttons);
+        if(okBtn.count() > prevOk) {
+            result = 1;
+            hide();
+            return true;
+        }
+        if(cancelBtn.count() > prevCan) {
+            result = 2;
+            hide();
+            return true;
+        }
+        return true;
+    }
+
+    method bool drawFrame(DrawFrame frame) {
+        if(!wshown) {
+            return false;
+        }
+        frame.fillRect(wx, wy, ww, wh, wbg);
+        frame.borderRectN(wx, wy, ww, wh, 2, wedge);
+        frame.textLeft(title, wx + 12, wy + 8, ww - 24, 20, 0x38bdf8);
+        frame.fillRect(wx, wy + 30, ww, 1, 0x334155);
+        frame.textLeft(message, wx + 12, wy + 40, ww - 24, wh - 80, wfg);
+        okBtn.drawFrame(frame);
+        cancelBtn.drawFrame(frame);
+        wdirty = false;
+        return true;
     }
 }
