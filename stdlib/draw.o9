@@ -1125,6 +1125,30 @@ function DrawCanvasFlushRaw(int64 handle) int64 {
     return out;
 }
 
+function DrawCanvasWidthRaw(int64 handle) int64 {
+    use { draw }
+
+    int64 out;
+    c {
+        out = 0;
+        if(handle > 0 && display != nil && screen != nil)
+            out = Dx(screen->r);
+    }
+    return out;
+}
+
+function DrawCanvasHeightRaw(int64 handle) int64 {
+    use { draw }
+
+    int64 out;
+    c {
+        out = 0;
+        if(handle > 0 && display != nil && screen != nil)
+            out = Dy(screen->r);
+    }
+    return out;
+}
+
 function DrawCanvasReadEventRaw(int64 handle) int64 {
     use { draw event }
 
@@ -1396,6 +1420,26 @@ class DrawCanvas {
             return 0;
         }
         t = spawn DrawCanvasReadEventRaw(handle);
+        return t.await();
+    }
+
+    method int64 width() {
+        Task<int64> t;
+
+        if(!ready()) {
+            return 0;
+        }
+        t = spawn DrawCanvasWidthRaw(handle);
+        return t.await();
+    }
+
+    method int64 height() {
+        Task<int64> t;
+
+        if(!ready()) {
+            return 0;
+        }
+        t = spawn DrawCanvasHeightRaw(handle);
         return t.await();
     }
 }
@@ -4285,6 +4329,17 @@ class DrawScrollText {
         syncBars();
     }
 
+    method void bounds(int64 x, int64 y, int64 width, int64 height) {
+        wx = x;
+        wy = y;
+        ww = width;
+        wh = height;
+        wprefw = width;
+        wprefh = height;
+        relayout();
+        syncBars();
+    }
+
     method void color(int64 background, int64 foreground) {
         wbg = background;
         wfg = foreground;
@@ -4918,6 +4973,13 @@ class DrawWindow {
         live = t.await() > 0;
         if(live) {
             surface.attach(1);
+            int64 cw = surface.width();
+            int64 ch = surface.height();
+            if(cw > 0 && ch > 0) {
+                w = cw;
+                h = ch;
+                root.size(w, h);
+            }
             loop.start();
         }
         return live;
@@ -5075,6 +5137,10 @@ class DrawWindow {
         if(kind == 3) {
             x = (code >> 28) & 262143;
             y = (code >> 46) & 262143;
+            if(x <= 0 || y <= 0) {
+                x = surface.width();
+                y = surface.height();
+            }
             resize(x, y);
             loop.resize(x, y);
             return 3;
@@ -5546,6 +5612,32 @@ class DrawCard {
 
     method DrawPanel body() {
         return content;
+    }
+
+    method void bounds(int64 x, int64 y, int64 width, int64 height) {
+        wx = x;
+        wy = y;
+        ww = width;
+        wh = height;
+        wprefw = width;
+        wprefh = height;
+        wdirty = true;
+        wlayoutdirty = true;
+
+        int64 bw = 70;
+        int64 bh = 18;
+        int64 bx = x + width - bw - 8;
+        int64 by = y + 6;
+        badge.bounds(bx, by, bw, bh);
+
+        int64 cx = x + 8;
+        int64 cy = y + 60;
+        int64 cw = width - 16;
+        int64 ch = height - 68;
+        if(ch < 10) {
+            ch = 10;
+        }
+        content.bounds(cx, cy, cw, ch);
     }
 
     method bool contains(int64 x, int64 y) {
@@ -6043,6 +6135,28 @@ class DrawSplitPane {
         wdirty = true;
     }
 
+    method void bounds(int64 x, int64 y, int64 width, int64 height) {
+        wx = x;
+        wy = y;
+        ww = width;
+        wh = height;
+        wprefw = width;
+        wprefh = height;
+        wdirty = true;
+        wlayoutdirty = true;
+
+        if(splitWidth < 50) {
+            splitWidth = 50;
+        }
+        if(splitWidth > width - 50) {
+            splitWidth = width - 50;
+        }
+        left.bounds(x, y, splitWidth, height);
+        int64 rx = x + splitWidth + 2;
+        int64 rw = width - splitWidth - 2;
+        right.bounds(rx, y, rw, height);
+    }
+
     method bool handleMouse(int64 x, int64 y, int64 buttons) {
         if(!wshown || !wenabled) {
             return false;
@@ -6143,6 +6257,23 @@ class DrawDialog {
 
     method int64 okY() {
         return okBtn.y();
+    }
+
+    method void bounds(int64 x, int64 y, int64 width, int64 height) {
+        wx = x;
+        wy = y;
+        ww = width;
+        wh = height;
+        wprefw = width;
+        wprefh = height;
+        wdirty = true;
+        wlayoutdirty = true;
+
+        int64 bw = 70;
+        int64 bh = 24;
+        int64 by = y + height - bh - 10;
+        okBtn.bounds(x + width - bw - 10, by, bw, bh);
+        cancelBtn.bounds(x + width - bw - bw - 20, by, bw, bh);
     }
 
     method bool handleMouse(int64 x, int64 y, int64 buttons) {
