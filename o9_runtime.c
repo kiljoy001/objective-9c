@@ -91,7 +91,11 @@ o9_proc_ctx(void)
 {
 	O9ProcCtx **pp, *ctx;
 
-	pp = (O9ProcCtx**)procdata();
+	pp = (O9ProcCtx**)threaddata();
+	if(pp == nil)
+		pp = (O9ProcCtx**)procdata();
+	if(pp == nil)
+		sysfatal("o9_proc_ctx: no thread/proc context");
 	if(*pp == nil){
 		ctx = mallocz(sizeof(O9ProcCtx), 1);
 		if(ctx == nil)
@@ -106,9 +110,16 @@ o9_proc_ctx_clear(void)
 {
 	O9ProcCtx **pp;
 
+	pp = (O9ProcCtx**)threaddata();
+	if(pp != nil && *pp != nil){
+		free(*pp);
+		*pp = nil;
+	}
 	pp = (O9ProcCtx**)procdata();
-	free(*pp);
-	*pp = nil;
+	if(pp != nil && *pp != nil){
+		free(*pp);
+		*pp = nil;
+	}
 }
 
 /* Last-call error signal for `try`: set non-nil by a failed dispatch,
@@ -7589,7 +7600,7 @@ o9_router_worker(void *v)
 	mb->worker_running = 0;
 	if(!mb->closed && o9_tring_len(&mb->ring.t_ring) > 0){
 		mb->worker_running = 1;
-		proccreate(o9_router_worker, mb, 32768);
+		threadcreate(o9_router_worker, mb, 32768);
 	}
 	qunlock(&o9_router.lk);
 }
@@ -7681,7 +7692,7 @@ o9_router_submit(void *r, char *target_class, char *target_oid, void *target_ins
 
 	if(!mb->worker_running){
 		mb->worker_running = 1;
-		if(proccreate(o9_router_worker, mb, 32768) < 0){
+		if(threadcreate(o9_router_worker, mb, 32768) < 0){
 			mb->worker_running = 0;
 			o9_tring_consume(&mb->ring.t_ring, &slot);
 			qunlock(&o9_router.lk);

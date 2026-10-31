@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.1 — 2026-10-31
+
+This release converts actor dispatch and spawned functions from OS kernel processes (`proccreate`)
+to lightweight cooperative user-space tasks (`threadcreate`), paired with the Duplex One Ring multiplexed
+mailbox architecture.
+
+### Cooperative Task Actors & Multiplexed Ring Mailboxes
+
+- Converted object actor dispatch loops and spawned function instances from `proccreate` (64 KB kernel stack + `rfork`)
+  to `threadcreate` (16 KB cooperative task stack).
+- Per-thread execution context: upgraded `o9_proc_ctx()` to query `threaddata()` before falling back to `procdata()`,
+  guaranteeing each actor task maintains independent call error signals and actor identity when multiple tasks run within the same proc.
+- Router worker migration: converted router workers to `threadcreate`, eliminating OS process creation during mailbox processing.
+- Massive scalability win: object creation memory overhead reduced by 75% per instance (from 64 KB to 16 KB stack)
+  and kernel process exhaustion (`NPROC` limit) completely eliminated for object instances.
+
 ## 0.3.0 — 2026-10-28
 
 This release introduces the **One Ring Duplex 9ring** architecture for zero-allocation

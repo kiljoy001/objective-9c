@@ -7,16 +7,18 @@ isolation.
 ## Current Implementation
 
 - Every constructed object is an actor: an Internal struct, a
-  `dispatch_chan`, and a `proccreate` dispatch loop. Cross-actor method
-  calls send an `O9Msg` and wait for an `O9Reply`.
+  `dispatch_chan`, and a `threadcreate` cooperative task dispatch loop (16 KB stack).
+  Cross-actor method calls send an `O9Msg` and wait for an `O9Reply`.
 - The dispatch cache is owner-aware. A direct cached call is allowed only
   when the caller is the object's own actor (`o9_actor_channel() ==
   obj->dispatch_chan`). Every other actor uses the channel path. This keeps
   the Objective-C-style selector cache without permitting cross-actor
   direct mutation. A nil dispatch channel is not exempt: such a value is
   data, not an actor, and the generated call path will not touch it.
-- Object actor procs are real Plan 9 processes created with
-  `proccreate`; separate object actors can run on separate cores.
+- Object actors run as lightweight cooperative tasks created with
+  `threadcreate`; mailbox routing is multiplexed across Duplex One Rings,
+  eliminating kernel process table (`NPROC`) exhaustion and reducing memory
+  footprint per object instance by 75%.
 - `chan<T>` and `stream<T>` fields are typed object fields. They are
   auto-created at construction and support send, try-send, receive, `alt`,
   and public endpoint direction (`send chan<T>` / `recv chan<T>`).

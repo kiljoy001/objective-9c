@@ -9,7 +9,7 @@ inside spawnable `function` blocks.
 
 ## Status
 
-- Release: 0.3.0 ([CHANGELOG.md](CHANGELOG.md)).
+- Release: 0.3.1 ([CHANGELOG.md](CHANGELOG.md)).
 - Target: 9front.
 - Output: generated C; no binary blob.
 - Build: `mk` builds `o9c/o9c` and `libo9.a`.

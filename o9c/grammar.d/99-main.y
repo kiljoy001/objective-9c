@@ -2,7 +2,7 @@
  * COMPILER MAIN
  * ======================================================================== */
 
-#define O9C_VERSION "0.3.0"
+#define O9C_VERSION "0.3.1"
 
 typedef struct CompilerOptions CompilerOptions;
 struct CompilerOptions {

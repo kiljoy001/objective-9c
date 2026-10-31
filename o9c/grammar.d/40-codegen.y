@@ -1787,7 +1787,7 @@ gen_assign_alloc_local(char *varname, char *target, char *lhs_type,
     cprint("\t%s.table = &__o9n%d->o9_dispatch_table;\n", target, id);
     cprint("\t%s.distance = %d;\n", target, dval >= 0 ? dval : -1);
     cprint("\tsnprint(__o9n%d->oid, sizeof __o9n%d->oid, \"%%s\", \"%s\");\n", id, id, varname);
-    cprint("\t__o9n%d->tid = proccreate(%s_loop, __o9n%d, 65536);\n", id, cn, id);
+    cprint("\t__o9n%d->tid = threadcreate(%s_loop, __o9n%d, 16384);\n", id, cn, id);
     cprint("\t%s_create_instance(__o9n%d, \"%s\");\n", cn, id, varname);
     if(nctor > 0){
         snprint(argname, sizeof argname, "__args_%s_%d", varname, id);
@@ -1851,7 +1851,7 @@ gen_local_new(Node *s, char *cn, int distance)
         gen_init_internal_state(cnode, ptr);
     }
     cprint("\tsnprint(__%s->oid, sizeof __%s->oid, \"%%s\", \"%s\");\n", s->name, s->name, s->name);
-    cprint("\t__%s->tid = proccreate(%s_loop, __%s, 65536);\n", s->name, cn, s->name);
+    cprint("\t__%s->tid = threadcreate(%s_loop, __%s, 16384);\n", s->name, cn, s->name);
     cprint("\t%s_create_instance(__%s, \"%s\");\n", cn, s->name, s->name);
     if(nctor > 0){
         cprint("\t{ ");
@@ -4884,7 +4884,7 @@ gen_spawn_instance_setup(Node *c)
     gen_init_internal_state(c, ptr);
     cprint("\t__inst->__spawn_index = __id;\n");
     cprint("\t__inst->__spawn_state = 1;\t/* running */\n");
-    cprint("\t__inst->tid = proccreate(%s_loop, __inst, 65536);\n", c->name);
+    cprint("\t__inst->tid = threadcreate(%s_loop, __inst, 16384);\n", c->name);
     /* A spawned function is owned by its Task. Publishing every invocation
      * creates permanent object-store tombstones and namespace recipes for
      * work that cannot be addressed by another client. Its zeroed oid makes
@@ -5138,7 +5138,7 @@ gen_class_ctl_new(Node *c)
         gen_init_internal_state(c, ptr);
     }
     cprint("\t\t\t\t%s_record_instance(f[1], target);\n", c->name);
-    cprint("\t\t\t\ttarget->tid = proccreate(%s_loop, target, 65536);\n", c->name);
+    cprint("\t\t\t\ttarget->tid = threadcreate(%s_loop, target, 16384);\n", c->name);
     cprint("\t\t\t}\n");
     cprint("\t\t\t{ char __nb[128]; snprint(__nb, sizeof __nb, \"ok new %%s\\n\", f[1]); o9app_put_status(r, __nb); o9app_put_result(r, __nb); }\n");
     cprint("\t\t\tr->ofcall.count = r->ifcall.count; respond(r, nil); return;\n\t\t}\n");
