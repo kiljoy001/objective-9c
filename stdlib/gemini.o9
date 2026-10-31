@@ -142,13 +142,19 @@ class GemDoc {
             String rstr = new String(rest);
             string cleanRest = rstr.trim();
             
-            // Find space separating URL and label
+            // Find first whitespace (space or tab) separating URL and label
             String ustr = new String(cleanRest);
             int64 spacePos = ustr.indexOf(" ");
             int64 tabPos = ustr.indexOf("\t");
             int64 splitPos = -1;
 
-            if(spacePos >= 0) {
+            if(spacePos >= 0 && tabPos >= 0) {
+                if(spacePos < tabPos) {
+                    splitPos = spacePos;
+                } else {
+                    splitPos = tabPos;
+                }
+            } else if(spacePos >= 0) {
                 splitPos = spacePos;
             } else if(tabPos >= 0) {
                 splitPos = tabPos;
