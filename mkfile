@@ -27,6 +27,7 @@ STDLIB_MODULES=\
 	stdlib/random.o9\
 	stdlib/string.o9\
 	stdlib/time.o9\
+	stdlib/tls.o9\
 	stdlib/view.o9\
 
 # === o9c compiler ===

@@ -255,6 +255,290 @@ function NetIsFarRaw(string address) int64 {
     return out;
 }
 
+function NetLineFirstRaw(string token) string {
+    string out;
+    c {
+        char *tok, *p;
+
+        out = o9_string_new("", 0);
+        tok = o9_string_cstr(token);
+        if(tok != nil){
+            p = strchr(tok, '\n');
+            if(p != nil)
+                *p = '\0';
+            out = o9_string_from_c(tok);
+            free(tok);
+        }
+    }
+    return out;
+}
+
+function NetLineSecondRaw(string token) string {
+    string out;
+    c {
+        char *tok, *p;
+
+        out = o9_string_new("", 0);
+        tok = o9_string_cstr(token);
+        if(tok != nil){
+            p = strchr(tok, '\n');
+            if(p != nil)
+                out = o9_string_from_c(p + 1);
+            free(tok);
+        }
+    }
+    return out;
+}
+
+function NetPushTlsClientOptRaw(string token, string serverName, string okFile) string {
+    use { sec mp }
+    string out;
+    c {
+        char *tok, *sname, *ok;
+        int fd, tfd;
+        TLSconn conn;
+        Thumbprint *thumb;
+        uchar hash[SHA2_256dlen];
+        char hex[SHA2_256dlen*2 + 1];
+        char buf[128];
+        int i;
+
+        out = o9_string_new("", 0);
+        tok = o9_string_cstr(token);
+        sname = o9_string_cstr(serverName);
+        ok = o9_string_cstr(okFile);
+
+        if(tok != nil && tok[0] != '\0'){
+            fd = atoi(tok);
+            if(fd >= 0){
+                memset(&conn, 0, sizeof conn);
+                if(sname != nil && sname[0] != '\0')
+                    conn.serverName = sname;
+
+                tfd = tlsClient(fd, &conn);
+                if(tfd >= 0){
+                    if(ok != nil && ok[0] != '\0'){
+                        thumb = initThumbprints(ok, nil, "x509");
+                        if(thumb == nil || !okCertificate(conn.cert, conn.certlen, thumb)){
+                            if(thumb != nil)
+                                freeThumbprints(thumb);
+                            close(tfd);
+                            tfd = -1;
+                        } else {
+                            freeThumbprints(thumb);
+                        }
+                    }
+                } else {
+                    close(fd);
+                }
+
+                if(tfd >= 0){
+                    hex[0] = '\0';
+                    if(conn.cert != nil && conn.certlen > 0){
+                        sha2_256(conn.cert, conn.certlen, hash, nil);
+                        for(i = 0; i < SHA2_256dlen; i++)
+                            sprint(&hex[i*2], "%02x", hash[i]);
+                        hex[SHA2_256dlen*2] = '\0';
+                    }
+                    snprint(buf, sizeof buf, "%d\n%s", tfd, hex);
+                    out = o9_string_from_c(buf);
+                }
+                if(conn.cert != nil) free(conn.cert);
+                if(conn.sessionID != nil) free(conn.sessionID);
+            }
+        }
+        if(tok != nil) free(tok);
+        if(sname != nil) free(sname);
+        if(ok != nil) free(ok);
+    }
+    return out;
+}
+
+function NetPushTlsServerRaw(string token, string certPathOrPem) string {
+    use { sec mp }
+    string out;
+    c {
+        char *tok, *certstr;
+        int fd, tfd;
+        TLSconn conn;
+        char buf[32];
+
+        out = o9_string_new("", 0);
+        tok = o9_string_cstr(token);
+        certstr = o9_string_cstr(certPathOrPem);
+        if(tok != nil && tok[0] != '\0' && certstr != nil && certstr[0] != '\0'){
+            fd = atoi(tok);
+            if(fd >= 0){
+                memset(&conn, 0, sizeof conn);
+                if(strncmp(certstr, "-----BEGIN", 10) == 0)
+                    conn.cert = decodePEM(certstr, "CERTIFICATE", &conn.certlen, nil);
+                else
+                    conn.cert = readcert(certstr, &conn.certlen);
+
+                if(conn.cert != nil){
+                    tfd = tlsServer(fd, &conn);
+                    if(tfd >= 0){
+                        snprint(buf, sizeof buf, "%d", tfd);
+                        out = o9_string_from_c(buf);
+                    } else {
+                        close(fd);
+                    }
+                } else {
+                    close(fd);
+                }
+                if(conn.cert != nil) free(conn.cert);
+                if(conn.sessionID != nil) free(conn.sessionID);
+            }
+        }
+        if(tok != nil) free(tok);
+        if(certstr != nil) free(certstr);
+    }
+    return out;
+}
+
+function NetTlsDialRaw(string address, string serverName, string okFile) string {
+    use { sec mp }
+    string out;
+    c {
+        char *addr, *sname, *ok;
+        int fd, tfd;
+        TLSconn conn;
+        Thumbprint *thumb;
+        uchar hash[SHA2_256dlen];
+        char hex[SHA2_256dlen*2 + 1];
+        char buf[128];
+        int i;
+
+        out = o9_string_new("", 0);
+        addr = o9_string_cstr(address);
+        sname = o9_string_cstr(serverName);
+        ok = o9_string_cstr(okFile);
+
+        if(addr != nil && addr[0] != '\0'){
+            if(addr[0] == '/')
+                fd = open(addr, ORDWR);
+            else
+                fd = dial(addr, nil, nil, nil);
+
+            if(fd >= 0){
+                memset(&conn, 0, sizeof conn);
+                if(sname != nil && sname[0] != '\0')
+                    conn.serverName = sname;
+
+                tfd = tlsClient(fd, &conn);
+                if(tfd >= 0){
+                    if(ok != nil && ok[0] != '\0'){
+                        thumb = initThumbprints(ok, nil, "x509");
+                        if(thumb == nil || !okCertificate(conn.cert, conn.certlen, thumb)){
+                            if(thumb != nil)
+                                freeThumbprints(thumb);
+                            close(tfd);
+                            tfd = -1;
+                        } else {
+                            freeThumbprints(thumb);
+                        }
+                    }
+                } else {
+                    close(fd);
+                }
+
+                if(tfd >= 0){
+                    hex[0] = '\0';
+                    if(conn.cert != nil && conn.certlen > 0){
+                        sha2_256(conn.cert, conn.certlen, hash, nil);
+                        for(i = 0; i < SHA2_256dlen; i++)
+                            sprint(&hex[i*2], "%02x", hash[i]);
+                        hex[SHA2_256dlen*2] = '\0';
+                    }
+                    snprint(buf, sizeof buf, "%d\n%s", tfd, hex);
+                    out = o9_string_from_c(buf);
+                }
+                if(conn.cert != nil) free(conn.cert);
+                if(conn.sessionID != nil) free(conn.sessionID);
+            }
+        }
+        if(addr != nil) free(addr);
+        if(sname != nil) free(sname);
+        if(ok != nil) free(ok);
+    }
+    return out;
+}
+
+function NetVerifyThumbprintRaw(string hexThumbprint, string okFile) int64 {
+    use { sec mp }
+    int64 out;
+    c {
+        char *hex, *ok;
+        uchar hash[SHA2_256dlen];
+        Thumbprint *table;
+        int len, i, h, l;
+
+        out = 0;
+        hex = o9_string_cstr(hexThumbprint);
+        ok = o9_string_cstr(okFile);
+        if(hex != nil && ok != nil && ok[0] != '\0'){
+            len = strlen(hex);
+            if(len == SHA2_256dlen*2 || len == SHA1dlen*2){
+                for(i = 0; i < len/2; i++){
+                    h = hex[i*2];
+                    l = hex[i*2+1];
+                    if(h >= '0' && h <= '9') h -= '0';
+                    else if(h >= 'a' && h <= 'f') h = h - 'a' + 10;
+                    else if(h >= 'A' && h <= 'F') h = h - 'A' + 10;
+                    else { len = 0; break; }
+                    if(l >= '0' && l <= '9') l -= '0';
+                    else if(l >= 'a' && l <= 'f') l = l - 'a' + 10;
+                    else if(l >= 'A' && l <= 'F') l = l - 'A' + 10;
+                    else { len = 0; break; }
+                    hash[i] = (h << 4) | l;
+                }
+                if(len > 0){
+                    table = initThumbprints(ok, nil, "x509");
+                    if(table != nil){
+                        if(okThumbprint(hash, len/2, table))
+                            out = 1;
+                        freeThumbprints(table);
+                    }
+                }
+            }
+        }
+        if(hex != nil) free(hex);
+        if(ok != nil) free(ok);
+    }
+    return out;
+}
+
+function NetWriteThumbprintRaw(string filePath, string sha256Hex, string tag) int64 {
+    int64 out;
+    c {
+        char *path, *hex, *comment;
+        char line[256];
+        int fd, n;
+
+        out = 0;
+        path = o9_string_cstr(filePath);
+        hex = o9_string_cstr(sha256Hex);
+        comment = o9_string_cstr(tag);
+        if(path != nil && hex != nil && hex[0] != '\0'){
+            snprint(line, sizeof line, "x509 sha256=%s %s\n", hex, comment != nil ? comment : "");
+            fd = open(path, OWRITE);
+            if(fd < 0)
+                fd = create(path, OWRITE, 0664);
+            if(fd >= 0){
+                seek(fd, 0, 2);
+                n = strlen(line);
+                if(write(fd, line, n) == n)
+                    out = 1;
+                close(fd);
+            }
+        }
+        if(path != nil) free(path);
+        if(hex != nil) free(hex);
+        if(comment != nil) free(comment);
+    }
+    return out;
+}
+
 function FactotumUserRaw() string {
     string out;
     c {
@@ -399,10 +683,14 @@ function FactotumHasRaw(string mount, string query) int64 {
 class NetConn {
     private string address;
     private string token;
+    private string tlsThumbprint;
+    private bool tlsActive;
 
     method NetConn(string addr) {
         address = addr;
         token = "";
+        tlsThumbprint = "";
+        tlsActive = false;
     }
 
     method string endpoint() {
@@ -432,7 +720,102 @@ class NetConn {
     method bool close() {
         Task<int64> t = spawn NetCloseRaw(token);
         token = "";
+        tlsThumbprint = "";
+        tlsActive = false;
         return t.await() == 0;
+    }
+
+    method bool isTls() {
+        return tlsActive;
+    }
+
+    method string peerThumbprint() {
+        return tlsThumbprint;
+    }
+
+    method bool pushTls(string serverName) {
+        return pushTlsOpt(serverName, "");
+    }
+
+    method bool pushTlsVerified(string serverName, string okFile) {
+        return pushTlsOpt(serverName, okFile);
+    }
+
+    method bool pushTlsOpt(string serverName, string okFile) {
+        if(!isOpen()) {
+            return false;
+        }
+        Task<string> t = spawn NetPushTlsClientOptRaw(token, serverName, okFile);
+        string res = t.await();
+        if(len(res) == 0) {
+            token = "";
+            tlsActive = false;
+            tlsThumbprint = "";
+            return false;
+        }
+        Task<string> t1 = spawn NetLineFirstRaw(res);
+        Task<string> t2 = spawn NetLineSecondRaw(res);
+        token = t1.await();
+        tlsThumbprint = t2.await();
+        tlsActive = true;
+        return true;
+    }
+
+    method bool pushTlsServer(string certPathOrPem) {
+        if(!isOpen()) {
+            return false;
+        }
+        Task<string> t = spawn NetPushTlsServerRaw(token, certPathOrPem);
+        string res = t.await();
+        if(len(res) == 0) {
+            token = "";
+            tlsActive = false;
+            return false;
+        }
+        token = res;
+        tlsActive = true;
+        return true;
+    }
+
+    method bool dialTls(string serverName) {
+        return dialTlsOpt(serverName, "");
+    }
+
+    method bool dialTlsVerified(string serverName, string okFile) {
+        return dialTlsOpt(serverName, okFile);
+    }
+
+    method bool dialTlsOpt(string serverName, string okFile) {
+        Task<string> t = spawn NetTlsDialRaw(address, serverName, okFile);
+        string res = t.await();
+        if(len(res) == 0) {
+            token = "";
+            tlsActive = false;
+            tlsThumbprint = "";
+            return false;
+        }
+        Task<string> t1 = spawn NetLineFirstRaw(res);
+        Task<string> t2 = spawn NetLineSecondRaw(res);
+        token = t1.await();
+        tlsThumbprint = t2.await();
+        tlsActive = true;
+        return true;
+    }
+
+    method bool verifyThumbprint(string okPath) {
+        if(!tlsActive || len(tlsThumbprint) == 0) {
+            return false;
+        }
+        Task<int64> t = spawn NetVerifyThumbprintRaw(tlsThumbprint, okPath);
+        return t.await() == 1;
+    }
+
+    method bool pinThumbprint(string path, string tag) {
+        if(!tlsActive || len(tlsThumbprint) == 0) {
+            return false;
+        }
+        Task<int64> t = spawn NetWriteThumbprintRaw(path, tlsThumbprint, tag);
+        return t.await() == 1;
     }
 
     method bool isNear() {
@@ -486,6 +869,8 @@ class NetConn {
     method void init(string addr, string tok) {
         address = addr;
         token = tok;
+        tlsThumbprint = "";
+        tlsActive = false;
     }
 }
 
@@ -552,6 +937,19 @@ class NetListener {
         Task<int64> t = spawn NetCloseRaw(token);
         token = "";
         return t.await() == 0;
+    }
+
+    method NetConn acceptTls(string certPathOrPem) {
+        NetConn c = acceptConn();
+        if(!c.isOpen()) {
+            return c;
+        }
+        if(!c.pushTlsServer(certPathOrPem)) {
+            c.close();
+            NetConn dead = new NetConn("");
+            return dead;
+        }
+        return c;
     }
 }
 

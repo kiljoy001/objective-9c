@@ -1,0 +1,20 @@
+stage1_dial 1
+stage1_write 1
+stage1_reply TLS_WORLD
+stage1_thumbprint_len 64
+stage1_close 1
+stage1_srv 0
+stage2_clear_dial 1
+stage2_is_tls_before 0
+stage2_ready 220 READY
+stage2_push_tls 1
+stage2_is_tls_after 1
+stage2_thumbprint_len 64
+stage2_reply SECURE_PONG
+stage3_pin 1
+stage2_close 1
+stage3_verified_dial 1
+stage3_check_pin 1
+stage3_reply VERIFIED_PONG
+stage3_close 1
+stage2_srv 0

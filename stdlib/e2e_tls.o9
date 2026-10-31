@@ -1,0 +1,156 @@
+import "tls.o9";
+import "time.o9";
+
+function RunTlsServer(string addr, string cert) int64 {
+    TlsListener ln = new TlsListener(addr, cert);
+    if(!ln.listen()) {
+        return -1;
+    }
+
+    // Stage 1: Direct TLS connection
+    NetConn s1 = ln.accept();
+    if(!s1.isOpen()) {
+        ln.close();
+        return -2;
+    }
+    string msg1 = s1.read(64);
+    if(cmp(msg1, "TLS_HELLO") != 0) {
+        s1.close();
+        ln.close();
+        return -3;
+    }
+    s1.write("TLS_WORLD");
+    s1.close();
+
+    ln.close();
+    return 0;
+}
+
+function RunStartTlsServer(string addr, string cert) int64 {
+    NetListener ln = new NetListener(addr);
+    if(!ln.listen()) {
+        return -10;
+    }
+
+    // Stage 2: Cleartext then STARTTLS upgrade
+    NetConn s2 = ln.acceptConn();
+    if(!s2.isOpen()) {
+        ln.close();
+        return -11;
+    }
+
+    string clearMsg = s2.read(64);
+    if(cmp(clearMsg, "STARTTLS") != 0) {
+        s2.close();
+        ln.close();
+        return -12;
+    }
+    s2.write("220 READY");
+
+    // Push TLS server
+    if(!s2.pushTlsServer(cert)) {
+        s2.close();
+        ln.close();
+        return -13;
+    }
+
+    string secMsg = s2.read(64);
+    if(cmp(secMsg, "SECURE_PING") != 0) {
+        s2.close();
+        ln.close();
+        return -14;
+    }
+    s2.write("SECURE_PONG");
+    s2.close();
+
+    // Stage 3: Direct verified connection
+    NetConn s3 = ln.acceptTls(cert);
+    if(!s3.isOpen()) {
+        ln.close();
+        return -20;
+    }
+    string vMsg = s3.read(64);
+    if(cmp(vMsg, "VERIFIED_PING") != 0) {
+        s3.close();
+        ln.close();
+        return -21;
+    }
+    s3.write("VERIFIED_PONG");
+    s3.close();
+
+    ln.close();
+    return 0;
+}
+
+main {
+    string cert = "/tmp/test_tls.crt";
+    Time tm = new Time();
+
+    // Stage 1: Direct TLS connection
+    string addr1 = "tcp!127.0.0.1!19995";
+    Task<int64> srvTask1 = spawn RunTlsServer(addr1, cert);
+    tm.sleep(50);
+
+    TlsConn cl1 = new TlsConn(addr1, "localhost");
+    bool dialOk = cl1.dial();
+    print("stage1_dial ", dialOk, "\n");
+
+    int64 w1 = cl1.write("TLS_HELLO");
+    print("stage1_write ", w1 > 0, "\n");
+
+    string r1 = cl1.read(64);
+    print("stage1_reply ", r1, "\n");
+
+    string fp1 = cl1.peerThumbprint();
+    print("stage1_thumbprint_len ", len(fp1), "\n");
+    print("stage1_close ", cl1.close(), "\n");
+
+    int64 res1 = srvTask1.await();
+    print("stage1_srv ", res1, "\n");
+
+    tm.sleep(20);
+
+    // Stage 2: STARTTLS in-place upgrade
+    string addr2 = "tcp!127.0.0.1!19996";
+    Task<int64> srvTask2 = spawn RunStartTlsServer(addr2, cert);
+    tm.sleep(50);
+
+    NetConn cl2 = new NetConn(addr2);
+    print("stage2_clear_dial ", cl2.dial(), "\n");
+    print("stage2_is_tls_before ", cl2.isTls(), "\n");
+
+    cl2.write("STARTTLS");
+    string ready = cl2.read(64);
+    print("stage2_ready ", ready, "\n");
+
+    bool pushOk = cl2.pushTls("localhost");
+    print("stage2_push_tls ", pushOk, "\n");
+    print("stage2_is_tls_after ", cl2.isTls(), "\n");
+
+    string fp2 = cl2.peerThumbprint();
+    print("stage2_thumbprint_len ", len(fp2), "\n");
+
+    cl2.write("SECURE_PING");
+    string r2 = cl2.read(64);
+    print("stage2_reply ", r2, "\n");
+    // Stage 3: Pin thumbprint and verify
+    string pinPath = "/tmp/test_tls_pin.txt";
+    bool pinOk = cl2.pinThumbprint(pinPath, "localhost-test");
+    print("stage3_pin ", pinOk, "\n");
+    print("stage2_close ", cl2.close(), "\n");
+
+    tm.sleep(20);
+
+    NetConn cl3 = new NetConn(addr2);
+    bool vDial = cl3.dialTlsVerified("localhost", pinPath);
+    print("stage3_verified_dial ", vDial, "\n");
+    print("stage3_check_pin ", cl3.verifyThumbprint(pinPath), "\n");
+
+    cl3.write("VERIFIED_PING");
+    string r3 = cl3.read(64);
+    print("stage3_reply ", r3, "\n");
+    print("stage3_close ", cl3.close(), "\n");
+
+    int64 res2 = srvTask2.await();
+    print("stage2_srv ", res2, "\n");
+}
