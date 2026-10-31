@@ -5907,6 +5907,10 @@ class DrawStatusBar {
         wdirty = true;
     }
 
+    method string getNotice() {
+        return notice;
+    }
+
     method bool drawFrame(DrawFrame frame) {
         if(!wshown) {
             return false;
@@ -5957,6 +5961,10 @@ class DrawPropertySheet {
     method void clear() {
         nprops = 0;
         wdirty = true;
+    }
+
+    method int64 count() {
+        return nprops;
     }
 
     method bool drawFrame(DrawFrame frame) {
@@ -6115,6 +6123,26 @@ class DrawDialog {
 
     method int64 dialogResult() {
         return result;
+    }
+
+    method bool clickOk() {
+        result = 1;
+        hide();
+        return true;
+    }
+
+    method bool clickCancel() {
+        result = 2;
+        hide();
+        return true;
+    }
+
+    method int64 okX() {
+        return okBtn.x();
+    }
+
+    method int64 okY() {
+        return okBtn.y();
     }
 
     method bool handleMouse(int64 x, int64 y, int64 buttons) {
