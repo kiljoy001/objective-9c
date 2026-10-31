@@ -1,0 +1,280 @@
+// gemini.o9 — Native Gemini protocol (gemini://) and Gemtext (text/gemini) processor
+//
+// Implements:
+//   - Gemtext line parser and document model (Headings, Links, Lists, Quotes, Preformatted)
+//   - Gemini URL parsing (gemini://host[:port]/path)
+//   - Gemini request and response envelope (<STATUS> <META>\r\n<body>)
+
+import "string.o9";
+import "buffer.o9";
+import "format.o9";
+
+function GemParseIntRaw(string value) int64 {
+    int64 out = 0;
+    c {
+        char *s = o9_string_cstr(value);
+        if(s != nil) {
+            out = strtoll(s, nil, 0);
+        }
+    }
+    return out;
+}
+
+// Gemtext Line Kinds
+// 0: Text (Paragraph)
+// 1: Heading 1 (# ...)
+// 2: Heading 2 (## ...)
+// 3: Heading 3 (### ...)
+// 4: Link (=> url [label])
+// 5: List item (* ...)
+// 6: Quote (> ...)
+// 7: Preformatted toggle (```[alt])
+// 8: Preformatted content line
+
+class GemLine {
+    prop int64 kind;
+    prop string text;
+    prop string url;
+    prop string extra;
+
+    method GemLine(int64 k, string t, string u, string x) {
+        kind = k;
+        text = t;
+        url = u;
+        extra = x;
+    }
+
+    method int64 getKind() {
+        return kind;
+    }
+
+    method string getText() {
+        return text;
+    }
+
+    method string getUrl() {
+        return url;
+    }
+
+    method string getExtra() {
+        return extra;
+    }
+
+    method int64 isHeading() {
+        if(kind == 1) { return 1; }
+        if(kind == 2) { return 1; }
+        if(kind == 3) { return 1; }
+        return 0;
+    }
+
+    method int64 isLink() {
+        if(kind == 4) { return 1; }
+        return 0;
+    }
+}
+
+class GemDoc {
+    prop int64 lineCount;
+    prop int64 linkCount;
+    prop int64 inPreformatted;
+
+    method GemDoc() {
+        lineCount = 0;
+        linkCount = 0;
+        inPreformatted = 0;
+    }
+
+    method GemLine parseLine(string rawLine) {
+        String s = new String(rawLine);
+        string trimmed = s.trim();
+        lineCount = lineCount + 1;
+
+        // Inside preformatted block
+        if(inPreformatted == 1) {
+            String pstr = new String(trimmed);
+            if(pstr.startsWith("```")) {
+                inPreformatted = 0;
+                GemLine line = new GemLine(7, "", "", "");
+                return line;
+            }
+            GemLine line = new GemLine(8, rawLine, "", "");
+            return line;
+        }
+
+        // Toggle preformatted block
+        String str = new String(trimmed);
+        if(str.startsWith("```")) {
+            inPreformatted = 1;
+            string altText = "";
+            if(len(trimmed) > 3) {
+                altText = slice(trimmed, 3, len(trimmed) - 3);
+                String astr = new String(altText);
+                altText = astr.trim();
+            }
+            GemLine line = new GemLine(7, "", "", altText);
+            return line;
+        }
+
+        // Headings: ###, ##, #
+        if(str.startsWith("###")) {
+            string t = slice(trimmed, 3, len(trimmed) - 3);
+            String ts = new String(t);
+            GemLine line = new GemLine(3, ts.trim(), "", "");
+            return line;
+        }
+        if(str.startsWith("##")) {
+            string t = slice(trimmed, 2, len(trimmed) - 2);
+            String ts = new String(t);
+            GemLine line = new GemLine(2, ts.trim(), "", "");
+            return line;
+        }
+        if(str.startsWith("#")) {
+            string t = slice(trimmed, 1, len(trimmed) - 1);
+            String ts = new String(t);
+            GemLine line = new GemLine(1, ts.trim(), "", "");
+            return line;
+        }
+
+        // Links: => url [label]
+        if(str.startsWith("=>")) {
+            linkCount = linkCount + 1;
+            string rest = slice(trimmed, 2, len(trimmed) - 2);
+            String rstr = new String(rest);
+            string cleanRest = rstr.trim();
+            
+            // Find space separating URL and label
+            String ustr = new String(cleanRest);
+            int64 spacePos = ustr.indexOf(" ");
+            int64 tabPos = ustr.indexOf("\t");
+            int64 splitPos = -1;
+
+            if(spacePos >= 0) {
+                splitPos = spacePos;
+            } else if(tabPos >= 0) {
+                splitPos = tabPos;
+            }
+
+            if(splitPos >= 0) {
+                string linkUrl = slice(cleanRest, 0, splitPos);
+                string linkLabel = slice(cleanRest, splitPos, len(cleanRest) - splitPos);
+                String lstr = new String(linkLabel);
+                GemLine line = new GemLine(4, lstr.trim(), linkUrl, "");
+                return line;
+            } else {
+                GemLine line = new GemLine(4, cleanRest, cleanRest, "");
+                return line;
+            }
+        }
+
+        // Unordered list item: *
+        if(str.startsWith("* ")) {
+            string t = slice(trimmed, 2, len(trimmed) - 2);
+            String ts = new String(t);
+            GemLine line = new GemLine(5, ts.trim(), "", "");
+            return line;
+        }
+
+        // Blockquote: >
+        if(str.startsWith(">")) {
+            string t = slice(trimmed, 1, len(trimmed) - 1);
+            String ts = new String(t);
+            GemLine line = new GemLine(6, ts.trim(), "", "");
+            return line;
+        }
+
+        // Regular paragraph
+        GemLine line = new GemLine(0, rawLine, "", "");
+        return line;
+    }
+
+    method int64 getLineCount() {
+        return lineCount;
+    }
+
+    method int64 getLinkCount() {
+        return linkCount;
+    }
+}
+
+class GeminiResponse {
+    prop int64 status;
+    prop string meta;
+    prop string body;
+
+    method GeminiResponse(int64 s, string m, string b) {
+        status = s;
+        meta = m;
+        body = b;
+    }
+
+    method int64 getStatus() {
+        return status;
+    }
+
+    method string getMeta() {
+        return meta;
+    }
+
+    method string getBody() {
+        return body;
+    }
+
+    method int64 isSuccess() {
+        if(status >= 20) {
+            if(status < 30) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+
+    method int64 isRedirect() {
+        if(status >= 30) {
+            if(status < 40) {
+                return 1;
+            }
+        }
+        return 0;
+    }
+
+    method int64 isError() {
+        if(status >= 40) {
+            return 1;
+        }
+        return 0;
+    }
+}
+
+class GeminiProtocol {
+    method GeminiProtocol() {
+    }
+
+    method string formatRequest(string url) {
+        return cat(url, "\r\n");
+    }
+
+    method GeminiResponse parseResponse(string headerLine, string responseBody) {
+        String h = new String(headerLine);
+        string trimmed = h.trim();
+        int64 spaceIdx = h.indexOf(" ");
+        int64 statusCode = 20;
+        string metaStr = "text/gemini";
+
+        if(spaceIdx > 0) {
+            string sc = slice(trimmed, 0, spaceIdx);
+            Task<int64> t = spawn GemParseIntRaw(sc);
+            statusCode = t.await();
+            if(len(trimmed) > spaceIdx + 1) {
+                metaStr = slice(trimmed, spaceIdx + 1, len(trimmed) - (spaceIdx + 1));
+                String ms = new String(metaStr);
+                metaStr = ms.trim();
+            }
+        } else if(len(trimmed) >= 2) {
+            Task<int64> t2 = spawn GemParseIntRaw(trimmed);
+            statusCode = t2.await();
+        }
+
+        GeminiResponse resp = new GeminiResponse(statusCode, metaStr, responseBody);
+        return resp;
+    }
+}

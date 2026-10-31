@@ -7600,7 +7600,7 @@ o9_router_worker(void *v)
 	mb->worker_running = 0;
 	if(!mb->closed && o9_tring_len(&mb->ring.t_ring) > 0){
 		mb->worker_running = 1;
-		threadcreate(o9_router_worker, mb, 32768);
+		proccreate(o9_router_worker, mb, 32768);
 	}
 	qunlock(&o9_router.lk);
 }
@@ -7692,7 +7692,7 @@ o9_router_submit(void *r, char *target_class, char *target_oid, void *target_ins
 
 	if(!mb->worker_running){
 		mb->worker_running = 1;
-		if(threadcreate(o9_router_worker, mb, 32768) < 0){
+		if(proccreate(o9_router_worker, mb, 32768) < 0){
 			mb->worker_running = 0;
 			o9_tring_consume(&mb->ring.t_ring, &slot);
 			qunlock(&o9_router.lk);

@@ -19,9 +19,11 @@ import "buffer.o9";
 import "cli.o9";
 import "collections.o9";
 import "config.o9";
+import "dat.o9";
 import "dir.o9";
 import "file.o9";
 import "format.o9";
+import "gemini.o9";
 import "io.o9";
 import "log.o9";
 import "math.o9";
@@ -1993,3 +1995,60 @@ Methods:
 - `count() int64`: Returns total assertions evaluated.
 - `report() bool`: Prints test summary (or TAP header/plan). Returns `true` if all passed, `false` otherwise.
 - `finish() void`: Exits the process with status `"failed"` if any check failed, or exits cleanly if all passed.
+
+## Gemini
+
+`gemini.o9` implements the native Gemini protocol (`gemini://`) and Gemtext (`text/gemini`) processor. It provides line parsing, structured document models, status code verification, and protocol envelope construction.
+
+```o9
+import "gemini.o9";
+
+main {
+    GeminiProtocol proto = new GeminiProtocol();
+    string req = proto.formatRequest("gemini://gemini.circumlunar.space/");
+
+    GeminiResponse resp = proto.parseResponse("20 text/gemini", "# Hello");
+    if(resp.isSuccess() == 1) {
+        GemDoc doc = new GemDoc();
+        GemLine line = doc.parseLine("# Welcome to Gemini");
+        print(line.getText(), "\n");
+    }
+}
+```
+
+Classes:
+- `GemLine`: Represents an individual Gemtext line (Paragraph, Heading 1/2/3, Link, List item, Quote, Preformatted toggle/content).
+- `GemDoc`: Gemtext line parser maintaining block state (e.g., preformatted modes) and line/link counters.
+- `GeminiResponse`: Response envelope with status code, meta header, body, and status class helpers (`isSuccess`, `isRedirect`, `isError`).
+- `GeminiProtocol`: Formats requests and parses header envelopes.
+
+## Dat
+
+`dat.o9` implements the Dat / Hypercore protocol for P2P streaming multimedia and append-only feeds. It provides discovery key derivation (using BLAKE2b), feed append and random-access chunk retrieval, cryptographic verification, multimedia range streaming, and Hyperdrive archive indexing.
+
+```o9
+import "dat.o9";
+
+main {
+    DatProtocol proto = new DatProtocol();
+    DatKey key = proto.parseUrl("dat://40a7f6b61444a0507d373f737fa1b49670271f49429c342f22323ac0c2a0f41c/video.mp4");
+
+    if(key.isValid()) {
+        DatFeed feed = new DatFeed(key.getKey());
+        feed.append("INITIAL_HEADER_BYTES");
+
+        DatStream stream = new DatStream();
+        string chunk = stream.readRange(feed, 0, 1024);
+    }
+}
+```
+
+Classes:
+- `DatKey`: Validates 64-character hex keys, parses `dat://` URLs, and exposes key, discoveryKey, and path.
+- `DatBlock`: Individual data block in an append-only feed with index, payload, length, and BLAKE2b hash verification.
+- `DatFeed`: Hypercore log maintaining ordered blocks, total byte length, and verification.
+- `DatEntry`: Metadata entry for files in a Dat archive (size, start block offset, block count, mtime, isDirectory).
+- `DatStream`: Range streaming engine across blocks supporting offset seeking and byte slicing.
+- `DatArchive`: Hyperdrive archive combining metadata and content feeds.
+- `DatProtocol`: Parses and validates `dat://` URLs and key formats.
+

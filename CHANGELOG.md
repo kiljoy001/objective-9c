@@ -12,9 +12,25 @@ mailbox architecture.
   to `threadcreate` (16 KB cooperative task stack).
 - Per-thread execution context: upgraded `o9_proc_ctx()` to query `threaddata()` before falling back to `procdata()`,
   guaranteeing each actor task maintains independent call error signals and actor identity when multiple tasks run within the same proc.
-- Router worker migration: converted router workers to `threadcreate`, eliminating OS process creation during mailbox processing.
+- Router worker migration: isolated router worker thread model, eliminating OS process creation during mailbox processing.
 - Massive scalability win: object creation memory overhead reduced by 75% per instance (from 64 KB to 16 KB stack)
   and kernel process exhaustion (`NPROC` limit) completely eliminated for object instances.
+
+### Gemini & Dat Protocol Libraries
+
+- **Gemini (`stdlib/gemini.o9`)**:
+  - Implements the Gemini protocol (`gemini://`) client envelope and Gemtext (`text/gemini`) document processor.
+  - Supports heading hierarchy (`#`, `##`, `###`), links (`=> url [label]`), unordered lists (`*`), blockquotes (`>`), and multi-line preformatted code blocks (```` [alt]```).
+  - Provides `GeminiProtocol` for request line formatting and response parsing (`GeminiResponse`), with status code classification (`isSuccess`, `isRedirect`, `isError`).
+  - Added end-to-end verification suite in `stdlib/e2e_gemini.o9`.
+- **Dat (`stdlib/dat.o9`)**:
+  - Implements the Dat / Hypercore protocol for P2P append-only feeds and streaming multimedia.
+  - Supports `dat://` URL parsing, 64-hex discovery key derivation and validation.
+  - Implements append-only chunk log (`DatFeed`) with BLAKE2b cryptographic integrity verification (`DatBlock.verify()`).
+  - Provides multimedia streaming engine (`DatStream`) supporting byte range slicing across block boundaries and chunk seek indexing.
+  - Supports Hyperdrive archive indexing (`DatArchive`, `DatEntry`) for multi-file content distribution.
+  - Added end-to-end verification suite in `stdlib/e2e_dat.o9`.
+
 
 ## 0.3.0 — 2026-10-28
 

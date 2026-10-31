@@ -1,0 +1,52 @@
+import "gemini.o9";
+
+main {
+    GeminiProtocol proto = new GeminiProtocol();
+    string req = proto.formatRequest("gemini://gemini.circumlunar.space/");
+    print("req: len=", len(req), "\n");
+
+    GeminiResponse r1 = proto.parseResponse("20 text/gemini", "# Hello");
+    print("r1: status=", r1.getStatus(), " meta=", r1.getMeta(), " succ=", r1.isSuccess(), "\n");
+
+    GeminiResponse r2 = proto.parseResponse("31 gemini://other.space/", "");
+    print("r2: status=", r2.getStatus(), " meta=", r2.getMeta(), " redir=", r2.isRedirect(), "\n");
+
+    GeminiResponse r3 = proto.parseResponse("51 Not Found", "");
+    print("r3: status=", r3.getStatus(), " meta=", r3.getMeta(), " err=", r3.isError(), "\n");
+
+    GemDoc doc = new GemDoc();
+    GemLine l1 = doc.parseLine("# Gemini Space");
+    print("l1: kind=", l1.getKind(), " text=", l1.getText(), " head=", l1.isHeading(), "\n");
+
+    GemLine l2 = doc.parseLine("## Subheading");
+    print("l2: kind=", l2.getKind(), " text=", l2.getText(), "\n");
+
+    GemLine l3 = doc.parseLine("### Topic");
+    print("l3: kind=", l3.getKind(), " text=", l3.getText(), "\n");
+
+    GemLine l4 = doc.parseLine("=> gemini://example.com Example Site");
+    print("l4: kind=", l4.getKind(), " url=", l4.getUrl(), " label=", l4.getText(), " link=", l4.isLink(), "\n");
+
+    GemLine l5 = doc.parseLine("=> gemini://lonely.link");
+    print("l5: kind=", l5.getKind(), " url=", l5.getUrl(), " label=", l5.getText(), "\n");
+
+    GemLine l6 = doc.parseLine("* Item 1");
+    print("l6: kind=", l6.getKind(), " text=", l6.getText(), "\n");
+
+    GemLine l7 = doc.parseLine("> Quote");
+    print("l7: kind=", l7.getKind(), " text=", l7.getText(), "\n");
+
+    GemLine l8 = doc.parseLine("```sh");
+    print("l8: kind=", l8.getKind(), " extra=", l8.getExtra(), "\n");
+
+    GemLine l9 = doc.parseLine("echo test");
+    print("l9: kind=", l9.getKind(), " text=", l9.getText(), "\n");
+
+    GemLine l10 = doc.parseLine("```");
+    print("l10: kind=", l10.getKind(), "\n");
+
+    GemLine l11 = doc.parseLine("Just a normal paragraph");
+    print("l11: kind=", l11.getKind(), " text=", l11.getText(), "\n");
+
+    print("doc: lines=", doc.getLineCount(), " links=", doc.getLinkCount(), "\n");
+}

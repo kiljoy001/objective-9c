@@ -16,10 +16,12 @@ STDLIB_MODULES=\
 	stdlib/cli.o9\
 	stdlib/collections.o9\
 	stdlib/config.o9\
+	stdlib/dat.o9\
 	stdlib/dir.o9\
 	stdlib/draw.o9\
 	stdlib/file.o9\
 	stdlib/format.o9\
+	stdlib/gemini.o9\
 	stdlib/io.o9\
 	stdlib/log.o9\
 	stdlib/math.o9\
