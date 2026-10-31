@@ -2233,6 +2233,21 @@ class DrawBox {
         wlayoutdirty = true;
     }
 
+    method void bounds(int64 x, int64 y, int64 width, int64 height) {
+        x0 = x;
+        y0 = y;
+        w = width;
+        h = height;
+        wx = x;
+        wy = y;
+        ww = width;
+        wh = height;
+        wprefw = width;
+        wprefh = height;
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
     method void color(int64 background, int64 foreground) {
         bg = background;
         fg = foreground;
@@ -2347,6 +2362,18 @@ class DrawLabel {
 
     method void size(int64 width, int64 height) {
         box.size(width, height);
+        ww = width;
+        wh = height;
+        wprefw = width;
+        wprefh = height;
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method void bounds(int64 x, int64 y, int64 width, int64 height) {
+        box.bounds(x, y, width, height);
+        wx = x;
+        wy = y;
         ww = width;
         wh = height;
         wprefw = width;
@@ -2512,6 +2539,19 @@ class DrawButton {
     method void size(int64 width, int64 height) {
         box.size(width, height);
         caption.size(width, height);
+        ww = width;
+        wh = height;
+        wprefw = width;
+        wprefh = height;
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method void bounds(int64 x, int64 y, int64 width, int64 height) {
+        box.bounds(x, y, width, height);
+        caption.bounds(x, y, width, height);
+        wx = x;
+        wy = y;
         ww = width;
         wh = height;
         wprefw = width;
@@ -2884,6 +2924,18 @@ class DrawTextInput {
 
     method void size(int64 width, int64 height) {
         box.size(width, height);
+        ww = width;
+        wh = height;
+        wprefw = width;
+        wprefh = height;
+        wdirty = true;
+        wlayoutdirty = true;
+    }
+
+    method void bounds(int64 x, int64 y, int64 width, int64 height) {
+        box.bounds(x, y, width, height);
+        wx = x;
+        wy = y;
         ww = width;
         wh = height;
         wprefw = width;
