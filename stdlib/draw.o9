@@ -2665,6 +2665,16 @@ class DrawButton {
         return false;
     }
 
+    method bool clicked(int64 x, int64 y, int64 buttons) {
+        if((buttons & 1) == 0) {
+            handleMouse(x, y, buttons);
+            return false;
+        }
+        int64 prev = clicks;
+        handleMouse(x, y, buttons);
+        return clicks > prev;
+    }
+
     method bool handleMouse(int64 x, int64 y, int64 buttons) {
         bool oldOver;
         bool oldDown;
@@ -3034,9 +3044,11 @@ class DrawTextInput {
         }
         if(over) {
             cursor = len(value);
+            setFocused(true);
             wdirty = true;
             return true;
         }
+        setFocused(false);
         return false;
     }
 
@@ -3700,8 +3712,10 @@ class DrawTable {
         }
         row = rowAt(y);
         if(row < 0) {
+            setFocused(false);
             return false;
         }
+        setFocused(true);
         return select(row);
     }
 
@@ -4497,6 +4511,13 @@ class DrawScrollText {
             changed = horizontal.handleMouse(x, y, buttons);
         } else if(wshown && wenabled && x >= wx && x < wx + ww && y >= wy && y < wy + wh) {
             changed = buttons > 0;
+        }
+        if((buttons & 1) != 0) {
+            if(wshown && wenabled && x >= wx && x < wx + ww && y >= wy && y < wy + wh) {
+                setFocused(true);
+            } else {
+                setFocused(false);
+            }
         }
         if(applyBars()) {
             changed = true;
