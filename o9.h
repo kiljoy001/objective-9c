@@ -193,6 +193,33 @@ extern void   o9_slice_set(O9Slice *s, vlong idx, void *val);
 extern void   o9_slice_setgrow(O9Slice *s, vlong idx, void *val);
 extern void   o9_slice_free(O9Slice *s);
 
+/* O9DataStack — scope-bound / per-actor linear bump stack.
+ * Inspired by Goose (Wouter van Oortmerssen).
+ * Features:
+ *   - O(1) scope unwinding (mark/reset)
+ *   - Zero heap allocation (no malloc/free during turns)
+ *   - "One-resizable-at-the-top": elements never relocate, pointers stay stable
+ */
+typedef struct O9DataStack O9DataStack;
+struct O9DataStack {
+    char *base;
+    char *top;
+    char *limit;
+    int is_growing;
+    void *grow_head;
+};
+
+extern O9DataStack* o9_datastack_create(uintptr capacity);
+extern void         o9_datastack_destroy(O9DataStack *ds);
+extern void*        o9_datastack_mark(O9DataStack *ds);
+extern void         o9_datastack_reset(O9DataStack *ds, void *mark);
+extern void*        o9_datastack_alloc(O9DataStack *ds, uintptr size, uintptr align);
+extern O9String*    o9_datastack_string(O9DataStack *ds, const char *data, vlong len);
+extern void         o9_datastack_slice_begin(O9DataStack *ds, O9Slice *s, int elemsize);
+extern void*        o9_datastack_slice_push(O9DataStack *ds, O9Slice *s, const void *elem);
+extern void         o9_datastack_slice_end(O9DataStack *ds, O9Slice *s);
+
+
 /* Generic CSP channel payload.  The compiler owns typechecking; this
  * envelope only moves bytes and releases abandoned owned payloads. */
 typedef struct O9ChanMsg O9ChanMsg;

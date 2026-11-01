@@ -113,6 +113,78 @@ test_slices(void)
 	o9_slice_free(&sl);
 }
 
+static void
+test_datastack(void)
+{
+	O9DataStack *ds;
+	void *mark;
+	char *p1, *p2;
+	O9String *str;
+	O9Slice sl;
+	vlong v, i, *p0;
+
+	O9T_CASE("datastack");
+	ds = o9_datastack_create(16384);
+	o9t_notnil("ds created", ds);
+
+	/* 1. Bump allocation and alignment */
+	p1 = o9_datastack_alloc(ds, 100, 8);
+	o9t_notnil("p1 allocated", p1);
+	o9t_eqint("p1 aligned", ((uintptr)p1 & 7), 0);
+
+	mark = o9_datastack_mark(ds);
+	p2 = o9_datastack_alloc(ds, 200, 8);
+	o9t_notnil("p2 allocated", p2);
+	o9t_eqint("top moved past p2", (uintptr)ds->top >= (uintptr)p2 + 200, 1);
+
+	/* O(1) scope reset */
+	o9_datastack_reset(ds, mark);
+	o9t_eqint("reset restores mark", ds->top == (char*)mark, 1);
+
+	/* 2. Stack strings */
+	str = o9_datastack_string(ds, "goose-datastack", 15);
+	o9t_notnil("stack string allocated", str);
+	o9t_eqint("stack string len", o9_string_len(str), 15);
+	o9t_eqstr("stack string data", o9_string_data(str), "goose-datastack");
+	o9t_eqint("stack string ref is -1", str->ref, -1);
+
+	/* Retain/release are safe no-ops */
+	o9_string_retain(str);
+	o9t_eqint("stack string retain no-op", str->ref, -1);
+	o9_string_release(str);
+	o9t_eqint("stack string release no-op", str->ref, -1);
+
+	/* 3. "One-Resizable-At-The-Top": unmovable stable pointer test */
+	o9_datastack_slice_begin(ds, &sl, sizeof(vlong));
+	v = 42;
+	p0 = (vlong*)o9_datastack_slice_push(ds, &sl, &v);
+	o9t_notnil("p0 pushed", p0);
+	o9t_eqint("p0 value", *p0, 42);
+
+	/* Push 500 more elements — unlike C++/Rust Vec, this must NEVER relocate p0 */
+	for(i = 1; i <= 500; i++){
+		v = i * 10;
+		o9_datastack_slice_push(ds, &sl, &v);
+	}
+	o9t_eqint("slice length is 501", sl.len, 501);
+	o9t_eqint("p0 address unchanged (stable pointer)", (vlong*)o9_slice_get(&sl, 0) == p0, 1);
+	o9t_eqint("p0 value still 42", *p0, 42);
+	o9t_eqint("last element value", *(vlong*)o9_slice_get(&sl, 500), 5000);
+
+	o9_datastack_slice_end(ds, &sl);
+	o9t_eqint("slice cap marked stack-frozen", sl.cap < 0, 1);
+
+	/* Free is safe no-op on stack slice */
+	o9_slice_free(&sl);
+
+	/* Unwind everything in O(1) */
+	o9_datastack_reset(ds, mark);
+	o9t_eqint("final reset to mark", ds->top == (char*)mark, 1);
+
+	o9_datastack_destroy(ds);
+}
+
+
 /* Deterministic LCG: model tests should not depend on the host's rand(). */
 static uvlong model_rng = 0x9e3779b97f4a7c15ULL;
 static uvlong
@@ -583,6 +655,7 @@ threadmain(int, char**)
 	test_array_model();
 	test_slices();
 	test_slice_model();
+	test_datastack();
 	test_dicts();
 	test_dict_model();
 	test_channels();

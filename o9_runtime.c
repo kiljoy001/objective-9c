@@ -6516,8 +6516,182 @@ o9_slice_setgrow(O9Slice *s, vlong idx, void *val)
 void
 o9_slice_free(O9Slice *s)
 {
-	if(s) free(s->data);
+	if(s == nil || s->cap < 0) return;
+	free(s->data);
 }
+
+/*
+ * ========================================================================
+ * Goose-style Data Stack (O9DataStack)
+ * ========================================================================
+ */
+
+O9DataStack*
+o9_datastack_create(uintptr capacity)
+{
+	O9DataStack *ds;
+	char *buf;
+
+	if(capacity < 1024)
+		capacity = 1024;
+	capacity = (capacity + 7) & ~7;
+	ds = mallocz(sizeof *ds, 1);
+	if(ds == nil)
+		return nil;
+	buf = malloc(capacity);
+	if(buf == nil){
+		free(ds);
+		return nil;
+	}
+	ds->base = buf;
+	ds->top = buf;
+	ds->limit = buf + capacity;
+	ds->is_growing = 0;
+	ds->grow_head = nil;
+	return ds;
+}
+
+void
+o9_datastack_destroy(O9DataStack *ds)
+{
+	if(ds == nil)
+		return;
+	if(ds->base != nil)
+		free(ds->base);
+	free(ds);
+}
+
+void*
+o9_datastack_mark(O9DataStack *ds)
+{
+	if(ds == nil)
+		return nil;
+	return (void*)ds->top;
+}
+
+void
+o9_datastack_reset(O9DataStack *ds, void *mark)
+{
+	if(ds == nil || mark == nil)
+		return;
+	if((char*)mark < ds->base || (char*)mark > ds->limit)
+		return;
+	ds->top = (char*)mark;
+	ds->is_growing = 0;
+	ds->grow_head = nil;
+}
+
+void*
+o9_datastack_alloc(O9DataStack *ds, uintptr size, uintptr align)
+{
+	char *p;
+	uintptr rem;
+
+	if(ds == nil || size == 0)
+		return nil;
+	if(align == 0)
+		align = sizeof(void*);
+
+	p = ds->top;
+	rem = (uintptr)p % align;
+	if(rem != 0)
+		p += align - rem;
+
+	if(p + size > ds->limit)
+		return nil;
+
+	if(ds->is_growing){
+		ds->is_growing = 0;
+		ds->grow_head = nil;
+	}
+
+	ds->top = p + size;
+	return (void*)p;
+}
+
+O9String*
+o9_datastack_string(O9DataStack *ds, const char *data, vlong len)
+{
+	O9String *s;
+	char *payload;
+	uintptr need;
+
+	if(ds == nil)
+		return nil;
+	if(len < 0)
+		len = data != nil ? strlen(data) : 0;
+
+	need = sizeof(O9String) + len + 1;
+	s = (O9String*)o9_datastack_alloc(ds, need, sizeof(void*));
+	if(s == nil)
+		return nil;
+
+	payload = (char*)(s + 1);
+	if(data != nil && len > 0)
+		memmove(payload, data, len);
+	payload[len] = '\0';
+
+	s->data = payload;
+	s->len = len;
+	s->ref = -1;
+	return s;
+}
+
+void
+o9_datastack_slice_begin(O9DataStack *ds, O9Slice *s, int elemsize)
+{
+	char *p;
+	uintptr rem;
+
+	if(ds == nil || s == nil || elemsize <= 0)
+		return;
+
+	p = ds->top;
+	rem = (uintptr)p % sizeof(void*);
+	if(rem != 0)
+		p += sizeof(void*) - rem;
+
+	ds->top = p;
+	s->data = (void*)p;
+	s->len = 0;
+	s->cap = (ds->limit - p) / elemsize;
+	s->elemsize = elemsize;
+
+	ds->is_growing = 1;
+	ds->grow_head = s;
+}
+
+void*
+o9_datastack_slice_push(O9DataStack *ds, O9Slice *s, const void *elem)
+{
+	char *dest;
+
+	if(ds == nil || s == nil || elem == nil)
+		return nil;
+	if(!ds->is_growing || ds->grow_head != s)
+		return nil;
+	if(ds->top + s->elemsize > ds->limit)
+		return nil;
+
+	dest = ds->top;
+	memmove(dest, elem, s->elemsize);
+	ds->top += s->elemsize;
+	s->len++;
+	return (void*)dest;
+}
+
+void
+o9_datastack_slice_end(O9DataStack *ds, O9Slice *s)
+{
+	if(ds == nil || s == nil)
+		return;
+	if(ds->is_growing && ds->grow_head == s){
+		s->cap = -s->len;
+		ds->is_growing = 0;
+		ds->grow_head = nil;
+	}
+}
+
 
 static void
 o9_chan_drop_string(void *p)
