@@ -361,12 +361,9 @@ function countbytes(string path) int64 {
     int64 n;
     c {
         Biobuf *b;
-        char *cpath;
 
         n = 0;
-        cpath = o9_string_cstr(path);
-        b = cpath != nil ? Bopen(cpath, OREAD) : nil;
-        free(cpath);
+        b = Bopen(o9_string_data(path), OREAD);
         if(b == nil)
             n = -1;
         else {

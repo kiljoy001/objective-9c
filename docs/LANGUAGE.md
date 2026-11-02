@@ -515,12 +515,9 @@ function countbytes(string path) int64 {
     int64 n;
     c {
         Biobuf *b;
-        char *cpath;
 
         n = 0;
-        cpath = o9_string_cstr(path);
-        b = cpath != nil ? Bopen(cpath, OREAD) : nil;
-        free(cpath);
+        b = Bopen(o9_string_data(path), OREAD);
         if(b != nil) {
             while(Bgetc(b) >= 0)
                 n++;
@@ -530,6 +527,54 @@ function countbytes(string path) int64 {
     return n;
 }
 ```
+
+### C Interop Memory: Zero-Copy Borrowing & Stack DataFrames
+
+Raw C blocks have access to zero-allocation memory helpers designed to eliminate
+heap fragmentation and ARC churning:
+
+1. **Direct Zero-Copy Borrowing (`o9_string_data`)**:
+   When a C helper only reads an incoming `string`, call `o9_string_data(s)`.
+   Because `O9String` instances guarantee NUL-termination, this provides a direct
+   `const char*` pointer into the string's internal memory without `malloc` or `free`:
+   ```c
+   fd = open(o9_string_data(path), OREAD);
+   ```
+
+2. **Scoped Stack Scratchpads (`O9DataFrame`)**:
+   When temporary mutable memory is required (such as read buffers, string formatting,
+   or path manipulation), do NOT use defensive heap `malloc`/`free`. Instead, enter
+   an `O9DataFrame` backed by the thread's linear `O9DataStack`:
+   ```o9
+   function ReadChunk(string path, int64 count) string {
+       string out;
+       c {
+           O9DataFrame f;
+           char *buf;
+           int fd;
+           long n;
+
+           out = o9_string_new("", 0);
+           o9_frame_enter(&f, nil);  /* bind to thread's current DataStack */
+           buf = o9_frame_alloc(&f, count, 1);
+           if(buf != nil){
+               fd = open(o9_string_data(path), OREAD);
+               if(fd >= 0){
+                   n = read(fd, buf, (long)count);
+                   close(fd);
+                   if(n > 0)
+                       out = o9_string_new(buf, n);
+               }
+           }
+           o9_frame_exit(&f);       /* O(1) linear reset; zero heap churn */
+       }
+       return out;
+   }
+   ```
+   - `o9_frame_enter(&f, nil)`: Enters a new scope frame. Pass `nil` to automatically bind to the current thread's DataStack.
+   - `o9_frame_alloc(&f, size, align)`: Bump-allocates `size` bytes aligned to `align`.
+   - `o9_frame_scratch_str(&f, s)`: Allocates a mutable stack scratch copy of `s`.
+   - `o9_frame_exit(&f)`: Restores the stack pointer in $O(1)$ time, reclaiming all memory allocated within the frame.
 
 Rules:
 

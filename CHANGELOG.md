@@ -1,6 +1,48 @@
 # Changelog
 
-## 0.3.1 — 2026-10-31
+## 0.4.0 — 2026-11-02
+
+This major release introduces the **Goose DataStack architecture**, scoped **`O9DataFrame` C scratchpads**,
+full standard library **zero-churn C sandwich modernization**, and compiler stack sizing fixes for native
+Plan 9 / 9front amd64 hardware.
+
+### Goose DataStack Architecture & Linear Scratchpads
+
+- **Thread-Local Linear DataStack (`O9DataStack`)**:
+  - Implements a high-speed bump-pointer datastack per thread context (`o9_current_datastack()`) for temporary allocations,
+    slices, and scratch strings.
+  - Slices allocated on the DataStack are contiguous and non-moving during growth phases, eliminating reallocations.
+  - $O(1)$ scope unwinds via `o9_datastack_mark()` and `o9_datastack_reset()`.
+- **Side-by-Side Performance Verification (Native 9front hardware)**:
+  - Heap ARC String: 247.9 ns/op (4.03M ops/sec) $\rightarrow$ Goose DataStack: 33.6 ns/op (29.72M ops/sec) — **7.4× faster**.
+  - Heap Turn Latency: 1,254.1 ns/turn $\rightarrow$ Goose DataStack: 210.5 ns/turn — **6.0× faster**.
+  - New benchmark tool in `o9c/test/datastack_bench.c`.
+
+### Zero-Allocation C Sandwich & Stdlib Modernization
+
+- **Eliminated `o9_string_cstr()`**:
+  - Replaced defensive heap copies across all standard library modules (`stdlib/file.o9`, `stdlib/io.o9`,
+    `stdlib/process.o9`, `stdlib/net.o9`, `stdlib/draw.o9`, `stdlib/rtext.o9`, `stdlib/dir.o9`, `stdlib/namespace.o9`,
+    `stdlib/testing.o9`, `stdlib/9p.o9`, `stdlib/dat.o9`, `stdlib/gemini.o9`, `stdlib/ring.o9`, `stdlib/time.o9`).
+  - Zero-copy read-only borrowing via `o9_string_data()`, guaranteeing NUL-terminated strings with 0 heap allocations and 0 cleanup overhead.
+- **Scoped `O9DataFrame` Scratchpads**:
+  - For in-place modifications and temporary IO buffers, C sandwich blocks enter stack-scoped frames
+    (`o9_frame_enter(&f, nil)` and `o9_frame_alloc(&f, size, align)`), resetting instantly with `o9_frame_exit(&f)`
+    without heap fragmentation or leaks.
+  - Net -88 lines of defensive boilerplate allocation/freeing removed from stdlib.
+  - Memory leak fixes in `TestIsolateRaw`, `DatValidateKeyRaw`, and `GemParseIntRaw`.
+
+### 9front Actor Stack Sizing & Compiler Codegen Fixes
+
+- **Thread Stack Sizing**:
+  - Increased actor `threadcreate()` task stack size from 16 KB to 64 KB (matching `mainstacksize`), eliminating stack
+    overflow exceptions under `libthread` on 64-bit Plan 9 / 9front during nested method calls.
+  - Reduced `O9_MSG_FRAMES` from 64 to 16, cutting frame footprint on the C stack from 6,144 bytes to 1,536 bytes per method call.
+- **Typed Tabula Struct Codegen**:
+  - Fixed `gen_assign_struct_result` in `o9c/grammar.d/40-codegen.y` so typed tabula row lookups (`t.row(id)`) generate
+    direct calls to `o9_tab_row_*` instead of misrouting to actor IPC `obj9_msgSendStructN(&t)`.
+- **Vault Binary Roundtrip Integrity**:
+  - `o9_vault_open` and `o9_decrypt` now preserve exact binary plaintext lengths rather than truncating at internal NUL bytes.
 
 This release converts actor dispatch and spawned functions from OS kernel processes (`proccreate`)
 to lightweight cooperative user-space tasks (`threadcreate`), paired with the Duplex One Ring multiplexed
