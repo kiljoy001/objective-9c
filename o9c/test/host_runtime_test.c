@@ -184,6 +184,64 @@ test_datastack(void)
 	o9_datastack_destroy(ds);
 }
 
+static void
+test_dataframe(void)
+{
+	O9DataStack *ds;
+	O9DataFrame frame;
+	O9String *orig, *res;
+	char *scratch, *junk;
+	void *m0;
+
+	O9T_CASE("dataframe");
+	ds = o9_current_datastack();
+	o9t_notnil("current datastack", ds);
+
+	/* 1. Immutability protection: mutating scratch does not corrupt original */
+	orig = o9_string_from_c("sys/src/cmd/auth");
+	m0 = ds->top;
+
+	o9_frame_enter(&frame, ds);
+	scratch = o9_frame_scratch_str(&frame, orig);
+	o9t_eqstr("scratch copy equals orig", scratch, "sys/src/cmd/auth");
+
+	/* Mutate scratch in place */
+	scratch[0] = 'X';
+	scratch[1] = 'Y';
+	scratch[2] = 'Z';
+	o9t_eqstr("scratch was mutated", scratch, "XYZ/src/cmd/auth");
+	o9t_eqstr("orig string untouched (no corruption)", o9_string_data(orig), "sys/src/cmd/auth");
+
+	/* Allocate extra intermediate scratch in frame */
+	junk = o9_frame_alloc(&frame, 512, 8);
+	o9t_notnil("junk allocated", junk);
+	o9t_eqint("top moved past junk", (uintptr)ds->top >= (uintptr)junk + 512, 1);
+
+	/* Seal the return string — compacts away junk and positions return at frame mark */
+	res = o9_frame_seal_string(&frame, scratch, strlen(scratch));
+	o9t_notnil("sealed result", res);
+	o9t_eqstr("sealed data", o9_string_data(res), "XYZ/src/cmd/auth");
+
+	o9_frame_exit(&frame);
+	/* ds->top is now compacted right after res; 512 bytes of junk were reclaimed */
+	o9t_eqint("ds->top compacted", ds->top == frame.mark + sizeof(O9String) + o9_string_len(res) + 1, 1);
+	o9t_eqint("junk was reclaimed", (uintptr)ds->top < (uintptr)junk + 512, 1);
+	o9t_eqstr("sealed result survives exit", o9_string_data(res), "XYZ/src/cmd/auth");
+
+	/* 2. Error / early return without seal: 100% leak-free unwind */
+	m0 = ds->top;
+	o9_frame_enter(&frame, ds);
+	junk = o9_frame_alloc(&frame, 2048, 8);
+	o9t_notnil("scratch before error", junk);
+	o9t_eqint("top moved past scratch", (uintptr)ds->top >= (uintptr)m0 + 2048, 1);
+
+	/* Exit without seal (simulating early return on error) */
+	o9_frame_exit(&frame);
+	o9t_eqint("unsealed frame completely reset", ds->top == (char*)m0, 1);
+
+	o9_string_release(orig);
+}
+
 
 /* Deterministic LCG: model tests should not depend on the host's rand(). */
 static uvlong model_rng = 0x9e3779b97f4a7c15ULL;
@@ -656,6 +714,7 @@ threadmain(int, char**)
 	test_slices();
 	test_slice_model();
 	test_datastack();
+	test_dataframe();
 	test_dicts();
 	test_dict_model();
 	test_channels();

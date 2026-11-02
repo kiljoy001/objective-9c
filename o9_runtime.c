@@ -84,6 +84,7 @@ struct O9ProcCtx {
 	char userbuf[64];
 	char *caller;
 	int blessed;
+	O9DataStack *dstack;
 };
 
 static O9ProcCtx*
@@ -112,11 +113,15 @@ o9_proc_ctx_clear(void)
 
 	pp = (O9ProcCtx**)threaddata();
 	if(pp != nil && *pp != nil){
+		if((*pp)->dstack != nil)
+			o9_datastack_destroy((*pp)->dstack);
 		free(*pp);
 		*pp = nil;
 	}
 	pp = (O9ProcCtx**)procdata();
 	if(pp != nil && *pp != nil){
+		if((*pp)->dstack != nil)
+			o9_datastack_destroy((*pp)->dstack);
 		free(*pp);
 		*pp = nil;
 	}
@@ -6691,6 +6696,106 @@ o9_datastack_slice_end(O9DataStack *ds, O9Slice *s)
 		ds->grow_head = nil;
 	}
 }
+
+O9DataStack*
+o9_current_datastack(void)
+{
+	O9ProcCtx *ctx;
+
+	ctx = o9_proc_ctx();
+	if(ctx->dstack == nil)
+		ctx->dstack = o9_datastack_create(1024 * 1024);
+	return ctx->dstack;
+}
+
+/*
+ * ========================================================================
+ * C Interop Scratchpad (O9DataFrame)
+ * ========================================================================
+ */
+
+void
+o9_frame_enter(O9DataFrame *f, O9DataStack *ds)
+{
+	if(f == nil)
+		return;
+	if(ds == nil)
+		ds = o9_current_datastack();
+	f->ds = ds;
+	f->mark = ds->top;
+	f->sealed = 0;
+}
+
+void*
+o9_frame_alloc(O9DataFrame *f, uintptr size, uintptr align)
+{
+	if(f == nil || f->ds == nil)
+		return nil;
+	return o9_datastack_alloc(f->ds, size, align);
+}
+
+char*
+o9_frame_scratch_str(O9DataFrame *f, O9String *s)
+{
+	char *p;
+	vlong len;
+
+	if(f == nil || s == nil)
+		return "";
+	len = o9_string_len(s);
+	p = (char*)o9_frame_alloc(f, len + 1, 1);
+	if(p == nil)
+		return "";
+	if(len > 0)
+		memmove(p, o9_string_data(s), len);
+	p[len] = '\0';
+	return p;
+}
+
+O9String*
+o9_frame_seal_string(O9DataFrame *f, const char *data, vlong len)
+{
+	O9String *out;
+	char *payload;
+	uintptr need;
+
+	if(f == nil || f->ds == nil)
+		return nil;
+	if(len < 0)
+		len = data != nil ? strlen(data) : 0;
+
+	need = sizeof(O9String) + len + 1;
+	if(f->mark + need > f->ds->limit)
+		return nil;
+
+	/* Compact return value down to f->mark: all intermediate scratch is popped! */
+	out = (O9String*)f->mark;
+	payload = (char*)(out + 1);
+
+	/* Copy payload first using memmove to safely handle any overlap with scratch data */
+	if(data != nil && len > 0 && payload != data)
+		memmove(payload, data, len);
+	payload[len] = '\0';
+
+	out->data = payload;
+	out->len = len;
+	out->ref = -1;
+
+	f->ds->top = f->mark + need;
+	f->sealed = 1;
+	return out;
+}
+
+void
+o9_frame_exit(O9DataFrame *f)
+{
+	if(f == nil || f->ds == nil)
+		return;
+	if(!f->sealed){
+		o9_datastack_reset(f->ds, f->mark);
+	}
+}
+
 
 
 static void

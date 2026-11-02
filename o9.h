@@ -218,6 +218,29 @@ extern O9String*    o9_datastack_string(O9DataStack *ds, const char *data, vlong
 extern void         o9_datastack_slice_begin(O9DataStack *ds, O9Slice *s, int elemsize);
 extern void*        o9_datastack_slice_push(O9DataStack *ds, O9Slice *s, const void *elem);
 extern void         o9_datastack_slice_end(O9DataStack *ds, O9Slice *s);
+extern O9DataStack* o9_current_datastack(void);
+
+/* O9DataFrame — isolated mutable scratchpad for C interop (the "C sandwich").
+ *
+ * Guarantees:
+ *   - Immutable o9 objects outside the frame cannot be corrupted.
+ *   - C has a fast, mutable scratch arena without using libc malloc/free.
+ *   - Sealing the return value compacts away all intermediate scratch memory.
+ *   - Zero leaks on early returns or errors.
+ */
+typedef struct O9DataFrame O9DataFrame;
+struct O9DataFrame {
+    O9DataStack *ds;
+    char *mark;
+    int sealed;
+};
+
+extern void       o9_frame_enter(O9DataFrame *f, O9DataStack *ds);
+extern void       o9_frame_exit(O9DataFrame *f);
+extern void*      o9_frame_alloc(O9DataFrame *f, uintptr size, uintptr align);
+extern char*      o9_frame_scratch_str(O9DataFrame *f, O9String *s);
+extern O9String*  o9_frame_seal_string(O9DataFrame *f, const char *data, vlong len);
+
 
 
 /* Generic CSP channel payload.  The compiler owns typechecking; this
