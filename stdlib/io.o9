@@ -10,9 +10,8 @@ function IOReadAllRaw(string path) string {
         long n, total, cap;
 
         out = o9_string_new("", 0);
-        cpath = o9_string_cstr(path);
-        b = cpath != nil ? Bopen(cpath, OREAD) : nil;
-        free(cpath);
+        cpath = o9_string_data(path);
+        b = cpath[0] != '\0' ? Bopen(cpath, OREAD) : nil;
         if(b != nil){
             cap = 8192;
             total = 0;
@@ -48,9 +47,8 @@ function IOReadLineRaw(string path, int64 offset) string {
         int ch;
 
         out = o9_string_new("", 0);
-        cpath = o9_string_cstr(path);
-        b = cpath != nil ? Bopen(cpath, OREAD) : nil;
-        free(cpath);
+        cpath = o9_string_data(path);
+        b = cpath[0] != '\0' ? Bopen(cpath, OREAD) : nil;
         if(b != nil){
             if(offset < 0)
                 offset = 0;
@@ -90,9 +88,8 @@ function IOLineNextRaw(string path, int64 offset) int64 {
         int ch;
 
         out = offset;
-        cpath = o9_string_cstr(path);
-        b = cpath != nil ? Bopen(cpath, OREAD) : nil;
-        free(cpath);
+        cpath = o9_string_data(path);
+        b = cpath[0] != '\0' ? Bopen(cpath, OREAD) : nil;
         if(b != nil){
             if(offset < 0)
                 offset = 0;
@@ -118,9 +115,8 @@ function IOHasByteRaw(string path, int64 offset) int64 {
         int ch;
 
         out = 0;
-        cpath = o9_string_cstr(path);
-        b = cpath != nil ? Bopen(cpath, OREAD) : nil;
-        free(cpath);
+        cpath = o9_string_data(path);
+        b = cpath[0] != '\0' ? Bopen(cpath, OREAD) : nil;
         if(b != nil){
             if(offset < 0)
                 offset = 0;
@@ -144,9 +140,8 @@ function IOReadByteRaw(string path, int64 offset) byte {
         int ch;
 
         out = 0;
-        cpath = o9_string_cstr(path);
-        b = cpath != nil ? Bopen(cpath, OREAD) : nil;
-        free(cpath);
+        cpath = o9_string_data(path);
+        b = cpath[0] != '\0' ? Bopen(cpath, OREAD) : nil;
         if(b != nil){
             if(offset < 0)
                 offset = 0;
@@ -171,8 +166,8 @@ function IOWriteRaw(string path, string data, int64 mode) int64 {
         vlong n;
 
         out = -1;
-        cpath = o9_string_cstr(path);
-        if(cpath != nil){
+        cpath = o9_string_data(path);
+        if(cpath[0] != '\0'){
             if(mode == 0)
                 fd = create(cpath, OWRITE, 0644);
             else {
@@ -182,7 +177,6 @@ function IOWriteRaw(string path, string data, int64 mode) int64 {
                 else
                     seek(fd, 0, 2);
             }
-            free(cpath);
             if(fd >= 0){
                 b = Bfdopen(fd, OWRITE);
                 if(b != nil){
@@ -205,10 +199,9 @@ function IOTruncateRaw(string path) int64 {
         int fd;
 
         out = -1;
-        cpath = o9_string_cstr(path);
-        if(cpath != nil){
+        cpath = o9_string_data(path);
+        if(cpath[0] != '\0'){
             fd = create(cpath, OWRITE, 0644);
-            free(cpath);
             if(fd >= 0){
                 close(fd);
                 out = 0;
@@ -241,9 +234,9 @@ function O9StreamOpenRaw(string path, string mode) int64 {
         int fd;
 
         b = nil;
-        cpath = o9_string_cstr(path);
-        cmode = o9_string_cstr(mode);
-        if(cpath != nil && cmode != nil){
+        cpath = o9_string_data(path);
+        cmode = o9_string_data(mode);
+        if(cpath[0] != '\0' && cmode[0] != '\0'){
             if(cmode[0] == 'r')
                 b = Bopen(cpath, OREAD);
             else if(cmode[0] == 'w'){
@@ -265,8 +258,6 @@ function O9StreamOpenRaw(string path, string mode) int64 {
                 }
             }
         }
-        free(cpath);
-        free(cmode);
         out = (vlong)(uintptr)b;
     }
     return out;
@@ -277,6 +268,7 @@ function O9StreamReadRaw(int64 h, int64 n) string {
 
     string out;
     c {
+        O9DataFrame f;
         Biobuf *b;
         char *buf;
         long want, nr;
@@ -285,13 +277,14 @@ function O9StreamReadRaw(int64 h, int64 n) string {
         b = (Biobuf*)(uintptr)h;
         want = (long)n;
         if(b != nil && want > 0){
-            buf = malloc(want);
+            o9_frame_enter(&f, nil);
+            buf = o9_frame_alloc(&f, want, 1);
             if(buf != nil){
                 nr = Bread(b, buf, want);
                 if(nr > 0)
                     out = o9_string_new(buf, nr);
-                free(buf);
             }
+            o9_frame_exit(&f);
         }
     }
     return out;
@@ -425,6 +418,7 @@ function O9StreamCloseRaw(int64 h) int64 {
 function IOReadAtRaw(string path, int64 offset, int64 n) string {
     string out;
     c {
+        O9DataFrame f;
         char *p, *buf;
         int fd;
         vlong nr;
@@ -436,19 +430,19 @@ function IOReadAtRaw(string path, int64 offset, int64 n) string {
             n = 0;
         if(n > 65536)
             n = 65536;
-        p = o9_string_cstr(path);
-        if(p != nil){
+        p = o9_string_data(path);
+        if(p[0] != '\0'){
             fd = open(p, OREAD);
-            free(p);
             if(fd >= 0){
                 if(seek(fd, offset, 0) >= 0){
-                    buf = malloc(n > 0 ? n : 1);
+                    o9_frame_enter(&f, nil);
+                    buf = o9_frame_alloc(&f, n > 0 ? n : 1, 1);
                     if(buf != nil){
                         nr = read(fd, buf, n);
                         if(nr > 0)
                             out = o9_string_new(buf, nr);
-                        free(buf);
                     }
+                    o9_frame_exit(&f);
                 }
                 close(fd);
             }
@@ -467,12 +461,11 @@ function IOWriteAtRaw(string path, int64 offset, string data) int64 {
         out = -1;
         if(offset < 0)
             offset = 0;
-        p = o9_string_cstr(path);
-        if(p != nil){
+        p = o9_string_data(path);
+        if(p[0] != '\0'){
             fd = open(p, OWRITE);
             if(fd < 0)
                 fd = create(p, OWRITE, 0644);
-            free(p);
             if(fd >= 0){
                 if(seek(fd, offset, 0) >= 0){
                     n = o9_string_len(data);

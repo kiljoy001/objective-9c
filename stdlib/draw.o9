@@ -10,8 +10,8 @@ function DrawSnapshotRaw(string path, int64 width, int64 height, int64 backgroun
         int fd, barh, blockw, blockh, x0, y0;
 
         out = 0;
-        p = o9_string_cstr(path);
-        if(p != nil && width > 0 && height > 0 && width <= 4096 && height <= 4096){
+        p = o9_string_data(path);
+        if(p[0] != '\0' && width > 0 && height > 0 && width <= 4096 && height <= 4096){
             bg = (ulong)background;
             ac = (ulong)accent;
             if((bg & 0xFF000000UL) == 0)
@@ -66,7 +66,6 @@ function DrawSnapshotRaw(string path, int64 width, int64 height, int64 backgroun
                 freememimage(img);
             }
         }
-        free(p);
     }
     return out;
 }
@@ -80,9 +79,9 @@ function DrawToPngRaw(string imagePath, string pngPath) int64 {
         Dir *d;
 
         out = 0;
-        img = o9_string_cstr(imagePath);
-        png = o9_string_cstr(pngPath);
-        if(img != nil && png != nil && img[0] != '\0' && png[0] != '\0'){
+        img = o9_string_data(imagePath);
+        png = o9_string_data(pngPath);
+        if(img[0] != '\0' && png[0] != '\0'){
             pid = rfork(RFPROC|RFFDG|RFNOTEG);
             if(pid == 0){
                 fd = create(png, OWRITE, 0666);
@@ -127,8 +126,6 @@ function DrawToPngRaw(string imagePath, string pngPath) int64 {
                 }
             }
         }
-        free(img);
-        free(png);
     }
     return out;
 }
@@ -139,11 +136,10 @@ function DrawRemoveRaw(string path) int64 {
         char *p;
 
         out = 0;
-        p = o9_string_cstr(path);
-        if(p != nil){
+        p = o9_string_data(path);
+        if(p[0] != '\0'){
             if(remove(p) == 0)
                 out = 1;
-            free(p);
         }
     }
     return out;
@@ -168,11 +164,9 @@ function DrawParseIntRaw(string value) int64 {
         char *s;
 
         out = 0;
-        s = o9_string_cstr(value);
-        if(s != nil){
+        s = o9_string_data(value);
+        if(s != nil)
             out = strtoll(s, nil, 0);
-            free(s);
-        }
     }
     return out;
 }
@@ -417,8 +411,8 @@ function DrawShowRaw(string title, int64 width, int64 height, int64 background, 
         int fd, barh, pad, ms;
 
         out = 0;
-        t = o9_string_cstr(title);
-        if(t != nil && width > 0 && height > 0 && width <= 4096 && height <= 4096){
+        t = o9_string_data(title);
+        if(t[0] != '\0' && width > 0 && height > 0 && width <= 4096 && height <= 4096){
             bgc = (ulong)background;
             acc = (ulong)accent;
             if((bgc & 0xFF000000UL) == 0)
@@ -501,7 +495,6 @@ function DrawShowRaw(string title, int64 width, int64 height, int64 background, 
                 closedisplay(display);
             }
         }
-        free(t);
     }
     return out;
 }
@@ -522,8 +515,8 @@ function DrawButtonDemoRaw(string title, int64 width, int64 height, int64 backgr
         int fd, barh, pad, bw, bh, et, hot, down, clicks, tw;
 
         out = 0;
-        t = o9_string_cstr(title);
-        if(t != nil && width > 0 && height > 0 && width <= 4096 && height <= 4096){
+        t = o9_string_data(title);
+        if(t[0] != '\0' && width > 0 && height > 0 && width <= 4096 && height <= 4096){
             bgc = (ulong)background;
             acc = (ulong)accent;
             if((bgc & 0xFF000000UL) == 0)
@@ -659,7 +652,6 @@ function DrawButtonDemoRaw(string title, int64 width, int64 height, int64 backgr
                 closedisplay(display);
             }
         }
-        free(t);
     }
     return out;
 }
@@ -676,8 +668,8 @@ function DrawProbeSnapshotRaw(string path, int64 width, int64 height, int64 back
         int fd, barh, bx0, by0, bw, bh, i, tx;
 
         out = 0;
-        p = o9_string_cstr(path);
-        if(p != nil && width > 0 && height > 0 && width <= 4096 && height <= 4096){
+        p = o9_string_data(path);
+        if(p[0] != '\0' && width > 0 && height > 0 && width <= 4096 && height <= 4096){
             bg = (ulong)background;
             ac = (ulong)accent;
             if((bg & 0xFF000000UL) == 0)
@@ -762,7 +754,6 @@ function DrawProbeSnapshotRaw(string path, int64 width, int64 height, int64 back
                 freememimage(img);
             }
         }
-        free(p);
     }
     return out;
 }
@@ -776,8 +767,8 @@ function DrawCanvasOpenRaw(string title, int64 width, int64 height) int64 {
         int fd;
 
         out = 0;
-        t = o9_string_cstr(title);
-        if(t != nil && width > 0 && height > 0 && width <= 4096 && height <= 4096){
+        t = o9_string_data(title);
+        if(t[0] != '\0' && width > 0 && height > 0 && width <= 4096 && height <= 4096){
             fd = open("/dev/wctl", OWRITE);
             if(fd >= 0){
                 fprint(fd, "resize -dx %lld -dy %lld", width, height);
@@ -798,7 +789,6 @@ function DrawCanvasOpenRaw(string title, int64 width, int64 height) int64 {
                 out = 1;
             }
         }
-        free(t);
     }
     return out;
 }
@@ -911,7 +901,7 @@ function DrawCanvasTextRaw(int64 handle, string text, int64 x, int64 y, int64 co
         ulong c;
 
         out = 0;
-        s = o9_string_cstr(text);
+        s = o9_string_data(text);
         if(handle > 0 && display != nil && screen != nil && font != nil && s != nil){
             c = (ulong)color;
             if((c & 0xFF000000UL) == 0)
@@ -923,7 +913,6 @@ function DrawCanvasTextRaw(int64 handle, string text, int64 x, int64 y, int64 co
                 out = 1;
             }
         }
-        free(s);
     }
     return out;
 }
@@ -941,7 +930,7 @@ function DrawCanvasTextBoxRaw(int64 handle, string text, int64 x, int64 y, int64
         int tw;
 
         out = 0;
-        s = o9_string_cstr(text);
+        s = o9_string_data(text);
         if(handle > 0 && display != nil && screen != nil && font != nil && s != nil && width > 0 && height > 0){
             c = (ulong)color;
             if((c & 0xFF000000UL) == 0)
@@ -967,7 +956,6 @@ function DrawCanvasTextBoxRaw(int64 handle, string text, int64 x, int64 y, int64
                 freeimage(img);
             }
         }
-        free(s);
     }
     return out;
 }
@@ -1030,20 +1018,17 @@ function DrawFrameFlush2Raw(int64 handle, bool clearFirst, bool flushNow, int64 
                         thick = 1;
                     border(screen, r, thick, img, ZP);
                 } else if(kind[i] == 3 && font != nil){
-                    text = o9_string_cstr(texts[i]);
-                    if(text != nil){
+                    text = o9_string_data(texts[i]);
+                    if(text != nil)
                         string(screen, Pt(screen->r.min.x + xs[i], screen->r.min.y + ys[i]), img, ZP, font, text);
-                        free(text);
-                    }
                 } else if(kind[i] == 7){
                     styled = ns[i] != 0 ? (Font*)(uintptr)ns[i] : font;
-                    text = o9_string_cstr(texts[i]);
+                    text = o9_string_data(texts[i]);
                     if(styled != nil && text != nil)
                         string(screen, Pt(screen->r.min.x + xs[i],
                             screen->r.min.y + ys[i]), img, ZP, styled, text);
-                    free(text);
                 } else if(kind[i] == 4 && font != nil){
-                    text = o9_string_cstr(texts[i]);
+                    text = o9_string_data(texts[i]);
                     if(text != nil){
                         clip = r;
                         oldclip = screen->clipr;
@@ -1058,10 +1043,9 @@ function DrawFrameFlush2Raw(int64 handle, bool clearFirst, bool flushNow, int64 
                             string(screen, p, img, ZP, font, text);
                             replclipr(screen, 0, oldclip);
                         }
-                        free(text);
                     }
                 } else if(kind[i] == 5 && font != nil){
-                    text = o9_string_cstr(texts[i]);
+                    text = o9_string_data(texts[i]);
                     if(text != nil){
                         clip = r;
                         oldclip = screen->clipr;
@@ -1073,10 +1057,9 @@ function DrawFrameFlush2Raw(int64 handle, bool clearFirst, bool flushNow, int64 
                             string(screen, p, img, ZP, font, text);
                             replclipr(screen, 0, oldclip);
                         }
-                        free(text);
                     }
                 } else if(kind[i] == 6){
-                    text = o9_string_cstr(texts[i]);
+                    text = o9_string_data(texts[i]);
                     if(text != nil){
                         fd = open(text, OREAD);
                         if(fd >= 0){
@@ -1093,7 +1076,6 @@ function DrawFrameFlush2Raw(int64 handle, bool clearFirst, bool flushNow, int64 
                                 freeimage(inlineImg);
                             }
                         }
-                        free(text);
                     }
                 }
                 freeimage(img);
@@ -1114,10 +1096,9 @@ function DrawCanvasTextWidthRaw(int64 handle, string text) int64 {
         char *s;
 
         out = 0;
-        s = o9_string_cstr(text);
+        s = o9_string_data(text);
         if(handle > 0 && display != nil && font != nil && s != nil)
             out = stringwidth(font, s);
-        free(s);
     }
     return out;
 }
@@ -1230,17 +1211,16 @@ function DrawSnarfWriteRaw(string value) int64 {
         int fd, n;
 
         out = 0;
-        s = o9_string_cstr(value);
+        s = o9_string_data(value);
         fd = open("/dev/snarf", OWRITE|OTRUNC);
         if(fd >= 0){
             if(s != nil){
-                n = strlen(s);
+                n = o9_string_len(value);
                 if(write(fd, s, n) == n)
                     out = 1;
             }
             close(fd);
         }
-        free(s);
     }
     return out;
 }
@@ -1259,14 +1239,14 @@ function DrawMenuHitRaw(int64 handle, int64 button, int64 x, int64 y, int64 butt
         int want;
 
         out = -1;
-        s0 = o9_string_cstr(item0);
-        s1 = o9_string_cstr(item1);
-        s2 = o9_string_cstr(item2);
-        s3 = o9_string_cstr(item3);
-        s4 = o9_string_cstr(item4);
-        s5 = o9_string_cstr(item5);
-        s6 = o9_string_cstr(item6);
-        s7 = o9_string_cstr(item7);
+        s0 = o9_string_data(item0);
+        s1 = o9_string_data(item1);
+        s2 = o9_string_data(item2);
+        s3 = o9_string_data(item3);
+        s4 = o9_string_data(item4);
+        s5 = o9_string_data(item5);
+        s6 = o9_string_data(item6);
+        s7 = o9_string_data(item7);
         if(handle > 0 && display != nil && screen != nil && count > 0 && button >= 1 && button <= 3){
             if(count > 8)
                 count = 8;
@@ -1291,14 +1271,6 @@ function DrawMenuHitRaw(int64 handle, int64 button, int64 x, int64 y, int64 butt
                 flushimage(display, 1);
             }
         }
-        free(s0);
-        free(s1);
-        free(s2);
-        free(s3);
-        free(s4);
-        free(s5);
-        free(s6);
-        free(s7);
     }
     return out;
 }

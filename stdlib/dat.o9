@@ -17,9 +17,9 @@ function DatValidateKeyRaw(string key) bool {
     }
     bool valid = true;
     c {
-        char *s = o9_string_cstr(key);
+        char *s = o9_string_data(key);
         int j;
-        if(s == nil || strlen(s) != 64) {
+        if(s == nil || o9_string_len(key) != 64) {
             valid = 0;
         } else {
             for(j = 0; j < 64; j++) {

@@ -44,11 +44,12 @@ function ProcessRunRaw(string command) int64 {
         Waitmsg *w;
 
         out = -1;
-        cmd = o9_string_cstr(command);
-        if(cmd != nil){
+        cmd = o9_string_data(command);
+        if(cmd[0] != '\0'){
             pid = rfork(RFPROC|RFFDG|RFNOTEG);
             if(pid == 0){
                 execl("/bin/rc", "rc", "-c", cmd, nil);
+                execl("/usr/local/plan9/bin/rc", "rc", "-c", cmd, nil);
                 exits("exec");
             }
             if(pid > 0){
@@ -64,7 +65,6 @@ function ProcessRunRaw(string command) int64 {
                     free(w);
                 }
             }
-            free(cmd);
         }
     }
     return out;
@@ -79,8 +79,8 @@ function ProcessOutputRaw(string command) string {
         Waitmsg *w;
 
         out = o9_string_new("", 0);
-        cmd = o9_string_cstr(command);
-        if(cmd != nil){
+        cmd = o9_string_data(command);
+        if(cmd[0] != '\0'){
             if(pipe(p) == 0){
                 pid = rfork(RFPROC|RFFDG|RFNOTEG);
                 if(pid == 0){
@@ -89,6 +89,7 @@ function ProcessOutputRaw(string command) string {
                     dup(p[1], 2);
                     close(p[1]);
                     execl("/bin/rc", "rc", "-c", cmd, nil);
+                    execl("/usr/local/plan9/bin/rc", "rc", "-c", cmd, nil);
                     exits("exec");
                 }
                 close(p[1]);
@@ -122,7 +123,6 @@ function ProcessOutputRaw(string command) string {
                     }
                 }
             }
-            free(cmd);
         }
     }
     return out;
@@ -134,14 +134,13 @@ function EnvGetRaw(string name) string {
         char *n, *v;
 
         out = o9_string_new("", 0);
-        n = o9_string_cstr(name);
-        if(n != nil){
+        n = o9_string_data(name);
+        if(n[0] != '\0'){
             v = getenv(n);
             if(v != nil){
                 out = o9_string_from_c(v);
                 free(v);
             }
-            free(n);
         }
     }
     return out;
@@ -153,14 +152,13 @@ function EnvExistsRaw(string name) int64 {
         char *n, *v;
 
         out = 0;
-        n = o9_string_cstr(name);
-        if(n != nil){
+        n = o9_string_data(name);
+        if(n[0] != '\0'){
             v = getenv(n);
             if(v != nil){
                 out = 1;
                 free(v);
             }
-            free(n);
         }
     }
     return out;
@@ -172,12 +170,10 @@ function EnvSetRaw(string name, string value) int64 {
         char *n, *v;
 
         out = -1;
-        n = o9_string_cstr(name);
-        v = o9_string_cstr(value);
-        if(n != nil && v != nil && n[0] != '\0' && strchr(n, '/') == nil)
+        n = o9_string_data(name);
+        v = o9_string_data(value);
+        if(n[0] != '\0' && strchr(n, '/') == nil)
             out = putenv(n, v);
-        free(n);
-        free(v);
     }
     return out;
 }
@@ -189,12 +185,11 @@ function EnvUnsetRaw(string name) int64 {
         char path[256];
 
         out = -1;
-        n = o9_string_cstr(name);
-        if(n != nil && n[0] != '\0' && strchr(n, '/') == nil){
+        n = o9_string_data(name);
+        if(n[0] != '\0' && strchr(n, '/') == nil){
             snprint(path, sizeof path, "/env/%s", n);
             out = remove(path);
         }
-        free(n);
     }
     return out;
 }
@@ -218,10 +213,9 @@ function EnvChdirRaw(string path) int64 {
         char *p;
 
         out = -1;
-        p = o9_string_cstr(path);
-        if(p != nil)
+        p = o9_string_data(path);
+        if(p[0] != '\0')
             out = chdir(p);
-        free(p);
     }
     return out;
 }
@@ -231,6 +225,7 @@ function EnvChdirRaw(string path) int64 {
 function ProcessRunCaptureRaw(string argvText, string input, string outPath, string errPath) string {
     string out;
     c {
+        O9DataFrame f;
         char *args, *copy, *p, *end, *op, *ep;
         char statusbuf[ERRMAX];
         char **argv;
@@ -242,16 +237,20 @@ function ProcessRunCaptureRaw(string argvText, string input, string outPath, str
         statusbuf[0] = 0;
         args = o9_string_data(argvText);
         len = o9_string_len(argvText);
-        copy = malloc(len + 1);
+
+        o9_frame_enter(&f, nil);
+        copy = o9_frame_alloc(&f, len + 1, 1);
         if(copy == nil){
+            o9_frame_exit(&f);
             out = o9_string_from_c("out of memory");
             goto process_capture_done;
         }
         memmove(copy, args, len);
         copy[len] = 0;
-        argv = malloc(64 * sizeof(char*));
+
+        argv = o9_frame_alloc(&f, 64 * sizeof(char*), sizeof(void*));
         if(argv == nil){
-            free(copy);
+            o9_frame_exit(&f);
             out = o9_string_from_c("out of memory");
             goto process_capture_done;
         }
@@ -264,22 +263,18 @@ function ProcessRunCaptureRaw(string argvText, string input, string outPath, str
         }
         argv[argc] = nil;
         if(argc == 0){
-            free(argv);
-            free(copy);
+            o9_frame_exit(&f);
             out = o9_string_from_c("empty argv");
             goto process_capture_done;
         }
-        op = o9_string_cstr(outPath);
-        ep = o9_string_cstr(errPath);
+        op = o9_string_data(outPath);
+        ep = o9_string_data(errPath);
         ofd = create(op, OWRITE, 0600);
         efd = create(ep, OWRITE, 0600);
-        free(op);
-        free(ep);
         if(ofd < 0 || efd < 0 || pipe(in) < 0){
             if(ofd >= 0) close(ofd);
             if(efd >= 0) close(efd);
-            free(argv);
-            free(copy);
+            o9_frame_exit(&f);
             out = o9_string_from_c("cannot set up process");
             goto process_capture_done;
         }
@@ -322,8 +317,7 @@ function ProcessRunCaptureRaw(string argvText, string input, string outPath, str
             }
         }
         out = o9_string_from_c(statusbuf);
-        free(argv);
-        free(copy);
+        o9_frame_exit(&f);
 process_capture_done:
         ;
     }

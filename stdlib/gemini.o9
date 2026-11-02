@@ -12,7 +12,7 @@ import "format.o9";
 function GemParseIntRaw(string value) int64 {
     int64 out = 0;
     c {
-        char *s = o9_string_cstr(value);
+        char *s = o9_string_data(value);
         if(s != nil) {
             out = strtoll(s, nil, 0);
         }

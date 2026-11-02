@@ -45,11 +45,10 @@ function RingVnodeNameRaw(string node, int64 n) string {
         char buf[512];
 
         out = o9_string_new("", 0);
-        p = o9_string_cstr(node);
+        p = o9_string_data(node);
         if(p != nil){
             snprint(buf, sizeof buf, "%s#%lld", p, n);
             out = o9_string_from_c(buf);
-            free(p);
         }
     }
 
@@ -76,7 +75,7 @@ function RingPositionRaw(string name) int64 {
         int d;
 
         v = 0;
-        p = o9_string_cstr(digest);
+        p = o9_string_data(digest);
         if(p != nil){
             for(i = 0; i < 15 && p[i] != '\0'; i++){
                 d = p[i];
@@ -90,7 +89,6 @@ function RingPositionRaw(string name) int64 {
                     d = 0;
                 v = (v << 4) | d;
             }
-            free(p);
         }
         pos = v;
     }

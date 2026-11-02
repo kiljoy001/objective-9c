@@ -57,10 +57,9 @@ function DirListRaw(string path) string {
         long n, need, cap, len;
 
         out = o9_string_new("", 0);
-        p = o9_string_cstr(path);
-        if(p != nil){
+        p = o9_string_data(path);
+        if(p[0] != '\0'){
             fd = open(p, OREAD);
-            free(p);
             if(fd >= 0){
                 d = nil;
                 n = dirreadall(fd, &d);

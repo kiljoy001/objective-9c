@@ -82,6 +82,7 @@ function NinePFidRaw(string packet) int64 {
 function NinePEncodeRaw(int64 type, int64 tag, int64 fid, int64 msize, string text) string {
     string out;
     c {
+        O9DataFrame df;
         Fcall f;
         char *s;
         uchar *buf;
@@ -92,7 +93,7 @@ function NinePEncodeRaw(int64 type, int64 tag, int64 fid, int64 msize, string te
         f.type = type;
         f.tag = tag;
         f.fid = fid;
-        s = o9_string_cstr(text);
+        s = o9_string_data(text);
         if(type == Rerror){
             f.ename = s;
         } else if(type == Rread){
@@ -103,14 +104,14 @@ function NinePEncodeRaw(int64 type, int64 tag, int64 fid, int64 msize, string te
             f.version = s;
         }
         sz = sizeS2M(&f);
-        buf = malloc(sz);
+        o9_frame_enter(&df, nil);
+        buf = o9_frame_alloc(&df, sz > 0 ? sz : 1, 1);
         if(buf != nil){
             n = convS2M(&f, buf, sz);
             if(n > 0)
                 out = o9_string_new((char*)buf, n);
-            free(buf);
         }
-        free(s);
+        o9_frame_exit(&df);
     }
     return out;
 }

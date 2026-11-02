@@ -5,12 +5,9 @@ function TestExitRaw(string status) int64 {
     c {
         char *s;
         out = 0;
-        s = o9_string_cstr(status);
+        s = o9_string_data(status);
         if(s != nil && s[0] != '\0')
             threadexitsall(s);
-        else
-            threadexitsall(nil);
-        free(s);
     }
     return out;
 }
@@ -59,14 +56,10 @@ function TestContainsRaw(string haystack, string needle) bool {
     c {
         char *h, *n;
         out = 0;
-        h = o9_string_cstr(haystack);
-        n = o9_string_cstr(needle);
-        if(h != nil && n != nil){
-            if(strstr(h, n) != nil)
-                out = 1;
-        }
-        free(h);
-        free(n);
+        h = o9_string_data(haystack);
+        n = o9_string_data(needle);
+        if(strstr(h, n) != nil)
+            out = 1;
     }
     return out;
 }
@@ -99,8 +92,8 @@ function TestMkdirRaw(string dir) int64 {
         Dir *st;
 
         out = 0;
-        d = o9_string_cstr(dir);
-        if(d != nil){
+        d = o9_string_data(dir);
+        if(d[0] != '\0'){
             fd = create(d, OREAD, DMDIR|0775);
             if(fd >= 0){
                 close(fd);
@@ -113,7 +106,6 @@ function TestMkdirRaw(string dir) int64 {
                     free(st);
                 }
             }
-            free(d);
         }
     }
     return out;
@@ -127,8 +119,8 @@ function TestCleanDirRaw(string dir) int64 {
         Waitmsg *w;
 
         out = 0;
-        d = o9_string_cstr(dir);
-        if(d != nil){
+        d = o9_string_data(dir);
+        if(d[0] != '\0'){
             pid = rfork(RFPROC|RFFDG|RFNOTEG);
             if(pid == 0){
                 execl("/bin/rm", "rm", "-rf", d, nil);
@@ -147,7 +139,6 @@ function TestCleanDirRaw(string dir) int64 {
                     free(w);
                 }
             }
-            free(d);
         }
     }
     return out;
@@ -162,8 +153,8 @@ function TestIsolateRaw(string cmd) string {
         char *res;
 
         res = nil;
-        c_cmd = o9_string_cstr(cmd);
-        if(c_cmd != nil){
+        c_cmd = o9_string_data(cmd);
+        if(c_cmd[0] != '\0'){
             pid = rfork(RFPROC|RFFDG|RFNOTEG);
             if(pid == 0){
                 execl("/bin/rc", "rc", "-c", c_cmd, nil);
@@ -183,10 +174,10 @@ function TestIsolateRaw(string cmd) string {
                     free(w);
                 }
             }
-            free(c_cmd);
         }
         out = o9_string_from_c(res != nil ? res : "");
-        free(res);
+        if(res != nil)
+            free(res);
     }
     return out;
 }
@@ -423,8 +414,8 @@ class Test {
         return false;
     }
 
-    method bool fail(string what, string msg) {
-        emitFail(what, msg);
+    method bool fail(string what, string message) {
+        emitFail(what, message);
         return false;
     }
 

@@ -213,9 +213,11 @@ for ui_src in "$ROOT"/stdlib/e2e_draw*.o9 \
               "$ROOT"/stdlib/e2e_config.o9 \
               "$ROOT"/stdlib/e2e_dat.o9 \
               "$ROOT"/stdlib/e2e_dir.o9 \
+              "$ROOT"/stdlib/e2e_file.o9 \
               "$ROOT"/stdlib/e2e_format.o9 \
               "$ROOT"/stdlib/e2e_gemini.o9 \
               "$ROOT"/stdlib/e2e_import_stdlib.o9 \
+              "$ROOT"/stdlib/e2e_io.o9 \
               "$ROOT"/stdlib/e2e_io_lines.o9 \
               "$ROOT"/stdlib/e2e_log.o9 \
               "$ROOT"/stdlib/e2e_net_lines.o9 \
