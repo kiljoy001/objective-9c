@@ -11,6 +11,7 @@ struct O9FTMount { O9FileTree *source; int mode; O9FTMount *next; };
 struct O9FTSource { char *id; O9FileTree *tree; O9FTSource *next; };
 static QLock ft_mount_lock;
 static O9FTSource *ft_sources;
+static O9FileTree *ft_trees;
 
 struct O9FTEntry {
 	char *name;
@@ -33,6 +34,7 @@ struct O9FileTree {
 	int alive;
 	O9FTEntry *root;
 	O9FTEntry *all;
+	O9FileTree *next;
 };
 
 static Lock ft_id_lock;
@@ -126,6 +128,10 @@ o9_filetree_new(void)
 	t->alive = 1;
 	t->root = ft_entry(t, nil, ".", O9FT_DIR, nil, 0);
 	if(t->root == nil){ free(t); return nil; }
+	qlock(&ft_mount_lock);
+	t->next = ft_trees;
+	ft_trees = t;
+	qunlock(&ft_mount_lock);
 	return t;
 }
 
@@ -321,6 +327,66 @@ ft_free_mounts(O9FTMount *m)
 {
 	O9FTMount *next;
 	while(m != nil){ next = m->next; free(m); m = next; }
+}
+
+/*
+ * Release a closed tree only after its last view fid has clunked. A source
+ * mounted into another tree must be unmounted first; otherwise its entries
+ * can still be reached through that tree.
+ */
+int
+o9_filetree_destroy(O9FileTree *t)
+{
+	O9FileTree *tree, **pp;
+	O9FTEntry *e, *next;
+	O9FTMount *m;
+	O9FTSource *s;
+	int found;
+
+	if(t == nil || t->owner != o9_actor_channel())
+		return -1;
+	qlock(&ft_mount_lock);
+	qlock(&t->lock);
+	if(t->alive){
+		qunlock(&t->lock);
+		qunlock(&ft_mount_lock);
+		return -1;
+	}
+	qunlock(&t->lock);
+	for(s = ft_sources; s != nil; s = s->next)
+		if(s->tree == t){
+			qunlock(&ft_mount_lock);
+			return -1;
+		}
+	for(tree = ft_trees; tree != nil; tree = tree->next){
+		if(tree == t)
+			continue;
+		for(e = tree->all; e != nil; e = e->allnext)
+			for(m = e->mounts; m != nil; m = m->next)
+				if(m->source == t){
+					qunlock(&ft_mount_lock);
+					return -1;
+				}
+	}
+	found = 0;
+	for(pp = &ft_trees; *pp != nil; pp = &(*pp)->next)
+		if(*pp == t){
+			*pp = t->next;
+			found = 1;
+			break;
+		}
+	qunlock(&ft_mount_lock);
+	if(!found)
+		return -1;
+	for(e = t->all; e != nil; e = next){
+		next = e->allnext;
+		ft_free_mounts(e->mounts);
+		o9_string_release(e->data);
+		free(e->name);
+		free(e);
+	}
+	free(t);
+	return 0;
 }
 
 static O9FTMount*

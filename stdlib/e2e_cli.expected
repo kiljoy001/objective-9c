@@ -1,0 +1,8 @@
+count 6
+at0 -n
+opt bob
+eq 42
+flag 1 0
+int 42 9
+env fallback
+req 1

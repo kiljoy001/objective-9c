@@ -1,0 +1,110 @@
+// Small, C-free text builder for log lines, paths, protocol fields, and
+// messages.
+//
+// The goal is to remove the snprint/sprint/smprint/strcat pattern from app
+// code. Callers append values to a builder and ask for the final text.
+import "buffer.o9";
+
+function FormatHexRaw(int64 v) string {
+    string out;
+    c {
+        char buf[32];
+
+        snprint(buf, sizeof buf, "%llx", (vlong)v);
+        out = o9_string_from_c(buf);
+    }
+    return out;
+}
+
+function FormatOctRaw(int64 v) string {
+    string out;
+    c {
+        char buf[32];
+
+        snprint(buf, sizeof buf, "%llo", (vlong)v);
+        out = o9_string_from_c(buf);
+    }
+    return out;
+}
+
+class Format {
+    prop Buffer buf;
+
+    method Format() {
+        buf = new Buffer("");
+    }
+
+    method void clear() {
+        buf.clear();
+    }
+
+    method int64 length() {
+        return buf.length();
+    }
+
+    method string text() {
+        return buf.text();
+    }
+
+    method void str(string s) {
+        buf.append(s);
+    }
+
+    method void dec(int64 n) {
+        buf.append(intstr(n));
+    }
+
+    method void hex(int64 n) {
+        Task<string> t = spawn FormatHexRaw(n);
+        buf.append(t.await());
+    }
+
+    method void oct(int64 n) {
+        Task<string> t = spawn FormatOctRaw(n);
+        buf.append(t.await());
+    }
+
+    method void boolean(bool v) {
+        if(v) {
+            buf.append("true");
+        } else {
+            buf.append("false");
+        }
+    }
+
+    method void nl() {
+        buf.append("\n");
+    }
+
+    method void spaces(int64 n) {
+        int64 i = 0;
+        while(i < n) {
+            buf.append(" ");
+            i = i + 1;
+        }
+    }
+
+    method void zeros(int64 n) {
+        int64 i = 0;
+        while(i < n) {
+            buf.append("0");
+            i = i + 1;
+        }
+    }
+
+    // Pad the current text to width with spaces. Does nothing if already wide.
+    method void pad(int64 width) {
+        while(buf.length() < width) {
+            buf.append(" ");
+        }
+    }
+
+    // Pad the current text to width with leading zeroes.
+    method void zeroPad(int64 width) {
+        string t = buf.text();
+        int64 n = width - len(t);
+        buf.clear();
+        zeros(n);
+        buf.append(t);
+    }
+}

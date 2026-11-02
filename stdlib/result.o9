@@ -1,0 +1,32 @@
+// A small value-shaped result for APIs that prefer returning errors over
+// throwing. try/fail remains the mechanism for exceptional control flow.
+class Result {
+    prop bool ok;
+    prop string value;
+    prop string errmsg;
+
+    method Result(bool success, string val, string text) {
+        ok = success;
+        value = val;
+        errmsg = text;
+    }
+
+    method bool succeeded() {
+        return ok;
+    }
+
+    method bool failed() {
+        return !ok;
+    }
+
+    method string unwrap(string def) {
+        if(ok) {
+            return value;
+        }
+        return def;
+    }
+
+    method string err() {
+        return errmsg;
+    }
+}

@@ -1,0 +1,23 @@
+Native libm.h delta: avoid `long double` for 6c
+================================================
+
+Native Plan 9 6c has no `long double` type.  generated9's musl libm.h
+declares unused long-double helpers unconditionally:
+
+    static inline long double fp_barrierl(long double x) { ... }
+    static inline void fp_force_evall(long double x) { ... }
+    hidden int __rem_pio2l(long double, long double *);
+    hidden long double __sinl(long double, long double, int);
+    ...
+
+None of the 49 math/*.c files in the vendored set implements or calls those
+long-double entry points; they are present only because musl's shared
+libm.h covers the full libm.  vendor.rc rewrites `long double` to `double`
+in math/libm.h so 6c can parse the header:
+
+    sed 's/long double/double/g' math/libm.h > math/libm.h.new
+    mv math/libm.h.new math/libm.h
+
+This is a source-level adaptation, not a change to the double-precision
+algorithms.  If a future math file needs true x87 80-bit long double, this
+shortcut must be revisited and 6c support investigated.

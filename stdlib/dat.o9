@@ -1,0 +1,373 @@
+// dat.o9 — Native Dat / Hypercore protocol and streaming multimedia feed
+//
+// Implements:
+//   - DatKey: dat:// URL and 64-hex discovery key parsing & validation
+//   - DatEntry: Hyperdrive archive file/directory metadata entry
+//   - DatBlock: Append-only feed chunk with BLAKE2b hash verification
+//   - DatFeed: Hypercore log with append, block access, and integrity check
+//   - DatStream: Multimedia range streaming and seeking across blocks
+//   - DatArchive: Hyperdrive combining metadata and content feeds
+
+import "string.o9";
+import "collections.o9";
+
+function DatValidateKeyRaw(string key) bool {
+    if(len(key) != 64) {
+        return false;
+    }
+    bool valid = true;
+    c {
+        char *s = o9_string_data(key);
+        int j;
+        if(s == nil || o9_string_len(key) != 64) {
+            valid = 0;
+        } else {
+            for(j = 0; j < 64; j++) {
+                char c0 = s[j];
+                if(!((c0 >= '0' && c0 <= '9') || (c0 >= 'a' && c0 <= 'f') || (c0 >= 'A' && c0 <= 'F'))) {
+                    valid = 0;
+                    break;
+                }
+            }
+        }
+    }
+    return valid;
+}
+
+class DatKey {
+    prop string key;
+    prop string discoveryKey;
+    prop string path;
+    prop bool valid;
+
+    method DatKey(string k, string dk, string p, bool v) {
+        key = k;
+        discoveryKey = dk;
+        path = p;
+        valid = v;
+    }
+
+    method string getKey() {
+        return key;
+    }
+
+    method string getDiscoveryKey() {
+        return discoveryKey;
+    }
+
+    method string getPath() {
+        return path;
+    }
+
+    method bool isValid() {
+        return valid;
+    }
+}
+
+class DatBlock {
+    prop int64 index;
+    prop string payload;
+    prop int64 length;
+    prop string blockHash;
+
+    method DatBlock(int64 idx, string d, int64 l, string h) {
+        index = idx;
+        payload = d;
+        length = l;
+        blockHash = h;
+    }
+
+    method int64 getIndex() {
+        return index;
+    }
+
+    method string getPayload() {
+        return payload;
+    }
+
+    method int64 getLength() {
+        return length;
+    }
+
+    method string getHash() {
+        return blockHash;
+    }
+
+    method bool verify() {
+        string h = hash(payload);
+        return cmp(h, blockHash) == 0;
+    }
+}
+
+class DatFeed {
+    prop string key;
+    prop string discoveryKey;
+    prop int64 blockCount;
+    prop int64 byteLength;
+    prop list<DatBlock> blocks;
+
+    method DatFeed(string pubKey) {
+        key = pubKey;
+        discoveryKey = hash(pubKey);
+        blockCount = 0;
+        byteLength = 0;
+        blocks = new list<DatBlock>();
+    }
+
+    method int64 append(string data) {
+        int64 dlen = len(data);
+        string h = hash(data);
+        DatBlock blk = new DatBlock(blockCount, data, dlen, h);
+        blocks.add(blk);
+        int64 idx = blockCount;
+        blockCount = blockCount + 1;
+        byteLength = byteLength + dlen;
+        return idx;
+    }
+
+    method DatBlock getBlock(int64 index) {
+        DatBlock b = blocks.get(index);
+        return b;
+    }
+
+    method int64 getBlockCount() {
+        return blockCount;
+    }
+
+    method int64 getByteLength() {
+        return byteLength;
+    }
+
+    method string getKey() {
+        return key;
+    }
+
+    method string getDiscoveryKey() {
+        return discoveryKey;
+    }
+
+    method bool verifyAll() {
+        int64 i = 0;
+        while(i < blockCount) {
+            DatBlock b = blocks.get(i);
+            if(!b.verify()) {
+                return false;
+            }
+            i = i + 1;
+        }
+        return true;
+    }
+}
+
+class DatEntry {
+    prop string path;
+    prop int64 size;
+    prop int64 offset;
+    prop int64 blocks;
+    prop int64 mtime;
+    prop bool isDir;
+
+    method DatEntry(string p, int64 sz, int64 off, int64 blk, int64 mt, bool dir) {
+        path = p;
+        size = sz;
+        offset = off;
+        blocks = blk;
+        mtime = mt;
+        isDir = dir;
+    }
+
+    method string getPath() {
+        return path;
+    }
+
+    method int64 getSize() {
+        return size;
+    }
+
+    method int64 getOffset() {
+        return offset;
+    }
+
+    method int64 getBlocks() {
+        return blocks;
+    }
+
+    method int64 getMtime() {
+        return mtime;
+    }
+
+    method bool isDirectory() {
+        return isDir;
+    }
+}
+
+class DatStream {
+    method DatStream() {
+    }
+
+    // Finds the block index containing the given byte offset
+    method int64 findBlockIndex(DatFeed feed, int64 byteOffset) {
+        if(byteOffset < 0) {
+            return -1;
+        }
+        if(byteOffset >= feed.getByteLength()) {
+            return -1;
+        }
+
+        int64 cur = 0;
+        int64 i = 0;
+        int64 total = feed.getBlockCount();
+
+        while(i < total) {
+            DatBlock b = feed.getBlock(i);
+            int64 blen = b.getLength();
+            if(byteOffset < cur + blen) {
+                return i;
+            }
+            cur = cur + blen;
+            i = i + 1;
+        }
+        return -1;
+    }
+
+    // Stream a byte range [startOffset, startOffset + maxBytes) across blocks
+    method string readRange(DatFeed feed, int64 startOffset, int64 maxBytes) {
+        if(maxBytes <= 0) {
+            return "";
+        }
+        if(startOffset < 0) {
+            return "";
+        }
+        if(startOffset >= feed.getByteLength()) {
+            return "";
+        }
+
+        string result = "";
+        int64 cur = 0;
+        int64 remaining = maxBytes;
+        int64 i = 0;
+        int64 total = feed.getBlockCount();
+
+        while(i < total && remaining > 0) {
+            DatBlock b = feed.getBlock(i);
+            int64 blen = b.getLength();
+            int64 blockStart = cur;
+            int64 blockEnd = cur + blen;
+
+            if(startOffset < blockEnd) {
+                if(blockStart < startOffset + maxBytes) {
+                    // This block overlaps with requested range
+                    int64 sliceStart = 0;
+                    if(startOffset > blockStart) {
+                        sliceStart = startOffset - blockStart;
+                    }
+
+                    int64 availInBlock = blen - sliceStart;
+                    int64 takeBytes = availInBlock;
+                    if(takeBytes > remaining) {
+                        takeBytes = remaining;
+                    }
+
+                    string blkData = b.getPayload();
+                    string chunk = slice(blkData, sliceStart, takeBytes);
+                    result = cat(result, chunk);
+                    remaining = remaining - takeBytes;
+                }
+            }
+
+            cur = cur + blen;
+            i = i + 1;
+        }
+
+        return result;
+    }
+}
+
+class DatArchive {
+    prop DatFeed metadataFeed;
+    prop DatFeed contentFeed;
+    prop list<DatEntry> entries;
+
+    method DatArchive(string key) {
+        metadataFeed = new DatFeed(key);
+        string contentKey = hash(cat(key, ":content"));
+        contentFeed = new DatFeed(contentKey);
+        entries = new list<DatEntry>();
+    }
+
+    method DatFeed getMetadataFeed() {
+        DatFeed mf = metadataFeed;
+        return mf;
+    }
+
+    method DatFeed getContentFeed() {
+        DatFeed cf = contentFeed;
+        return cf;
+    }
+
+    method void addFile(string path, string content) {
+        int64 startBlock = contentFeed.getBlockCount();
+        int64 blkIdx = contentFeed.append(content);
+        DatEntry entry = new DatEntry(path, len(content), startBlock, 1, 0, false);
+        entries.add(entry);
+    }
+
+    method int64 entryCount() {
+        return entries.length();
+    }
+
+    method DatEntry getEntry(int64 index) {
+        DatEntry e = entries.get(index);
+        return e;
+    }
+
+    method DatEntry findEntry(string path) {
+        int64 i = 0;
+        int64 total = entries.length();
+        while(i < total) {
+            DatEntry e = entries.get(i);
+            if(cmp(e.getPath(), path) == 0) {
+                return e;
+            }
+            i = i + 1;
+        }
+        DatEntry empty = new DatEntry("", 0, 0, 0, 0, false);
+        return empty;
+    }
+}
+
+class DatProtocol {
+    method DatProtocol() {
+    }
+
+    method DatKey parseUrl(string url) {
+        String u = new String(url);
+        if(!u.startsWith("dat://")) {
+            DatKey invalidKey = new DatKey("", "", "", false);
+            return invalidKey;
+        }
+
+        string rest = slice(url, 6, len(url) - 6);
+        String r = new String(rest);
+        int64 slashIdx = r.indexOf("/");
+        string keyHex = rest;
+        string pathStr = "/";
+
+        if(slashIdx >= 0) {
+            keyHex = slice(rest, 0, slashIdx);
+            pathStr = slice(rest, slashIdx, len(rest) - slashIdx);
+        }
+
+        Task<bool> vk = spawn DatValidateKeyRaw(keyHex);
+        bool isValid = vk.await();
+
+        if(!isValid) {
+            DatKey badKey = new DatKey(keyHex, "", pathStr, false);
+            return badKey;
+        }
+
+        string disc = hash(keyHex);
+        DatKey resKey = new DatKey(keyHex, disc, pathStr, true);
+        return resKey;
+    }
+}

@@ -15,8 +15,10 @@
  *                                  if unused — kept simple: splice all,
  *                                  selective names are advisory/dep hint)
  *
- * Path rule: resolved relative to import_base_dir, and MUST stay within
- * that dir's subtree (no .., no absolute). A project is self-contained.
+ * Path rule: resolved relative to the importing file's directory, with
+ * the entry source directory and cwd as fallbacks. The import path itself
+ * may not contain .. that escapes its base, and absolute paths are
+ * rejected. A project is self-contained.
  */
 
 static char *imp_loaded[64];

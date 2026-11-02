@@ -16,25 +16,48 @@ Status: current snapshot plus near roadmap.
 - App composition is through the shared app facade and Plan 9 namespace
   mounts. The retired `link`/`replace`/`union` object-composition model
   must not come back under stdlib names.
+- Thin host primitives may be builtins when they remove repetitive raw C
+  from ordinary programs: argv/env, small file checks, integer text, and
+  sleep. Richer behavior still belongs in stdlib objects.
 
 ## Built Modules
 
+- `stdlib/cli.o9`: `Args`, argv/option/flag/environment parsing for small
+  command-line applications. `loadLine()` supports tests and ctl commands.
+- `stdlib/config.o9`: `Config`, line-oriented key/value settings with
+  comments, trim, custom separators, and ordered save.
+- `stdlib/service.o9`: `Service`, the standard `viewController` + `serve`
+  bootstrap for 9P view services and view-less facades.
 - `stdlib/string.o9`: `String`, an object wrapper over built-in `string`
   with search, trim, case, replace, repeat, and delimiter helpers.
 - `stdlib/bytes.o9`: `Bytes`, a length-carrying byte object over o9
   strings.
 - `stdlib/buffer.o9`: `Buffer`, a mutable byte/text builder over
   `Bytes`.
+- `stdlib/format.o9`: `Format`, a text builder for decimal, hex, octal,
+  booleans, padding, and lines.
+- `stdlib/log.o9`: `Log`, leveled application logging with timestamps,
+  file output, and `fatal`.
+- `stdlib/result.o9`: `Result`, explicit success/value/error returns for
+  APIs that prefer data over `try`/`fail`.
 - `stdlib/collections.o9`: `list<T>`, `array<T>`, and
   `dictionary<T>`, object-style wrappers over existing collection
   carriers.
 - `stdlib/file.o9`: `File`, common Plan 9 file, stat, directory, copy,
-  move, and byte helpers.
+  move, positional read/write, and byte helpers.
+- `stdlib/dir.o9`: `DirEntry`, `DirList`, `Dir`, and `DirTree` for typed
+  listings and iterative tree walk/copy/remove.
 - `stdlib/path.o9`: `Path`, Plan 9 path cleaning and decomposition.
-- `stdlib/io.o9`: `IOBuffer`, `Reader`, `Writer`, and `Appender` over
-  Plan 9 `Biobuf`.
-- `stdlib/process.o9`: `Process` and `Env` over argv/env/cwd and command
-  execution.
+- `stdlib/io.o9`: `IOBuffer`, `Reader`, `Writer`, `Appender`,
+  `StreamReader`, `StreamWriter`, and `Lines` over Plan 9 `Biobuf`.
+- `stdlib/process.o9`: `Process`, `Env`, `Cmd`, `CmdResult`, and
+  `Pipeline` over argv/env/cwd and command execution.
+- `stdlib/sync.o9`: `Mutex`, `WaitGroup`, `Semaphore`, `Once`, and
+  `Pool` over libthread locks and rendezvous.
+- `stdlib/rune.o9`: `Runes`, UTF-8 count/index/offset/slice/conversion
+  helpers.
+- `stdlib/9p.o9`: `NineP`, low-level 9P2000 framing and common reply
+  builders for custom servers.
 - `stdlib/time.o9`: `Time` and `DateTime` over Plan 9 time functions.
   `DateTime()` captures now; explicit calendar construction uses
   `set(year, month, day, hour, minute, second)`.
@@ -43,7 +66,8 @@ Status: current snapshot plus near roadmap.
 - `stdlib/math.o9`: Plan 9 libc `double` math wrappers plus integer
   `abs`.
 - `stdlib/net.o9`: `NetConn`, `NetListener`, `Factotum`, `NetToken`,
-  `RemoteIdentity`, and `KnownRemotes`. Plan 9-to-Plan 9 secret handling
+  `RemoteIdentity`, and `KnownRemotes`. Line reads/writes and connection
+  timeouts are available on `NetConn`. Plan 9-to-Plan 9 secret handling
   defaults to factotum; `Factotum` also exposes local/caller identity
   helpers for facade controller policy. Portable token files stay data.
 - `stdlib/namespace.o9`: `Namespace`, the object wrapper over

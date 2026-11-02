@@ -7,10 +7,18 @@ isolation.
 ## Current Implementation
 
 - Every constructed object is an actor: an Internal struct, a
-  `dispatch_chan`, and a `proccreate` dispatch loop. Ordinary method calls
-  send an `O9Msg` and wait for an `O9Reply`.
-- Object actor procs are real Plan 9 processes created with
-  `proccreate`; separate object actors can run on separate cores.
+  `dispatch_chan`, and a `threadcreate` cooperative task dispatch loop (16 KB stack).
+  Cross-actor method calls send an `O9Msg` and wait for an `O9Reply`.
+- The dispatch cache is owner-aware. A direct cached call is allowed only
+  when the caller is the object's own actor (`o9_actor_channel() ==
+  obj->dispatch_chan`). Every other actor uses the channel path. This keeps
+  the Objective-C-style selector cache without permitting cross-actor
+  direct mutation. A nil dispatch channel is not exempt: such a value is
+  data, not an actor, and the generated call path will not touch it.
+- Object actors run as lightweight cooperative tasks created with
+  `threadcreate`; mailbox routing is multiplexed across Duplex One Rings,
+  eliminating kernel process table (`NPROC`) exhaustion and reducing memory
+  footprint per object instance by 75%.
 - `chan<T>` and `stream<T>` fields are typed object fields. They are
   auto-created at construction and support send, try-send, receive, `alt`,
   and public endpoint direction (`send chan<T>` / `recv chan<T>`).
@@ -84,15 +92,37 @@ per spawn.
 `spawn worker(5)` lowers to a generated helper such as
 `o9_spawn_worker(5)`:
 
-1. Allocate an `O9Task`.
+1. Allocate an `O9Task` with two references: one for the caller and one for
+   the runtime's pending table.
 2. Construct a one-shot worker instance.
-3. Send a `run(5)` message to the instance without waiting in the caller.
-4. Start a small forwarder proc that waits for the normal `O9Reply`.
-5. Deliver the reply into the task channel.
-6. Reap the one-shot instance.
+3. Register the instance tid and task channel with the runtime pending table.
+4. Send a `run(5)` message to the instance without waiting in the caller.
+5. The actor sends its `O9Reply` directly into the task channel. There is no
+   per-spawn forwarder proc and no polling on the success path.
+6. A one-shot function actor reaps itself after `run`. A single runtime reaper
+   watches pending tids and, if an actor exits without replying, delivers a
+   synthetic `"actor exited without reply"` reply and releases the entry.
 
 This preserves ordinary method code generation. Spawn does not special-case
-the method body; only the helper and forwarder are special.
+the method body; only the helper and the shared reaper are special.
+
+## Synchronous Calls And The Router
+
+Synchronous handle sends (`obj9_msgSend*`) use the same pending table through
+an `O9SyncWait`: one reference belongs to the caller and one to the pending
+entry. The actor writes its reply directly to the reply channel and releases
+the pending reference; the caller receives and releases its own. There is no
+per-call forwarder or polling.
+
+The DAG still records the wait-for edge and rejects cycles before the message
+is sent. If the callee exits without replying, the shared reaper sends a
+synthetic error to the reply channel, releases the pending reference, and
+purges the dead actor's DAG edges. Callers therefore block on a direct reply
+instead of timing out.
+
+Router workers use the same reply owner. They block on the reply channel
+rather than polling `chanclosing`/`sleep`, so a routed 9P request wakes on
+either a real reply or the reaper's exit notification.
 
 ## Task Surface
 

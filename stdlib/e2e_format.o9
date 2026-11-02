@@ -1,0 +1,29 @@
+import "format.o9";
+
+main {
+    Format f = new Format();
+    f.str("user ");
+    f.str("alice");
+    f.str(" ");
+    f.dec(42);
+    f.str(" ");
+    f.hex(255);
+    f.str(" ");
+    f.oct(42);
+    f.str(" ");
+    f.boolean(true);
+    f.nl();
+    print(f.text());
+
+    f.clear();
+    f.str("x");
+    f.zeroPad(4);
+    f.str("y");
+    print(f.text(), "\n");
+
+    f.clear();
+    f.str("a");
+    f.pad(3);
+    f.str("b");
+    print("[", f.text(), "]\n");
+}

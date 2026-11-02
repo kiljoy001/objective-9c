@@ -1,0 +1,55 @@
+import "testing.o9";
+
+main {
+    Test t = new Test("selftest");
+
+    t.testCase("scalars");
+    t.ok("true condition", 10 > 2);
+    t.notOk("false condition", 2 > 10);
+    t.eqInt("addition", 10 + 20, 30);
+    t.neInt("inequality", 10, 20);
+    t.eqBool("bool true", true, true);
+    t.eqBool("bool false", false, false);
+    t.eqDouble("float match", 3.14159, 3.141592, 0.001);
+
+    t.testCase("strings");
+    t.eqStr("equal strings", "plan9", "plan9");
+    t.neStr("different strings", "plan9", "linux");
+    t.containsStr("substring", "hello world", "world");
+    t.emptyStr("empty check", "");
+    t.notEmptyStr("nonempty check", "o9");
+
+    t.testCase("hierarchy");
+    t.subcase("nested");
+    t.ok("nested check", 1 == 1);
+    t.endSubcase();
+
+    t.caseParam("table", "0");
+    t.eqInt("zero test", 0, 0);
+    t.caseParam("table", "1");
+    t.eqInt("one test", 1, 1);
+
+    t.testCase("skips");
+    t.skip("skip check", "testing skip feature");
+
+    t.testCase("isolation");
+    t.isolate("clean command", "echo -n");
+    t.isolateFail("failing command", "exit crash");
+
+    t.testCase("fixtures");
+    string d = t.tmpDir();
+    t.ok("tmpdir non-empty", len(d) > 0);
+    string p = t.tmpPath("scratch.txt");
+    t.ok("tmppath has dir", len(p) > len(d));
+    t.cleanTmp();
+
+    t.report();
+
+    Test tap = new Test("tap_test");
+    tap.setTAP(true);
+    tap.testCase("tap_cases");
+    tap.ok("first", true);
+    tap.eqInt("second", 42, 42);
+    tap.skip("third", "tap skip");
+    tap.report();
+}

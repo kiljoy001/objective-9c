@@ -1,0 +1,44 @@
+import "dat.o9";
+
+main {
+    DatProtocol proto = new DatProtocol();
+
+    // 1. Valid URL parsing
+    string validUrl = "dat://40a7f6b61444a0507d373f737fa1b49670271f49429c342f22323ac0c2a0f41c/media/stream.mp4";
+    DatKey k1 = proto.parseUrl(validUrl);
+    print("k1: valid=", k1.isValid(), " path=", k1.getPath(), "\n");
+    print("k1: key_len=", len(k1.getKey()), " disc_len=", len(k1.getDiscoveryKey()), "\n");
+
+    // 2. Invalid URL parsing
+    DatKey k2 = proto.parseUrl("dat://short-key/media.mp4");
+    print("k2: valid=", k2.isValid(), " key=", k2.getKey(), "\n");
+
+    // 3. Feed creation and block appending
+    string pubKey = "40a7f6b61444a0507d373f737fa1b49670271f49429c342f22323ac0c2a0f41c";
+    DatFeed feed = new DatFeed(pubKey);
+    int64 b0 = feed.append("CHUNK0-HEADER");
+    int64 b1 = feed.append("CHUNK1-VIDEOFRAME");
+    int64 b2 = feed.append("CHUNK2-AUDIOFRAME");
+    print("feed: blocks=", feed.getBlockCount(), " bytes=", feed.getByteLength(), "\n");
+    print("feed: verify=", feed.verifyAll(), "\n");
+
+    DatBlock blk1 = feed.getBlock(1);
+    print("blk1: idx=", blk1.getIndex(), " len=", blk1.getLength(), " hash_len=", len(blk1.getHash()), "\n");
+
+    // 4. Multimedia stream seeking and range reading
+    DatStream dstream = new DatStream();
+    print("seek: 0 in blk ", dstream.findBlockIndex(feed, 0), "\n");
+    print("seek: 15 in blk ", dstream.findBlockIndex(feed, 15), "\n");
+    print("seek: 35 in blk ", dstream.findBlockIndex(feed, 35), "\n");
+
+    string sliceRange = dstream.readRange(feed, 7, 20);
+    print("stream: range=", sliceRange, " len=", len(sliceRange), "\n");
+
+    // 5. Hyperdrive archive entry indexing
+    DatArchive archive = new DatArchive(pubKey);
+    archive.addFile("/movies/sample.mp4", "MP4-HEADER-STREAM-DATA");
+    print("archive: entries=", archive.entryCount(), "\n");
+
+    DatEntry ent = archive.findEntry("/movies/sample.mp4");
+    print("entry: path=", ent.getPath(), " size=", ent.getSize(), " off=", ent.getOffset(), "\n");
+}

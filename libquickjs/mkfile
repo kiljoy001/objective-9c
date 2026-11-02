@@ -1,0 +1,150 @@
+</$objtype/mkfile
+
+# Native Plan 9 QuickJS library.
+#
+# The engine sources live in engine/ and math/ and are populated by vendor.rc
+# from a generated9 checkout.  See README.md for provenance and the required
+# 6c unordered-comparison patch.
+#
+# CC and LD come from /$objtype/mkfile (6c/6l on amd64).  Override on the
+# command line if needed: mk 'CC=pcc' 'LD=pcc'.
+
+AR=ar
+
+LIB=libquickjs.a
+
+ENGINE=engine
+MATH=math
+
+CFLAGS=-c -DPLAN9 -I. -Icompat -Iengine
+
+ENGINEOFILES=\
+	$ENGINE/quickjs.$O\
+	$ENGINE/cutils.$O\
+	$ENGINE/libregexp.$O\
+	$ENGINE/libunicode.$O\
+	$ENGINE/dtoa.$O
+
+MATHFILES=\
+	$MATH/acos.$O\
+	$MATH/acosh.$O\
+	$MATH/asin.$O\
+	$MATH/asinh.$O\
+	$MATH/atan.$O\
+	$MATH/atan2.$O\
+	$MATH/atanh.$O\
+	$MATH/cbrt.$O\
+	$MATH/ceil.$O\
+	$MATH/cos.$O\
+	$MATH/cosh.$O\
+	$MATH/exp.$O\
+	$MATH/expm1.$O\
+	$MATH/fabs.$O\
+	$MATH/floor.$O\
+	$MATH/fmod.$O\
+	$MATH/frexp.$O\
+	$MATH/hypot.$O\
+	$MATH/ldexp.$O\
+	$MATH/log.$O\
+	$MATH/log10.$O\
+	$MATH/log1p.$O\
+	$MATH/log2.$O\
+	$MATH/modf.$O\
+	$MATH/pow.$O\
+	$MATH/round.$O\
+	$MATH/scalbn.$O\
+	$MATH/sin.$O\
+	$MATH/sinh.$O\
+	$MATH/sqrt.$O\
+	$MATH/tan.$O\
+	$MATH/tanh.$O\
+	$MATH/trunc.$O\
+	$MATH/__cos.$O\
+	$MATH/__expo2.$O\
+	$MATH/__math_divzero.$O\
+	$MATH/__math_invalid.$O\
+	$MATH/__math_oflow.$O\
+	$MATH/__math_uflow.$O\
+	$MATH/__math_xflow.$O\
+	$MATH/__rem_pio2.$O\
+	$MATH/__rem_pio2_large.$O\
+	$MATH/__sin.$O\
+	$MATH/__tan.$O\
+	$MATH/exp_data.$O\
+	$MATH/log2_data.$O\
+	$MATH/log_data.$O\
+	$MATH/pow_data.$O\
+	$MATH/sqrt_data.$O
+
+OFILES=\
+	$ENGINEOFILES\
+	p9quickjs.$O\
+	p9time.$O\
+	p9math.$O\
+	$MATHFILES
+
+ENGINEH=\
+	$ENGINE/quickjs.h\
+	$ENGINE/quickjs-atom.h\
+	$ENGINE/quickjs-opcode.h\
+	$ENGINE/cutils.h\
+	$ENGINE/list.h\
+	$ENGINE/libregexp.h\
+	$ENGINE/libregexp-opcode.h\
+	$ENGINE/libunicode.h\
+	$ENGINE/libunicode-table.h\
+	$ENGINE/dtoa.h
+
+MATHH=\
+	$MATH/libm.h\
+	$MATH/exp_data.h\
+	$MATH/log2_data.h\
+	$MATH/log_data.h\
+	$MATH/pow_data.h\
+	$MATH/sqrt_data.h
+
+COMPATH=\
+	plan9.h\
+	p9quickjs.h\
+	compat/stddef.h\
+	compat/stdint.h\
+	compat/inttypes.h\
+	compat/float.h\
+	compat/stdarg.h\
+	compat/stdlib.h\
+	compat/string.h\
+	compat/assert.h\
+	compat/math.h\
+	compat/limits.h\
+	compat/errno.h\
+	compat/setjmp.h\
+	compat/time.h\
+	compat/sys/time.h\
+	compat/stdio.h\
+	compat/ctype.h
+
+HFILES=$ENGINEH $MATHH $COMPATH
+
+all:V: $LIB
+
+$LIB: $OFILES
+	rm -f $target
+	$AR r $target $prereq
+
+%.$O: %.c $HFILES
+	$CC $CFLAGS -o $target $stem.c
+
+test:V: $O.test
+	./$O.test
+
+$O.test: test.$O $LIB
+	$LD -o $target test.$O $LIB /$objtype/lib/libstdio.a
+
+install:V: $LIB
+	cp $LIB /$objtype/lib/
+
+clean:V:
+	rm -f *.[$OS] $ENGINE/*.[$OS] $MATH/*.[$OS] $O.test
+
+nuke:V: clean
+	rm -f $LIB

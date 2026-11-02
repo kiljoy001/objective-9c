@@ -1,0 +1,16 @@
+import "net.o9";
+
+main {
+    string path = "/tmp/o9_e2e_net_lines";
+    removefile(path);
+    writefile(path, "one\ntwo\nthree");
+
+    NetConn c = new NetConn(path);
+    print("dial ", c.dial(), "\n");
+    print("l1 ", c.readLine(64), "\n");
+    print("l2 ", c.readLine(64), "\n");
+    print("l3 ", c.readLine(64), "\n");
+    print("eof ", len(c.readLine(64)), "\n");
+    c.close();
+    removefile(path);
+}

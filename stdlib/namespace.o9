@@ -3,11 +3,9 @@ function NamespaceUnmountRaw(string dest) int64 {
     c {
         char *cdest;
         out = -1;
-        cdest = o9_string_cstr(dest);
-        if(cdest != nil){
+        cdest = o9_string_data(dest);
+        if(cdest[0] != '\0')
             out = unmount(nil, cdest);
-            free(cdest);
-        }
     }
     return out;
 }

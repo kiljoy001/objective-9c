@@ -1,0 +1,8 @@
+import "stdlib/process.o9";
+
+main {
+    Cmd c = new Cmd("/bin/echo");
+    c.arg("nested");
+    CmdResult r = c.run();
+    print("ok ", r.out);
+}

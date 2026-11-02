@@ -1,0 +1,22 @@
+import "process.o9";
+
+main {
+    Cmd c = new Cmd("/bin/echo");
+    c.arg("hello");
+    CmdResult r = c.run();
+    print("ok ", r.ok, " out ", r.out, " errlen ", len(r.err), "\n");
+
+    bool hasRc = (fileexists("/bin/rc") != 0) || (fileexists("/usr/local/plan9/bin/rc") != 0);
+    if(hasRc) {
+        Pipeline p = new Pipeline();
+        p.add("echo hi");
+        p.add("cat");
+        CmdResult piped = p.run();
+        print("pipe ", cmp(piped.out, "hi\n") == 0, "\n");
+
+        Pipeline perr = new Pipeline();
+        perr.add("echo oops >[1=2]");
+        CmdResult failed = perr.run();
+        print("stderr ", len(failed.err) > 0, "\n");
+    }
+}

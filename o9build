@@ -118,7 +118,7 @@ probe=$probestem.c
 	echo 'void (*o9_probe_srvacquire)(Srv*) = srvacquire;'
 } > $probe
 srvflags=()
-if($cc -FV -I$o9include -c $probe -o $probestem.$O >[2]/dev/null)
+if($cc -FV -I$o9include -o $probestem.$O $probe >[2]/dev/null)
 	srvflags=(-DO9_HAVE_SRVRELEASE)
 rm $probe $probestem.$O >[2]/dev/null
 

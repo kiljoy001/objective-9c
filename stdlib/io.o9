@@ -10,9 +10,8 @@ function IOReadAllRaw(string path) string {
         long n, total, cap;
 
         out = o9_string_new("", 0);
-        cpath = o9_string_cstr(path);
-        b = cpath != nil ? Bopen(cpath, OREAD) : nil;
-        free(cpath);
+        cpath = o9_string_data(path);
+        b = cpath[0] != '\0' ? Bopen(cpath, OREAD) : nil;
         if(b != nil){
             cap = 8192;
             total = 0;
@@ -48,9 +47,8 @@ function IOReadLineRaw(string path, int64 offset) string {
         int ch;
 
         out = o9_string_new("", 0);
-        cpath = o9_string_cstr(path);
-        b = cpath != nil ? Bopen(cpath, OREAD) : nil;
-        free(cpath);
+        cpath = o9_string_data(path);
+        b = cpath[0] != '\0' ? Bopen(cpath, OREAD) : nil;
         if(b != nil){
             if(offset < 0)
                 offset = 0;
@@ -90,9 +88,8 @@ function IOLineNextRaw(string path, int64 offset) int64 {
         int ch;
 
         out = offset;
-        cpath = o9_string_cstr(path);
-        b = cpath != nil ? Bopen(cpath, OREAD) : nil;
-        free(cpath);
+        cpath = o9_string_data(path);
+        b = cpath[0] != '\0' ? Bopen(cpath, OREAD) : nil;
         if(b != nil){
             if(offset < 0)
                 offset = 0;
@@ -118,9 +115,8 @@ function IOHasByteRaw(string path, int64 offset) int64 {
         int ch;
 
         out = 0;
-        cpath = o9_string_cstr(path);
-        b = cpath != nil ? Bopen(cpath, OREAD) : nil;
-        free(cpath);
+        cpath = o9_string_data(path);
+        b = cpath[0] != '\0' ? Bopen(cpath, OREAD) : nil;
         if(b != nil){
             if(offset < 0)
                 offset = 0;
@@ -144,9 +140,8 @@ function IOReadByteRaw(string path, int64 offset) byte {
         int ch;
 
         out = 0;
-        cpath = o9_string_cstr(path);
-        b = cpath != nil ? Bopen(cpath, OREAD) : nil;
-        free(cpath);
+        cpath = o9_string_data(path);
+        b = cpath[0] != '\0' ? Bopen(cpath, OREAD) : nil;
         if(b != nil){
             if(offset < 0)
                 offset = 0;
@@ -171,8 +166,8 @@ function IOWriteRaw(string path, string data, int64 mode) int64 {
         vlong n;
 
         out = -1;
-        cpath = o9_string_cstr(path);
-        if(cpath != nil){
+        cpath = o9_string_data(path);
+        if(cpath[0] != '\0'){
             if(mode == 0)
                 fd = create(cpath, OWRITE, 0644);
             else {
@@ -182,7 +177,6 @@ function IOWriteRaw(string path, string data, int64 mode) int64 {
                 else
                     seek(fd, 0, 2);
             }
-            free(cpath);
             if(fd >= 0){
                 b = Bfdopen(fd, OWRITE);
                 if(b != nil){
@@ -205,10 +199,9 @@ function IOTruncateRaw(string path) int64 {
         int fd;
 
         out = -1;
-        cpath = o9_string_cstr(path);
-        if(cpath != nil){
+        cpath = o9_string_data(path);
+        if(cpath[0] != '\0'){
             fd = create(cpath, OWRITE, 0644);
-            free(cpath);
             if(fd >= 0){
                 close(fd);
                 out = 0;
@@ -241,9 +234,9 @@ function O9StreamOpenRaw(string path, string mode) int64 {
         int fd;
 
         b = nil;
-        cpath = o9_string_cstr(path);
-        cmode = o9_string_cstr(mode);
-        if(cpath != nil && cmode != nil){
+        cpath = o9_string_data(path);
+        cmode = o9_string_data(mode);
+        if(cpath[0] != '\0' && cmode[0] != '\0'){
             if(cmode[0] == 'r')
                 b = Bopen(cpath, OREAD);
             else if(cmode[0] == 'w'){
@@ -265,8 +258,6 @@ function O9StreamOpenRaw(string path, string mode) int64 {
                 }
             }
         }
-        free(cpath);
-        free(cmode);
         out = (vlong)(uintptr)b;
     }
     return out;
@@ -277,6 +268,7 @@ function O9StreamReadRaw(int64 h, int64 n) string {
 
     string out;
     c {
+        O9DataFrame f;
         Biobuf *b;
         char *buf;
         long want, nr;
@@ -285,12 +277,37 @@ function O9StreamReadRaw(int64 h, int64 n) string {
         b = (Biobuf*)(uintptr)h;
         want = (long)n;
         if(b != nil && want > 0){
-            buf = malloc(want);
+            o9_frame_enter(&f, nil);
+            buf = o9_frame_alloc(&f, want, 1);
             if(buf != nil){
                 nr = Bread(b, buf, want);
                 if(nr > 0)
                     out = o9_string_new(buf, nr);
-                free(buf);
+            }
+            o9_frame_exit(&f);
+        }
+    }
+    return out;
+}
+
+function O9StreamReadLineRaw(int64 h) string {
+    use { bio }
+
+    string out;
+    c {
+        Biobuf *b;
+        char *line;
+        int n;
+
+        out = o9_string_new("", 0);
+        b = (Biobuf*)(uintptr)h;
+        if(b != nil){
+            line = Brdline(b, '\n');
+            if(line != nil){
+                n = Blinelen(b);
+                while(n > 0 && (line[n-1] == '\n' || line[n-1] == '\r'))
+                    n--;
+                out = o9_string_new(line, n);
             }
         }
     }
@@ -394,6 +411,70 @@ function O9StreamCloseRaw(int64 h) int64 {
         b = (Biobuf*)(uintptr)h;
         if(b != nil)
             out = Bterm(b);
+    }
+    return out;
+}
+
+function IOReadAtRaw(string path, int64 offset, int64 n) string {
+    string out;
+    c {
+        O9DataFrame f;
+        char *p, *buf;
+        int fd;
+        vlong nr;
+
+        out = o9_string_new("", 0);
+        if(offset < 0)
+            offset = 0;
+        if(n < 0)
+            n = 0;
+        if(n > 65536)
+            n = 65536;
+        p = o9_string_data(path);
+        if(p[0] != '\0'){
+            fd = open(p, OREAD);
+            if(fd >= 0){
+                if(seek(fd, offset, 0) >= 0){
+                    o9_frame_enter(&f, nil);
+                    buf = o9_frame_alloc(&f, n > 0 ? n : 1, 1);
+                    if(buf != nil){
+                        nr = read(fd, buf, n);
+                        if(nr > 0)
+                            out = o9_string_new(buf, nr);
+                    }
+                    o9_frame_exit(&f);
+                }
+                close(fd);
+            }
+        }
+    }
+    return out;
+}
+
+function IOWriteAtRaw(string path, int64 offset, string data) int64 {
+    int64 out;
+    c {
+        char *p;
+        int fd;
+        vlong n;
+
+        out = -1;
+        if(offset < 0)
+            offset = 0;
+        p = o9_string_data(path);
+        if(p[0] != '\0'){
+            fd = open(p, OWRITE);
+            if(fd < 0)
+                fd = create(p, OWRITE, 0644);
+            if(fd >= 0){
+                if(seek(fd, offset, 0) >= 0){
+                    n = o9_string_len(data);
+                    if(write(fd, o9_string_data(data), n) == n)
+                        out = n;
+                }
+                close(fd);
+            }
+        }
     }
     return out;
 }
@@ -659,12 +740,39 @@ class StreamReader {
         closed = 0;
     }
 
+    method bool isOpen() {
+        return closed == 0 && h != 0;
+    }
+
     method string read(int64 n) {
         if(closed == 1) {
             return "";
         }
         Task<string> t = spawn O9StreamReadRaw(h, n);
         return t.await();
+    }
+
+    method string readLine() {
+        if(closed == 1) {
+            return "";
+        }
+        Task<string> t = spawn O9StreamReadLineRaw(h);
+        return t.await();
+    }
+
+    method int64 copyTo(StreamWriter w) {
+        int64 total = 0;
+        while(true) {
+            string chunk = read(8192);
+            if(len(chunk) == 0) {
+                w.flush();
+                return total;
+            }
+            if(w.write(chunk) < 0) {
+                return -1;
+            }
+            total = total + len(chunk);
+        }
     }
 
     method int64 position() {
@@ -705,6 +813,10 @@ class StreamWriter {
         closed = 0;
     }
 
+    method bool isOpen() {
+        return closed == 0 && h != 0;
+    }
+
     method int64 write(string data) {
         if(closed == 1) {
             return -1;
@@ -734,5 +846,27 @@ class StreamWriter {
             h = 0;
         }
         closed = 1;
+    }
+}
+
+// Line-at-a-time reader over a file. next() returns "" at EOF, so check
+// eof() when empty lines are meaningful.
+class Lines {
+    private StreamReader reader;
+
+    method Lines(string path) {
+        reader = new StreamReader(path);
+    }
+
+    method string next() {
+        return reader.readLine();
+    }
+
+    method bool eof() {
+        return reader.endOfStream();
+    }
+
+    method void close() {
+        reader.close();
     }
 }

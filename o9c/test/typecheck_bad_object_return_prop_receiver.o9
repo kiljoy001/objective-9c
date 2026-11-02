@@ -1,0 +1,19 @@
+class Child {
+    prop int64 n;
+
+    method Child(int64 x) {
+        n = x;
+    }
+}
+
+class Box {
+    method Child get() {
+        return new Child(1);
+    }
+
+    method int64 test() {
+        return get().n;
+    }
+}
+
+main { }

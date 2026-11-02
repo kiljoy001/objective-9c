@@ -71,12 +71,66 @@ splice_append(char *dst, long *dlen, long *dcap, char *add, long addlen, SourceL
     return dst;
 }
 
-/* Resolve one import path string to a full path within the subtree;
- * returns malloc'd full path or nil (with an error printed). */
-static char*
-resolve_import_path(char *rel, int line)
+static void
+add_import_base(char bases[][1024], int *nb, char *base)
 {
-    char clean[1024], full[1200];
+    int i;
+
+    if(base == nil || base[0] == '\0')
+        return;
+    for(i = 0; i < *nb; i++)
+        if(strcmp(bases[i], base) == 0)
+            return;
+    if(*nb < 16){
+        strncpy(bases[*nb], base, sizeof bases[*nb] - 1);
+        bases[*nb][sizeof bases[*nb] - 1] = '\0';
+        (*nb)++;
+    }
+}
+
+/* Add a directory and its ancestors, so a project-root import such as
+ * `stdlib/process.o9` still resolves when the importing file lives in a
+ * subdirectory. */
+static void
+add_import_lineage(char bases[][1024], int *nb, char *path)
+{
+    char base[1024], *slash;
+    int i;
+
+    if(path == nil || path[0] == '\0' || strcmp(path, "<stdin>") == 0)
+        return;
+    strncpy(base, path, sizeof base - 1);
+    base[sizeof base - 1] = '\0';
+    slash = strrchr(base, '/');
+    if(slash != nil)
+        *slash = '\0';
+    else
+        strcpy(base, ".");
+    for(i = 0; i < 16; i++){
+        add_import_base(bases, nb, base);
+        if(strcmp(base, "/") == 0 || strcmp(base, ".") == 0)
+            break;
+        slash = strrchr(base, '/');
+        if(slash == nil)
+            break;
+        if(slash == base)
+            base[1] = '\0';
+        else
+            *slash = '\0';
+    }
+}
+
+/* Resolve an import relative to the file that contains the import line,
+ * then its ancestors, then the entry source directory and cwd.  This lets
+ * stdlib/process.o9 use bare `import "buffer.o9"` while a root program can
+ * still write `import "stdlib/process.o9"`.  The relative path itself must
+ * not contain `..` that escapes its base. */
+static char*
+resolve_import_path(char *rel, int line, char *fromfile)
+{
+    char clean[1024], full[1400];
+    char bases[16][1024];
+    int nb = 0, i, fd;
 
     strncpy(clean, rel, sizeof clean - 1);
     clean[sizeof clean - 1] = '\0';
@@ -87,8 +141,24 @@ resolve_import_path(char *rel, int line)
         semantic_errors++;
         return nil;
     }
-    snprint(full, sizeof full, "%s/%s", import_base_dir, clean);
-    return strdup(full);
+
+    add_import_lineage(bases, &nb, fromfile);
+    add_import_lineage(bases, &nb, import_base_dir);
+    add_import_base(bases, &nb, ".");
+
+    for(i = 0; i < nb; i++){
+        snprint(full, sizeof full, "%s/%s", bases[i], clean);
+        fd = open(full, OREAD);
+        if(fd >= 0){
+            close(fd);
+            cleanname(full);
+            return strdup(full);
+        }
+    }
+
+    fprint(2, "o9c: error: line %d: cannot open import '%s'\n", line, rel);
+    semantic_errors++;
+    return nil;
 }
 
 static char*
@@ -125,6 +195,47 @@ import_already_loaded(char *full)
     return 0;
 }
 
+/* Paths can reach the same file through a symlink (for example an app
+ * directory that links bytes.o9 to the installed stdlib).  Compare file
+ * identity as well so the same module is not spliced twice. */
+static uvlong imp_dev[64], imp_qid[64];
+static int imp_nident;
+
+static int
+import_identity_loaded(char *full)
+{
+    Dir *d;
+    int k, found;
+
+    d = dirstat(full);
+    if(d == nil)
+        return 0;
+    found = 0;
+    for(k = 0; k < imp_nident; k++)
+        if(imp_dev[k] == (uvlong)d->dev && imp_qid[k] == d->qid.path){
+            found = 1;
+            break;
+        }
+    free(d);
+    return found;
+}
+
+static void
+remember_import_identity(char *full)
+{
+    Dir *d;
+
+    if(imp_nident >= nelem(imp_dev))
+        return;
+    d = dirstat(full);
+    if(d == nil)
+        return;
+    imp_dev[imp_nident] = (uvlong)d->dev;
+    imp_qid[imp_nident] = d->qid.path;
+    imp_nident++;
+    free(d);
+}
+
 static void
 append_import_file(char **combined, long *clen, long *ccap,
     char *path, char *full, int line)
@@ -133,7 +244,7 @@ append_import_file(char **combined, long *clen, long *ccap,
     long flen;
     SourceLoc loc;
 
-    if(import_already_loaded(full))
+    if(import_already_loaded(full) || import_identity_loaded(full))
         return;
     if(imp_nloaded >= nelem(imp_loaded))
         return;
@@ -145,6 +256,7 @@ append_import_file(char **combined, long *clen, long *ccap,
         return;
     }
     source_capture(full, fsrc, flen);
+    remember_import_identity(full);
     strip_imported_main(fsrc);
     loc.file = full;
     loc.line = 1;
@@ -170,14 +282,14 @@ parse_import_path(char *ls, char *path, int npath)
 }
 
 static int
-handle_import_line(char *ls, int line, char **combined, long *clen, long *ccap, int *any)
+handle_import_line(char *ls, int line, char **combined, long *clen, long *ccap, int *any, char *fromfile)
 {
     char path[1024], *full;
 
     if(strncmp(ls, "import ", 7) != 0)
         return 0;
     if(parse_import_path(ls, path, sizeof path)){
-        full = resolve_import_path(path, line);
+        full = resolve_import_path(path, line, fromfile);
         if(full != nil)
             append_import_file(combined, clen, ccap, path, full, line);
         *any = 1;
@@ -229,7 +341,7 @@ resolve_imports(void)
             free(linebuf);
             continue;
         }
-        if(handle_import_line(ls, line, &combined, &clen, &ccap, &any)){
+        if(handle_import_line(ls, line, &combined, &clen, &ccap, &any, source_at(line).file)){
             free(linebuf);
             continue;
         }	/* drop the import line itself */

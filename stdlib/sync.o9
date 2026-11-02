@@ -1,0 +1,140 @@
+// Synchronization primitives for non-actor code and service loops.
+//
+// Mutex/WaitGroup/Semaphore are thin handles over libthread QLock/Rendez, so
+// a blocked wait does not block the owning o9 object's dispatch loop.
+class Mutex {
+    private int64 h;
+
+    method Mutex() {
+        h = syncmutexnew();
+    }
+
+    method bool isOpen() {
+        return h != 0;
+    }
+
+    method void lock() {
+        if(syncmutexlock(h) < 0) {
+            fail("mutex lock failed");
+        }
+    }
+
+    method void unlock() {
+        if(syncmutexunlock(h) < 0) {
+            fail("mutex unlock failed");
+        }
+    }
+
+    method void close() {
+        if(h != 0) {
+            syncmutexfree(h);
+            h = 0;
+        }
+    }
+}
+
+class WaitGroup {
+    private int64 h;
+
+    method WaitGroup() {
+        h = syncwgnew();
+    }
+
+    method bool isOpen() {
+        return h != 0;
+    }
+
+    method void add(int64 delta) {
+        if(syncwgadd(h, delta) < 0) {
+            fail("wait group add failed");
+        }
+    }
+
+    method void done() {
+        if(syncwgdone(h) < 0) {
+            fail("wait group done failed");
+        }
+    }
+
+    method void wait() {
+        if(syncwgwait(h) < 0) {
+            fail("wait group wait failed");
+        }
+    }
+
+    method void close() {
+        if(h != 0) {
+            syncwgfree(h);
+            h = 0;
+        }
+    }
+}
+
+class Semaphore {
+    private int64 h;
+
+    method Semaphore(int64 count) {
+        h = syncsemnew(count);
+    }
+
+    method bool isOpen() {
+        return h != 0;
+    }
+
+    method void acquire() {
+        if(syncsemacquire(h) < 0) {
+            fail("semaphore acquire failed");
+        }
+    }
+
+    method void release() {
+        if(syncsemrelease(h) < 0) {
+            fail("semaphore release failed");
+        }
+    }
+
+    method void close() {
+        if(h != 0) {
+            syncsemfree(h);
+            h = 0;
+        }
+    }
+}
+
+// Serialized by the object's actor; safe for a one-time initialization gate.
+class Once {
+    prop bool done;
+
+    method Once() {
+        done = false;
+    }
+
+    method bool claim() {
+        if(done) {
+            return false;
+        }
+        done = true;
+        return true;
+    }
+}
+
+// A small concurrency limiter. For a job queue, pair this with a channel.
+class Pool {
+    prop Semaphore slots;
+
+    method Pool(int64 size) {
+        slots = new Semaphore(size);
+    }
+
+    method void acquire() {
+        slots.acquire();
+    }
+
+    method void release() {
+        slots.release();
+    }
+
+    method void close() {
+        slots.close();
+    }
+}

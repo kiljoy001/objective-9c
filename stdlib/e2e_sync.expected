@@ -1,0 +1,5 @@
+mutex 1 ok
+wg ok
+sem ok
+once 1 0
+pool ok

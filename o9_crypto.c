@@ -37,6 +37,8 @@ o9_randbytes(uchar *buf, int n)
 		return -1;
 	fd = open("/dev/random", OREAD);
 	if(fd < 0)
+		fd = open("#c/random", OREAD);
+	if(fd < 0)
 		return -1;
 	for(got = 0; got < n; got += r){
 		r = read(fd, buf + got, n - got);
@@ -352,6 +354,7 @@ o9_decrypt(O9String *keyhex, O9String *blob)
 	char *pt;
 	long nb, n;
 	char *ckey, *cblob;
+	O9String *result;
 
 	if(keyhex == nil || blob == nil)
 		return nil;
@@ -381,8 +384,10 @@ o9_decrypt(O9String *keyhex, O9String *blob)
 	}
 	crypto_wipe(key, sizeof key);
 	free(buf);
-	pt[n - 40] = '\0';
-	return o9_string_take(pt);
+	result = o9_string_new(pt, n - 40);
+	crypto_wipe(pt, n - 40);
+	free(pt);
+	return result;
 }
 
 /* passkey(password, salt) -> 64-hex key via Argon2id, ready to feed
@@ -431,7 +436,7 @@ o9_passkey(O9String *pass, O9String *salt)
 }
 
 /* xpubkey(sec) -> 64-hex X25519 public key; sec is any keygen() seed.
- * X25519 keys are separate from Monocypher EdDSA-BLAKE2b ones — don't reuse a signing
+ * X25519 keys are separate from EdDSA signing keys — don't reuse a signing
  * seed for exchange. */
 O9String*
 o9_xpubkey(O9String *sec)

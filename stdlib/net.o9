@@ -1,22 +1,36 @@
+import "string.o9";
+
 function NetDialRaw(string address) string {
     string out;
     c {
         char *addr;
-        char buf[32];
-        int fd;
+        char dir[128];
+        char buf[192];
+        int fd, cfd;
 
         out = o9_string_new("", 0);
-        addr = o9_string_cstr(address);
-        if(addr != nil){
+        addr = o9_string_data(address);
+        if(addr[0] != '\0'){
+            cfd = -1;
+            dir[0] = '\0';
             if(addr[0] == '/')
                 fd = open(addr, ORDWR);
-            else
+            else {
+#ifdef PLAN9PORT
                 fd = dial(addr, nil, nil, nil);
+#else
+                fd = dial(addr, nil, dir, &cfd);
+                if(cfd >= 0)
+                    close(cfd);
+#endif
+            }
             if(fd >= 0){
-                snprint(buf, sizeof buf, "%d", fd);
+                if(dir[0] != '\0')
+                    snprint(buf, sizeof buf, "%d\n%s", fd, dir);
+                else
+                    snprint(buf, sizeof buf, "%d", fd);
                 out = o9_string_from_c(buf);
             }
-            free(addr);
         }
     }
     return out;
@@ -31,14 +45,13 @@ function NetAnnounceRaw(string address) string {
         int fd;
 
         out = o9_string_new("", 0);
-        addr = o9_string_cstr(address);
-        if(addr != nil){
+        addr = o9_string_data(address);
+        if(addr[0] != '\0'){
             fd = announce(addr, dir);
             if(fd >= 0){
                 snprint(buf, sizeof buf, "%d\n%s", fd, dir);
                 out = o9_string_from_c(buf);
             }
-            free(addr);
         }
     }
     return out;
@@ -50,12 +63,11 @@ function NetTokenDirRaw(string token) string {
         char *tok, *p;
 
         out = o9_string_new("", 0);
-        tok = o9_string_cstr(token);
-        if(tok != nil){
+        tok = o9_string_data(token);
+        if(tok[0] != '\0'){
             p = strchr(tok, '\n');
             if(p != nil)
                 out = o9_string_from_c(p + 1);
-            free(tok);
         }
     }
     return out;
@@ -70,8 +82,8 @@ function NetAcceptRaw(string token) string {
         int lfd, dfd;
 
         out = o9_string_new("", 0);
-        tok = o9_string_cstr(token);
-        if(tok != nil){
+        tok = o9_string_data(token);
+        if(tok[0] != '\0'){
             p = strchr(tok, '\n');
             if(p != nil){
                 dir = p + 1;
@@ -80,12 +92,14 @@ function NetAcceptRaw(string token) string {
                     dfd = accept(lfd, ldir);
                     close(lfd);
                     if(dfd >= 0){
-                        snprint(buf, sizeof buf, "%d", dfd);
+                        if(ldir[0] != '\0')
+                            snprint(buf, sizeof buf, "%d\n%s", dfd, ldir);
+                        else
+                            snprint(buf, sizeof buf, "%d", dfd);
                         out = o9_string_from_c(buf);
                     }
                 }
             }
-            free(tok);
         }
     }
     return out;
@@ -98,8 +112,8 @@ function NetLocalRaw(string token) string {
         int fd, n;
 
         out = o9_string_new("", 0);
-        tok = o9_string_cstr(token);
-        if(tok != nil){
+        tok = o9_string_data(token);
+        if(tok[0] != '\0'){
             p = strchr(tok, '\n');
             if(p != nil){
                 snprint(path, sizeof path, "%s/local", p + 1);
@@ -115,7 +129,6 @@ function NetLocalRaw(string token) string {
                     }
                 }
             }
-            free(tok);
         }
     }
     return out;
@@ -124,25 +137,26 @@ function NetLocalRaw(string token) string {
 function NetReadRaw(string token, int64 max) string {
     string out;
     c {
+        O9DataFrame f;
         char *tok, *buf;
         int fd, n;
 
         out = o9_string_new("", 0);
-        tok = o9_string_cstr(token);
-        if(tok != nil){
+        tok = o9_string_data(token);
+        if(tok[0] != '\0'){
             fd = atoi(tok);
             if(max < 0)
                 max = 0;
             if(max > 65536)
                 max = 65536;
-            buf = malloc(max > 0 ? max : 1);
+            o9_frame_enter(&f, nil);
+            buf = o9_frame_alloc(&f, max > 0 ? max : 1, 1);
             if(buf != nil){
                 n = read(fd, buf, max);
                 if(n > 0)
                     out = o9_string_new(buf, n);
-                free(buf);
             }
-            free(tok);
+            o9_frame_exit(&f);
         }
     }
     return out;
@@ -156,13 +170,12 @@ function NetWriteRaw(string token, string data) int64 {
         vlong n;
 
         out = -1;
-        tok = o9_string_cstr(token);
-        if(tok != nil){
+        tok = o9_string_data(token);
+        if(tok[0] != '\0'){
             fd = atoi(tok);
             n = o9_string_len(data);
             if(write(fd, o9_string_data(data), n) == n)
                 out = n;
-            free(tok);
         }
     }
     return out;
@@ -175,11 +188,35 @@ function NetCloseRaw(string token) int64 {
         int fd;
 
         out = -1;
-        tok = o9_string_cstr(token);
-        if(tok != nil && tok[0] != '\0'){
+        tok = o9_string_data(token);
+        if(tok[0] != '\0'){
             fd = atoi(tok);
             out = close(fd);
-            free(tok);
+        }
+    }
+    return out;
+}
+
+function NetSetTimeoutRaw(string token, int64 ms) int64 {
+    int64 out;
+    c {
+        char *tok, *p, path[192], buf[64];
+        int fd, n;
+
+        out = -1;
+        tok = o9_string_data(token);
+        if(tok[0] != '\0'){
+            p = strchr(tok, '\n');
+            if(p != nil){
+                snprint(path, sizeof path, "%s/ctl", p + 1);
+                fd = open(path, OWRITE);
+                if(fd >= 0){
+                    n = snprint(buf, sizeof buf, "timeout %lld", (vlong)ms);
+                    if(write(fd, buf, n) == n)
+                        out = 0;
+                    close(fd);
+                }
+            }
         }
     }
     return out;
@@ -192,10 +229,10 @@ function NetMountRaw(string token, string dest, int64 flag, string aname) int64 
         int fd, rv;
 
         out = -1;
-        tok = o9_string_cstr(token);
-        cdest = o9_string_cstr(dest);
-        caname = o9_string_cstr(aname);
-        if(tok != nil && cdest != nil){
+        tok = o9_string_data(token);
+        cdest = o9_string_data(dest);
+        caname = o9_string_data(aname);
+        if(tok[0] != '\0' && cdest[0] != '\0'){
             fd = atoi(tok);
             if(fd >= 0){
                 rv = mount(fd, -1, cdest, (int)flag, caname != nil ? caname : "");
@@ -204,9 +241,6 @@ function NetMountRaw(string token, string dest, int64 flag, string aname) int64 
                     out = 0;
             }
         }
-        if(tok != nil) free(tok);
-        if(cdest != nil) free(cdest);
-        if(caname != nil) free(caname);
     }
     return out;
 }
@@ -216,11 +250,9 @@ function NetUnmountRaw(string dest) int64 {
     c {
         char *cdest;
         out = -1;
-        cdest = o9_string_cstr(dest);
-        if(cdest != nil){
+        cdest = o9_string_data(dest);
+        if(cdest[0] != '\0')
             out = unmount(nil, cdest);
-            free(cdest);
-        }
     }
     return out;
 }
@@ -230,11 +262,10 @@ function NetIsNearRaw(string address) int64 {
     c {
         char *addr;
         out = 0;
-        addr = o9_string_cstr(address);
-        if(addr != nil){
+        addr = o9_string_data(address);
+        if(addr[0] != '\0'){
             if(addr[0] == '/' || strncmp(addr, "il!", 3) == 0)
                 out = 1;
-            free(addr);
         }
     }
     return out;
@@ -245,11 +276,10 @@ function NetIsFarRaw(string address) int64 {
     c {
         char *addr;
         out = 0;
-        addr = o9_string_cstr(address);
-        if(addr != nil){
+        addr = o9_string_data(address);
+        if(addr[0] != '\0'){
             if(strncmp(addr, "tcp!", 4) == 0 || strncmp(addr, "net!", 4) == 0)
                 out = 1;
-            free(addr);
         }
     }
     return out;
@@ -290,8 +320,8 @@ function FactotumAvailableRaw(string mount) int64 {
         int fd;
 
         out = 0;
-        m = o9_string_cstr(mount);
-        if(m != nil && m[0] != '\0'){
+        m = o9_string_data(mount);
+        if(m[0] != '\0'){
             snprint(path, sizeof path, "%s/rpc", m);
             fd = open(path, ORDWR);
             if(fd < 0){
@@ -302,7 +332,6 @@ function FactotumAvailableRaw(string mount) int64 {
                 close(fd);
                 out = 1;
             }
-            free(m);
         }
     }
     return out;
@@ -317,8 +346,8 @@ function FactotumCtlRaw(string mount) string {
         int fd, n;
 
         out = o9_string_new("", 0);
-        m = o9_string_cstr(mount);
-        if(m != nil && m[0] != '\0'){
+        m = o9_string_data(mount);
+        if(m[0] != '\0'){
             snprint(path, sizeof path, "%s/ctl", m);
             fd = open(path, OREAD);
             if(fd >= 0){
@@ -329,7 +358,6 @@ function FactotumCtlRaw(string mount) string {
                     out = o9_string_new(buf, n);
                 }
             }
-            free(m);
         }
     }
     return out;
@@ -344,9 +372,9 @@ function FactotumWriteCtlRaw(string mount, string command) int64 {
         long n;
 
         out = 0;
-        m = o9_string_cstr(mount);
-        cmd = o9_string_cstr(command);
-        if(m != nil && cmd != nil && m[0] != '\0' && cmd[0] != '\0' && strchr(cmd, '\n') == nil){
+        m = o9_string_data(mount);
+        cmd = o9_string_data(command);
+        if(m[0] != '\0' && cmd[0] != '\0' && strchr(cmd, '\n') == nil){
             snprint(path, sizeof path, "%s/ctl", m);
             fd = open(path, OWRITE);
             if(fd >= 0){
@@ -356,10 +384,6 @@ function FactotumWriteCtlRaw(string mount, string command) int64 {
                 close(fd);
             }
         }
-        if(m != nil)
-            free(m);
-        if(cmd != nil)
-            free(cmd);
     }
     return out;
 }
@@ -373,9 +397,9 @@ function FactotumHasRaw(string mount, string query) int64 {
         int fd, n;
 
         out = 0;
-        m = o9_string_cstr(mount);
-        q = o9_string_cstr(query);
-        if(m != nil && q != nil && m[0] != '\0' && q[0] != '\0'){
+        m = o9_string_data(mount);
+        q = o9_string_data(query);
+        if(m[0] != '\0' && q[0] != '\0'){
             snprint(path, sizeof path, "%s/ctl", m);
             fd = open(path, OREAD);
             if(fd >= 0){
@@ -388,10 +412,6 @@ function FactotumHasRaw(string mount, string query) int64 {
                 }
             }
         }
-        if(m != nil)
-            free(m);
-        if(q != nil)
-            free(q);
     }
     return out;
 }
@@ -399,10 +419,12 @@ function FactotumHasRaw(string mount, string query) int64 {
 class NetConn {
     private string address;
     private string token;
+    private string pending;
 
     method NetConn(string addr) {
         address = addr;
         token = "";
+        pending = "";
     }
 
     method string endpoint() {
@@ -424,9 +446,54 @@ class NetConn {
         return t.await();
     }
 
+    method string readLine(int64 max) {
+        if(max <= 0) {
+            max = 4096;
+        }
+        while(true) {
+            String s;
+            int64 p;
+            string chunk;
+
+            s = new String(pending);
+            p = s.indexOf("\n");
+            if(p >= 0) {
+                string line = s.slice(0, p);
+                pending = s.slice(p + 1, len(pending) - p - 1);
+                return line;
+            }
+            if(len(pending) >= max) {
+                string line = pending;
+                pending = "";
+                return line;
+            }
+            chunk = read(max - len(pending));
+            if(len(chunk) == 0) {
+                string line = pending;
+                pending = "";
+                return line;
+            }
+            pending = cat(pending, chunk);
+        }
+    }
+
+    method int64 writeLine(string line) {
+        return write(cat(line, "\n"));
+    }
+
     method int64 write(string data) {
         Task<int64> t = spawn NetWriteRaw(token, data);
         return t.await();
+    }
+
+    // Set the Plan 9 network connection timeout in milliseconds. Returns
+    // false for path-backed connections, which have no /net ctl file.
+    method bool setTimeout(int64 ms) {
+        if(!(isOpen())) {
+            return false;
+        }
+        Task<int64> t = spawn NetSetTimeoutRaw(token, ms);
+        return t.await() == 0;
     }
 
     method bool close() {
@@ -486,6 +553,7 @@ class NetConn {
     method void init(string addr, string tok) {
         address = addr;
         token = tok;
+        pending = "";
     }
 }
 

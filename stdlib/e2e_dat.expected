@@ -1,0 +1,12 @@
+k1: valid=1 path=/media/stream.mp4
+k1: key_len=64 disc_len=64
+k2: valid=0 key=short-key
+feed: blocks=3 bytes=47
+feed: verify=1
+blk1: idx=1 len=17 hash_len=64
+seek: 0 in blk 0
+seek: 15 in blk 1
+seek: 35 in blk 2
+stream: range=HEADERCHUNK1-VIDEOFR len=20
+archive: entries=1
+entry: path=/movies/sample.mp4 size=22 off=0

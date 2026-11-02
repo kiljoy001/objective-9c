@@ -1,0 +1,4 @@
+ok 1 out hello
+ errlen 0
+pipe 1
+stderr 1

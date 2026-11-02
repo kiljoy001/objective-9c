@@ -9,14 +9,13 @@ function FileAppendRaw(string path, string data) int64 {
         vlong n;
 
         out = -1;
-        cpath = o9_string_cstr(path);
-        if(cpath != nil){
+        cpath = o9_string_data(path);
+        if(cpath[0] != '\0'){
             fd = open(cpath, OWRITE);
             if(fd < 0)
                 fd = create(cpath, OWRITE, 0644);
             else
                 seek(fd, 0, 2);
-            free(cpath);
             if(fd >= 0){
                 n = o9_string_len(data);
                 if(write(fd, o9_string_data(data), n) == n)
@@ -36,14 +35,13 @@ function FileExistsRaw(string path) int64 {
         int fd;
 
         out = 0;
-        cpath = o9_string_cstr(path);
-        if(cpath != nil){
+        cpath = o9_string_data(path);
+        if(cpath[0] != '\0'){
             fd = open(cpath, OREAD);
             if(fd >= 0){
                 out = 1;
                 close(fd);
             }
-            free(cpath);
         }
     }
     return out;
@@ -57,14 +55,13 @@ function FileSizeRaw(string path) int64 {
         Dir *d;
 
         out = -1;
-        cpath = o9_string_cstr(path);
-        if(cpath != nil){
+        cpath = o9_string_data(path);
+        if(cpath[0] != '\0'){
             d = dirstat(cpath);
             if(d != nil){
                 out = d->length;
                 free(d);
             }
-            free(cpath);
         }
     }
     return out;
@@ -78,14 +75,13 @@ function FileModeRaw(string path) int64 {
         Dir *d;
 
         out = -1;
-        cpath = o9_string_cstr(path);
-        if(cpath != nil){
+        cpath = o9_string_data(path);
+        if(cpath[0] != '\0'){
             d = dirstat(cpath);
             if(d != nil){
                 out = d->mode;
                 free(d);
             }
-            free(cpath);
         }
     }
     return out;
@@ -99,14 +95,13 @@ function FileMtimeRaw(string path) int64 {
         Dir *d;
 
         out = -1;
-        cpath = o9_string_cstr(path);
-        if(cpath != nil){
+        cpath = o9_string_data(path);
+        if(cpath[0] != '\0'){
             d = dirstat(cpath);
             if(d != nil){
                 out = d->mtime;
                 free(d);
             }
-            free(cpath);
         }
     }
     return out;
@@ -120,14 +115,13 @@ function FileOwnerRaw(string path) string {
         Dir *d;
 
         out = o9_string_new("", 0);
-        cpath = o9_string_cstr(path);
-        if(cpath != nil){
+        cpath = o9_string_data(path);
+        if(cpath[0] != '\0'){
             d = dirstat(cpath);
             if(d != nil){
                 out = o9_string_from_c(d->uid != nil ? d->uid : "");
                 free(d);
             }
-            free(cpath);
         }
     }
     return out;
@@ -140,11 +134,10 @@ function FileRemoveRaw(string path) int64 {
         char *cpath;
 
         out = 0;
-        cpath = o9_string_cstr(path);
-        if(cpath != nil){
+        cpath = o9_string_data(path);
+        if(cpath[0] != '\0'){
             if(remove(cpath) == 0)
                 out = 1;
-            free(cpath);
         }
     }
     return out;
@@ -159,8 +152,8 @@ function FileMkdirRaw(string path) int64 {
         Dir *d;
 
         out = 0;
-        cpath = o9_string_cstr(path);
-        if(cpath != nil){
+        cpath = o9_string_data(path);
+        if(cpath[0] != '\0'){
             fd = create(cpath, OREAD, DMDIR|0755);
             if(fd >= 0){
                 out = 1;
@@ -173,7 +166,6 @@ function FileMkdirRaw(string path) int64 {
                     free(d);
                 }
             }
-            free(cpath);
         }
     }
     return out;
@@ -183,12 +175,14 @@ function FileMkdirAllRaw(string path) int64 {
     int64 out;
 
     c {
+        O9DataFrame f;
         char *cpath, *p;
         int fd;
         Dir *d;
 
         out = 0;
-        cpath = o9_string_cstr(path);
+        o9_frame_enter(&f, nil);
+        cpath = o9_frame_scratch_str(&f, path);
         if(cpath != nil && cpath[0] != '\0'){
             out = 1;
             for(p = cpath + 1; *p != '\0'; p++){
@@ -228,7 +222,7 @@ function FileMkdirAllRaw(string path) int64 {
                 }
             }
         }
-        free(cpath);
+        o9_frame_exit(&f);
     }
     return out;
 }
@@ -241,15 +235,14 @@ function FileIsDirRaw(string path) int64 {
         Dir *d;
 
         out = 0;
-        cpath = o9_string_cstr(path);
-        if(cpath != nil){
+        cpath = o9_string_data(path);
+        if(cpath[0] != '\0'){
             d = dirstat(cpath);
             if(d != nil){
                 if(d->mode & DMDIR)
                     out = 1;
                 free(d);
             }
-            free(cpath);
         }
     }
     return out;
@@ -265,9 +258,9 @@ function FileCopyRaw(string from, string to) int64 {
         vlong total;
 
         out = -1;
-        cfrom = o9_string_cstr(from);
-        cto = o9_string_cstr(to);
-        if(cfrom != nil && cto != nil){
+        cfrom = o9_string_data(from);
+        cto = o9_string_data(to);
+        if(cfrom[0] != '\0' && cto[0] != '\0'){
             in = open(cfrom, OREAD);
             if(in >= 0){
                 ofd = create(cto, OWRITE, 0644);
@@ -290,8 +283,6 @@ function FileCopyRaw(string from, string to) int64 {
                 close(in);
             }
         }
-        free(cfrom);
-        free(cto);
     }
     return out;
 }
@@ -306,10 +297,9 @@ function FileListRaw(string path) string {
         Dir *dirs;
 
         out = nil;
-        cpath = o9_string_cstr(path);
-        if(cpath != nil){
+        cpath = o9_string_data(path);
+        if(cpath[0] != '\0'){
             fd = open(cpath, OREAD);
-            free(cpath);
             if(fd >= 0){
                 dirs = nil;
                 n = dirreadall(fd, &dirs);
@@ -338,6 +328,130 @@ function FileListRaw(string path) string {
     return out;
 }
 
+function FileReadNRaw(string path, int64 n) string {
+    string out;
+    c {
+        O9DataFrame f;
+        char *p, *buf;
+        int fd;
+        vlong nr;
+
+        out = o9_string_new("", 0);
+        if(n < 0)
+            n = 0;
+        if(n > 65536)
+            n = 65536;
+        p = o9_string_data(path);
+        if(p[0] != '\0'){
+            fd = open(p, OREAD);
+            if(fd >= 0){
+                o9_frame_enter(&f, nil);
+                buf = o9_frame_alloc(&f, n > 0 ? n : 1, 1);
+                if(buf != nil){
+                    nr = read(fd, buf, n);
+                    if(nr > 0)
+                        out = o9_string_new(buf, nr);
+                }
+                o9_frame_exit(&f);
+                close(fd);
+            }
+        }
+    }
+    return out;
+}
+
+function FileReadLineRaw(string path) string {
+    use { bio }
+
+    string out;
+    c {
+        Biobuf *b;
+        char *p, *line;
+        int n;
+
+        out = o9_string_new("", 0);
+        p = o9_string_data(path);
+        if(p[0] != '\0'){
+            b = Bopen(p, OREAD);
+            if(b != nil){
+                line = Brdline(b, '\n');
+                if(line != nil){
+                    n = Blinelen(b);
+                    while(n > 0 && (line[n-1] == '\n' || line[n-1] == '\r'))
+                        n--;
+                    out = o9_string_new(line, n);
+                }
+                Bterm(b);
+            }
+        }
+    }
+    return out;
+}
+
+function FileReadAtRaw(string path, int64 offset, int64 n) string {
+    string out;
+    c {
+        O9DataFrame f;
+        char *p, *buf;
+        int fd;
+        vlong nr;
+
+        out = o9_string_new("", 0);
+        if(offset < 0)
+            offset = 0;
+        if(n < 0)
+            n = 0;
+        if(n > 65536)
+            n = 65536;
+        p = o9_string_data(path);
+        if(p[0] != '\0'){
+            fd = open(p, OREAD);
+            if(fd >= 0){
+                if(seek(fd, offset, 0) >= 0){
+                    o9_frame_enter(&f, nil);
+                    buf = o9_frame_alloc(&f, n > 0 ? n : 1, 1);
+                    if(buf != nil){
+                        nr = read(fd, buf, n);
+                        if(nr > 0)
+                            out = o9_string_new(buf, nr);
+                    }
+                    o9_frame_exit(&f);
+                }
+                close(fd);
+            }
+        }
+    }
+    return out;
+}
+
+function FileWriteAtRaw(string path, int64 offset, string data) int64 {
+    int64 out;
+    c {
+        char *p;
+        int fd;
+        vlong n;
+
+        out = -1;
+        if(offset < 0)
+            offset = 0;
+        p = o9_string_data(path);
+        if(p[0] != '\0'){
+            fd = open(p, OWRITE);
+            if(fd < 0)
+                fd = create(p, OWRITE, 0644);
+            if(fd >= 0){
+                if(seek(fd, offset, 0) >= 0){
+                    n = o9_string_len(data);
+                    if(write(fd, o9_string_data(data), n) == n)
+                        out = n;
+                }
+                close(fd);
+            }
+        }
+    }
+    return out;
+}
+
 class File {
     prop string path;
 
@@ -347,6 +461,26 @@ class File {
 
     method string read() {
         return readfile(path);
+    }
+
+    method string readn(int64 n) {
+        Task<string> t = spawn FileReadNRaw(path, n);
+        return t.await();
+    }
+
+    method string readLine() {
+        Task<string> t = spawn FileReadLineRaw(path);
+        return t.await();
+    }
+
+    method string readAt(int64 offset, int64 n) {
+        Task<string> t = spawn FileReadAtRaw(path, offset, n);
+        return t.await();
+    }
+
+    method int64 writeAt(int64 offset, string data) {
+        Task<int64> t = spawn FileWriteAtRaw(path, offset, data);
+        return t.await();
     }
 
     method int64 write(string data) {
@@ -422,6 +556,11 @@ class File {
 
     method int64 copyTo(string dest) {
         Task<int64> t = spawn FileCopyRaw(path, dest);
+        return t.await();
+    }
+
+    method int64 copyFrom(string src) {
+        Task<int64> t = spawn FileCopyRaw(src, path);
         return t.await();
     }
 

@@ -673,6 +673,13 @@ typed_member_lookup_in(Node *cnode, TypeBind *bindings, char *name, int method, 
     if(cnode == nil || name == nil)
         return 0;
     for(m = cnode->left; m; m = m->next){
+        if(m->type == NInherit){
+            pt = inherit_type_with_bindings(m, bindings);
+            p = type_decl_node(pt);
+            pb = type_bindings_for(p, pt);
+            if(typed_member_lookup_in(p, pb, name, method, out))
+                return 1;
+        }
         if(m->name == nil || strcmp(m->name, name) != 0)
             continue;
         if(method && m->type == NMethod){
@@ -697,17 +704,6 @@ typed_member_lookup_in(Node *cnode, TypeBind *bindings, char *name, int method, 
             }
             return 1;
         }
-    }
-    /* An implementation's method body overrides its interface declaration.
-     * Resolve local members first so self-calls mark the body for codegen. */
-    for(m = cnode->left; m; m = m->next){
-        if(m->type != NInherit)
-            continue;
-        pt = inherit_type_with_bindings(m, bindings);
-        p = type_decl_node(pt);
-        pb = type_bindings_for(p, pt);
-        if(typed_member_lookup_in(p, pb, name, method, out))
-            return 1;
     }
     return 0;
 }
@@ -1269,6 +1265,8 @@ annotate_msg_send_expr(Node *e, Node *scope_class)
     if(type_apply_named(lt, "Task") &&
        (expr_name_is(e, "await") || expr_name_is(e, "take")))
         return set_expr_type(e, type_list_at(lt->args, 0));
+    if(type_is_string(lt) && expr_name_is(e, "dispose"))
+        return set_expr_type(e, type_name("void"));
     if(o9_type_is_tabula(lt) && expr_name_is(e, "row")){
         if(type_is_typed_tabula(lt))
             return set_expr_type(e, tabula_record_type(lt));
@@ -2095,6 +2093,13 @@ typecheck_prop_read(Node *e, Node *scope_class, int *errs)
     annotate_expr_type(e, scope_class);
     if(e->left == nil)
         return;
+    if((e->left->type == NMsgSend || e->left->type == NSelfCall) &&
+       type_is_class_ref(e->left->typeinfo)){
+        fprint(2, "o9c: error: line %d: object-return method result cannot be used as a receiver "
+            "(bind it to a named value first)\n", sem_line);
+        (*errs)++;
+        return;
+    }
     lt = e->left->typeinfo;
     cnode = nil;
     if(type_is_collection(lt, "List") || type_is_collection(lt, "Dict"))
@@ -2206,6 +2211,11 @@ typecheck_builtin_arg(Node *e, Builtin *bi, Node *a, int pi, int *errs)
             TypedMember tm;
             Node *arg, *member, *controller_class;
             int mi, ai, good, contract;
+            /* An interface-typed parameter is already constrained to the
+             * ViewController contract by the caller's type. Allow a service
+             * wrapper such as Service.run(ViewController view). */
+            if(type_named(a->typeinfo, "ViewController"))
+                return;
             controller_class = type_decl_node(a->typeinfo);
             contract = 0;
             for(member = controller_class->left; member != nil; member = member->next)
@@ -2469,6 +2479,23 @@ typecheck_task_msg(Node *e, Node *scope_class, Type *lt, int *errs)
 }
 
 static int
+typecheck_string_msg(Node *e, Node *scope_class, Type *lt, int *errs)
+{
+    (void)scope_class;
+    if(!type_is_string(lt))
+        return 0;
+    if(!expr_name_is(e, "dispose")){
+        fprint(2, "o9c: error: line %d: string has no method '%s'\n",
+            sem_line, e->name);
+        (*errs)++;
+    } else if(node_list_len(e->right) != 0){
+        fprint(2, "o9c: error: line %d: string.dispose takes no arguments\n", sem_line);
+        (*errs)++;
+    }
+    return 1;
+}
+
+static int
 typecheck_tabula_msg(Node *e, Node *scope_class, Type *lt, int *errs)
 {
     static MsgRule rules[] = {
@@ -2580,6 +2607,7 @@ typecheck_filetree_msg(Node *e, Node *scope_class, Type *lt, int *errs)
         {"remove", 1, 1, 0, -1, 0},
         {"register", 1, 1, 0, -1, 0},
         {"close", 0, 0, 0, -1, 0},
+        {"destroy", 0, 0, 0, -1, 0},
     };
     MsgRule *r;
     if(!type_named(lt, "FileTree"))
@@ -2780,6 +2808,7 @@ typecheck_generic_msg(Node *e, Node *scope_class, Type *lt, int *errs)
 
 static TypecheckMsgFn typecheck_msg_handlers[] = {
     typecheck_task_msg,
+    typecheck_string_msg,
     typecheck_tabula_msg,
     typecheck_mounttable_msg,
     typecheck_filetree_msg,
@@ -2798,7 +2827,8 @@ typecheck_msg_send(Node *e, Node *scope_class, int *errs)
     annotate_expr_type(e, scope_class);
     if(e->left == nil)
         return;
-    if(e->left->type == NMsgSend && type_is_class_ref(e->left->typeinfo)){
+    if((e->left->type == NMsgSend || e->left->type == NSelfCall) &&
+       type_is_class_ref(e->left->typeinfo)){
         typecheck_expr(e->left, scope_class, errs);
         fprint(2, "o9c: error: line %d: object-return method result cannot be used as a receiver "
             "(bind it to a named value first)\n", sem_line);

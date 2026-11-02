@@ -54,11 +54,9 @@ function TimeParseRaw(string text) int64 {
         char *s;
 
         out = -1;
-        s = o9_string_cstr(text);
-        if(s != nil){
+        s = o9_string_data(text);
+        if(s != nil)
             out = strtoll(s, nil, 0);
-            free(s);
-        }
     }
     return out;
 }

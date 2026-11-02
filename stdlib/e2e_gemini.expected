@@ -1,0 +1,16 @@
+req: len=36
+r1: status=20 meta=text/gemini succ=1
+r2: status=31 meta=gemini://other.space/ redir=1
+r3: status=51 meta=Not Found err=1
+l1: kind=1 text=Gemini Space head=1
+l2: kind=2 text=Subheading
+l3: kind=3 text=Topic
+l4: kind=4 url=gemini://example.com label=Example Site link=1
+l5: kind=4 url=gemini://lonely.link label=gemini://lonely.link
+l6: kind=5 text=Item 1
+l7: kind=6 text=Quote
+l8: kind=7 extra=sh
+l9: kind=8 text=echo test
+l10: kind=7
+l11: kind=0 text=Just a normal paragraph
+doc: lines=11 links=2

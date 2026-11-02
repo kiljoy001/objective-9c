@@ -1,0 +1,11 @@
+count 3
+save 1
+exists 1
+name alice
+port 6667
+missing fallback
+has 1 0
+remove 1
+count2 2
+save2 1
+tab bob

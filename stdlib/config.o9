@@ -1,0 +1,196 @@
+// Small key/value configuration files.
+//
+// The format is line-oriented:
+//
+//     key = value
+//     # comment
+//
+// Whitespace around keys and values is trimmed. Set a different separator
+// with setSeparator("\t") for tab-separated records. This is intentionally a
+// small, obvious format for profiles and local settings; use tabula for
+// multi-row structured data.
+import "collections.o9";
+import "string.o9";
+
+class Config {
+    prop string path;
+    prop string sep;
+    prop dictionary<string> values;
+    prop list<string> keys;
+    prop bool loaded;
+    prop bool dirty;
+
+    method Config(string p) {
+        path = p;
+        sep = "=";
+        values = new dictionary<string>();
+        keys = new list<string>();
+        loaded = false;
+        dirty = false;
+    }
+
+    method string file() {
+        return path;
+    }
+
+    method void setSeparator(string s) {
+        if(len(s) > 0) {
+            sep = s;
+            loaded = false;
+        }
+    }
+
+    private method void parseLine(string line) {
+        int64 p;
+        string key;
+        string value;
+        String s;
+        String ks;
+        String vs;
+
+        s = new String(line);
+        p = s.indexOf(sep);
+        if(p >= 0) {
+            key = s.slice(0, p);
+            value = s.slice(p + len(sep), len(line) - p - len(sep));
+            ks = new String(key);
+            vs = new String(value);
+            key = ks.trim();
+            value = vs.trim();
+            if(len(key) > 0 && !(ks.startsWith("#"))) {
+                if(!(values.has(key))) {
+                    keys.add(key);
+                }
+                values.set(key, value);
+            }
+        }
+    }
+
+    private method bool parseText(string text) {
+        String s;
+        int64 n;
+        int64 i;
+
+        values.clear();
+        keys.clear();
+        if(len(text) == 0) {
+            return true;
+        }
+        s = new String(text);
+        n = s.count("\n") + 1;
+        i = 0;
+        while(i < n) {
+            parseLine(s.line(i));
+            i = i + 1;
+        }
+        return true;
+    }
+
+    method bool load() {
+        string text;
+
+        loaded = true;
+        dirty = false;
+        if(fileexists(path) == 0) {
+            values.clear();
+            keys.clear();
+            return true;
+        }
+        text = readfile(path);
+        if(text == nil || len(text) == 0) {
+            values.clear();
+            keys.clear();
+            return true;
+        }
+        return parseText(text);
+    }
+
+    private method void ensureLoaded() {
+        if(!loaded) {
+            load();
+        }
+    }
+
+    method string get(string key, string def) {
+        ensureLoaded();
+        if(values.has(key)) {
+            return values.get(key);
+        }
+        return def;
+    }
+
+    method bool has(string key) {
+        ensureLoaded();
+        return values.has(key);
+    }
+
+    method bool set(string key, string value) {
+        ensureLoaded();
+        if(len(key) == 0) {
+            return false;
+        }
+        if(!(values.has(key))) {
+            keys.add(key);
+        }
+        values.set(key, value);
+        dirty = true;
+        return true;
+    }
+
+    method bool remove(string key) {
+        int64 i;
+        int64 found;
+
+        ensureLoaded();
+        if(!(values.remove(key))) {
+            return false;
+        }
+        i = 0;
+        found = -1;
+        while(i < keys.length() && found < 0) {
+            if(cmp(keys.get(i), key) == 0) {
+                found = i;
+            }
+            i = i + 1;
+        }
+        if(found >= 0) {
+            keys.remove(found);
+        }
+        dirty = true;
+        return true;
+    }
+
+    method int64 count() {
+        ensureLoaded();
+        return values.length();
+    }
+
+    method string text() {
+        string out;
+        string key;
+        int64 i;
+
+        ensureLoaded();
+        out = "";
+        i = 0;
+        while(i < keys.length()) {
+            key = keys.get(i);
+            out = cat(out, cat(cat(cat(key, sep), values.get(key)), "\n"));
+            i = i + 1;
+        }
+        return out;
+    }
+
+    method bool save() {
+        ensureLoaded();
+        if(writefile(path, text()) != 0) {
+            return false;
+        }
+        dirty = false;
+        return true;
+    }
+
+    method bool changed() {
+        return dirty;
+    }
+}

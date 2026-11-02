@@ -71,7 +71,10 @@ named_storage_for_codegen(Type *t)
 static char*
 apply_storage_for_codegen(Type *t)
 {
+    Node *decl;
     Type *base;
+    char *cn, *r;
+    int n;
 
     if(strcmp(t->name, "List") == 0)
         return "O9Slice";
@@ -83,6 +86,22 @@ apply_storage_for_codegen(Type *t)
         return "O9Tabula*";	/* <T> is schema metadata; runtime handle is unchanged */
     if(strcmp(t->name, "Tuple") == 0)
         return tuple_storage_name(t);
+    /* User generic: monomorphization gives <name>__<args> a real class.
+     * Keep the instantiated identity instead of erasing it to the
+     * template's base name, or a same-class call's return type will not
+     * match the caller's local storage type. */
+    decl = type_decl_node(t);
+    if(decl != nil && decl->params != nil){
+        cn = type_cname(t);
+        if(decl->type == NStruct)
+            return cn;
+        n = strlen(cn) + 8;
+        r = malloc(n);
+        if(r == nil)
+            sysfatal("malloc: generic storage");
+        snprint(r, n, "%s_Client", cn);
+        return r;
+    }
     base = type_name(t->name);
     return client_storage_name(base, "generic storage");
 }

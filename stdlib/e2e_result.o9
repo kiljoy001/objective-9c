@@ -1,0 +1,10 @@
+import "result.o9";
+
+main {
+    Result a = new Result(true, "ok", "");
+    print(a.ok, " ", a.succeeded(), " ", a.failed(), " ",
+          a.unwrap("x"), " ", len(a.err()), "\n");
+
+    Result b = new Result(false, "", "bad");
+    print(b.ok, " ", b.failed(), " ", b.unwrap("x"), " ", b.err(), "\n");
+}

@@ -134,9 +134,6 @@ synth_function_class(char *fname, Node *rettn, Node *params, Node *body)
     members->flags |= NFPrivate;
     members->next = mk_typed(NProp, "__spawn_state", typed_node_from_name("int64"), nil, nil);
     members->next->flags |= NFPrivate;
-    /* __spawn_result is a chan (object-IPC endpoint, auto-created). */
-    members->next->next = mk_typed(NStream, "__spawn_result", typed_node_from_name("chan"), nil, nil);
-    members->next->next->flags |= NFPrivate;
 
     /* The one runtime method, named `run`.  It is intentionally not marked
      * NFSelfCalled: user code starts it through spawn, not direct .run(). */
@@ -144,7 +141,7 @@ synth_function_class(char *fname, Node *rettn, Node *params, Node *body)
         meth = mk_typed(NMethod, "run", rettn, body, params);
     else
         meth = mk_typed(NMethod, "run", typed_node_from_name("void"), body, params);
-    members->next->next->next = meth;
+    members->next->next = meth;
 
     cls->left = members;
     add_class(cls->name, cls);

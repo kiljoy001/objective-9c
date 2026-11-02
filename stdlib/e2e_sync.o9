@@ -1,0 +1,32 @@
+import "sync.o9";
+
+main {
+    Mutex m = new Mutex();
+    print("mutex ", m.isOpen(), " ");
+    m.lock();
+    m.unlock();
+    m.close();
+    print("ok\n");
+
+    WaitGroup w = new WaitGroup();
+    w.add(1);
+    w.done();
+    w.wait();
+    w.close();
+    print("wg ok\n");
+
+    Semaphore s = new Semaphore(1);
+    s.acquire();
+    s.release();
+    s.close();
+    print("sem ok\n");
+
+    Once o = new Once();
+    print("once ", o.claim(), " ", o.claim(), "\n");
+
+    Pool p = new Pool(2);
+    p.acquire();
+    p.release();
+    p.close();
+    print("pool ok\n");
+}

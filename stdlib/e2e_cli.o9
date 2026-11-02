@@ -1,0 +1,15 @@
+import "cli.o9";
+
+main {
+    Args a = new Args(1);
+
+    a.loadLine("-n 42 --verbose --name bob extra");
+    print("count ", a.count(), "\n");
+    print("at0 ", a.at(0), "\n");
+    print("opt ", a.opt("name", "?"), "\n");
+    print("eq ", a.opt("n", "?"), "\n");
+    print("flag ", a.flag("verbose"), " ", a.flag("missing"), "\n");
+    print("int ", a.intOption("n", 7), " ", a.intOption("zz", 9), "\n");
+    print("env ", a.env("O9_E2E_MISSING", "fallback"), "\n");
+    print("req ", a.require(1, "need args"), "\n");
+}

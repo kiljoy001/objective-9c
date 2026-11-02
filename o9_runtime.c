@@ -79,10 +79,12 @@ struct O9ProcCtx {
 	char *err;
 	char errbuf[192];
 	void *actor_chan;
+	int actor_active;
 	char actor_oid[64];
 	char userbuf[64];
 	char *caller;
 	int blessed;
+	O9DataStack *dstack;
 };
 
 static O9ProcCtx*
@@ -90,7 +92,11 @@ o9_proc_ctx(void)
 {
 	O9ProcCtx **pp, *ctx;
 
-	pp = (O9ProcCtx**)procdata();
+	pp = (O9ProcCtx**)threaddata();
+	if(pp == nil)
+		pp = (O9ProcCtx**)procdata();
+	if(pp == nil)
+		sysfatal("o9_proc_ctx: no thread/proc context");
 	if(*pp == nil){
 		ctx = mallocz(sizeof(O9ProcCtx), 1);
 		if(ctx == nil)
@@ -105,9 +111,20 @@ o9_proc_ctx_clear(void)
 {
 	O9ProcCtx **pp;
 
+	pp = (O9ProcCtx**)threaddata();
+	if(pp != nil && *pp != nil){
+		if((*pp)->dstack != nil)
+			o9_datastack_destroy((*pp)->dstack);
+		free(*pp);
+		*pp = nil;
+	}
 	pp = (O9ProcCtx**)procdata();
-	free(*pp);
-	*pp = nil;
+	if(pp != nil && *pp != nil){
+		if((*pp)->dstack != nil)
+			o9_datastack_destroy((*pp)->dstack);
+		free(*pp);
+		*pp = nil;
+	}
 }
 
 /* Last-call error signal for `try`: set non-nil by a failed dispatch,
@@ -129,6 +146,78 @@ o9_get_call_err(void)
 	return o9_proc_ctx()->err;
 }
 
+/* Dispatch channel -> libthread tid.  The exit reaper needs a tid to test
+ * liveness for calls whose message only carries the target channel. */
+#define O9_MAX_ACTOR_TIDS 512
+typedef struct O9ActorTid O9ActorTid;
+struct O9ActorTid {
+	void *chan;
+	int tid;
+};
+static O9ActorTid o9_actor_tids[O9_MAX_ACTOR_TIDS];
+static Lock o9_actor_tids_lock;
+
+static void
+o9_actor_tid_put(void *chan, int tid)
+{
+	int i, slot;
+
+	if(chan == nil)
+		return;
+	slot = -1;
+	lock(&o9_actor_tids_lock);
+	for(i = 0; i < O9_MAX_ACTOR_TIDS; i++){
+		if(o9_actor_tids[i].chan == chan){
+			slot = i;
+			break;
+		}
+		if(slot < 0 && o9_actor_tids[i].chan == nil)
+			slot = i;
+	}
+	if(slot < 0)
+		slot = 0;
+	o9_actor_tids[slot].chan = chan;
+	o9_actor_tids[slot].tid = tid;
+	unlock(&o9_actor_tids_lock);
+}
+
+static void
+o9_actor_tid_remove(void *chan)
+{
+	int i;
+
+	if(chan == nil)
+		return;
+	lock(&o9_actor_tids_lock);
+	for(i = 0; i < O9_MAX_ACTOR_TIDS; i++){
+		if(o9_actor_tids[i].chan == chan){
+			o9_actor_tids[i].chan = nil;
+			o9_actor_tids[i].tid = 0;
+			break;
+		}
+	}
+	unlock(&o9_actor_tids_lock);
+}
+
+static int
+o9_tid_for_chan(void *chan)
+{
+	int i, tid;
+
+	if(chan == nil)
+		return 0;
+	tid = 0;
+	lock(&o9_actor_tids_lock);
+	for(i = 0; i < O9_MAX_ACTOR_TIDS; i++){
+		if(o9_actor_tids[i].chan == chan){
+			tid = o9_actor_tids[i].tid;
+			break;
+		}
+	}
+	unlock(&o9_actor_tids_lock);
+	return tid;
+}
+
 void
 o9_actor_enter(void *dispatch_chan, char *oid)
 {
@@ -136,16 +225,61 @@ o9_actor_enter(void *dispatch_chan, char *oid)
 
 	ctx = o9_proc_ctx();
 	ctx->actor_chan = dispatch_chan;
+	ctx->actor_active = dispatch_chan != nil;
 	if(oid != nil)
 		snprint(ctx->actor_oid, sizeof ctx->actor_oid, "%s", oid);
 	else
 		ctx->actor_oid[0] = '\0';
+	o9_actor_tid_put(dispatch_chan, threadid());
 }
 
 void*
 o9_actor_channel(void)
 {
 	return o9_proc_ctx()->actor_chan;
+}
+
+/* CSP ownership check for the generated direct-call fast path.  A method
+ * body may run synchronously only on the actor that owns the object.  Every
+ * other caller must use the channel path (obj9_msgSendN), which preserves
+ * actor serialization.  There is no nil-channel exemption: an object without
+ * a dispatch channel is not an actor and must not be reached through the
+ * generated method-call path. */
+/* Internal fast primitive (asm on native).  Not part of the public o9.h
+ * surface: generated code is emitted against the ownership-checked wrapper
+ * below, so there is no unguarded dispatch API for callers to reach. */
+extern void* o9_dispatch_call(void *client, ulong hash, void *args);
+
+static vlong o9_lat_t0;
+
+void
+o9_lat_begin(void)
+{
+	o9_lat_t0 = nsec();
+}
+
+vlong
+o9_lat_end(void)
+{
+	return nsec() - o9_lat_t0;
+}
+
+void*
+o9_dispatch_call_checked(void *client, ulong hash, void *args)
+{
+	o9_Object *obj;
+
+	if(client == nil)
+		return nil;
+	obj = client;
+	if(obj->dispatch_chan == nil)
+		return nil;
+	/* actor_active is explicit: a main thread with a stale/garbage
+	 * procdata channel must not be mistaken for the owning actor. */
+	if(!o9_proc_ctx()->actor_active ||
+	   o9_proc_ctx()->actor_chan != obj->dispatch_chan)
+		return nil;
+	return o9_dispatch_call(client, hash, args);
 }
 
 void
@@ -387,6 +521,7 @@ o9_dag_actor_exit(void *actor_chan)
 		}
 	}
 	unlock(&o9_dag_lock);
+	o9_actor_tid_remove(actor_chan);
 }
 
 int
@@ -1563,6 +1698,12 @@ o9_ns_bind_obj(char *mount, char *root, char *inst)
 
 	if(mount == nil || root == nil || inst == nil)
 		return -1;
+	/* The view controller runs while a 9P request waits for its reply.
+	 * Binding a subtree served by that same 9P server here would deadlock.
+	 * Object-directory binding is optional; the actor remains reachable
+	 * through its direct handle and the application service. */
+	if(o9_view_dispatch_busy())
+		return -1;
 	snprint(src, sizeof src, "%s/%s", mount, inst);
 	snprint(dst, sizeof dst, "%s/obj/%s", root, inst);
 	if(o9_ns_ensure_dir(dst) < 0)
@@ -1578,13 +1719,26 @@ O9String*
 o9_string_new(char *data, vlong len)
 {
 	O9String *s;
+	ulong cap;
 
 	if(len < 0)
 		len = data != nil ? strlen(data) : 0;
+	if((uvlong)len > (uvlong)~0UL - 1)
+		return nil;
+	/* Reuse allocator size classes as growing text snapshots are replaced.
+	 * Exact-size allocations strand every former transcript length. */
+	cap = 32;
+	while(cap <= (ulong)len){
+		if(cap > ~0UL / 2){
+			cap = (ulong)len + 1;
+			break;
+		}
+		cap *= 2;
+	}
 	s = mallocz(sizeof *s, 1);
 	if(s == nil)
 		return nil;
-	s->data = malloc(len + 1);
+	s->data = malloc(cap);
 	if(s->data == nil){
 		free(s);
 		return nil;
@@ -1595,6 +1749,46 @@ o9_string_new(char *data, vlong len)
 	s->len = len;
 	s->ref = 1;
 	return s;
+}
+
+typedef struct O9Literal O9Literal;
+struct O9Literal {
+	O9String value;
+	O9Literal *next;
+};
+
+static Lock o9_literal_lock;
+static O9Literal *o9_literals[256];
+
+O9String*
+o9_string_literal(char *data, vlong len)
+{
+	O9Literal *lit;
+	ulong hash;
+	vlong i;
+
+	if(data == nil || len < 0)
+		return nil;
+	hash = 2166136261UL;
+	for(i = 0; i < len; i++)
+		hash = (hash ^ (uchar)data[i]) * 16777619UL;
+	hash &= nelem(o9_literals) - 1;
+	lock(&o9_literal_lock);
+	for(lit = o9_literals[hash]; lit != nil; lit = lit->next)
+		if(lit->value.len == len && memcmp(lit->value.data, data, len) == 0){
+			unlock(&o9_literal_lock);
+			return &lit->value;
+		}
+	lit = mallocz(sizeof *lit, 1);
+	if(lit != nil){
+		lit->value.data = data;
+		lit->value.len = len;
+		lit->value.ref = -1;
+		lit->next = o9_literals[hash];
+		o9_literals[hash] = lit;
+	}
+	unlock(&o9_literal_lock);
+	return lit != nil ? &lit->value : nil;
 }
 
 O9String*
@@ -1624,7 +1818,7 @@ o9_string_take(char *s)
 O9String*
 o9_string_retain(O9String *s)
 {
-	if(s != nil)
+	if(s != nil && s->ref >= 0)
 		o9_atomic_inc(&s->ref);
 	return s;
 }
@@ -1632,7 +1826,7 @@ o9_string_retain(O9String *s)
 void
 o9_string_release(O9String *s)
 {
-	if(s == nil)
+	if(s == nil || s->ref < 0)
 		return;
 	if(o9_atomic_dec(&s->ref) == 0){
 		free(s->data);
@@ -1715,6 +1909,36 @@ o9_str_cat(O9String *a, O9String *b)
 		memmove(out->data + an, o9_string_data(b), bn);
 	out->data[an + bn] = '\0';
 	return out;
+}
+
+O9String*
+o9_str_chr(vlong c)
+{
+	char buf[4];
+	int n;
+
+	if(c < 0 || c > 0x10FFFF)
+		c = 0xFFFD;	/* replacement character */
+	if(c < 0x80){
+		buf[0] = (char)c;
+		n = 1;
+	}else if(c < 0x800){
+		buf[0] = (char)(0xC0 | (c >> 6));
+		buf[1] = (char)(0x80 | (c & 0x3F));
+		n = 2;
+	}else if(c < 0x10000){
+		buf[0] = (char)(0xE0 | (c >> 12));
+		buf[1] = (char)(0x80 | ((c >> 6) & 0x3F));
+		buf[2] = (char)(0x80 | (c & 0x3F));
+		n = 3;
+	}else{
+		buf[0] = (char)(0xF0 | (c >> 18));
+		buf[1] = (char)(0x80 | ((c >> 12) & 0x3F));
+		buf[2] = (char)(0x80 | ((c >> 6) & 0x3F));
+		buf[3] = (char)(0x80 | (c & 0x3F));
+		n = 4;
+	}
+	return o9_string_new(buf, n);
 }
 
 vlong
@@ -1832,6 +2056,7 @@ o9_readfile(O9String *path)
 	int fd;
 	long n, total, cap;
 	char *buf, *nb, *p;
+	O9String *contents;
 
 	if(path == nil)
 		return nil;
@@ -1860,8 +2085,10 @@ o9_readfile(O9String *path)
 		}
 	}
 	close(fd);
-	buf[total] = '\0';
-	return o9_string_take(buf);
+	/* Strings carry a length; file contents may contain zero bytes. */
+	contents = o9_string_new(buf, total);
+	free(buf);
+	return contents;
 }
 
 vlong
@@ -1886,6 +2113,456 @@ o9_writefile(O9String *path, O9String *s)
 		return -1;
 	}
 	close(fd);
+	return 0;
+}
+
+vlong
+o9_appendfile(O9String *path, O9String *s)
+{
+	int fd;
+	char *p;
+	vlong n;
+
+	if(path == nil || s == nil)
+		return -1;
+	p = o9_string_cstr(path);
+	if(p == nil)
+		return -1;
+	fd = open(p, OWRITE);
+	if(fd < 0)
+		fd = create(p, OWRITE, 0644);
+	free(p);
+	if(fd < 0)
+		return -1;
+	if(seek(fd, 0, 2) < 0){
+		close(fd);
+		return -1;
+	}
+	n = o9_string_len(s);
+	if(write(fd, o9_string_data(s), n) != n){
+		close(fd);
+		return -1;
+	}
+	close(fd);
+	return 0;
+}
+
+vlong
+o9_fileexists(O9String *path)
+{
+	char *p;
+	Dir *d;
+	int ok;
+
+	if(path == nil)
+		return 0;
+	p = o9_string_cstr(path);
+	if(p == nil)
+		return 0;
+	d = dirstat(p);
+	ok = d != nil;
+	free(d);
+	free(p);
+	return ok;
+}
+
+vlong
+o9_filesize(O9String *path)
+{
+	char *p;
+	Dir *d;
+	vlong n;
+
+	if(path == nil)
+		return -1;
+	p = o9_string_cstr(path);
+	if(p == nil)
+		return -1;
+	d = dirstat(p);
+	n = d != nil ? d->length : -1;
+	free(d);
+	free(p);
+	return n;
+}
+
+vlong
+o9_isdir(O9String *path)
+{
+	char *p;
+	Dir *d;
+	int ok;
+
+	if(path == nil)
+		return 0;
+	p = o9_string_cstr(path);
+	if(p == nil)
+		return 0;
+	d = dirstat(p);
+	ok = d != nil && (d->mode & DMDIR) != 0;
+	free(d);
+	free(p);
+	return ok;
+}
+
+vlong
+o9_mkdir(O9String *path)
+{
+	char *p;
+	Dir *d;
+	int fd, ok;
+
+	if(path == nil)
+		return -1;
+	p = o9_string_cstr(path);
+	if(p == nil)
+		return -1;
+	d = dirstat(p);
+	if(d != nil){
+		ok = (d->mode & DMDIR) != 0 ? 0 : -1;
+		free(d);
+		free(p);
+		return ok;
+	}
+	fd = create(p, OREAD, DMDIR|0755);
+	free(p);
+	if(fd < 0)
+		return -1;
+	close(fd);
+	return 0;
+}
+
+vlong
+o9_removefile(O9String *path)
+{
+	char *p;
+	int r;
+
+	if(path == nil)
+		return -1;
+	p = o9_string_cstr(path);
+	if(p == nil)
+		return -1;
+	r = remove(p);
+	free(p);
+	return r;
+}
+
+O9String*
+o9_getenv(O9String *name)
+{
+	char *n, *v;
+	O9String *out;
+
+	out = o9_string_from_c("");
+	if(name == nil)
+		return out;
+	n = o9_string_cstr(name);
+	if(n == nil)
+		return out;
+	v = getenv(n);
+	if(v != nil){
+		out = o9_string_from_c(v);
+		free(v);
+	}
+	free(n);
+	return out;
+}
+
+vlong
+o9_setenv(O9String *name, O9String *value)
+{
+	char *n, *v;
+	int r;
+
+	if(name == nil || value == nil)
+		return -1;
+	n = o9_string_cstr(name);
+	v = o9_string_cstr(value);
+	r = -1;
+	if(n != nil && v != nil && n[0] != '\0' && strchr(n, '/') == nil)
+		r = putenv(n, v);
+	free(n);
+	free(v);
+	return r;
+}
+
+vlong
+o9_unsetenv(O9String *name)
+{
+	char *n;
+	char path[256];
+	int r;
+
+	if(name == nil)
+		return -1;
+	n = o9_string_cstr(name);
+	r = -1;
+	if(n != nil && n[0] != '\0' && strchr(n, '/') == nil){
+		snprint(path, sizeof path, "/env/%s", n);
+		r = remove(path);
+		if(r < 0)
+			r = putenv(n, "");	/* host fallback */
+	}
+	free(n);
+	return r;
+}
+
+vlong
+o9_getpid(void)
+{
+	return getpid();
+}
+
+O9String*
+o9_getuser(void)
+{
+	char *u;
+
+	u = getuser();
+	return o9_string_from_c(u != nil ? u : "");
+}
+
+O9String*
+o9_cwd(void)
+{
+	char buf[512];
+
+	if(getwd(buf, sizeof buf) == nil)
+		buf[0] = '\0';
+	return o9_string_from_c(buf);
+}
+
+vlong
+o9_chdir(O9String *path)
+{
+	char *p;
+	int r;
+
+	if(path == nil)
+		return -1;
+	p = o9_string_cstr(path);
+	if(p == nil)
+		return -1;
+	r = chdir(p);
+	free(p);
+	return r;
+}
+
+O9String*
+o9_intstr(vlong n)
+{
+	char *s;
+
+	s = smprint("%lld", n);
+	if(s == nil)
+		return o9_string_from_c("");
+	return o9_string_take(s);
+}
+
+vlong
+o9_intvalue(O9String *s, vlong def)
+{
+	char *p, *end;
+	vlong n;
+
+	if(s == nil)
+		return def;
+	p = o9_string_cstr(s);
+	if(p == nil)
+		return def;
+	n = strtoll(p, &end, 0);
+	if(end == p || *end != '\0')
+		n = def;
+	free(p);
+	return n;
+}
+
+void
+o9_sleepms(vlong ms)
+{
+	while(ms > 0){
+		int chunk;
+
+		chunk = ms > 1000000000 ? 1000000000 : (int)ms;
+		sleep(chunk);
+		ms -= chunk;
+	}
+}
+
+/* ---- Small synchronization primitives ---------------------------------
+ * The o9 stdlib exposes Mutex/WaitGroup/Semaphore objects.  The objects are
+ * thin handles over the kernel/libthread primitives rather than actors, so a
+ * blocked lock or wait does not block the owning object's dispatch loop.
+ */
+typedef struct O9SyncMutex O9SyncMutex;
+struct O9SyncMutex {
+	QLock l;
+};
+
+typedef struct O9SyncWG O9SyncWG;
+struct O9SyncWG {
+	QLock l;
+	Rendez r;
+	int n;
+};
+
+typedef struct O9SyncSem O9SyncSem;
+struct O9SyncSem {
+	QLock l;
+	Rendez r;
+	int n;
+};
+
+vlong
+o9_sync_mutex_new(void)
+{
+	O9SyncMutex *m;
+
+	m = mallocz(sizeof *m, 1);
+	return (vlong)(uintptr)m;
+}
+
+vlong
+o9_sync_mutex_lock(vlong h)
+{
+	O9SyncMutex *m;
+
+	m = (O9SyncMutex*)(uintptr)h;
+	if(m != nil)
+		qlock(&m->l);
+	return 0;
+}
+
+vlong
+o9_sync_mutex_unlock(vlong h)
+{
+	O9SyncMutex *m;
+
+	m = (O9SyncMutex*)(uintptr)h;
+	if(m != nil)
+		qunlock(&m->l);
+	return 0;
+}
+
+vlong
+o9_sync_mutex_free(vlong h)
+{
+	O9SyncMutex *m;
+
+	m = (O9SyncMutex*)(uintptr)h;
+	free(m);
+	return 0;
+}
+
+vlong
+o9_sync_wg_new(void)
+{
+	O9SyncWG *w;
+
+	w = mallocz(sizeof *w, 1);
+	if(w != nil)
+		w->r.l = &w->l;
+	return (vlong)(uintptr)w;
+}
+
+vlong
+o9_sync_wg_add(vlong h, vlong delta)
+{
+	O9SyncWG *w;
+
+	w = (O9SyncWG*)(uintptr)h;
+	if(w == nil)
+		return -1;
+	qlock(&w->l);
+	w->n += delta;
+	if(w->n <= 0)
+		rwakeup(&w->r);
+	qunlock(&w->l);
+	return 0;
+}
+
+vlong
+o9_sync_wg_done(vlong h)
+{
+	return o9_sync_wg_add(h, -1);
+}
+
+vlong
+o9_sync_wg_wait(vlong h)
+{
+	O9SyncWG *w;
+
+	w = (O9SyncWG*)(uintptr)h;
+	if(w == nil)
+		return -1;
+	qlock(&w->l);
+	while(w->n > 0)
+		rsleep(&w->r);
+	qunlock(&w->l);
+	return 0;
+}
+
+vlong
+o9_sync_wg_free(vlong h)
+{
+	O9SyncWG *w;
+
+	w = (O9SyncWG*)(uintptr)h;
+	free(w);
+	return 0;
+}
+
+vlong
+o9_sync_sem_new(vlong count)
+{
+	O9SyncSem *s;
+
+	s = mallocz(sizeof *s, 1);
+	if(s != nil){
+		s->n = count > 0 ? count : 0;
+		s->r.l = &s->l;
+	}
+	return (vlong)(uintptr)s;
+}
+
+vlong
+o9_sync_sem_acquire(vlong h)
+{
+	O9SyncSem *s;
+
+	s = (O9SyncSem*)(uintptr)h;
+	if(s == nil)
+		return -1;
+	qlock(&s->l);
+	while(s->n <= 0)
+		rsleep(&s->r);
+	s->n--;
+	qunlock(&s->l);
+	return 0;
+}
+
+vlong
+o9_sync_sem_release(vlong h)
+{
+	O9SyncSem *s;
+
+	s = (O9SyncSem*)(uintptr)h;
+	if(s == nil)
+		return -1;
+	qlock(&s->l);
+	s->n++;
+	rwakeup(&s->r);
+	qunlock(&s->l);
+	return 0;
+}
+
+vlong
+o9_sync_sem_free(vlong h)
+{
+	O9SyncSem *s;
+
+	s = (O9SyncSem*)(uintptr)h;
+	free(s);
 	return 0;
 }
 
@@ -3925,12 +4602,17 @@ o9_task_await_double(O9Task *t)
 void
 o9_task_close(O9Task *t)
 {
+	O9Reply *r;
+
 	if(t == nil)
 		return;
 	if(o9_atomic_dec(&t->ref) != 0)
 		return;
-	if(t->done != nil)
+	if(t->done != nil){
+		while((r = nbrecvp(t->done)) != nil)
+			o9_reply_free(r);
 		chanfree(t->done);
+	}
 	o9_reply_free(t->reply);
 	free(t);
 }
@@ -3953,6 +4635,310 @@ o9_task_take_double(O9Task *t)
 	value = o9_task_await_double(t);
 	o9_task_close(t);
 	return value;
+}
+
+/* ---- Event-driven spawn completion ------------------------------------
+ *
+ * A spawned one-shot actor sends its reply directly to the task's done
+ * channel.  The caller blocks there; there is no per-spawn forwarder and no
+ * polling on the success path.  A single reaper watches outstanding actor
+ * tids so an actor that dies without replying still completes its task.
+ * Spawned tasks start with two references: one for the caller and one for
+ * this table.  Whoever completes the entry (the actor or the reaper)
+ * releases the table's reference.
+ */
+#define O9_MAX_PENDING 512
+
+/* A synchronous call owns its reply channel until both the caller and the
+ * pending table release it.  This keeps the channel alive across the actor's
+ * send and the caller's receive without a forwarder proc. */
+typedef struct O9SyncWait O9SyncWait;
+struct O9SyncWait {
+	long ref;
+	Channel *replyc;
+};
+
+static O9SyncWait*
+o9_sync_new(void)
+{
+	O9SyncWait *w;
+
+	w = mallocz(sizeof *w, 1);
+	if(w == nil)
+		return nil;
+	w->ref = 1;	/* owner (caller or router worker); pending adds one */
+	w->replyc = chancreate(sizeof(void*), 1);
+	if(w->replyc == nil){
+		free(w);
+		return nil;
+	}
+	return w;
+}
+
+static void
+o9_sync_retain(O9SyncWait *w)
+{
+	if(w != nil)
+		o9_atomic_inc(&w->ref);
+}
+
+static void
+o9_sync_release(O9SyncWait *w)
+{
+	O9Reply *r;
+
+	if(w == nil)
+		return;
+	if(o9_atomic_dec(&w->ref) != 0)
+		return;
+	if(w->replyc != nil){
+		while((r = nbrecvp(w->replyc)) != nil)
+			o9_reply_free(r);
+		chanfree(w->replyc);
+	}
+	free(w);
+}
+
+typedef struct O9Pending O9Pending;
+struct O9Pending {
+	int active;
+	int started;
+	int one_shot;
+	int tid;
+	Channel *replyc;
+	void *dispatch_chan;
+	void *inst;
+	O9Task *task;
+	O9SyncWait *sync;
+};
+
+static O9Pending o9_pending[O9_MAX_PENDING];
+static Lock o9_pending_lock;
+static int o9_reaper_started;
+
+static void
+o9_reaper_proc(void *v)
+{
+	int i, j, dead, one_shot, tid;
+	Channel *replyc;
+	void *dispatch_chan, *inst;
+	O9Task *task;
+	O9SyncWait *sync;
+	O9Reply *r;
+
+	(void)v;
+	for(;;){
+		sleep(5);
+		for(;;){
+			dead = 0;
+			replyc = nil;
+			dispatch_chan = nil;
+			inst = nil;
+			task = nil;
+			sync = nil;
+			one_shot = 0;
+
+			lock(&o9_pending_lock);
+			for(i = 0; i < O9_MAX_PENDING; i++){
+				if(!o9_pending[i].active)
+					continue;
+				/* Only check threadpid after the actor proc has reached
+				 * o9_actor_enter (or if proccreate itself failed with tid < 0).
+				 * On Harvey, a newly forked proc has p->pid == -1 until
+				 * _schedinit runs on the child proc. */
+				tid = o9_tid_for_chan(o9_pending[i].dispatch_chan);
+				if(tid > 0){
+					o9_pending[i].tid = tid;
+					o9_pending[i].started = 1;
+				} else if(o9_pending[i].started || o9_pending[i].tid < 0){
+					tid = o9_pending[i].tid;
+				} else {
+					tid = 0;
+				}
+				if(tid < 0 || (tid > 0 && threadpid(tid) < 0)){
+					dead = 1;
+					one_shot = o9_pending[i].one_shot;
+					replyc = o9_pending[i].replyc;
+					dispatch_chan = o9_pending[i].dispatch_chan;
+					inst = o9_pending[i].inst;
+					task = o9_pending[i].task;
+					sync = o9_pending[i].sync;
+					o9_pending[i].active = 0;
+					o9_pending[i].started = 0;
+					o9_pending[i].tid = 0;
+					o9_pending[i].replyc = nil;
+					o9_pending[i].dispatch_chan = nil;
+					o9_pending[i].inst = nil;
+					o9_pending[i].task = nil;
+					o9_pending[i].sync = nil;
+					if(dispatch_chan != nil && tid > 0){
+						for(j = 0; j < O9_MAX_PENDING; j++){
+							if(o9_pending[j].active && o9_pending[j].dispatch_chan == dispatch_chan){
+								o9_pending[j].tid = tid;
+								o9_pending[j].started = 1;
+							}
+						}
+					}
+					break;
+				}
+			}
+			unlock(&o9_pending_lock);
+			if(!dead)
+				break;
+
+			r = mallocz(sizeof(O9Reply), 1);
+			if(r != nil){
+				r->ok = 0;
+				r->err = "actor exited without reply";
+				if(nbsendp(replyc, r) < 0)
+					o9_reply_free(r);
+			}
+			if(task != nil)
+				o9_task_close(task);
+			if(sync != nil)
+				o9_sync_release(sync);
+			o9_dag_actor_exit(dispatch_chan);
+			if(one_shot){
+				if(dispatch_chan != nil)
+					chanfree(dispatch_chan);
+				free(inst);
+			}
+		}
+	}
+}
+
+static void
+o9_reaper_ensure(void)
+{
+	int start;
+
+	start = 0;
+	lock(&o9_pending_lock);
+	if(!o9_reaper_started){
+		o9_reaper_started = 1;
+		start = 1;
+	}
+	unlock(&o9_pending_lock);
+	if(start)
+		proccreate(o9_reaper_proc, nil, 8192);
+}
+
+int
+o9_pending_register(int tid, void *replyc, void *dispatch_chan,
+                    void *inst, int one_shot, void *task, void *syncv)
+{
+	int i, slot, started, ctid;
+	O9SyncWait *sync;
+
+	if(replyc == nil)
+		return -1;
+	sync = syncv;
+	started = 0;
+	ctid = o9_tid_for_chan(dispatch_chan);
+	if(ctid > 0){
+		tid = ctid;
+		started = 1;
+	}
+	if(sync != nil)
+		o9_sync_retain(sync);
+	o9_reaper_ensure();
+	slot = -1;
+	lock(&o9_pending_lock);
+	for(i = 0; i < O9_MAX_PENDING; i++){
+		if(!o9_pending[i].active){
+			slot = i;
+			o9_pending[i].active = 1;
+			o9_pending[i].started = started;
+			o9_pending[i].one_shot = one_shot;
+			o9_pending[i].tid = tid;
+			o9_pending[i].replyc = replyc;
+			o9_pending[i].dispatch_chan = dispatch_chan;
+			o9_pending[i].inst = inst;
+			o9_pending[i].task = task;
+			o9_pending[i].sync = sync;
+			break;
+		}
+	}
+	unlock(&o9_pending_lock);
+	if(slot < 0 && sync != nil)
+		o9_sync_release(sync);
+	return slot;
+}
+
+static void
+o9_pending_take(Channel *replyc, O9Task **taskp, O9SyncWait **syncp)
+{
+	int i;
+
+	*taskp = nil;
+	*syncp = nil;
+	if(replyc == nil)
+		return;
+	lock(&o9_pending_lock);
+	for(i = 0; i < O9_MAX_PENDING; i++){
+		if(o9_pending[i].active && o9_pending[i].replyc == replyc){
+			*taskp = o9_pending[i].task;
+			*syncp = o9_pending[i].sync;
+			o9_pending[i].active = 0;
+			o9_pending[i].started = 0;
+			o9_pending[i].tid = 0;
+			o9_pending[i].replyc = nil;
+			o9_pending[i].dispatch_chan = nil;
+			o9_pending[i].inst = nil;
+			o9_pending[i].task = nil;
+			o9_pending[i].sync = nil;
+			break;
+		}
+	}
+	unlock(&o9_pending_lock);
+}
+
+static void
+o9_pending_complete(Channel *replyc)
+{
+	O9Task *task;
+	O9SyncWait *sync;
+
+	o9_pending_take(replyc, &task, &sync);
+	if(task != nil)
+		o9_task_close(task);
+	if(sync != nil)
+		o9_sync_release(sync);
+}
+
+void
+o9_msg_reply(O9Msg *msg, O9Reply *r)
+{
+	O9Task *task, *ptask;
+	O9SyncWait *psync;
+	Channel *done, *replyc;
+	void *sync;
+
+	if(msg == nil)
+		return;
+	task = msg->task;
+	replyc = msg->replyc;
+	sync = msg->sync;
+	if(task != nil){
+		done = task->done;
+		o9_pending_take(done, &ptask, &psync);
+		if(done != nil)
+			sendp(done, r);
+		if(ptask != nil)
+			o9_task_close(ptask);
+		if(psync != nil)
+			o9_sync_release(psync);
+	} else if(sync != nil){
+		o9_pending_take(replyc, &ptask, &psync);
+		if(replyc != nil)
+			sendp(replyc, r);
+		if(ptask != nil)
+			o9_task_close(ptask);
+		if(psync != nil)
+			o9_sync_release(psync);
+	} else if(replyc != nil){
+		sendp(replyc, r);
+	}
 }
 
 char*
@@ -4757,61 +5743,81 @@ o9_tab_sync(O9Tabula *t)
 	return 0;
 }
 
-void*
+vlong
 obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int nargs)
 {
     o9_Object *obj = receiver;
     O9Handle h;
     O9Msg *m;
     O9Reply *r;
-    void *ret;
+    O9SyncWait *w;
+    vlong ret;
 
     if(obj->dispatch_chan != nil){
         if(chanclosing(obj->dispatch_chan) >= 0){
             werrstr("stale object handle");
             o9_set_call_err("stale object handle");
-            return nil;
+            return 0;
         }
         if(obj->oid[0] != '\0' && obj->gen != 0){
             if(o9_registry_lookup(obj->oid, &h) < 0 ||
                h.gen != obj->gen || h.chan != obj->dispatch_chan){
                 werrstr("stale object handle");
                 o9_set_call_err("stale object handle");
-                return nil;
+                return 0;
             }
         }
         if(o9_dag_call_begin(obj->dispatch_chan, obj->oid, method) < 0)
-            return nil;
+            return 0;
         m = mallocz(sizeof(O9Msg), 1);
         m->sel = selector;
         m->args = args;
         m->nargs = nargs;
-        m->replyc = chancreate(sizeof(void*), 0);
+        w = o9_sync_new();
+        if(w == nil){
+            o9_dag_call_end(obj->dispatch_chan);
+            free(m);
+            werrstr("out of memory");
+            o9_set_call_err("out of memory");
+            return 0;
+        }
+        m->replyc = w->replyc;
+        m->sync = w;
         m->caller = o9_current_user_c();
         m->blessed = o9_current_user_blessed();
+        if(o9_pending_register(0, w->replyc, obj->dispatch_chan, nil, 0, nil, w) < 0){
+            o9_sync_release(w);
+            o9_dag_call_end(obj->dispatch_chan);
+            free(m);
+            werrstr("too many pending calls");
+            o9_set_call_err("too many pending calls");
+            return 0;
+        }
         if(sendp(obj->dispatch_chan, m) < 0){
             o9_dag_call_end(obj->dispatch_chan);
-            chanfree(m->replyc);
+            o9_pending_complete(w->replyc);
+            o9_sync_release(w);
             free(m);
             werrstr("stale object handle");
             o9_set_call_err("stale object handle");
-            return nil;
+            return 0;
         }
-        r = recvp(m->replyc);
+        r = recvp(w->replyc);
+        o9_pending_complete(w->replyc);
         o9_dag_call_end(obj->dispatch_chan);
         if(r == nil){
             werrstr("object method produced no reply");
             o9_set_call_err("object method produced no reply");
-            ret = nil;
+            ret = 0;
         } else if(r->err != nil){
             werrstr("%s", r->err);
             o9_set_call_err(r->err);	/* for try: last-call error signal */
-            ret = nil;
+            ret = 0;
         } else {
             o9_set_call_err(nil);
-            ret = (void*)r->ret;
+            ret = r->ret;
         }
-        chanfree(m->replyc);
+        o9_sync_release(w);
         o9_reply_free(r);
         free(m);
         return ret;
@@ -4819,7 +5825,7 @@ obj9_msgSendN(void *receiver, char *method, ulong selector, void *args, int narg
 
     werrstr("object method dispatch is local-only");
     o9_set_call_err("object method dispatch is local-only");
-    return nil;
+    return 0;
 }
 
 double
@@ -4829,6 +5835,7 @@ obj9_msgSendDoubleN(void *receiver, char *method, ulong selector, void *args, in
     O9Handle h;
     O9Msg *m;
     O9Reply *r;
+    O9SyncWait *w;
     double ret;
 
     ret = 0.0;
@@ -4852,18 +5859,37 @@ obj9_msgSendDoubleN(void *receiver, char *method, ulong selector, void *args, in
         m->sel = selector;
         m->args = args;
         m->nargs = nargs;
-        m->replyc = chancreate(sizeof(void*), 0);
+        w = o9_sync_new();
+        if(w == nil){
+            o9_dag_call_end(obj->dispatch_chan);
+            free(m);
+            werrstr("out of memory");
+            o9_set_call_err("out of memory");
+            return 0.0;
+        }
+        m->replyc = w->replyc;
+        m->sync = w;
         m->caller = o9_current_user_c();
         m->blessed = o9_current_user_blessed();
+        if(o9_pending_register(0, w->replyc, obj->dispatch_chan, nil, 0, nil, w) < 0){
+            o9_sync_release(w);
+            o9_dag_call_end(obj->dispatch_chan);
+            free(m);
+            werrstr("too many pending calls");
+            o9_set_call_err("too many pending calls");
+            return 0.0;
+        }
         if(sendp(obj->dispatch_chan, m) < 0){
             o9_dag_call_end(obj->dispatch_chan);
-            chanfree(m->replyc);
+            o9_pending_complete(w->replyc);
+            o9_sync_release(w);
             free(m);
             werrstr("stale object handle");
             o9_set_call_err("stale object handle");
             return 0.0;
         }
-        r = recvp(m->replyc);
+        r = recvp(w->replyc);
+        o9_pending_complete(w->replyc);
         o9_dag_call_end(obj->dispatch_chan);
         if(r == nil){
             werrstr("object method produced no reply");
@@ -4875,7 +5901,7 @@ obj9_msgSendDoubleN(void *receiver, char *method, ulong selector, void *args, in
             o9_set_call_err(nil);
             ret = r->dret;
         }
-        chanfree(m->replyc);
+        o9_sync_release(w);
         o9_reply_free(r);
         free(m);
         return ret;
@@ -4894,6 +5920,7 @@ obj9_msgSendObjectN(void *receiver, char *method, ulong selector, void *args,
     O9Handle h;
     O9Msg *m;
     O9Reply *r;
+    O9SyncWait *w;
     int ret;
 
     if(obj == nil || out == nil || outsiz == 0){
@@ -4923,18 +5950,37 @@ obj9_msgSendObjectN(void *receiver, char *method, ulong selector, void *args,
         m->sel = selector;
         m->args = args;
         m->nargs = nargs;
-        m->replyc = chancreate(sizeof(void*), 0);
+        w = o9_sync_new();
+        if(w == nil){
+            o9_dag_call_end(obj->dispatch_chan);
+            free(m);
+            werrstr("out of memory");
+            o9_set_call_err("out of memory");
+            return -1;
+        }
+        m->replyc = w->replyc;
+        m->sync = w;
         m->caller = o9_current_user_c();
         m->blessed = o9_current_user_blessed();
+        if(o9_pending_register(0, w->replyc, obj->dispatch_chan, nil, 0, nil, w) < 0){
+            o9_sync_release(w);
+            o9_dag_call_end(obj->dispatch_chan);
+            free(m);
+            werrstr("too many pending calls");
+            o9_set_call_err("too many pending calls");
+            return -1;
+        }
         if(sendp(obj->dispatch_chan, m) < 0){
             o9_dag_call_end(obj->dispatch_chan);
-            chanfree(m->replyc);
+            o9_pending_complete(w->replyc);
+            o9_sync_release(w);
             free(m);
             werrstr("stale object handle");
             o9_set_call_err("stale object handle");
             return -1;
         }
-        r = recvp(m->replyc);
+        r = recvp(w->replyc);
+        o9_pending_complete(w->replyc);
         o9_dag_call_end(obj->dispatch_chan);
         ret = -1;
         if(r == nil){
@@ -4955,7 +6001,7 @@ obj9_msgSendObjectN(void *receiver, char *method, ulong selector, void *args,
             o9_set_call_err(nil);
             ret = 0;
         }
-        chanfree(m->replyc);
+        o9_sync_release(w);
         o9_reply_free(r);
         free(m);
         return ret;
@@ -4966,10 +6012,112 @@ obj9_msgSendObjectN(void *receiver, char *method, ulong selector, void *args,
     return -1;
 }
 
+/* Struct-returning actor method.  The callee fills O9Reply.retbuf; copy it
+ * into the caller-owned struct.  Unlike obj9_msgSendObjectN this does not
+ * assume the destination is an o9 object handle. */
+int
+obj9_msgSendStructN(void *receiver, char *method, ulong selector, void *args,
+	int nargs, void *out, uintptr outsiz)
+{
+    o9_Object *obj = receiver;
+    O9Handle h;
+    O9Msg *m;
+    O9Reply *r;
+    O9SyncWait *w;
+    int ret;
+
+    if(obj == nil || out == nil || outsiz == 0){
+        werrstr("bad struct return destination");
+        o9_set_call_err("bad struct return destination");
+        return -1;
+    }
+    memset(out, 0, outsiz);
+
+    if(obj->dispatch_chan != nil){
+        if(chanclosing(obj->dispatch_chan) >= 0){
+            werrstr("stale object handle");
+            o9_set_call_err("stale object handle");
+            return -1;
+        }
+        if(obj->oid[0] != '\0' && obj->gen != 0){
+            if(o9_registry_lookup(obj->oid, &h) < 0 ||
+               h.gen != obj->gen || h.chan != obj->dispatch_chan){
+                werrstr("stale object handle");
+                o9_set_call_err("stale object handle");
+                return -1;
+            }
+        }
+        if(o9_dag_call_begin(obj->dispatch_chan, obj->oid, method) < 0)
+            return -1;
+        m = mallocz(sizeof(O9Msg), 1);
+        m->sel = selector;
+        m->args = args;
+        m->nargs = nargs;
+        w = o9_sync_new();
+        if(w == nil){
+            o9_dag_call_end(obj->dispatch_chan);
+            free(m);
+            werrstr("out of memory");
+            o9_set_call_err("out of memory");
+            return -1;
+        }
+        m->replyc = w->replyc;
+        m->sync = w;
+        m->caller = o9_current_user_c();
+        m->blessed = o9_current_user_blessed();
+        if(o9_pending_register(0, w->replyc, obj->dispatch_chan, nil, 0, nil, w) < 0){
+            o9_sync_release(w);
+            o9_dag_call_end(obj->dispatch_chan);
+            free(m);
+            werrstr("too many pending calls");
+            o9_set_call_err("too many pending calls");
+            return -1;
+        }
+        if(sendp(obj->dispatch_chan, m) < 0){
+            o9_dag_call_end(obj->dispatch_chan);
+            o9_pending_complete(w->replyc);
+            o9_sync_release(w);
+            free(m);
+            werrstr("stale object handle");
+            o9_set_call_err("stale object handle");
+            return -1;
+        }
+        r = recvp(w->replyc);
+        o9_pending_complete(w->replyc);
+        o9_dag_call_end(obj->dispatch_chan);
+        ret = -1;
+        if(r == nil){
+            werrstr("object method produced no reply");
+            o9_set_call_err("object method produced no reply");
+        } else if(r->err != nil){
+            werrstr("%s", r->err);
+            o9_set_call_err(r->err);
+        } else if(r->retbuf == nil || r->retsz == 0){
+            werrstr("object method returned no struct data");
+            o9_set_call_err("object method returned no struct data");
+        } else if(r->retsz > outsiz){
+            werrstr("object method returned oversized struct");
+            o9_set_call_err("object method returned oversized struct");
+        } else {
+            memmove(out, r->retbuf, r->retsz);
+            o9_set_call_err(nil);
+            ret = 0;
+        }
+        o9_sync_release(w);
+        o9_reply_free(r);
+        free(m);
+        return ret;
+    }
+
+    werrstr("struct returns are local-only");
+    o9_set_call_err("struct returns are local-only");
+    return -1;
+}
+
 void*
 obj9_msgSend(void *receiver, char *method, ulong selector, void *args)
 {
-	return obj9_msgSendN(receiver, method, selector, args, args != nil ? 1 : 0);
+	return (void*)(uintptr)obj9_msgSendN(receiver, method, selector, args, args != nil ? 1 : 0);
 }
 
 /* First method-table row matching a method name; the ret column tells
@@ -5028,7 +6176,7 @@ o9_send(void *client, O9String *line)
 		args[nargs] = strtoll(v != nil ? v+1 : f[i], nil, 0);
 		nargs++;
 	}
-	rv = (vlong)(uintptr)obj9_msgSendN(obj, f[2], o9_hash(f[2]),
+	rv = obj9_msgSendN(obj, f[2], o9_hash(f[2]),
 		nargs > 0 ? args : nil, nargs);
 	ret = o9_method_ret_type(f[2]);
 	if(ret != nil && (strcmp(ret, "string") == 0 || strcmp(ret, "O9String*") == 0)){
@@ -5046,7 +6194,7 @@ void*
 obj9_msgSend_name(void *receiver, char *method, ulong selector, void *args)
 {
 	USED(selector);
-	return obj9_msgSendN(receiver, method, selector, args, args != nil ? 1 : 0);
+	return (void*)(uintptr)obj9_msgSendN(receiver, method, selector, args, args != nil ? 1 : 0);
 }
 
 void
@@ -5175,16 +6323,25 @@ vlong
 o9_array_get(char *data, vlong idx)
 {
 	vlong i;
-	char *p, *end;
+	char *p, *end, *q;
 	long v;
 
-	if(data == nil) return 0;
+	if(data == nil || idx < 0)
+		return 0;
 	p = data;
 	for(i = 0; i < idx; i++){
 		p = strchr(p, '\n');
 		if(p == nil) return 0;
 		p++;
 	}
+	/* An empty or whitespace-only line is line zero, not the next line.
+	 * strtol would otherwise skip the newline and parse the following
+	 * entry. */
+	q = p;
+	while(*q == ' ' || *q == '\t')
+		q++;
+	if(*q == '\n' || *q == '\0')
+		return 0;
 	v = strtol(p, &end, 0);
 	return (vlong)v;
 }
@@ -5364,8 +6521,282 @@ o9_slice_setgrow(O9Slice *s, vlong idx, void *val)
 void
 o9_slice_free(O9Slice *s)
 {
-	if(s) free(s->data);
+	if(s == nil || s->cap < 0) return;
+	free(s->data);
 }
+
+/*
+ * ========================================================================
+ * Goose-style Data Stack (O9DataStack)
+ * ========================================================================
+ */
+
+O9DataStack*
+o9_datastack_create(uintptr capacity)
+{
+	O9DataStack *ds;
+	char *buf;
+
+	if(capacity < 1024)
+		capacity = 1024;
+	capacity = (capacity + 7) & ~7;
+	ds = mallocz(sizeof *ds, 1);
+	if(ds == nil)
+		return nil;
+	buf = malloc(capacity);
+	if(buf == nil){
+		free(ds);
+		return nil;
+	}
+	ds->base = buf;
+	ds->top = buf;
+	ds->limit = buf + capacity;
+	ds->is_growing = 0;
+	ds->grow_head = nil;
+	return ds;
+}
+
+void
+o9_datastack_destroy(O9DataStack *ds)
+{
+	if(ds == nil)
+		return;
+	if(ds->base != nil)
+		free(ds->base);
+	free(ds);
+}
+
+void*
+o9_datastack_mark(O9DataStack *ds)
+{
+	if(ds == nil)
+		return nil;
+	return (void*)ds->top;
+}
+
+void
+o9_datastack_reset(O9DataStack *ds, void *mark)
+{
+	if(ds == nil || mark == nil)
+		return;
+	if((char*)mark < ds->base || (char*)mark > ds->limit)
+		return;
+	ds->top = (char*)mark;
+	ds->is_growing = 0;
+	ds->grow_head = nil;
+}
+
+void*
+o9_datastack_alloc(O9DataStack *ds, uintptr size, uintptr align)
+{
+	char *p;
+	uintptr rem;
+
+	if(ds == nil || size == 0)
+		return nil;
+	if(align == 0)
+		align = sizeof(void*);
+
+	p = ds->top;
+	rem = (uintptr)p % align;
+	if(rem != 0)
+		p += align - rem;
+
+	if(p + size > ds->limit)
+		return nil;
+
+	if(ds->is_growing){
+		ds->is_growing = 0;
+		ds->grow_head = nil;
+	}
+
+	ds->top = p + size;
+	return (void*)p;
+}
+
+O9String*
+o9_datastack_string(O9DataStack *ds, const char *data, vlong len)
+{
+	O9String *s;
+	char *payload;
+	uintptr need;
+
+	if(ds == nil)
+		return nil;
+	if(len < 0)
+		len = data != nil ? strlen(data) : 0;
+
+	need = sizeof(O9String) + len + 1;
+	s = (O9String*)o9_datastack_alloc(ds, need, sizeof(void*));
+	if(s == nil)
+		return nil;
+
+	payload = (char*)(s + 1);
+	if(data != nil && len > 0)
+		memmove(payload, data, len);
+	payload[len] = '\0';
+
+	s->data = payload;
+	s->len = len;
+	s->ref = -1;
+	return s;
+}
+
+void
+o9_datastack_slice_begin(O9DataStack *ds, O9Slice *s, int elemsize)
+{
+	char *p;
+	uintptr rem;
+
+	if(ds == nil || s == nil || elemsize <= 0)
+		return;
+
+	p = ds->top;
+	rem = (uintptr)p % sizeof(void*);
+	if(rem != 0)
+		p += sizeof(void*) - rem;
+
+	ds->top = p;
+	s->data = (void*)p;
+	s->len = 0;
+	s->cap = (ds->limit - p) / elemsize;
+	s->elemsize = elemsize;
+
+	ds->is_growing = 1;
+	ds->grow_head = s;
+}
+
+void*
+o9_datastack_slice_push(O9DataStack *ds, O9Slice *s, const void *elem)
+{
+	char *dest;
+
+	if(ds == nil || s == nil || elem == nil)
+		return nil;
+	if(!ds->is_growing || ds->grow_head != s)
+		return nil;
+	if(ds->top + s->elemsize > ds->limit)
+		return nil;
+
+	dest = ds->top;
+	memmove(dest, elem, s->elemsize);
+	ds->top += s->elemsize;
+	s->len++;
+	return (void*)dest;
+}
+
+void
+o9_datastack_slice_end(O9DataStack *ds, O9Slice *s)
+{
+	if(ds == nil || s == nil)
+		return;
+	if(ds->is_growing && ds->grow_head == s){
+		s->cap = -s->len;
+		ds->is_growing = 0;
+		ds->grow_head = nil;
+	}
+}
+
+O9DataStack*
+o9_current_datastack(void)
+{
+	O9ProcCtx *ctx;
+
+	ctx = o9_proc_ctx();
+	if(ctx->dstack == nil)
+		ctx->dstack = o9_datastack_create(1024 * 1024);
+	return ctx->dstack;
+}
+
+/*
+ * ========================================================================
+ * C Interop Scratchpad (O9DataFrame)
+ * ========================================================================
+ */
+
+void
+o9_frame_enter(O9DataFrame *f, O9DataStack *ds)
+{
+	if(f == nil)
+		return;
+	if(ds == nil)
+		ds = o9_current_datastack();
+	f->ds = ds;
+	f->mark = ds->top;
+	f->sealed = 0;
+}
+
+void*
+o9_frame_alloc(O9DataFrame *f, uintptr size, uintptr align)
+{
+	if(f == nil || f->ds == nil)
+		return nil;
+	return o9_datastack_alloc(f->ds, size, align);
+}
+
+char*
+o9_frame_scratch_str(O9DataFrame *f, O9String *s)
+{
+	char *p;
+	vlong len;
+
+	if(f == nil || s == nil)
+		return "";
+	len = o9_string_len(s);
+	p = (char*)o9_frame_alloc(f, len + 1, 1);
+	if(p == nil)
+		return "";
+	if(len > 0)
+		memmove(p, o9_string_data(s), len);
+	p[len] = '\0';
+	return p;
+}
+
+O9String*
+o9_frame_seal_string(O9DataFrame *f, const char *data, vlong len)
+{
+	O9String *out;
+	char *payload;
+	uintptr need;
+
+	if(f == nil || f->ds == nil)
+		return nil;
+	if(len < 0)
+		len = data != nil ? strlen(data) : 0;
+
+	need = sizeof(O9String) + len + 1;
+	if(f->mark + need > f->ds->limit)
+		return nil;
+
+	/* Compact return value down to f->mark: all intermediate scratch is popped! */
+	out = (O9String*)f->mark;
+	payload = (char*)(out + 1);
+
+	/* Copy payload first using memmove to safely handle any overlap with scratch data */
+	if(data != nil && len > 0 && payload != data)
+		memmove(payload, data, len);
+	payload[len] = '\0';
+
+	out->data = payload;
+	out->len = len;
+	out->ref = -1;
+
+	f->ds->top = f->mark + need;
+	f->sealed = 1;
+	return out;
+}
+
+void
+o9_frame_exit(O9DataFrame *f)
+{
+	if(f == nil || f->ds == nil)
+		return;
+	if(!f->sealed){
+		o9_datastack_reset(f->ds, f->mark);
+	}
+}
+
+
 
 static void
 o9_chan_drop_string(void *p)
@@ -6058,15 +7489,170 @@ o9_dict_free(O9Dict *d)
  * Async 9P Router / Mini CSP Backplane
  * ========================================================================= */
 
+#define O9_MAX_OBJECTS 256
+
+typedef struct O9ObjEntry O9ObjEntry;
+struct O9ObjEntry {
+	u32int gen;
+	int active;
+	char class[64];
+	char oid[64];
+	void *inst;
+	Channel *dispatch_chan;
+	void *mb;
+};
+
+static struct {
+	Lock lk;
+	O9ObjEntry entries[O9_MAX_OBJECTS];
+	int hash_tab[O9_MAX_OBJECTS];
+	int inited;
+} o9_objtab;
+
+static u32int
+o9_objtab_register(char *class, char *oid, void *inst, Channel *dispatch_chan)
+{
+	int i, step, h, free_slot, slot_idx;
+	u32int handle;
+
+	if(class == nil || oid == nil)
+		return 0;
+
+	lock(&o9_objtab.lk);
+	if(!o9_objtab.inited){
+		for(i = 0; i < O9_MAX_OBJECTS; i++)
+			o9_objtab.hash_tab[i] = -1;
+		o9_objtab.inited = 1;
+	}
+
+	h = (int)((o9_hash(class) ^ o9_hash(oid)) & (O9_MAX_OBJECTS - 1));
+	free_slot = -1;
+	for(step = 0; step < O9_MAX_OBJECTS; step++){
+		slot_idx = (h + step) & (O9_MAX_OBJECTS - 1);
+		i = o9_objtab.hash_tab[slot_idx];
+		if(i == -1){
+			if(free_slot < 0)
+				free_slot = slot_idx;
+			break;
+		}
+		if(i == -2){
+			if(free_slot < 0)
+				free_slot = slot_idx;
+			continue;
+		}
+		if(o9_objtab.entries[i].active &&
+		   strcmp(o9_objtab.entries[i].class, class) == 0 &&
+		   strcmp(o9_objtab.entries[i].oid, oid) == 0){
+			if(inst != nil)
+				o9_objtab.entries[i].inst = inst;
+			if(dispatch_chan != nil)
+				o9_objtab.entries[i].dispatch_chan = dispatch_chan;
+			handle = (o9_objtab.entries[i].gen << 16) | (u32int)(i & 0xFFFF);
+			unlock(&o9_objtab.lk);
+			return handle;
+		}
+	}
+
+	if(free_slot < 0){
+		unlock(&o9_objtab.lk);
+		return 0;
+	}
+
+	/* Find free entry in entries[] */
+	i = -1;
+	for(step = 0; step < O9_MAX_OBJECTS; step++){
+		if(!o9_objtab.entries[step].active){
+			i = step;
+			break;
+		}
+	}
+	if(i < 0){
+		unlock(&o9_objtab.lk);
+		return 0;
+	}
+
+	o9_objtab.hash_tab[free_slot] = i;
+	o9_objtab.entries[i].gen++;
+	if(o9_objtab.entries[i].gen == 0)
+		o9_objtab.entries[i].gen = 1;
+	o9_objtab.entries[i].active = 1;
+	strncpy(o9_objtab.entries[i].class, class, sizeof o9_objtab.entries[i].class - 1);
+	o9_objtab.entries[i].class[sizeof o9_objtab.entries[i].class - 1] = '\0';
+	strncpy(o9_objtab.entries[i].oid, oid, sizeof o9_objtab.entries[i].oid - 1);
+	o9_objtab.entries[i].oid[sizeof o9_objtab.entries[i].oid - 1] = '\0';
+	o9_objtab.entries[i].inst = inst;
+	o9_objtab.entries[i].dispatch_chan = dispatch_chan;
+	o9_objtab.entries[i].mb = nil;
+	handle = (o9_objtab.entries[i].gen << 16) | (u32int)(i & 0xFFFF);
+	unlock(&o9_objtab.lk);
+	return handle;
+}
+
+static O9ObjEntry*
+o9_objtab_resolve(u32int handle)
+{
+	int i;
+	u32int gen;
+
+	if(handle == 0)
+		return nil;
+	i = (int)(handle & 0xFFFF);
+	gen = handle >> 16;
+	if(i < 0 || i >= O9_MAX_OBJECTS)
+		return nil;
+
+	/* Direct lockless validation: gen check is atomic */
+	if(o9_objtab.entries[i].active && o9_objtab.entries[i].gen == gen)
+		return &o9_objtab.entries[i];
+	return nil;
+}
+
+static void
+o9_objtab_unregister(char *class, char *oid)
+{
+	int step, h, slot_idx, i;
+
+	if(class == nil || oid == nil)
+		return;
+
+	lock(&o9_objtab.lk);
+	if(!o9_objtab.inited){
+		unlock(&o9_objtab.lk);
+		return;
+	}
+	h = (int)((o9_hash(class) ^ o9_hash(oid)) & (O9_MAX_OBJECTS - 1));
+	for(step = 0; step < O9_MAX_OBJECTS; step++){
+		slot_idx = (h + step) & (O9_MAX_OBJECTS - 1);
+		i = o9_objtab.hash_tab[slot_idx];
+		if(i == -1)
+			break;
+		if(i >= 0 && o9_objtab.entries[i].active &&
+		   strcmp(o9_objtab.entries[i].class, class) == 0 &&
+		   strcmp(o9_objtab.entries[i].oid, oid) == 0){
+			o9_objtab.entries[i].active = 0;
+			o9_objtab.entries[i].gen++;
+			o9_objtab.entries[i].dispatch_chan = nil;
+			o9_objtab.entries[i].inst = nil;
+			o9_objtab.entries[i].mb = nil;
+			o9_objtab.hash_tab[slot_idx] = -2;
+			break;
+		}
+	}
+	unlock(&o9_objtab.lk);
+}
+
 typedef struct O9Mailbox O9Mailbox;
 struct O9Mailbox {
 	char target_class[64];
 	char oid[64];
+	u32int handle;
 	Channel *dispatch_chan;
+	Channel *replyc;          /* Dedicated pre-allocated duplex reply channel */
+	O9RingChannel ring;
+	u16int next_tag;
+	int worker_running;
 	int in_flight;
-	O9RouterOp *qhead;
-	O9RouterOp *qtail;
-	int qlen;
+	int closed;
 	O9Mailbox *next;
 };
 
@@ -6075,8 +7661,74 @@ static struct {
 	O9Mailbox *mailboxes;
 } o9_router;
 
+int
+o9_tring_submit(O9TRing *ring, const O9Slot *slot)
+{
+	int ret = -1;
+	lock(&ring->lk);
+	if((ring->head - ring->tail) < O9_RING_SIZE){
+		ring->slots[ring->head & O9_RING_MASK] = *slot;
+		ring->head++;
+		ret = 0;
+	}
+	unlock(&ring->lk);
+	return ret;
+}
+
+int
+o9_tring_consume(O9TRing *ring, O9Slot *out)
+{
+	int ret = 0;
+	lock(&ring->lk);
+	if(ring->tail != ring->head){
+		*out = ring->slots[ring->tail & O9_RING_MASK];
+		ring->tail++;
+		ret = 1;
+	}
+	unlock(&ring->lk);
+	return ret;
+}
+
+int
+o9_tring_len(O9TRing *ring)
+{
+	int len;
+	lock(&ring->lk);
+	len = (int)(ring->head - ring->tail);
+	unlock(&ring->lk);
+	return len;
+}
+
+int
+o9_rring_complete(O9RRing *ring, const O9Comp *comp)
+{
+	int ret = -1;
+	lock(&ring->lk);
+	if((ring->head - ring->tail) < O9_RING_SIZE){
+		ring->comps[ring->head & O9_RING_MASK] = *comp;
+		ring->head++;
+		ret = 0;
+	}
+	unlock(&ring->lk);
+	return ret;
+}
+
+int
+o9_rring_poll(O9RRing *ring, O9Comp *out)
+{
+	int ret = 0;
+	lock(&ring->lk);
+	if(ring->tail != ring->head){
+		*out = ring->comps[ring->tail & O9_RING_MASK];
+		ring->tail++;
+		ret = 1;
+	}
+	unlock(&ring->lk);
+	return ret;
+}
+
 static O9Mailbox*
-o9_router_get_mailbox_locked(char *target_class, char *oid, Channel *dispatch_chan)
+o9_router_get_mailbox_locked(char *target_class, char *oid, Channel *dispatch_chan, u32int handle)
 {
 	O9Mailbox *mb;
 
@@ -6084,6 +7736,12 @@ o9_router_get_mailbox_locked(char *target_class, char *oid, Channel *dispatch_ch
 		if(strcmp(mb->target_class, target_class) == 0 && strcmp(mb->oid, oid) == 0){
 			if(dispatch_chan != nil)
 				mb->dispatch_chan = dispatch_chan;
+			if(handle != 0){
+				mb->handle = handle;
+				mb->closed = 0;
+			}
+			if(mb->replyc == nil)
+				mb->replyc = chancreate(sizeof(void*), 1);
 			return mb;
 		}
 	}
@@ -6091,8 +7749,12 @@ o9_router_get_mailbox_locked(char *target_class, char *oid, Channel *dispatch_ch
 	if(mb == nil)
 		return nil;
 	strncpy(mb->target_class, target_class != nil ? target_class : "", sizeof mb->target_class - 1);
+	mb->target_class[sizeof mb->target_class - 1] = '\0';
 	strncpy(mb->oid, oid != nil ? oid : "", sizeof mb->oid - 1);
+	mb->oid[sizeof mb->oid - 1] = '\0';
 	mb->dispatch_chan = dispatch_chan;
+	mb->handle = handle;
+	mb->replyc = chancreate(sizeof(void*), 1);
 	mb->next = o9_router.mailboxes;
 	o9_router.mailboxes = mb;
 	return mb;
@@ -6109,109 +7771,117 @@ o9_router_error_reply(char *error)
 	return reply;
 }
 
-/* A nil reply tells generated callbacks to complete the 9P request with an
- * error.  This path must work even when allocating a reply has failed. */
-static void
-o9_router_fail_op(O9RouterOp *op)
-{
-	if(op->complete != nil)
-		op->complete(op, nil);
-	if(op->replyc != nil)
-		chanfree((Channel*)op->replyc);
-	free(op->args);
-	free(op);
-}
-
 static void
 o9_router_fail_request(void *r, O9RouterCompleteFn complete)
 {
-	O9RouterOp op;
+	O9Slot slot;
 
-	memset(&op, 0, sizeof op);
-	op.r = r;
+	memset(&slot, 0, sizeof slot);
+	slot.r = r;
 	if(complete != nil)
-		complete(&op, nil);
+		complete(&slot, nil);
 }
 
 static void
 o9_router_worker(void *v)
 {
-	O9RouterOp *op = v;
-	O9RouterOp *failed, *next, *next_op;
-	O9Mailbox *mb;
+	O9Mailbox *mb = v;
+	O9Slot slot;
+	O9ObjEntry *ent;
 	O9Msg m;
 	O9Reply *reply;
-	int send_ok, abandoned;
+	O9Comp comp;
+	int send_ok;
 
-	abandoned = 0;
-	memset(&m, 0, sizeof m);
-	m.sel = op->sel;
-	m.args = op->args;
-	m.nargs = op->nargs;
-	m.caller = op->caller;
-	m.blessed = op->blessed;
-	m.replyc = op->replyc;
+	for(;;){
+		if(mb->closed)
+			break;
 
-	if(op->dispatch_chan == nil || chanclosing((Channel*)op->dispatch_chan) >= 0){
-		reply = o9_router_error_reply("actor terminated");
-	}else{
-		send_ok = sendp((Channel*)op->dispatch_chan, &m);
+		if(!o9_tring_consume(&mb->ring.t_ring, &slot)){
+			int idle;
+			int got = 0;
+			for(idle = 0; idle < 50; idle++){
+				if(mb->closed)
+					break;
+				sleep(0);
+				if(o9_tring_consume(&mb->ring.t_ring, &slot)){
+					got = 1;
+					break;
+				}
+			}
+			if(mb->closed)
+				break;
+			if(!got){
+				qlock(&o9_router.lk);
+				if(o9_tring_len(&mb->ring.t_ring) == 0){
+					mb->worker_running = 0;
+					qunlock(&o9_router.lk);
+					break;
+				}
+				qunlock(&o9_router.lk);
+				continue;
+			}
+		}
+
+		/* Connect descriptor to Object Table */
+		ent = o9_objtab_resolve(slot.handle);
+		if(ent == nil || ent->dispatch_chan == nil || chanclosing(ent->dispatch_chan) >= 0 || mb->closed){
+			reply = o9_router_error_reply("actor terminated");
+			comp.tag = slot.tag;
+			comp.status = 1;
+			comp.reply = reply;
+			o9_rring_complete(&mb->ring.r_ring, &comp);
+			if(slot.complete != nil)
+				slot.complete(&slot, reply);
+			if(slot.extra_args != nil)
+				free(slot.extra_args);
+			continue;
+		}
+
+		/* Setup message with dedicated mailbox duplex reply channel */
+		memset(&m, 0, sizeof m);
+		m.sel = slot.sel;
+		m.args = (slot.nargs > 4 && slot.extra_args != nil) ? slot.extra_args : slot.args;
+		m.nargs = slot.nargs;
+		m.caller = slot.caller;
+		m.blessed = (slot.flags & 1);
+		m.replyc = mb->replyc;
+		m.sync = nil;
+		m.task = nil;
+
+		mb->in_flight = 1;
+
+		send_ok = sendp(ent->dispatch_chan, &m);
 		if(send_ok < 0){
 			reply = o9_router_error_reply("actor terminated");
 		}else{
-			/* An actor can close its dispatch channel after accepting a
-			 * request but before sending a reply.  Do not strand the 9P Req. */
-			while((reply = nbrecvp((Channel*)op->replyc)) == nil &&
-			      chanclosing((Channel*)op->dispatch_chan) < 0)
-				sleep(5);
-			if(reply == nil){
-				abandoned = 1;
+			reply = recvp(mb->replyc);
+			if(reply == nil)
 				reply = o9_router_error_reply("actor terminated");
-			}
 		}
+
+		mb->in_flight = 0;
+
+		/* Push completion to R-ring */
+		comp.tag = slot.tag;
+		comp.status = (reply != nil && reply->err == nil) ? 0 : 1;
+		comp.reply = reply;
+		o9_rring_complete(&mb->ring.r_ring, &comp);
+
+		/* Complete the 9P request */
+		if(slot.complete != nil)
+			slot.complete(&slot, reply);
+		if(slot.extra_args != nil)
+			free(slot.extra_args);
 	}
 
-	/* The actor may still be trying to send its last reply after closing
-	 * dispatch.  Leave a closed channel header for that sender to observe. */
-	if(abandoned)
-		chanclose((Channel*)op->replyc);
-	/* Complete the 9P request asynchronously. */
-	if(op->complete != nil)
-		op->complete(op, reply);
-	if(!abandoned)
-		chanfree((Channel*)op->replyc);
-
-	/* Notify the router that one slot opened up.  If worker creation fails,
-	 * complete every affected queued request instead of leaving it stuck. */
-	failed = nil;
 	qlock(&o9_router.lk);
-	mb = o9_router_get_mailbox_locked(op->target_class, op->target_oid, nil);
-	if(mb != nil){
-		mb->in_flight--;
-		while(mb->qhead != nil && mb->in_flight < 10){
-			next_op = mb->qhead;
-			mb->qhead = next_op->next;
-			if(mb->qhead == nil)
-				mb->qtail = nil;
-			mb->qlen--;
-			next_op->next = nil;
-			if(mb->dispatch_chan == nil ||
-			   proccreate(o9_router_worker, next_op, 32768) < 0){
-				next_op->next = failed;
-				failed = next_op;
-			}else
-				mb->in_flight++;
-		}
+	mb->worker_running = 0;
+	if(!mb->closed && o9_tring_len(&mb->ring.t_ring) > 0){
+		mb->worker_running = 1;
+		proccreate(o9_router_worker, mb, 32768);
 	}
 	qunlock(&o9_router.lk);
-	while(failed != nil){
-		next = failed->next;
-		o9_router_fail_op(failed);
-		failed = next;
-	}
-
-	free(op->args);
-	free(op);
 }
 
 int
@@ -6219,72 +7889,97 @@ o9_router_submit(void *r, char *target_class, char *target_oid, void *target_ins
 	void *dispatch_chan, ulong sel, vlong *args, int nargs,
 	char *caller, int blessed, O9RouterCompleteFn complete, void *aux)
 {
-	O9RouterOp *op;
+	O9Slot slot;
 	O9Mailbox *mb;
 	Channel *dc = dispatch_chan;
+	u32int handle;
+	int idx;
 
 	if(dc == nil || chanclosing(dc) >= 0){
 		o9_router_fail_request(r, complete);
 		return -1;
 	}
 
-	op = mallocz(sizeof(O9RouterOp), 1);
-	if(op == nil){
+	handle = o9_objtab_register(target_class, target_oid, target_inst, dc);
+	if(handle == 0){
 		o9_router_fail_request(r, complete);
 		return -1;
 	}
-	op->r = r;
-	op->complete = complete;
-	strncpy(op->target_class, target_class != nil ? target_class : "", sizeof op->target_class - 1);
-	strncpy(op->target_oid, target_oid != nil ? target_oid : "", sizeof op->target_oid - 1);
-	op->target_inst = target_inst;
-	op->sel = sel;
-	op->nargs = nargs;
+
+	memset(&slot, 0, sizeof slot);
+	slot.r = r;
+	slot.handle = handle;
+	slot.sel = sel;
+	slot.flags = blessed ? 1 : 0;
+	slot.nargs = nargs;
 	if(nargs > 0 && args != nil){
-		op->args = mallocz(sizeof(vlong) * nargs, 1);
-		if(op->args == nil){
-			o9_router_fail_op(op);
-			return -1;
+		if(nargs <= 4){
+			memmove(slot.args, args, sizeof(vlong) * nargs);
+		}else{
+			slot.extra_args = mallocz(sizeof(vlong) * nargs, 1);
+			if(slot.extra_args == nil){
+				o9_router_fail_request(r, complete);
+				return -1;
+			}
+			memmove(slot.extra_args, args, sizeof(vlong) * nargs);
 		}
-		memmove(op->args, args, sizeof(vlong) * nargs);
 	}
-	if(caller != nil)
-		strncpy(op->caller, caller, sizeof op->caller - 1);
-	op->blessed = blessed;
-	op->replyc = chancreate(sizeof(void*), 0);
-	if(op->replyc == nil){
-		o9_router_fail_op(op);
-		return -1;
+	if(caller != nil){
+		strncpy(slot.caller, caller, sizeof slot.caller - 1);
+		slot.caller[sizeof slot.caller - 1] = '\0';
 	}
-	op->dispatch_chan = dispatch_chan;
-	op->aux = aux;
+	if(target_class != nil){
+		strncpy(slot.target_class, target_class, sizeof slot.target_class - 1);
+		slot.target_class[sizeof slot.target_class - 1] = '\0';
+	}
+	if(target_oid != nil){
+		strncpy(slot.target_oid, target_oid, sizeof slot.target_oid - 1);
+		slot.target_oid[sizeof slot.target_oid - 1] = '\0';
+	}
+	slot.complete = complete;
+	slot.aux = aux;
 
 	qlock(&o9_router.lk);
-	mb = o9_router_get_mailbox_locked(op->target_class, op->target_oid, dc);
-	if(mb == nil){
+	idx = (int)(handle & 0xFFFF);
+	mb = o9_objtab.entries[idx].mb;
+	if(mb == nil || mb->closed){
+		mb = o9_router_get_mailbox_locked(target_class, target_oid, dc, handle);
+		if(mb != nil)
+			o9_objtab.entries[idx].mb = mb;
+	}else{
+		if(dc != nil)
+			mb->dispatch_chan = dc;
+		mb->handle = handle;
+	}
+
+	if(mb == nil || mb->closed){
 		qunlock(&o9_router.lk);
-		o9_router_fail_op(op);
+		if(slot.extra_args != nil)
+			free(slot.extra_args);
+		o9_router_fail_request(r, complete);
 		return -1;
 	}
 
-	/* Cap in-flight concurrent sends to the actor at 10 (the channel buffer size).
-	 * If under 10, dispatch immediately. If at capacity, enqueue into RAM FIFO. */
-	if(mb->in_flight < 10){
-		if(proccreate(o9_router_worker, op, 32768) < 0){
+	slot.tag = mb->next_tag++;
+	if(o9_tring_submit(&mb->ring.t_ring, &slot) < 0){
+		qunlock(&o9_router.lk);
+		if(slot.extra_args != nil)
+			free(slot.extra_args);
+		o9_router_fail_request(r, complete);
+		return -1;
+	}
+
+	if(!mb->worker_running){
+		mb->worker_running = 1;
+		if(proccreate(o9_router_worker, mb, 32768) < 0){
+			mb->worker_running = 0;
+			o9_tring_consume(&mb->ring.t_ring, &slot);
 			qunlock(&o9_router.lk);
-			o9_router_fail_op(op);
+			if(slot.extra_args != nil)
+				free(slot.extra_args);
+			o9_router_fail_request(r, complete);
 			return -1;
 		}
-		mb->in_flight++;
-	}else{
-		if(mb->qtail != nil){
-			mb->qtail->next = op;
-			mb->qtail = op;
-		}else{
-			mb->qhead = op;
-			mb->qtail = op;
-		}
-		mb->qlen++;
 	}
 	qunlock(&o9_router.lk);
 	return 0;
@@ -6294,28 +7989,34 @@ void
 o9_router_unregister_actor(char *target_class, char *oid)
 {
 	O9Mailbox *mb;
-	O9RouterOp *pending, *next;
+	O9Slot slot;
+	O9Reply *reply;
 
 	if(target_class == nil || oid == nil)
 		return;
-	pending = nil;
+
+	o9_objtab_unregister(target_class, oid);
+
 	qlock(&o9_router.lk);
 	for(mb = o9_router.mailboxes; mb != nil; mb = mb->next){
 		if(strcmp(mb->target_class, target_class) == 0 && strcmp(mb->oid, oid) == 0){
+			mb->closed = 1;
 			mb->dispatch_chan = nil;
-			pending = mb->qhead;
-			mb->qhead = nil;
-			mb->qtail = nil;
-			mb->qlen = 0;
+			if(mb->in_flight && mb->replyc != nil){
+				reply = o9_router_error_reply("actor terminated");
+				nbsendp(mb->replyc, reply);
+			}
+			while(o9_tring_consume(&mb->ring.t_ring, &slot)){
+				reply = o9_router_error_reply("actor terminated");
+				if(slot.complete != nil)
+					slot.complete(&slot, reply);
+				if(slot.extra_args != nil)
+					free(slot.extra_args);
+			}
 			break;
 		}
 	}
 	qunlock(&o9_router.lk);
-	while(pending != nil){
-		next = pending->next;
-		o9_router_fail_op(pending);
-		pending = next;
-	}
 }
 
 int
@@ -6332,7 +8033,7 @@ o9_router_dump(char *buf, int nbuf)
 	qlock(&o9_router.lk);
 	for(mb = o9_router.mailboxes; mb != nil && p < ep; mb = mb->next){
 		p = seprint(p, ep, "%s.%s\tin_flight=%d\tqueued=%d\n",
-			mb->target_class, mb->oid, mb->in_flight, mb->qlen);
+			mb->target_class, mb->oid, mb->in_flight, o9_tring_len(&mb->ring.t_ring));
 	}
 	qunlock(&o9_router.lk);
 	n = (int)(p - buf);

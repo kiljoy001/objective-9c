@@ -30,9 +30,12 @@ The positive factotum login branch in `mk auth-test` runs only with
 current 9front user. Without those settings, `mk verify` reports that branch
 as skipped while running the other auth checks.
 
-Generated C warnings are failures. The main e2e harness captures `6c` output
-and treats any `warning:` line as a regression. Do not hide warning noise in
+Generated C warnings are failures. The main e2e harness selects `8c`/`8l`
+on a 386 userland and `6c`/`6l` on amd64, captures the compiler output, and
+treats any `warning:` line as a regression. Do not hide warning noise in
 tests; fix the generated C or the runtime declaration that caused it.
+`e2e_net_loopback` also needs a configured loopback interface on the test
+image (`ip/ipconfig loopback /dev/null 127.0.0.1 /8`).
 
 ## Generated Plan 9 C
 
@@ -100,6 +103,38 @@ not promise a distinct PC for every source line. `mk debug-test` separately
 tests the 9P debug-state view. Local actors
 use libthread channels, so actor scheduling and UI ownership tests should be
 separate from 9P facade/session transport tests.
+
+## Host-Side Gate
+
+`sh tools/host_test.sh` runs the host-portable runtime and UI model using
+plan9port's `9c`/`9l` on Linux:
+
+- `o9c/test/host_runtime_test.c`: strings, arrays, slices, dicts, channels,
+  `FileTree` path/ownership/revocation, and `Vault.open_tab` temporary-file
+  cleanup. It also runs deterministic model tests that compare 200 random
+  array/slice/dict operations against a simple reference model.
+- `o9c/test/host_ui_main.c` plus the `stdlib/e2e_draw*.o9` cases: the same
+  widget layout, event routing, text editing, table, panel, scrollbar,
+  rich-text, snapshot, and PNG cases that run natively. The compiler's
+  `--no-facade` mode emits the object model and `o9_host_main()` so the UI
+  tests do not need the 9front 9P facade.
+- `tools/o9c_check.py`: positive and negative compiler fixtures plus a
+  deterministic mutation fuzz pass.
+
+The script also runs the runtime suite under Valgrind. Set
+`O9_SANITIZE=1` to rebuild everything with AddressSanitizer and
+UndefinedBehaviorSanitizer; CI runs both configurations. `O9_FUZZ_ITER`
+controls the fuzz iteration count. `O9_TSAN=1` enables ThreadSanitizer for
+the runtime and UI cases; `o9c/test/tsan.supp` suppresses only plan9port's
+lazy per-proc libthread lock initialization, which TSan misreports. o9
+actor/channel races remain reportable.
+
+The host UI link includes `o9_view.c`; `o9c/test/host_stubs.c` provides the
+remaining 9front-only `libthread`/auth symbols. Native `mk verify` remains
+the authority for generated Plan 9 C against 9front's real `File` layout,
+the served 9P facade, auth, and integration. MicroVM integration runs under
+`util/9vm`; SBC integration runs on the board over serial. QEMU is only an
+optional ARM64 bring-up harness, not the microVM runner.
 
 ## Unit Testing
 
@@ -643,12 +678,13 @@ Actor interactions are checked as end-to-end tests under `mk run-test` and
   and returns `nil`/`-1`/`0.0`, allowing the caller's `try` block to catch
   the error cleanly.
 - `e2e_actor_exit.o9`: Premature worker exit recovery. When an asynchronous
-  actor task is spawned (`task = spawn worker.run()`), the forwarder captures
-  the worker thread's libthread thread ID (`tid = proccreate(...)`). If the
-  worker proc terminates without writing to `replyc`, the forwarder polls
-  `nbrecvp` and detects termination via `threadpid(tid) < 0`, injecting a
-  synthetic `O9Reply` with error `"actor exited without reply"`. This unblocks
-  the awaiting caller cleanly.
+  actor task is spawned (`task = spawn worker.run()`), the runtime records the
+  worker's libthread thread ID (`tid = proccreate(...)`) in its pending table.
+  The actor normally sends its reply directly to the task channel. If the
+  worker proc terminates without replying, a single shared reaper detects
+  termination via `threadpid(tid) < 0`, injects a synthetic `O9Reply` with
+  error `"actor exited without reply"`, and releases the pending entry. This
+  unblocks the awaiting caller cleanly without a per-spawn polling forwarder.
 - `e2e_channel_handles.o9`: Stale channel object handle safety. When an actor
   or channel object is deallocated via ARC / `delete`, teardown invokes
   `chanclose(self->dispatch_chan)` rather than `chanfree`, keeping the channel

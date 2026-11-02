@@ -9,7 +9,7 @@ main {
     print("link ", view.linkAt(11, 56), "\n");
     print("click ", view.handleMouse(11, 56, 1), " ", view.takeLink(), "\n");
     view.select(0, 1);
-    print("selection [", view.selectedText(), "]\n");
+    print("selection ", view.selectedText(), "\n");
     view.selectText(2, 1, 2, 3);
     print("partial ", view.selectedText(), " byte ", view.byteAt(canvas, 26, 56), "\n");
     DrawBox embedded = new DrawBox(0, 0, 4, 4);

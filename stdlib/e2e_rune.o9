@@ -1,0 +1,10 @@
+import "rune.o9";
+
+main {
+    Runes empty = new Runes("");
+    string e = empty.fromRune(233);
+    Runes r = new Runes(cat("h", cat(e, "llo")));
+    print("count ", r.count(), " at ", r.at(1), " off ", r.offset(2),
+          " slice ", r.slice(1, 1), " from ", r.fromRune(233), "\n");
+    print("len ", len(r.text()), "\n");
+}

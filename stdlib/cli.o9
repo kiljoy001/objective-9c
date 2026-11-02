@@ -1,0 +1,151 @@
+// Command-line arguments for small o9 programs.
+//
+// Applications should not need raw C or spawn/await plumbing to read argv.
+// Args hides both behind a small, expression-friendly object.
+import "collections.o9";
+import "string.o9";
+
+// Split a command line on whitespace. The result is one word per line so the
+// o9 side can use String.line() without another C helper. Quotes are not
+// special; this is for tests and simple ctl lines, not a shell parser.
+function CliWordsRaw(string line) string {
+    string out;
+    c {
+        char *s, *w;
+        vlong n, i, len;
+        int started;
+
+        out = o9_string_new("", 0);
+        s = o9_string_data(line);
+        n = o9_string_len(line);
+        if(s != nil && n > 0){
+            w = malloc(n + 1);
+            if(w != nil){
+                len = 0;
+                started = 0;
+                for(i = 0; i <= n; i++){
+                    if(i == n || s[i] == ' ' || s[i] == '\t' ||
+                       s[i] == '\n' || s[i] == '\r'){
+                        if(started){
+                            w[len++] = '\n';
+                            started = 0;
+                        }
+                    }else{
+                        w[len++] = s[i];
+                        started = 1;
+                    }
+                }
+                out = o9_string_new(w, len);
+                free(w);
+            }
+        }
+    }
+    return out;
+}
+
+class Args {
+    prop list<string> argv;
+
+    method Args(int64 first) {
+        argv = new list<string>();
+        int64 n = argc();
+        int64 i = first;
+        while(i < n) {
+            argv.add(arg(i));
+            i = i + 1;
+        }
+    }
+
+    method int64 count() {
+        return argv.length();
+    }
+
+    method string at(int64 index) {
+        if(!(argv.valid(index))) {
+            return "";
+        }
+        return argv.get(index);
+    }
+
+    // Replace argv from a whitespace-separated line. Useful for tests and
+    // for ctl handlers that receive a command as one string.
+    method void loadLine(string line) {
+        Task<string> split = spawn CliWordsRaw(line);
+        string words = split.take();
+        String s = new String(words);
+        int64 n = s.count("\n");
+        int64 i = 0;
+        argv.clear();
+        while(i < n) {
+            string word = s.line(i);
+            if(len(word) > 0) {
+                argv.add(word);
+            }
+            i = i + 1;
+        }
+    }
+
+    method string opt(string name, string def) {
+        string one = cat("-", name);
+        string two = cat("--", name);
+        string eq = cat("--", cat(name, "="));
+        int64 i = 0;
+        while(i < count()) {
+            string a = at(i);
+            if(cmp(a, one) == 0 || cmp(a, two) == 0) {
+                if(i + 1 < count()) {
+                    return at(i + 1);
+                }
+                return def;
+            }
+            String s = new String(a);
+            if(s.startsWith(eq)) {
+                return s.slice(len(eq), len(a) - len(eq));
+            }
+            i = i + 1;
+        }
+        return def;
+    }
+
+    method bool flag(string name) {
+        string one = cat("-", name);
+        string two = cat("--", name);
+        int64 i = 0;
+        while(i < count()) {
+            string a = at(i);
+            if(cmp(a, one) == 0 || cmp(a, two) == 0) {
+                return true;
+            }
+            i = i + 1;
+        }
+        return false;
+    }
+
+    method string env(string name, string def) {
+        string value = getenv(name);
+        if(len(value) == 0) {
+            return def;
+        }
+        return value;
+    }
+
+    method int64 intOption(string name, int64 def) {
+        string value = opt(name, "");
+        if(len(value) == 0) {
+            return def;
+        }
+        return intvalue(value, def);
+    }
+
+    method bool require(int64 n, string usageText) {
+        if(count() < n) {
+            usage(usageText);
+            return false;
+        }
+        return true;
+    }
+
+    method void usage(string text) {
+        print(text, "\n");
+    }
+}

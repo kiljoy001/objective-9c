@@ -1,0 +1,15 @@
+// A minimal o9 command-line application: no raw C, no spawn/await.
+//
+//   o9build demo/hello_cli.o9
+//   ./hello_cli -name alice
+//   ./hello_cli -config /tmp/hello.conf
+import "stdlib/cli.o9";
+import "stdlib/config.o9";
+
+main {
+    Args args = new Args(1);
+    string configPath = args.opt("config", "/tmp/hello.conf");
+    Config config = new Config(configPath);
+    string name = args.opt("name", config.get("name", "world"));
+    print("hello, ", name, "\n");
+}

@@ -12,42 +12,145 @@ programs, read [../docs/QUICKSTART.md](../docs/QUICKSTART.md) and
 Import modules by filename:
 
 ```o9
-import "appuser.o9";
+import "9p.o9";
 import "string.o9";
 import "bytes.o9";
 import "buffer.o9";
+import "cli.o9";
 import "collections.o9";
+import "config.o9";
+import "dat.o9";
+import "dir.o9";
 import "file.o9";
+import "format.o9";
+import "gemini.o9";
 import "io.o9";
+import "log.o9";
 import "math.o9";
 import "namespace.o9";
 import "net.o9";
 import "path.o9";
 import "process.o9";
 import "random.o9";
+import "result.o9";
+import "rune.o9";
+import "service.o9";
+import "sync.o9";
+import "testing.o9";
 import "time.o9";
 import "draw.o9";
 import "rtext.o9";
 import "view.o9";
 ```
 
-## Application identity
+## Start Here: Application Developer
 
-`AppUser` holds a public RSA key and profile claims for one application. Its
-`prove(service, nonce)` method asks stock 9front factotum to sign a scoped
-challenge; `verify(service, nonce, signature)` checks that signature against
-the public modulus and exponent. The private key never enters the object.
-Create one RSA key per application with `auth/rsagen` and tag it with
-`service=appuser app=<app> hash=sha256`; load the key into factotum before
-calling `prove`. See [../docs/APPUSER.md](../docs/APPUSER.md) for the challenge
-format and current limits.
+You do not need raw C, `spawn`, or `await` for ordinary application
+scaffolding. Start with these three modules:
 
-`AppUserRSAProvider` implements the internal `AppUserAuthProvider` interface.
-The serving application enrolls a trusted public key, requests a nonce for a
-server-generated connection binding, sends that nonce to the supplicant, and
-passes its signed response back to `answer`. A successful answer returns the
-enrolled principal. Challenges expire, are consumed on the first answer, and
-are limited to 128 pending bindings per provider.
+- `cli.o9`: argv, flags, options, environment, usage.
+- `config.o9`: small key/value profiles and settings files.
+- `service.o9`: start a 9P view service or a view-less facade.
+
+A complete CLI:
+
+```o9
+import "cli.o9";
+import "config.o9";
+
+main {
+    Args args = new Args(1);
+    string configPath = args.opt("config", "/tmp/hello.conf");
+    Config config = new Config(configPath);
+    string name = args.opt("name", config.get("name", "world"));
+    print("hello, ", name, "\n");
+}
+```
+
+A complete 9P service:
+
+```o9
+import "service.o9";
+
+class HelloViews {
+    ViewController;
+
+    internal method FileTree display(string id, string caller) {
+        FileTree root = new FileTree();
+        root.text("status", "hello from o9\n", false);
+        return root;
+    }
+
+    internal method string readText(string id, string path) { return ""; }
+    internal method int64 writeText(string id, string path, int64 offset,
+                                    string text, bool truncate) { return -1; }
+}
+
+main {
+    HelloViews views = new HelloViews();
+    Service service = new Service("helloservice");
+    service.run(views);
+}
+```
+
+Runnable copies live in `../demo/hello_cli.o9` and
+`../demo/hello_service.o9`. For a discoverable list of existing programs, see
+[../docs/APP_DEVELOPER.md](../docs/APP_DEVELOPER.md).
+
+## CLI
+
+`Args` hides argv and option scanning behind one object.
+
+```o9
+Args args = new Args(1);              // skip argv[0]; use 2 for services
+args.count();                         // number of user arguments
+args.at(0);                           // first positional argument
+args.opt("port", "6667");             // -port 6667 or --port=6667
+args.flag("verbose");                 // -verbose or --verbose
+args.intOption("limit", 100);         // parsed integer or default
+args.env("HOME", "/tmp");             // environment or default
+args.require(2, "usage: app INPUT OUTPUT");
+```
+
+`args.loadLine("-n 3 --verbose")` replaces the argument list from a simple
+whitespace-separated line. It is intended for tests and ctl handlers, not for
+shell quoting.
+
+## Config
+
+`Config` reads and writes small line-oriented files:
+
+```text
+name = alice
+port = 6667
+# comment
+```
+
+```o9
+Config config = new Config("/tmp/app.conf");
+config.get("name", "world");
+config.set("port", "6667");
+config.has("name");
+config.remove("port");
+config.count();
+config.save();
+```
+
+Whitespace around keys and values is trimmed. Use
+`setSeparator("\t")` for tab-separated records. Missing files are treated as
+empty configurations. `save()` writes the current key order. Config uses
+normal file permissions; store secrets in `Vault` or a private directory.
+
+## Service
+
+`Service.run(ViewController view)` registers the controller and enters
+`serve()`. `Service.start()` enters `serve()` without a view controller, for
+small auth facades.
+
+```o9
+Service service = new Service("myapp");
+service.run(views);       // blocks
+```
 
 ## String
 
@@ -164,6 +267,212 @@ Methods:
 - `hex() string`
 - `text() string`
 
+## Format
+
+`format.o9` builds text without `snprint`, `sprint`, `smprint`, or repeated
+`strcat`.
+
+```o9
+import "format.o9";
+
+main {
+    Format f = new Format();
+    f.str("user ");
+    f.str("alice");
+    f.str(" ");
+    f.dec(42);
+    f.str(" ");
+    f.hex(255);
+    f.nl();
+    print(f.text());
+}
+```
+
+Methods:
+
+- `Format()`
+- `str(string text)`
+- `dec(int64 value)`
+- `hex(int64 value)`
+- `oct(int64 value)`
+- `boolean(bool value)`
+- `nl()`
+- `spaces(int64 count)`
+- `zeros(int64 count)`
+- `pad(int64 width)` — append spaces until the current text is `width` bytes
+- `zeroPad(int64 width)` — prepend zeroes until the current text is `width` bytes
+- `clear()`
+- `length() int64`
+- `text() string`
+
+## Log
+
+`log.o9` provides leveled application logging.
+
+```o9
+import "log.o9";
+
+main {
+    Log log = new Log("myapp");
+    log.level(1);                 // 0 debug, 1 info, 2 warn, 3 error
+    log.info("started");
+    log.toFile("/tmp/myapp.log"); // append instead of printing
+    log.error("request failed");
+}
+```
+
+Methods:
+
+- `Log(string name)`
+- `level(int64 level)`
+- `timestamps(bool enabled)`
+- `toFile(string path)`
+- `debug(string text)`
+- `info(string text)`
+- `warn(string text)`
+- `error(string text)`
+- `fatal(string text)` — logs at ERROR and raises the o9 call error
+
+## Result
+
+`result.o9` is for APIs that prefer returning a success flag and message over
+`try`/`fail`.
+
+```o9
+import "result.o9";
+
+main {
+    Result r = new Result(false, "", "not found");
+    if(r.failed()) {
+        print(r.err(), "\n");
+    }
+}
+```
+
+Members:
+
+- `Result(bool ok, string value, string errmsg)`
+- `ok` (property)
+- `value` (property)
+- `errmsg` (property)
+- `succeeded() bool`
+- `failed() bool`
+- `unwrap(string fallback) string`
+- `err() string`
+
+## Sync
+
+`sync.o9` exposes libthread-backed synchronization. A blocked lock or wait
+does not block the object's actor dispatch loop.
+
+```o9
+import "sync.o9";
+
+main {
+    Mutex m = new Mutex();
+    m.lock();
+    m.unlock();
+    m.close();
+}
+```
+
+`Mutex`: `lock()`, `unlock()`, `isOpen()`, `close()`.
+
+`WaitGroup`: `add(int64 delta)`, `done()`, `wait()`, `isOpen()`, `close()`.
+
+`Semaphore`: `Semaphore(int64 count)`, `acquire()`, `release()`, `isOpen()`,
+`close()`.
+
+`Once`: `claim() bool` — true only for the first caller.
+
+`Pool`: `Pool(int64 size)`, `acquire()`, `release()`, `close()`. This is a
+concurrency limiter; pair it with a channel for a job queue.
+
+## Dir
+
+`dir.o9` provides typed directory entries and iterative tree helpers.
+
+```o9
+import "dir.o9";
+
+main {
+    Dir d = new Dir("/tmp");
+    DirList entries = d.entries();
+    int64 i = 0;
+    while(i < entries.length()) {
+        DirEntry e = entries.get(i);
+        print(e.name, " ", e.isdir, " ", e.size, "\n");
+        i = i + 1;
+    }
+}
+```
+
+`DirEntry` fields: `name`, `path`, `isdir`, `size`, `mode`, `mtime`,
+`owner`.
+
+`Dir`: `Dir(string path)`, `file()`, `entries() DirList`.
+
+`DirList`: `length()`, `get(int64 index)`, `add(DirEntry)`, `set`.
+
+`DirTree` adds iterative recursion:
+
+```o9
+DirTree tree = new DirTree("/tmp/source");
+DirList all = tree.walk();
+tree.copyTree("/tmp/destination");
+tree.removeTree();
+```
+
+## 9P
+
+`9p.o9` is a low-level 9P2000 framing and reply kit for custom servers. Most
+applications should use `service.o9` and `FileTree` instead.
+
+```o9
+import "9p.o9";
+
+main {
+    NineP p = new NineP();
+    string reply = p.error(7, "not found");
+    print(p.type(reply), " ", p.tag(reply), "\n");
+}
+```
+
+Methods:
+
+- `read(int64 fd, int64 max) string`
+- `write(int64 fd, string message) int64`
+- `type(string message) int64`
+- `tag(string message) int64`
+- `fid(string message) int64`
+- `error(int64 tag, string text) string`
+- `readReply(int64 tag, string data) string`
+- `versionReply(int64 tag, int64 msize, string version) string`
+
+## Rune
+
+`rune.o9` treats a UTF-8 string as runes instead of bytes.
+
+```o9
+import "rune.o9";
+
+main {
+    Runes r = new Runes("naïve");
+    print(r.count(), " ", r.at(2), " ", r.offset(3), "\n");
+    print(r.slice(1, 2), "\n");
+}
+```
+
+Methods:
+
+- `Runes(string text)`
+- `text() string`
+- `count() int64`
+- `at(int64 index) int64` — code point, or `-1`
+- `offset(int64 index) int64` — byte offset, or `-1`
+- `slice(int64 start, int64 count) string`
+- `fromRune(int64 value) string`
+
 ## File
 
 `File` wraps common Plan 9 file operations.
@@ -185,7 +494,11 @@ Methods:
 
 - `File(string path)`
 - `read() string`
+- `readn(int64 n) string`
+- `readLine() string`
+- `readAt(int64 offset, int64 n) string`
 - `write(string data) int64`
+- `writeAt(int64 offset, string data) int64`
 - `append(string data) int64`
 - `writeBytes(Bytes data) int64`
 - `appendBytes(Bytes data) int64`
@@ -201,6 +514,7 @@ Methods:
 - `isDir() bool`
 - `list() string`
 - `copyTo(string dest) int64`
+- `copyFrom(string src) int64`
 - `moveTo(string dest) bool`
 
 `list()` returns newline-separated directory entries.
@@ -271,6 +585,31 @@ main {
 
 `Reader`, `Writer`, and `Appender` are narrower wrappers over the same raw
 helpers. They avoid exposing file descriptors or raw `Biobuf*` pointers.
+
+For a long-lived byte stream, use `StreamReader` and `StreamWriter`; the
+underlying `Biobuf` stays open across calls instead of reopening the file.
+
+```o9
+import "io.o9";
+
+main {
+    Lines lines = new Lines("/tmp/o9-note");
+    while(!(lines.eof())) {
+        print(lines.next(), "\n");
+    }
+    lines.close();
+}
+```
+
+`StreamReader`: `read(int64 n)`, `readLine()`, `position()`,
+`seek(int64 pos)`, `copyTo(StreamWriter)`, `endOfStream()`, `isOpen()`,
+`close()`.
+
+`StreamWriter`: `write(string)`, `writeBytes(Bytes)`, `flush()`,
+`position()`, `isOpen()`, `close()`.
+
+`Lines`: `Lines(string path)`, `next()`, `eof()`, `close()`. `next()` returns
+`""` at EOF, so check `eof()` when empty lines are meaningful.
 
 ## Collections
 
@@ -449,6 +788,36 @@ main {
 `run` and `output` execute through `/bin/rc -c`; `run` returns `0` when the
 command exits cleanly, while `output` returns captured stdout/stderr text.
 
+For direct argv execution with captured streams, use `Cmd`:
+
+```o9
+import "process.o9";
+
+main {
+    Cmd c = new Cmd("/bin/echo");
+    c.arg("hello");
+    c.stdin("ignored\n");
+    CmdResult r = c.run();
+    print(r.ok, " ", r.out, r.err, "\n");
+}
+```
+
+`Cmd`: `Cmd(string program)`, `arg(string)`, `stdin(string)`, `run()`.
+
+`CmdResult`: `ok`, `status`, `out`, `err` properties; `failed()`,
+`output()`, `error()`.
+
+`Pipeline` builds a shell pipeline string and runs it through `rc`:
+
+```o9
+Pipeline p = new Pipeline();
+p.add("cat /tmp/input");
+p.add("wc -l");
+CmdResult r = p.run();
+```
+
+Callers are responsible for quoting arguments inside pipeline stages.
+
 ## Time
 
 `time.o9` exposes basic wall-clock helpers.
@@ -598,6 +967,12 @@ For manual batching, call `setReactive(false)` on the window or on a specific
 widget, then call `update()` or `repaint()` when the batch is ready.
 `DrawMenu` wraps Plan 9's button-menu primitive for live windows, and
 `DrawClipboard` reads/writes the rio snarf buffer through `/dev/snarf`.
+
+`DrawPanel.pack(child, side, expand, fillx, filly, gravity)` adds a child to
+the edge packer. Sides are 0 north, 1 south, 2 east, 3 west. Gravity is 0
+center, 1 north, 2 south, 3 east, 4 west, 5 northeast, 6 northwest,
+7 southeast, 8 southwest. Call `layoutPack(padding, spacing)` after sizing
+the panel. It preserves each child's preferred size across resizes.
 
 `rtext.o9` adds `DrawRichText` for a laid-out stream of colored text, links,
 Plan 9 draw image files, and inline `DrawWidget`s. Text wraps at spaces and
@@ -1115,8 +1490,15 @@ also remains available when the address is computed at run time.
 - `dial() bool`
 - `isOpen() bool`
 - `read(int64 max) string`
+- `readLine(int64 max) string`
 - `write(string data) int64`
+- `writeLine(string line) int64`
+- `setTimeout(int64 ms) bool`
 - `close() bool`
+
+`readLine` buffers bytes until `\n` or `max`; `writeLine` appends `\n`.
+`setTimeout` writes `timeout <ms>` to the connection's `/net/.../ctl` file and
+returns `false` for path-backed connections that have no control directory.
 
 `NetListener` methods:
 
@@ -1539,4 +1921,134 @@ Methods:
 - `salt() string`: Returns the salt string used by the Vault.
 - `wipe() void`: Wipes key, slots, and salt in memory using `crypto_wipe`. Marks Vault invalid.
 - `close() void`: Wipes memory and frees the Vault.
+
+## Testing
+
+`Test` provides an xUnit-style test harness for writing native unit and
+integration tests in o9. In accordance with the Plan 9 `o9test` philosophy,
+individual assertion failures do not halt execution, allowing a single run to
+uncover all regressions.
+
+Features:
+- Fixtures: isolated temporary scratch directories (`tmpDir`, `tmpPath`, `cleanTmp`).
+- Error Assertions: verifies expected failures and error strings (`assertFail`, `assertNoFail`, `assertError`, `clearError`).
+- Specialized Assertions: scalars, strings, substrings, floats with epsilon tolerances (`eqInt`, `neInt`, `eqStr`, `neStr`, `containsStr`, `emptyStr`, `notEmptyStr`, `eqBool`, `eqDouble`, `ok`, `notOk`, `skip`, `fail`).
+- Parameterized Tests: table-driven cases (`caseParam`).
+- Hierarchical Subtests: nested test grouping (`testCase`, `subcase`, `endSubcase`).
+- Fault Isolation: runs fragile or fault-prone commands in child process sandboxes (`isolate`, `isolateFail`).
+- Standard Formats: human-readable console summaries and TAP (Test Anything Protocol) mode (`setTAP`, `report`, `finish`).
+
+```o9
+import "testing.o9";
+
+main {
+    Test t = new Test("math");
+
+    t.testCase("arithmetic");
+    t.eqInt("addition", 10 + 20, 30);
+    t.neInt("inequality", 10, 20);
+
+    t.testCase("floats");
+    t.eqDouble("tolerance", 3.14159, 3.141592, 0.001);
+
+    t.report();
+    t.finish();
+}
+```
+
+Constructors:
+
+- `Test(string suite)`: Initializes the suite name and resets counters.
+
+Methods:
+
+- `setTAP(bool enabled) void`: Enables or disables Test Anything Protocol output.
+- `testCase(string name) void`: Sets the current top-level test case label.
+- `caseParam(string name, string param) void`: Sets a parameterized test case label (e.g. `name[param]`).
+- `subcase(string name) void`: Enters a nested subcase.
+- `endSubcase() void`: Exits the current subcase.
+- `ok(string what, bool cond) bool`: Asserts that `cond` is true.
+- `notOk(string what, bool cond) bool`: Asserts that `cond` is false.
+- `eqInt(string what, int64 got, int64 want) bool`: Asserts integer equality.
+- `neInt(string what, int64 got, int64 want) bool`: Asserts integer inequality.
+- `eqStr(string what, string got, string want) bool`: Asserts string equality.
+- `neStr(string what, string got, string want) bool`: Asserts string inequality.
+- `eqBool(string what, bool got, bool want) bool`: Asserts boolean equality.
+- `eqDouble(string what, double got, double want, double epsilon) bool`: Asserts floating point equality within `epsilon`.
+- `containsStr(string what, string haystack, string needle) bool`: Asserts that `haystack` contains `needle`.
+- `emptyStr(string what, string s) bool`: Asserts that `s` is empty.
+- `notEmptyStr(string what, string s) bool`: Asserts that `s` is not empty.
+- `fail(string what, string msg) bool`: Records an explicit test failure.
+- `skip(string what, string reason) void`: Records a skipped test check.
+- `assertFail(string what) bool`: Asserts that the preceding call failed.
+- `assertNoFail(string what) bool`: Asserts that the preceding call succeeded without error.
+- `assertError(string what, string wantErr) bool`: Asserts that the preceding call produced `wantErr`.
+- `clearError() void`: Clears the thread call error state.
+- `tmpDir() string`: Creates and returns a unique temporary directory under `$TMP`.
+- `tmpPath(string stem) string`: Returns a path under `tmpDir()`.
+- `cleanTmp() void`: Removes temporary test directory and its files.
+- `isolate(string what, string cmd) bool`: Executes `cmd` in a child process sandbox; succeeds if `cmd` exits cleanly.
+- `isolateFail(string what, string cmd) bool`: Executes `cmd` in a child process sandbox; succeeds if `cmd` crashes or exits with an error.
+- `passed() int64`: Returns count of passing assertions.
+- `failed() int64`: Returns count of failing assertions.
+- `skipped() int64`: Returns count of skipped checks.
+- `count() int64`: Returns total assertions evaluated.
+- `report() bool`: Prints test summary (or TAP header/plan). Returns `true` if all passed, `false` otherwise.
+- `finish() void`: Exits the process with status `"failed"` if any check failed, or exits cleanly if all passed.
+
+## Gemini
+
+`gemini.o9` implements the native Gemini protocol (`gemini://`) and Gemtext (`text/gemini`) processor. It provides line parsing, structured document models, status code verification, and protocol envelope construction.
+
+```o9
+import "gemini.o9";
+
+main {
+    GeminiProtocol proto = new GeminiProtocol();
+    string req = proto.formatRequest("gemini://gemini.circumlunar.space/");
+
+    GeminiResponse resp = proto.parseResponse("20 text/gemini", "# Hello");
+    if(resp.isSuccess() == 1) {
+        GemDoc doc = new GemDoc();
+        GemLine line = doc.parseLine("# Welcome to Gemini");
+        print(line.getText(), "\n");
+    }
+}
+```
+
+Classes:
+- `GemLine`: Represents an individual Gemtext line (Paragraph, Heading 1/2/3, Link, List item, Quote, Preformatted toggle/content).
+- `GemDoc`: Gemtext line parser maintaining block state (e.g., preformatted modes) and line/link counters.
+- `GeminiResponse`: Response envelope with status code, meta header, body, and status class helpers (`isSuccess`, `isRedirect`, `isError`).
+- `GeminiProtocol`: Formats requests and parses header envelopes.
+
+## Dat
+
+`dat.o9` implements the Dat / Hypercore protocol for P2P streaming multimedia and append-only feeds. It provides discovery key derivation (using BLAKE2b), feed append and random-access chunk retrieval, cryptographic verification, multimedia range streaming, and Hyperdrive archive indexing.
+
+```o9
+import "dat.o9";
+
+main {
+    DatProtocol proto = new DatProtocol();
+    DatKey key = proto.parseUrl("dat://40a7f6b61444a0507d373f737fa1b49670271f49429c342f22323ac0c2a0f41c/video.mp4");
+
+    if(key.isValid()) {
+        DatFeed feed = new DatFeed(key.getKey());
+        feed.append("INITIAL_HEADER_BYTES");
+
+        DatStream stream = new DatStream();
+        string chunk = stream.readRange(feed, 0, 1024);
+    }
+}
+```
+
+Classes:
+- `DatKey`: Validates 64-character hex keys, parses `dat://` URLs, and exposes key, discoveryKey, and path.
+- `DatBlock`: Individual data block in an append-only feed with index, payload, length, and BLAKE2b hash verification.
+- `DatFeed`: Hypercore log maintaining ordered blocks, total byte length, and verification.
+- `DatEntry`: Metadata entry for files in a Dat archive (size, start block offset, block count, mtime, isDirectory).
+- `DatStream`: Range streaming engine across blocks supporting offset seeking and byte slicing.
+- `DatArchive`: Hyperdrive archive combining metadata and content feeds.
+- `DatProtocol`: Parses and validates `dat://` URLs and key formats.
 

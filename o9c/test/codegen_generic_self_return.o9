@@ -1,0 +1,35 @@
+// Regression: a same-class call must keep the method's instantiated
+// generic return type.  Holder.make() returns Box<string>, and check()
+// assigns the self-call result to a Box<string> local.  Codegen used to
+// declare o9_self_Holder_make as Box_Client (the erased template), which
+// produces an incompatible struct assignment in the generated C.
+class Box<T> {
+    prop T value;
+
+    method Box(T v) {
+        value = v;
+    }
+
+    method Box<T> copy() {
+        Box<T> out = new Box<T>(value);
+        return out;
+    }
+}
+
+class Holder {
+    method Box<string> make() {
+        Box<string> out = new Box<string>("made");
+        return out;
+    }
+
+    method string check() {
+        Box<string> b = make();
+        Box<string> c = b.copy();
+        return c.value;
+    }
+}
+
+main {
+    Holder h = new Holder();
+    print("%s\n", h.check());
+}

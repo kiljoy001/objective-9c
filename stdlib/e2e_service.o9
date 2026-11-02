@@ -1,0 +1,6 @@
+import "service.o9";
+
+main {
+    Service s = new Service("e2e");
+    print("service ", s.name(), "\n");
+}

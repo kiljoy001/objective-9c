@@ -3,9 +3,11 @@
 Status: BUILT (July 2026). The supported form is `import "path";`.
 The imported file's full body is spliced into the compilation and
 transpiled. The subtree boundary is enforced. Tests: `e2e_import`
-(`import` runs), `production_ast.rc` import escape fixtures (`../`
-rejected), and a negative `from ... import` fixture. Selective import was
-removed until it can honestly filter declarations.
+(`import` runs), `stdlib/e2e_import_stdlib.o9` (root-style
+`import "stdlib/process.o9"` with process's own bare imports),
+`production_ast.rc` import escape fixtures (`../` rejected), and a
+negative `from ... import` fixture. Selective import was removed until it
+can honestly filter declarations.
 
 Compile with a PATH for imports: `o9c FILE.o9` (imports resolve relative
 to FILE's dir). `o9c < FILE.o9` still works (resolves relative to cwd).
@@ -23,7 +25,9 @@ opens; it depends on cwd, PYTHONPATH, installed site-packages, and which
 o9 imports are HONEST:
 
 - The import string is a real filesystem path. What you write is what
-  opens. No search list, no path variable, no hidden state.
+  opens. The importing file's directory is the primary base; the only
+  fallbacks are project-root locations for the same spelled path. There
+  is no environment path variable, package list, or hidden state.
 - **NO `__init__`-style marker files.** A directory is a directory; a
   file is a file. o9 never scans a directory deciding what is
   "importable." You point at a FILE; it reads THAT file.
@@ -39,22 +43,29 @@ dependencies and their locations visible.
 ## Path resolution + the project boundary (firm rule)
 
 An import path resolves **relative to the directory of the importing
-file** (NOT the cwd - location-stable: the path means the same thing no
-matter where o9c is invoked).
+file** first, so a module's own bare imports (`import "buffer.o9";`)
+always find its neighbours. If that file does not exist, the compiler
+falls back to the entry source directory and then the invocation cwd.
+This fallback is what lets a root program write
+`import "stdlib/process.o9";` while `process.o9` itself keeps bare
+`import "buffer.o9";`. There is no environment variable, installed
+package list, or `__init__`-style directory scanning.
 
-AND it may only reach that directory or its SUBDIRECTORIES. Never
-upward, never sideways, never absolute:
+The path may only reach the importing directory or its subdirectories.
+Never upward, never sideways, never absolute:
 
 - `import "db.o9";`               same folder            OK
 - `import "lib/db.o9";`           a subfolder            OK
 - `import "../other/db.o9";`      escapes subtree        ERROR
 - `import "/usr/lib/foo.o9";`     absolute/system path   ERROR
 
-Enforcement (compile time): resolve `<importing-dir>/<import-path>`,
-canonicalize (fold `.`/`..`), and verify the result is still a
-descendant of the importing file's directory. If a `..` climbed above
-the base, reject: "import path escapes the importing file's directory;
-imports must stay within the project subtree."
+Enforcement (compile time): reject `..` that climbs above the
+importing directory, canonicalize the path (fold `.`/`..`), then try the
+importing directory, its parent directories, the entry source directory,
+and the invocation cwd. If none contains the file, report
+`cannot open import`. File identity is checked as well as path, so a
+module reached through a symlink and through its real path is spliced only
+once.
 
 Why: a project is a self-contained subtree. All of a project's
 dependencies live inside the project - move the folder, it still builds,

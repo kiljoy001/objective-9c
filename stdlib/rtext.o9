@@ -1,4 +1,4 @@
-// Rich text galley for libdraw.
+// Rich text galley for libdraw. The edge packer lives in draw.o9.
 // Layout and interaction are o9; these helpers only measure/draw Plan 9 data.
 import "draw.o9";
 import "string.o9";
@@ -11,13 +11,12 @@ function DrawRichOpenFontRaw(int64 canvas, string path) int64 {
         Font *f;
 
         out = 0;
-        name = o9_string_cstr(path);
-        if(canvas > 0 && display != nil && name != nil && *name != 0){
+        name = o9_string_data(path);
+        if(canvas > 0 && display != nil && name[0] != '\0'){
             f = openfont(display, name);
             if(f != nil)
                 out = (vlong)(uintptr)f;
         }
-        free(name);
     }
     return out;
 }
@@ -62,10 +61,9 @@ function DrawRichTextWidthRaw(int64 canvas, int64 handle, string value) int64 {
         out = o9_string_len(value) * 8;
         if(canvas > 0 && display != nil){
             f = handle != 0 ? (Font*)(uintptr)handle : font;
-            s = o9_string_cstr(value);
-            if(f != nil && s != nil)
+            s = o9_string_data(value);
+            if(f != nil)
                 out = stringwidth(f, s);
-            free(s);
         }
     }
     return out;
@@ -84,8 +82,8 @@ function DrawRichTextRaw(int64 canvas, int64 handle, string value,
         out = 0;
         if(canvas > 0 && display != nil && screen != nil){
             f = handle != 0 ? (Font*)(uintptr)handle : font;
-            s = o9_string_cstr(value);
-            if(f != nil && s != nil){
+            s = o9_string_data(value);
+            if(f != nil){
                 col = (ulong)color;
                 if((col & 0xff000000UL) == 0)
                     col = ((col & 0xffffffUL) << 8) | 0xffUL;
@@ -97,7 +95,6 @@ function DrawRichTextRaw(int64 canvas, int64 handle, string value,
                     out = 1;
                 }
             }
-            free(s);
         }
     }
     return out;
@@ -208,8 +205,8 @@ function DrawRichImageRaw(int64 canvas, string path, int64 x, int64 y,
         int fd;
 
         out = 0;
-        name = o9_string_cstr(path);
-        if(canvas > 0 && display != nil && screen != nil && name != nil &&
+        name = o9_string_data(path);
+        if(canvas > 0 && display != nil && screen != nil && name[0] != '\0' &&
            width > 0 && height > 0){
             fd = open(name, OREAD);
             if(fd >= 0){
@@ -229,7 +226,6 @@ function DrawRichImageRaw(int64 canvas, string path, int64 x, int64 y,
                 }
             }
         }
-        free(name);
     }
     return out;
 }
