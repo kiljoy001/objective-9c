@@ -219,6 +219,7 @@ for ui_src in "$ROOT"/stdlib/e2e_draw*.o9 \
               "$ROOT"/stdlib/e2e_io_lines.o9 \
               "$ROOT"/stdlib/e2e_log.o9 \
               "$ROOT"/stdlib/e2e_net_lines.o9 \
+              "$ROOT"/stdlib/e2e_path.o9 \
               "$ROOT"/stdlib/e2e_process_kit.o9 \
               "$ROOT"/stdlib/e2e_result.o9 \
               "$ROOT"/stdlib/e2e_rune.o9 \

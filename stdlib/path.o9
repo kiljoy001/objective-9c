@@ -2,15 +2,14 @@ function PathCleanRaw(string path) string {
     string out;
 
     c {
+        O9DataFrame f;
         char *p;
 
-        out = o9_string_new("", 0);
-        p = o9_string_cstr(path);
-        if(p != nil){
-            cleanname(p);
-            out = o9_string_from_c(p);
-            free(p);
-        }
+        o9_frame_enter(&f, nil);
+        p = o9_frame_scratch_str(&f, path);
+        cleanname(p);
+        out = o9_string_from_c(p);
+        o9_frame_exit(&f);
     }
     return out;
 }
@@ -19,20 +18,19 @@ function PathBaseRaw(string path) string {
     string out;
 
     c {
+        O9DataFrame f;
         char *p, *b;
 
-        out = o9_string_new("", 0);
-        p = o9_string_cstr(path);
-        if(p != nil){
-            cleanname(p);
-            b = strrchr(p, '/');
-            if(b == nil)
-                b = p;
-            else if(b[1] != '\0')
-                b++;
-            out = o9_string_from_c(b);
-            free(p);
-        }
+        o9_frame_enter(&f, nil);
+        p = o9_frame_scratch_str(&f, path);
+        cleanname(p);
+        b = strrchr(p, '/');
+        if(b == nil)
+            b = p;
+        else if(b[1] != '\0')
+            b++;
+        out = o9_string_from_c(b);
+        o9_frame_exit(&f);
     }
     return out;
 }
@@ -41,21 +39,20 @@ function PathDirRaw(string path) string {
     string out;
 
     c {
+        O9DataFrame f;
         char *p, *b;
 
-        out = o9_string_new(".", 1);
-        p = o9_string_cstr(path);
-        if(p != nil){
-            cleanname(p);
-            b = strrchr(p, '/');
-            if(b == nil)
-                out = o9_string_new(".", 1);
-            else if(b == p)
-                out = o9_string_new("/", 1);
-            else
-                out = o9_string_new(p, b - p);
-            free(p);
-        }
+        o9_frame_enter(&f, nil);
+        p = o9_frame_scratch_str(&f, path);
+        cleanname(p);
+        b = strrchr(p, '/');
+        if(b == nil)
+            out = o9_string_from_c(".");
+        else if(b == p)
+            out = o9_string_from_c("/");
+        else
+            out = o9_string_new(p, b - p);
+        o9_frame_exit(&f);
     }
     return out;
 }
@@ -64,22 +61,23 @@ function PathExtRaw(string path) string {
     string out;
 
     c {
+        O9DataFrame f;
         char *p, *b, *dot;
 
-        out = o9_string_new("", 0);
-        p = o9_string_cstr(path);
-        if(p != nil){
-            cleanname(p);
-            b = strrchr(p, '/');
-            if(b == nil)
-                b = p;
-            else
-                b++;
-            dot = strrchr(b, '.');
-            if(dot != nil && dot != b)
-                out = o9_string_from_c(dot);
-            free(p);
-        }
+        o9_frame_enter(&f, nil);
+        p = o9_frame_scratch_str(&f, path);
+        cleanname(p);
+        b = strrchr(p, '/');
+        if(b == nil)
+            b = p;
+        else
+            b++;
+        dot = strrchr(b, '.');
+        if(dot != nil && dot != b)
+            out = o9_string_from_c(dot);
+        else
+            out = o9_string_from_c("");
+        o9_frame_exit(&f);
     }
     return out;
 }
@@ -88,32 +86,32 @@ function PathJoinRaw(string left, string right) string {
     string out;
 
     c {
+        O9DataFrame f;
         char *l, *r, *buf;
         vlong n;
 
-        out = o9_string_new("", 0);
-        l = o9_string_cstr(left);
-        r = o9_string_cstr(right);
-        if(l != nil && r != nil){
-            if(r[0] == '/'){
-                cleanname(r);
-                out = o9_string_from_c(r);
+        o9_frame_enter(&f, nil);
+        l = o9_string_data(left);
+        r = o9_frame_scratch_str(&f, right);
+
+        if(r[0] == '/'){
+            cleanname(r);
+            out = o9_string_from_c(r);
+        } else {
+            n = (left != nil ? left->len : 0) + (right != nil ? right->len : 0) + 2;
+            buf = o9_frame_alloc(&f, n, 1);
+            if(buf != nil){
+                if(l == nil || l[0] == '\0')
+                    snprint(buf, n, "%s", r);
+                else
+                    snprint(buf, n, "%s/%s", l, r);
+                cleanname(buf);
+                out = o9_string_from_c(buf);
             } else {
-                n = strlen(l) + strlen(r) + 2;
-                buf = malloc(n);
-                if(buf != nil){
-                    if(l[0] == '\0')
-                        snprint(buf, n, "%s", r);
-                    else
-                        snprint(buf, n, "%s/%s", l, r);
-                    cleanname(buf);
-                    out = o9_string_from_c(buf);
-                    free(buf);
-                }
+                out = o9_string_from_c("");
             }
         }
-        free(l);
-        free(r);
+        o9_frame_exit(&f);
     }
     return out;
 }

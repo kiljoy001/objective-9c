@@ -590,6 +590,7 @@ test_dispatch_ownership(void)
 	chanfree(other);
 }
 
+#ifdef PLAN9PORT
 int
 threadpid(int tid)
 {
@@ -597,6 +598,7 @@ threadpid(int tid)
 		return -1;
 	return 1;
 }
+#endif
 
 typedef struct TeardownActor TeardownActor;
 struct TeardownActor {
