@@ -536,6 +536,42 @@ yylex(void)
                 }
             }
 
+            if(strcmp(buf, "asm") == 0){
+                char *raw, *tag = nil;
+                LexMark mark;
+                int ch;
+
+                lex_save(&mark);
+                do
+                    ch = lex_getc();
+                while(ch != Beof && isspace(ch));
+
+                if(ch == '"'){
+                    char tbuf[64];
+                    int ti = 0;
+                    while((ch = lex_getc()) != Beof && ch != '"' && ch != '\n'){
+                        if(ti < sizeof(tbuf)-1)
+                            tbuf[ti++] = ch;
+                    }
+                    tbuf[ti] = '\0';
+                    tag = e_strdup(tbuf);
+                } else if(ch != '{'){
+                    lex_restore(&mark);
+                    goto not_asm;
+                } else {
+                    lex_ungetc(ch);
+                }
+
+                if(try_raw_c_block(&raw)){
+                    yylval.node = mk(NRawAsm, raw, nil, nil, nil);
+                    yylval.node->typename = tag;
+                    yylval.node->rawline = source_at(raw_body_line).line;
+                    return TRAWASM;
+                }
+                lex_restore(&mark);
+            }
+not_asm:
+
             yylval.node = mk(NIdent, buf, nil, nil, nil);
             if(strchr(buf, '.') != nil){
                 if(resolve_enum_sym(buf) != nil)

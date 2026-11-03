@@ -600,6 +600,59 @@ normal properties and methods.
 optional project-root `deps.tab`. Project dependencies must stay under the
 project folder.
 
+### Assembly Sandwich (`asm`)
+
+Objective-9 provides an inline assembly sandwich (`asm { ... }`) inside `function` bodies, turning o9 into a 3-in-1 language (Objective-9 high-level CSP actors + Plan 9 C + native machine assembly). This enables raw machine execution for CPU control registers (`CR3`, `MSR`), bootloaders, kernel primitives, SIMD vectors, fast crypto, and direct Go assembly ingestion (`Go → Go Asm → Native`).
+
+Three dialects are supported:
+1. **Standard / GNU Asm (`asm { ... }`)**:
+   Standard GCC / GNU inline assembly instructions with optional extended operands (`: "=r"(out) : "r"(in) : "clobber"`).
+   ```o9
+   function CpuPause() {
+       asm {
+           pause
+           nop
+       }
+   }
+   ```
+2. **Intel Syntax Asm (`asm "intel" { ... }`)**:
+   Uses Intel instruction formatting (`mnemonic dest, src`). The compiler automatically emits `.intel_syntax noprefix` and restores `.att_syntax prefix` before operand lists:
+   ```o9
+   function ReadRdtsc() int64 {
+       int64 val;
+       asm "intel" {
+           rdtsc
+           shl rdx, 32
+           or rax, rdx
+           : "=a"(val)
+           :
+           : "rdx"
+       }
+       return val;
+   }
+   ```
+3. **Go / Plan 9 Asm (`asm "go" { ... }`)**:
+   Supports Go assembly syntax (`cmd/asm` / Plan 9 `6a`), using uppercase mnemonics (`MOVQ`, `ADDQ`, `XORQ`, `RET`), Plan 9 / Go register names (`AX`, `BX`, `CX`, `DX`, `SP`, `BP`, `SI`, `DI`, `R8`–`R15`, `X0`–`X7`), and source-first operand ordering:
+   ```o9
+   function AddFast(int64 x, int64 y) int64 {
+       int64 out;
+       asm "go" {
+           MOVQ $100, AX
+           ADDQ $23, AX
+           MOVQ AX, %0
+           : "=r"(out)
+           :
+           : "rax"
+       }
+       return out;
+   }
+   ```
+
+Rules:
+- Like `c { ... }`, `asm { ... }` blocks are contained inside `function` bodies.
+- Local variables bind via standard GCC operand constraint syntax (`: "=r"(out) : "r"(in)`).
+- Raw `__asm__` statements inside `asm { ... }` pass through verbatim.
+
 ## Built-in Functions
 
 o9 provides core built-in functions for text, files, process control, and

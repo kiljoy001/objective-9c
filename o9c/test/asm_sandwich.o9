@@ -1,0 +1,42 @@
+function RunAsmSandwich() int64 {
+    int64 a;
+    int64 b;
+    int64 c;
+    a = 0;
+    b = 0;
+    c = 0;
+
+    asm {
+        pause
+        nop
+    }
+
+    asm "intel" {
+        mov rax, 100
+        add rax, 23
+        : "=a"(a)
+    }
+
+    asm "go" {
+        MOVQ $500, AX
+        ADDQ $55, AX
+        MOVQ AX, %0
+        : "=r"(b)
+        :
+        : "rax"
+    }
+
+    asm {
+        "imulq %2, %0"
+        : "=r"(c)
+        : "0"(a), "r"(b)
+    }
+
+    return c;
+}
+
+main {
+    Task<int64> t = spawn RunAsmSandwich();
+    int64 res = t.await();
+    print("asm sandwich ok: ", res, "\n");
+}

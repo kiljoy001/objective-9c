@@ -27,6 +27,7 @@ POSITIVE = [
     "o9c/test/struct_actor_return.o9",
     "o9c/test/codegen_generic_self_return.o9",
     "o9c/test/codegen_class_order.o9",
+    "o9c/test/asm_sandwich.o9",
 ]
 
 # Fixtures whose generated C must also compile.  These catch ordering and
@@ -34,6 +35,7 @@ POSITIVE = [
 GENERATED_C = [
     "o9c/test/codegen_generic_self_return.o9",
     "o9c/test/codegen_class_order.o9",
+    "o9c/test/asm_sandwich.o9",
 ]
 
 # Mutating these small, import-free programs keeps the fuzz input focused on

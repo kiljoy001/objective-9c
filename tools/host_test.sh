@@ -296,6 +296,24 @@ if ! grep -qx "made ok 7" "$struct_dir/out"; then
 	exit 1
 fi
 
+echo "host-test: asm sandwich execution"
+asm_dir="$BUILD/asm-sandwich"
+mkdir -p "$asm_dir"
+"$BUILD/o9c" --no-facade "$ROOT/o9c/test/asm_sandwich.o9" \
+	> "$asm_dir/test.c"
+$CC -I"$ROOT" -I"$ROOT/o9c/test" -DO9_PLAN9PORT \
+	-o "$asm_dir/test.o" "$asm_dir/test.c"
+$LD -o "$asm_dir/test.bin" \
+	"$BUILD/host_ui_main.o" "$asm_dir/test.o" "$BUILD/o9_view.o" \
+	"$BUILD/libo9host.a" \
+	-L"$PLAN9_LIB" -l9 -lthread -lbio -ldraw -lmemdraw -lm
+"$asm_dir/test.bin" > "$asm_dir/out"
+if ! grep -qx "asm sandwich ok: 68265" "$asm_dir/out"; then
+	echo "host-test: asm sandwich execution failed" >&2
+	cat "$asm_dir/out" >&2
+	exit 1
+fi
+
 echo "host-test: compiler smoke"
 python3 "$ROOT/tools/o9c_check.py" --compiler "$BUILD/o9c" --timeout 5
 

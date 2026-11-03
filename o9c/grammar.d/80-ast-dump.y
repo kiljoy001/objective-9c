@@ -77,6 +77,7 @@ node_kind(int type)
         "NFunctionExpr",
         "NCast",
         "NRawC",
+        "NRawAsm",
         "NUse",
         "NAlt",
         "NAltCase",

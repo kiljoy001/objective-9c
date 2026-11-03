@@ -334,7 +334,7 @@ reject_rawc_object_handles(Node *method, int *errs)
     Node *p;
     int saved;
 
-    if(method == nil || !node_contains_type(method->left, NRawC))
+    if(method == nil || (!node_contains_type(method->left, NRawC) && !node_contains_type(method->left, NRawAsm)))
         return;
     for(p = method->right; p != nil; p = p->next){
         saved = sem_line;
@@ -3136,6 +3136,16 @@ typecheck_rawc_expr(Node *e, Node *scope_class, int *errs)
 }
 
 static void
+typecheck_rawasm_expr(Node *e, Node *scope_class, int *errs)
+{
+    (void)e;
+    if(scope_class == nil || (scope_class->flags & NFFunction) == 0){
+        fprint(2, "o9c: error: line %d: asm blocks are only allowed inside function bodies\n", sem_line);
+        (*errs)++;
+    }
+}
+
+static void
 typecheck_use_expr(Node *e, Node *scope_class, int *errs)
 {
     if(scope_class == nil || (scope_class->flags & NFFunction) == 0){
@@ -3374,6 +3384,7 @@ init_typecheck_expr_handlers(void)
     typecheck_expr_handlers[NSpawn] = typecheck_spawn_expr;
     typecheck_expr_handlers[NDelete] = typecheck_delete_expr;
     typecheck_expr_handlers[NRawC] = typecheck_rawc_expr;
+    typecheck_expr_handlers[NRawAsm] = typecheck_rawasm_expr;
     typecheck_expr_handlers[NUse] = typecheck_use_expr;
     typecheck_expr_handlers[NReturn] = typecheck_return_expr;
     typecheck_expr_handlers[NAdd] = typecheck_numeric_binary;

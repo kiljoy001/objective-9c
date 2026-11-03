@@ -693,6 +693,7 @@ stmtbody:
     | alt_stmt { $$ = $1; }
     | TUSE '{' dep_list '}' { $$ = mk(NUse, nil, nil, $3, nil); }
     | TRAWC { $$ = $1; }
+    | TRAWASM { $$ = $1; }
     ;
 
 alt_stmt:

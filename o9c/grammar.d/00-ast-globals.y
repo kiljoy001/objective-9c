@@ -86,6 +86,7 @@ enum {
     NFunctionExpr,
     NCast,
     NRawC,
+    NRawAsm,
     NUse,
     NAlt,
     NAltCase,

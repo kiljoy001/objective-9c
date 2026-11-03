@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.1 (Unreleased) — Assembly Sandwich & Go Asm Integration
+
+This release introduces the **Inline Assembly Sandwich** (`asm { ... }`), expanding Objective-9 into a **3-in-1 language** (CSP Actors + Plan 9 C + Native Machine Assembly). Enables raw execution for bootloaders, hardware registers (`CR3`, `MSR`), SIMD intrinsics, and direct Go assembly ingestion (`Go → Go Asm → Native`).
+
+### Inline Assembly Sandwich (`asm`)
+
+- **Dialects**:
+  - `asm { ... }`: Standard GCC/GNU inline assembly instructions with optional extended operands (`: "=r"(out) : "r"(in) : "clobber"`).
+  - `asm "intel" { ... }`: Intel syntax (`mnemonic dest, src`) with automatic emission of `.intel_syntax noprefix` and restoration of `.att_syntax prefix` prior to operand sections.
+  - `asm "go" { ... }`: Native Go assembly syntax (`cmd/asm` / Plan 9 `6a`), mapping Plan 9/Go uppercase registers (`AX`, `BX`, `CX`, `DX`, `SP`, `BP`, `SI`, `DI`, `R8`–`R15`, `X0`–`X7`) and uppercase instructions (`MOVQ`, `ADDQ`, etc.) to native GNU assembler formats.
+- **Compiler Containment & Typecheck**:
+  - `NRawAsm` AST node, verified inside pure `function` bodies via `typecheck_rawasm_expr()`.
+  - Local variables bind directly through GCC constraint syntax (`: "=a"(val)`).
+- **Test Coverage**:
+  - Added end-to-end execution fixture `o9c/test/asm_sandwich.o9` exercising standard, Intel, and Go asm arithmetic combined with actor Task awaiting.
+  - Wired into `tools/o9c_check.py` and `tools/host_test.sh`.
+
 ## 0.4.0 — 2026-11-02
 
 This major release introduces the **Goose DataStack architecture**, scoped **`O9DataFrame` C scratchpads**,

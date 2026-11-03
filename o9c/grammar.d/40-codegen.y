@@ -3171,6 +3171,191 @@ gen_stmt_rawc(Node *c, Node *s)
     cprint("\n\t/* raw C end */\n");
 }
 
+struct GoRegMap {
+    char *go_name;
+    char *att_name;
+};
+
+static struct GoRegMap goregmap[] = {
+    {"AX", "%%rax"}, {"BX", "%%rbx"}, {"CX", "%%rcx"}, {"DX", "%%rdx"},
+    {"SI", "%%rsi"}, {"DI", "%%rdi"}, {"BP", "%%rbp"}, {"SP", "%%rsp"},
+    {"R8", "%%r8"},   {"R9", "%%r9"},   {"R10", "%%r10"}, {"R11", "%%r11"},
+    {"R12", "%%r12"}, {"R13", "%%r13"}, {"R14", "%%r14"}, {"R15", "%%r15"},
+    {"EAX", "%%eax"}, {"EBX", "%%ebx"}, {"ECX", "%%ecx"}, {"EDX", "%%edx"},
+    {"ESI", "%%esi"}, {"EDI", "%%edi"}, {"EBP", "%%ebp"}, {"ESP", "%%esp"},
+    {"AL", "%%al"},   {"BL", "%%bl"},   {"CL", "%%cl"},   {"DL", "%%dl"},
+    {"AH", "%%ah"},   {"BH", "%%bh"},   {"CH", "%%ch"},   {"DH", "%%dh"},
+    {"X0", "%%xmm0"}, {"X1", "%%xmm1"}, {"X2", "%%xmm2"}, {"X3", "%%xmm3"},
+    {"X4", "%%xmm4"}, {"X5", "%%xmm5"}, {"X6", "%%xmm6"}, {"X7", "%%xmm7"},
+    {"JEQ", "je"},   {"JNE", "jne"},  {"JGT", "jg"},   {"JGE", "jge"},
+    {"JLT", "jl"},   {"JLE", "jle"},  {"JA", "ja"},    {"JAE", "jae"},
+    {"JB", "jb"},    {"JBE", "jbe"},
+    {nil, nil}
+};
+
+static void
+translate_go_asm(char *in, int inlen, char *out, int max)
+{
+    char *p = in;
+    char *in_end = in + inlen;
+    char *d = out;
+    char *end = out + max - 1;
+
+    while(p < in_end && *p != '\0' && d < end){
+        if(isalpha((uchar)*p) || *p == '_'){
+            char *wstart = p;
+            while(p < in_end && (isalnum((uchar)*p) || *p == '_'))
+                p++;
+            int wlen = p - wstart;
+            char word[64];
+            if(wlen < (int)sizeof(word)){
+                memcpy(word, wstart, wlen);
+                word[wlen] = '\0';
+                int matched = 0;
+                for(int i = 0; goregmap[i].go_name != nil; i++){
+                    if(strcmp(word, goregmap[i].go_name) == 0){
+                        int rlen = strlen(goregmap[i].att_name);
+                        if(d + rlen < end){
+                            memcpy(d, goregmap[i].att_name, rlen);
+                            d += rlen;
+                        }
+                        matched = 1;
+                        break;
+                    }
+                }
+                if(!matched){
+                    int all_upper = 1;
+                    for(int k = 0; k < wlen; k++){
+                        if(!isupper((uchar)word[k])){
+                            all_upper = 0;
+                            break;
+                        }
+                    }
+                    for(int k = 0; k < wlen && d < end; k++){
+                        *d++ = all_upper ? tolower((uchar)word[k]) : word[k];
+                    }
+                }
+            }
+        }else{
+            *d++ = *p++;
+        }
+    }
+    *d = '\0';
+}
+
+static void
+gen_stmt_rawasm(Node *c, Node *s)
+{
+    char *p, *line, *end, *operands = nil, *scan;
+    int is_intel = 0;
+    int is_go = 0;
+    int in_quote = 0;
+    int paren_depth = 0;
+    (void)c;
+
+    if(s->typename != nil){
+        if(strcmp(s->typename, "intel") == 0)
+            is_intel = 1;
+        else if(strcmp(s->typename, "go") == 0)
+            is_go = 1;
+    }
+
+    cprint("\t/* asm sandwich begin */\n");
+    {
+        SourceLoc loc;
+
+        loc.file = s->sourcefile;
+        loc.line = s->rawline;
+        csetsource(loc, 1);
+    }
+
+    p = s->name;
+    if(p == nil || *p == '\0'){
+        cprint("\t/* empty asm */\n");
+        cprint("\t/* asm sandwich end */\n");
+        return;
+    }
+
+    /* If the code already contains raw __asm__, emit verbatim */
+    if(strstr(p, "__asm__") != nil){
+        cprint("%s\n", p);
+        cprint("\t/* asm sandwich end */\n");
+        return;
+    }
+
+    /* Look for start of GCC operand list: first unquoted ':' followed by ':' or '"' */
+    for(scan = p; *scan != '\0'; scan++){
+        if(*scan == '"' && (scan == p || scan[-1] != '\\')){
+            in_quote = !in_quote;
+        }else if(!in_quote){
+            if(*scan == '(') paren_depth++;
+            else if(*scan == ')') paren_depth--;
+            else if(*scan == ':' && paren_depth == 0){
+                char *nxt = scan + 1;
+                while(*nxt == ' ' || *nxt == '\t' || *nxt == '\r' || *nxt == '\n')
+                    nxt++;
+                if(*nxt == ':' || *nxt == '"'){
+                    operands = scan;
+                    break;
+                }
+            }
+        }
+    }
+
+    cprint("\t__asm__ volatile (\n");
+    if(is_intel)
+        cprint("\t\t\".intel_syntax noprefix\\n\\t\"\n");
+
+    /* Emit template instructions up to operands */
+    scan = p;
+    while(scan != nil && *scan != '\0' && (operands == nil || scan < operands)){
+        while(*scan == ' ' || *scan == '\t' || *scan == '\r' || *scan == '\n')
+            scan++;
+        if(*scan == '\0' || (operands != nil && scan >= operands))
+            break;
+        line = scan;
+        while(*scan != '\0' && *scan != '\n' && (operands == nil || scan < operands))
+            scan++;
+        end = scan;
+        while(end > line && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r'))
+            end--;
+        if(end > line){
+            char lbuf[1024];
+            char *cur_line = line;
+            int cur_len = end - line;
+
+            if(is_go){
+                translate_go_asm(line, cur_len, lbuf, sizeof(lbuf));
+                cur_line = lbuf;
+                cur_len = strlen(lbuf);
+            }
+
+            if(*cur_line == '"' && cur_line[cur_len-1] == '"' && cur_len >= 2){
+                cprint("\t\t\"%.*s\\n\\t\"\n", (int)((cur_len - 1) - 1), cur_line + 1);
+            }else{
+                cprint("\t\t\"");
+                for(int i = 0; i < cur_len; i++){
+                    if(cur_line[i] == '"' || cur_line[i] == '\\')
+                        cprint("\\%c", cur_line[i]);
+                    else
+                        cprint("%c", cur_line[i]);
+                }
+                cprint("\\n\\t\"\n");
+            }
+        }
+    }
+
+    if(is_intel)
+        cprint("\t\t\".att_syntax prefix\\n\\t\"\n");
+
+    /* Emit operands if present */
+    if(operands != nil)
+        cprint("%s\n", operands);
+
+    cprint("\t);\n");
+    cprint("\t/* asm sandwich end */\n");
+}
+
 static void
 gen_stmt_noop(Node *c, Node *s)
 {
@@ -3274,6 +3459,7 @@ gen_stmt_alt(Node *c, Node *s)
 
 static GenStmtCase gen_stmt_cases[] = {
     { NRawC, gen_stmt_rawc },
+    { NRawAsm, gen_stmt_rawasm },
     { NUse, gen_stmt_noop },
     { NLocalVar, gen_stmt_localvar },
     { NMsgSend, gen_stmt_msgsend },
