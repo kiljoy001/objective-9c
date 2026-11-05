@@ -2,6 +2,10 @@
 
 objective-9c is a small 9front language that transpiles o9 source to Plan 9 C.
 
+**Try it live:** the [Objective-9c playground](https://halatha.rentonsoftworks.com)
+runs in your browser on [Halatha](https://github.com/kiljoy001/halatha), with
+nothing to install.
+
 o9 is built for Plan 9-style programs: objects are CSP actors, public methods
 can be served through a 9P facade, structured data moves as `.tab` text,
 programs can shape their own namespaces, and raw Plan 9 C interop is isolated
