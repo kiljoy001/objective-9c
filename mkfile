@@ -11,6 +11,7 @@ default:V: o9c libo9.a
 
 STDLIB_MODULES=\
 	stdlib/9p.o9\
+	stdlib/appuser.o9\
 	stdlib/buffer.o9\
 	stdlib/bytes.o9\
 	stdlib/cli.o9\
