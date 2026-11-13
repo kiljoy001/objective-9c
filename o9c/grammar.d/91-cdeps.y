@@ -465,6 +465,11 @@ emit_cdeps(void)
     for(d = used_cdeps; d != nil; d = d->usednext){
         if(d->header == nil)
             continue;
+        /* The generated translation unit already includes these headers.
+         * Plan 9 headers have no include guards, so repeating one fails. */
+        if(strcmp(d->header, "<auth.h>") == 0 ||
+           strcmp(d->header, "<9p.h>") == 0)
+            continue;
         if(d->header[0] == '<' || d->header[0] == '"')
             cprint("#include %s\n", d->header);
         else

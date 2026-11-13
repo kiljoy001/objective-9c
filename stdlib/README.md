@@ -13,6 +13,7 @@ Import modules by filename:
 
 ```o9
 import "9p.o9";
+import "appuser.o9";
 import "string.o9";
 import "bytes.o9";
 import "buffer.o9";

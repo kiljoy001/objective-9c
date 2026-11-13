@@ -441,7 +441,7 @@ codegen(Node *root)
     cprint("\tif(valid){ s->authattempted = 1; s->authpending = 1; }\n");
     cprint("\tqunlock(&o9app_pool_lock);\n");
     cprint("\tif(!valid){ free(st); return; }\n");
-    cprint("\tprincipal = nil; tab = nil; pathstr = nil; token = nil; fd = -1;\n");
+    cprint("\tprincipal = nil; tab = nil; pathstr = nil; token = nil;\n");
     cprint("\tif(!st->failed && st->wrote && st->ndata > 0 && st->ndata <= 4096 && memchr(st->data, 0, st->ndata) == nil){\n");
     cprint("\t\ttoken = o9_keygen();\n");
     cprint("\t\tif(token != nil && o9_string_len(token) == 64){\n");

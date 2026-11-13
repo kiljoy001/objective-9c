@@ -436,7 +436,7 @@ o9_passkey(O9String *pass, O9String *salt)
 }
 
 /* xpubkey(sec) -> 64-hex X25519 public key; sec is any keygen() seed.
- * X25519 keys are separate from EdDSA signing keys — don't reuse a signing
+ * X25519 keys are separate from Monocypher EdDSA-BLAKE2b ones — don't reuse a signing
  * seed for exchange. */
 O9String*
 o9_xpubkey(O9String *sec)
