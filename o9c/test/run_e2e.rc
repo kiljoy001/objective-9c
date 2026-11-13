@@ -73,12 +73,13 @@ fn runcase {
 	if(! $tool < $src > $cfile){
 		echo $name': transpile failed' >[1=2]
 		fail=1
-		rm -f $cfile $ofile $bin $out
+		rm -rf /n/e2e$pid
+		rm -f $cfile $ofile $bin $out /srv/e2e$pid
 		broke | rc
 	}
 	if not {
 		if(buildprog $name $cfile $ofile $bin){
-			$bin > $out >[2=1]
+			$bin e2e$pid > $out >[2=1]
 			if(! ~ $status ''){
 				echo $name': run failed:' $status >[1=2]
 				fail=1
@@ -98,7 +99,8 @@ fn runcase {
 			echo $name': build failed' >[1=2]
 			fail=1
 		}
-		rm -f $cfile $ofile $bin $out
+		rm -rf /n/e2e$pid
+		rm -f $cfile $ofile $bin $out /srv/e2e$pid
 		broke | rc
 	}
 }
@@ -117,12 +119,13 @@ fn importcase {
 	if(! $tool $src > $cfile){
 		echo $name': transpile failed' >[1=2]
 		fail=1
-		rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name
+		rm -rf /n/e2e$pid
+		rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name /srv/e2e$pid
 		broke | rc
 	}
 	if not {
 		if(buildprog $name $cfile $ofile $bin){
-			$bin > $out >[2=1]
+			$bin e2e$pid > $out >[2=1]
 			if(! cmp -s $out $expected){
 				echo $name': output mismatch' >[1=2]
 				cat $expected $out >[1=2]
@@ -135,7 +138,8 @@ fn importcase {
 			echo $name': build failed' >[1=2]
 			fail=1
 		}
-		rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name
+		rm -rf /n/e2e$pid
+		rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name /srv/e2e$pid
 		broke | rc
 	}
 }
@@ -152,12 +156,13 @@ fn stdlibcase {
 	if(! $tool $src > $cfile){
 		echo $name': transpile failed' >[1=2]
 		fail=1
-		rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name
+		rm -rf /n/e2e$pid
+		rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name /srv/e2e$pid
 		broke | rc
 	}
 	if not {
 		if(buildprog $name $cfile $ofile $bin){
-			$bin > $out >[2=1]
+			$bin e2e$pid > $out >[2=1]
 			if(! cmp -s $out $expected){
 				echo $name': output mismatch' >[1=2]
 				cat $expected $out >[1=2]
@@ -170,7 +175,8 @@ fn stdlibcase {
 			echo $name': build failed' >[1=2]
 			fail=1
 		}
-		rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name
+		rm -rf /n/e2e$pid
+		rm -f $cfile $ofile $bin $out /srv/o9.*.app /srv/$name /srv/e2e$pid
 		broke | rc
 	}
 }
