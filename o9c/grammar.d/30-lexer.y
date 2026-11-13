@@ -374,7 +374,11 @@ yylex(void)
                 if(c == '\\'){
                     if((c = lex_getc()) == Beof) break;
                     if(c == 'n') buf[i++] = '\n';
+                    else if(c == 'r') buf[i++] = '\r';
                     else if(c == 't') buf[i++] = '\t';
+                    else if(c == '\\') buf[i++] = '\\';
+                    else if(c == '"') buf[i++] = '"';
+                    else if(c == '0') buf[i++] = '\0';
                     else buf[i++] = c;
                 } else {
                     buf[i++] = c;
@@ -390,7 +394,13 @@ yylex(void)
             while((c = lex_getc()) != Beof && c != '\'' && i < 15) {
                 if(c == '\\'){
                     if((c = lex_getc()) == Beof) break;
-                    buf[i++] = c;
+                    if(c == 'n') buf[i++] = '\n';
+                    else if(c == 'r') buf[i++] = '\r';
+                    else if(c == 't') buf[i++] = '\t';
+                    else if(c == '\\') buf[i++] = '\\';
+                    else if(c == '\'') buf[i++] = '\'';
+                    else if(c == '0') buf[i++] = '\0';
+                    else buf[i++] = c;
                 } else {
                     buf[i++] = c;
                 }

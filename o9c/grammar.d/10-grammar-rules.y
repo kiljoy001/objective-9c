@@ -118,6 +118,15 @@ top_level:
     | main_decl
     | func_top_level
     | function_decl
+    | TINTERNAL function_decl {
+        Node *m;
+        /* A spawned helper still runs locally, but its run method is not
+         * published through the generated 9P method table. */
+        for(m = $2->left; m != nil; m = m->next)
+            if(m->type == NMethod && strcmp(m->name, "run") == 0)
+                m->flags |= NFInternal;
+        $$ = $2;
+    }
     ;
 
 module_head:

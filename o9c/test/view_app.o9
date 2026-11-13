@@ -1,3 +1,5 @@
+import "stdlib/string.o9";
+
 interface ViewController {
     internal method FileTree display(string id, string caller);
     internal method string readText(string id, string path);
@@ -49,6 +51,7 @@ class ViewExample {
         tree.text("identity", model.title(), false);
         tree.text("nested/caller", caller, false);
         tree.live("live", false);
+        tree.live("range", false);
         tree.live("trigger", true);
         tree.text("editable", "start", true);
         tree.dir("deep");
@@ -75,8 +78,48 @@ class ViewExample {
         return tree;
     }
 
+    private method string rangePayload() {
+        string unit = "";
+        int64 i = 0;
+        while(i < 100) {
+            unit = cat(unit, "0123456789");
+            i = i + 1;
+        }
+        string payload = "";
+        i = 0;
+        while(i < 16) {
+            payload = cat(payload, unit);
+            i = i + 1;
+        }
+        i = 0;
+        while(i < 38) {
+            payload = cat(payload, "0123456789");
+            i = i + 1;
+        }
+        return payload;
+    }
+
     internal method string readText(string id, string path) {
+        if(cmp(path, "range") == 0) {
+            return rangePayload();
+        }
         return cat("live:", path);
+    }
+
+    internal method string readTextAt(string id, string path, int64 offset, int64 count) {
+        if(cmp(path, "range") != 0) {
+            return nil;
+        }
+        string source = rangePayload();
+        if(offset < 0 || count <= 0 || offset >= len(source)) {
+            return "";
+        }
+        int64 n = count;
+        if(offset + n > len(source)) {
+            n = len(source) - offset;
+        }
+        String s = new String(source);
+        return s.slice(offset, n);
     }
 
     internal method int64 writeText(string id, string path, int64 offset, string text, bool truncate) {

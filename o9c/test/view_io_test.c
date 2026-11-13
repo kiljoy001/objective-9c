@@ -55,6 +55,22 @@ main(int argc, char **argv)
 	want(fd >= 0, "open live trigger");
 	want(write(fd, "new", 3) == 3, "write live trigger");
 	close(fd);
+
+	/* A ranged controller returns exactly the requested slice. */
+	snprint(path, sizeof path, "%s/range", root);
+	fd = open(path, OREAD);
+	want(fd >= 0, "open ranged live file");
+	{
+		char rbuf[128];
+		memset(rbuf, 0, sizeof rbuf);
+		n = pread(fd, rbuf, 100, 1000);
+		want(n == 100, "ranged read length");
+		want(memcmp(rbuf,
+			"01234567890123456789012345678901234567890123456789"
+			"01234567890123456789012345678901234567890123456789",
+			100) == 0, "ranged read content");
+	}
+	close(fd);
 	count = dirreadall(dirfd, &entries);
 	want(count >= 0 && !has(entries, count, "created"), "open directory listing is a snapshot");
 	free(entries);

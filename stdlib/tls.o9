@@ -1,0 +1,91 @@
+import "net.o9";
+
+class TlsConn {
+    private NetConn conn;
+    private string serverName;
+    private string okFile;
+
+    method TlsConn(string addr, string host) {
+        conn = new NetConn(addr);
+        serverName = host;
+        okFile = "";
+    }
+
+    method void setThumbprints(string path) {
+        okFile = path;
+    }
+
+    method bool dial() {
+        if(len(okFile) > 0) {
+            return conn.dialTlsVerified(serverName, okFile);
+        }
+        return conn.dialTls(serverName);
+    }
+
+    method bool isOpen() {
+        return conn.isOpen();
+    }
+
+    method string read(int64 max) {
+        return conn.read(max);
+    }
+
+    method int64 write(string data) {
+        return conn.write(data);
+    }
+
+    method bool close() {
+        return conn.close();
+    }
+
+    method string peerThumbprint() {
+        return conn.peerThumbprint();
+    }
+
+    method bool verifyThumbprint(string path) {
+        return conn.verifyThumbprint(path);
+    }
+
+    method bool pinThumbprint(string path, string tag) {
+        return conn.pinThumbprint(path, tag);
+    }
+
+    method NetConn underlying() {
+        return conn;
+    }
+}
+
+class TlsListener {
+    private NetListener netLn;
+    private string cert;
+
+    method TlsListener(string addr, string certPathOrPem) {
+        netLn = new NetListener(addr);
+        cert = certPathOrPem;
+    }
+
+    method bool listen() {
+        return netLn.listen();
+    }
+
+    method NetConn accept() {
+        return netLn.acceptTls(cert);
+    }
+
+    method string dir() {
+        return netLn.dir();
+    }
+
+    method bool close() {
+        return netLn.close();
+    }
+
+    method NetListener underlying() {
+        return netLn;
+    }
+}
+
+function PinThumbprint(string filePath, string sha256Hex, string tag) bool {
+    Task<int64> t = spawn NetWriteThumbprintRaw(filePath, sha256Hex, tag);
+    return t.await() == 1;
+}

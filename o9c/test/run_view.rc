@@ -27,10 +27,34 @@ if(grep -s 'method name=title' $cfile || grep -s 'method name=display' $cfile){
 	cleanup
 	exit fail
 }
+if(! grep -s 'o9_postmountsrv' $cfile){
+	echo 'view: app self-mount does not set an aname' >[1=2]
+	cleanup
+	exit fail
+}
+if(! grep -s 'mount -a' $cfile){
+	echo 'view: app namespace recipe does not set an aname' >[1=2]
+	cleanup
+	exit fail
+}
 if(! 6c -FVw -I. -o $ofile $cfile){ echo 'view: compile failed' >[1=2]; cleanup; exit fail }
 if(! 6l -o $bin $ofile libo9.a /$objtype/lib/libndb.a){ echo 'view: link failed' >[1=2]; cleanup; exit fail }
 if(! 6c -I. -o $iofile o9c/test/view_io_test.c){ echo 'view: io test compile failed' >[1=2]; cleanup; exit fail }
 if(! 6l -o $iobin $iofile){ echo 'view: io test link failed' >[1=2]; cleanup; exit fail }
+
+# The attach name selects the service on a shared listener.  A missing or
+# empty app name must abort before posting anything, not silently become
+# aname "".
+if($bin >[2]/dev/null){
+	echo 'view: missing app name did not fail' >[1=2]
+	cleanup
+	exit fail
+}
+if($bin '' >[2]/dev/null){
+	echo 'view: empty app name did not fail' >[1=2]
+	cleanup
+	exit fail
+}
 
 $bin $app > $log >[2=1] &
 worker=$apid

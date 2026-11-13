@@ -418,6 +418,10 @@ extern vlong     o9_sync_sem_release(vlong h);
 extern vlong     o9_sync_sem_free(vlong h);
 extern O9String* o9_readline(void);
 extern void   o9_serve(void);	/* block forever, yielding, so the app keeps serving */
+/* Post the app's own 9P service and self-mount it with an explicit attach
+ * name.  lib9p's threadpostmountsrv() always passes aname==""; the generated
+ * app facade uses this so its namespace recipe and its own mount agree. */
+extern void   o9_postmountsrv(void *srvp, char *name, char *mtpt, int flag, char *aname);
 
 /* Process argv snapshot. Generated threadmain calls o9_process_set_args
  * before user main so stdlib/process.o9 can expose argc/arg safely. */
@@ -545,6 +549,9 @@ extern void o9_view_setup(Tree *root);
 extern void o9_view_set_fixed_guard(int (*guard)(Fid*, File*, uvlong, uvlong*));
 extern void o9_view_set_session_mode(int enabled);
 extern int o9_view_session_start(Req *r, File *dir);
+extern int o9_view_session_start_as(Req *r, File *dir, char *principal);
+extern char* o9_view_binding(Fid *f);
+extern char* o9_view_binding_context(void *context);
 extern void o9_view_session_close(File *dir);
 extern int o9_view_authorize(Req *r);
 extern int o9_view_register_controller(void *object);

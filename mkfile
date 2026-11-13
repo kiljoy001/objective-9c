@@ -37,6 +37,7 @@ STDLIB_MODULES=\
 	stdlib/sync.o9\
 	stdlib/testing.o9\
 	stdlib/time.o9\
+	stdlib/tls.o9\
 	stdlib/view.o9\
 
 # === o9c compiler ===
